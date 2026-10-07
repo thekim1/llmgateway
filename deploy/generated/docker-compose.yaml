@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: "docker.io/library/postgres:17-alpine"
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    expose:
+      - "5432"
+    volumes:
+      - type: "volume"
+        target: "/var/lib/postgresql/data"
+        source: "ume.llmgateway.apphost-c111786e34-postgres-data"
+        read_only: false
+    networks:
+      - "aspire"
+  redis:
+    image: "docker.io/library/redis:8.6"
+    command:
+      - "-c"
+      - "redis-server --requirepass $$REDIS_PASSWORD"
+    entrypoint:
+      - "/bin/sh"
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    expose:
+      - "6379"
+    networks:
+      - "aspire"
+  migrations:
+    image: "${MIGRATIONS_IMAGE}"
+    environment:
+      OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
+      ConnectionStrings__gatewaydb: "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_PASSWORD};Database=gatewaydb"
+      GATEWAYDB_HOST: "postgres"
+      GATEWAYDB_PORT: "5432"
+      GATEWAYDB_USERNAME: "postgres"
+      GATEWAYDB_PASSWORD: "${POSTGRES_PASSWORD}"
+      GATEWAYDB_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/gatewaydb"
+      GATEWAYDB_JDBCCONNECTIONSTRING: "jdbc:postgresql://postgres:5432/gatewaydb"
+      GATEWAYDB_DATABASENAME: "gatewaydb"
+      Security__KeyPepper: "${KEY_PEPPER}"
+      Seed__Enabled: "false"
+    depends_on:
+      postgres:
+        condition: "service_started"
+    networks:
+      - "aspire"
+  gateway:
+    image: "${GATEWAY_IMAGE}"
+    environment:
+      OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      HTTP_PORTS: "${GATEWAY_PORT}"
+      ConnectionStrings__gatewaydb: "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_PASSWORD};Database=gatewaydb"
+      GATEWAYDB_HOST: "postgres"
+      GATEWAYDB_PORT: "5432"
+      GATEWAYDB_USERNAME: "postgres"
+      GATEWAYDB_PASSWORD: "${POSTGRES_PASSWORD}"
+      GATEWAYDB_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/gatewaydb"
+      GATEWAYDB_JDBCCONNECTIONSTRING: "jdbc:postgresql://postgres:5432/gatewaydb"
+      GATEWAYDB_DATABASENAME: "gatewaydb"
+      ConnectionStrings__redis: "redis:6379,password=${REDIS_PASSWORD}"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379"
+      Security__KeyPepper: "${KEY_PEPPER}"
+    ports:
+      - "${GATEWAY_PORT}"
+    depends_on:
+      postgres:
+        condition: "service_started"
+      redis:
+        condition: "service_started"
+      migrations:
+        condition: "service_completed_successfully"
+    networks:
+      - "aspire"
+  adminapi:
+    image: "${ADMINAPI_IMAGE}"
+    environment:
+      OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY: "in_memory"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      HTTP_PORTS: "${ADMINAPI_PORT}"
+      ConnectionStrings__gatewaydb: "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_PASSWORD};Database=gatewaydb"
+      GATEWAYDB_HOST: "postgres"
+      GATEWAYDB_PORT: "5432"
+      GATEWAYDB_USERNAME: "postgres"
+      GATEWAYDB_PASSWORD: "${POSTGRES_PASSWORD}"
+      GATEWAYDB_URI: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/gatewaydb"
+      GATEWAYDB_JDBCCONNECTIONSTRING: "jdbc:postgresql://postgres:5432/gatewaydb"
+      GATEWAYDB_DATABASENAME: "gatewaydb"
+      ConnectionStrings__redis: "redis:6379,password=${REDIS_PASSWORD}"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379"
+      Security__KeyPepper: "${KEY_PEPPER}"
+      Oidc__ClientId: "ume-admin"
+      Gateway__BaseUrl: "https://gateway:${GATEWAY_PORT}"
+      Gateway__OperationsUrl: "https://gateway:${GATEWAY_PORT}"
+    ports:
+      - "${ADMINAPI_PORT}"
+    depends_on:
+      postgres:
+        condition: "service_started"
+      redis:
+        condition: "service_started"
+      migrations:
+        condition: "service_completed_successfully"
+    networks:
+      - "aspire"
+networks:
+  aspire:
+    driver: "bridge"
+volumes:
+  ume.llmgateway.apphost-c111786e34-postgres-data:
+    driver: "local"

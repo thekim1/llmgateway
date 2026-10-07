@@ -1,0 +1,100 @@
+{
+  "realm": "ume",
+  "enabled": true,
+  "displayName": "Umeå kommun LLM Gateway (utveckling)",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "gateway-admin" },
+      { "name": "department-admin" },
+      { "name": "viewer" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ume-admin",
+      "name": "LLM Gateway BFF",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${UME_OIDC_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://localhost:5173/signin-oidc",
+        "https://localhost:7212/signin-oidc"
+      ],
+      "webOrigins": [ "https://localhost:5173", "https://localhost:7212" ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://localhost:5173/##https://localhost:5173/signout-callback-oidc##https://localhost:7212/##https://localhost:7212/signout-callback-oidc"
+      },
+      "protocolMappers": [
+        {
+          "name": "gateway-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "department-codes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "departmentCodes",
+            "claim.name": "departmentCodes",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "gateway-admin",
+      "firstName": "Gateway",
+      "lastName": "Administrator",
+      "email": "gateway-admin@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [ "gateway-admin" ],
+      "attributes": { "departmentCodes": [ "1000", "3000", "5000" ] },
+      "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    },
+    {
+      "username": "department-admin",
+      "firstName": "Department",
+      "lastName": "Administrator",
+      "email": "department-admin@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [ "department-admin" ],
+      "attributes": { "departmentCodes": [ "1000" ] },
+      "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    },
+    {
+      "username": "viewer",
+      "firstName": "Read-only",
+      "lastName": "Viewer",
+      "email": "viewer@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [ "viewer" ],
+      "attributes": { "departmentCodes": [ "1000" ] },
+      "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    }
+  ]
+}

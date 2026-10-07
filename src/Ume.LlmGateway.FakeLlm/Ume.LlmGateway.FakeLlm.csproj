@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <ContainerRepository>ume-llm-gateway/fake-llm</ContainerRepository>
+    <ContainerFamily>noble-chiseled</ContainerFamily>
+    <NoWarn>$(NoWarn);CA1861</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Ume.LlmGateway.ServiceDefaults\Ume.LlmGateway.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>
+
+

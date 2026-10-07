@@ -1,0 +1,6 @@
+{
+  "appHost": {
+    "path": "src/Ume.LlmGateway.AppHost/Ume.LlmGateway.AppHost.csproj",
+    "language": "csharp"
+  }
+}

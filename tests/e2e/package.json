@@ -1,0 +1,16 @@
+{
+  "name": "ume-llm-gateway-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^26.6.4",
+    "axe-core": "^4.14.0",
+    "typescript": "~6.0.3"
+  }
+}

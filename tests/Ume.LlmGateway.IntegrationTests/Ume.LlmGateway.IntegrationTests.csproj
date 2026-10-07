@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ume.LlmGateway.AdminApi\Ume.LlmGateway.AdminApi.csproj" />
+    <ProjectReference Include="..\..\src\Ume.LlmGateway.Gateway\Ume.LlmGateway.Gateway.csproj" Aliases="Gateway" />
+    <ProjectReference Include="..\..\src\Ume.LlmGateway.FakeLlm\Ume.LlmGateway.FakeLlm.csproj" Aliases="Fake" />
+    <ProjectReference Include="..\..\src\Ume.LlmGateway.MigrationService\Ume.LlmGateway.MigrationService.csproj" Aliases="Migration" />
+  </ItemGroup>
+</Project>
