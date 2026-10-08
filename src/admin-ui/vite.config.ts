@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 
 /**
  * Admin API target for the dev proxy. Aspire injects service discovery variables; explicit
@@ -21,7 +22,7 @@ const target = resolveAdminApiTarget(process.env)
 const proxyOptions = { target, changeOrigin: false, xfwd: true, secure: false }
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

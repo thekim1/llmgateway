@@ -1,11 +1,11 @@
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
-@import './tokens.css';
-@import './icons.css';
+@import 'tailwindcss';
+@config '../../tailwind.config.cjs';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Unlayered CSS beats every Tailwind utility in v4, so these must live in layers. */
+@import './tokens.css' layer(base);
+@import './icons.css' layer(components);
 
 @layer base {
   html {

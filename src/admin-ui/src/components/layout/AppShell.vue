@@ -130,17 +130,17 @@ async function signOut(): Promise<void> {
             @update:model-value="ui.setTheme($event)"
           />
         </div>
-        <div class="flex items-center gap-3 px-1">
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-caption font-semibold text-accent-ink" aria-hidden="true">
+        <div class="flex items-center gap-2.5 rounded-[12px] bg-surface p-2 shadow-1 max-lg:flex-col max-lg:px-1">
+          <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-caption font-semibold text-accent-ink" aria-hidden="true">
             {{ initials(auth.user?.name ?? auth.user?.email ?? '?') }}
           </span>
-          <span class="hidden min-w-0 flex-1 lg:block">
-            <span class="block truncate text-small font-medium text-fg" lang="sv">{{ auth.user?.name ?? auth.user?.email }}</span>
+          <span class="hidden min-w-0 flex-1 leading-4 lg:block">
+            <span class="block truncate text-[13px] font-medium text-fg" lang="sv">{{ auth.user?.name ?? auth.user?.email }}</span>
             <span class="block truncate text-caption text-fg-3">{{ auth.roles[0] }}</span>
           </span>
           <button
             type="button"
-            class="flex h-ctl-sm w-8 items-center justify-center rounded-control text-fg-2 hover:bg-hover hover:text-fg"
+            class="flex size-8 shrink-0 items-center justify-center rounded-[8px] text-fg-2 hover:bg-hover hover:text-fg"
             :aria-disabled="signingOut"
             @click="signOut"
           >
