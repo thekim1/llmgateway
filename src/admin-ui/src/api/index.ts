@@ -17,6 +17,7 @@ import type {
   CreateModelRequest,
   CreateTeamRequest,
   Department,
+  DiscoveredModel,
   ExchangeRate,
   KeyFilter,
   KeyRotationMode,
@@ -81,6 +82,7 @@ export const api = {
     drain: (providerId: string, drained: boolean) =>
       http.post<Provider>(`/api/providers/${id(providerId)}/drain`, { drained }),
     remove: (providerId: string) => http.del(`/api/providers/${id(providerId)}`),
+    discoverModels: (providerId: string) => http.post<DiscoveredModel[]>(`/api/providers/${id(providerId)}/discover-models`, {}),
   },
   models: {
     list: () => http.get<Model[]>('/api/models'),

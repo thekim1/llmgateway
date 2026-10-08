@@ -124,3 +124,10 @@ export function modelsLabel(models: readonly string[]): string {
 export function residenciesLabel(residencies: readonly DataResidency[]): string {
   return residencies.length === 0 ? 'Any residency' : residencies.map((r) => RESIDENCY[r].label).join(', ')
 }
+
+/** Known model capability tags, in display order. Providers may report others; those are shown as reported. */
+export const MODEL_FEATURES = ['tools', 'vision', 'thinking', 'image generation', 'embedding', 'audio', 'code'] as const
+
+export function featureLabel(feature: string): string {
+  return feature.charAt(0).toUpperCase() + feature.slice(1)
+}

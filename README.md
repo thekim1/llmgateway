@@ -38,8 +38,11 @@ volume named in `DevelopmentVolumes:Postgres`) and start again.
 1. Install Visual Studio 2022 17.14+ (or newer) with the .NET 10 SDK, Docker Desktop (running), Node 24+, and run `dotnet dev-certs https --trust` once.
 2. Open `UmeLlmGateway.slnx`, set `Ume.LlmGateway.AppHost` as startup project, profile **https**.
 3. Right-click the AppHost project > **Manage User Secrets** and paste the dev secrets JSON
-   (`Parameters:key-pepper`, `dev-key`, `oidc-client-secret`, `dev-user-password`, `redis-password`).
-   Aspire generates these automatically if you skip this step; pasting only makes them known.
+   (`Parameters:*` for pepper, dev-key, OIDC secret, dev user password, Redis and **Postgres**
+   passwords, plus `DevelopmentVolumes:Postgres`). Keep them stable: the Postgres volume stores the
+   password it was created with, and the key pepper hashes all virtual keys, so changing either
+   later breaks the existing data. With these set, data survives restarts and `git pull`
+   (migrations run automatically). Aspire generates the passwords itself if you skip this step.
 4. `"Seed:Enabled": false` = empty environment; `true` or omitted = demo data. It only takes effect on
    an empty database (delete the Postgres Docker volume to switch).
 5. Press F5. The Aspire dashboard opens; click the `admin-ui` endpoint. Keycloak test users are
@@ -69,6 +72,26 @@ with `Section__Key` environment variables (for example `Ollama__Enabled=true`, d
 `src/components/layout`, and pages in `src/views`. Icons are a subset of Material Symbols; after
 adding an icon name run `python src/admin-ui/scripts/subset-icons.py`.
 
+#### Discovering provider models
+
+Instead of typing models in by hand, open a provider (**Providers & models**) and choose
+**Discover models**. The Admin API calls the provider with its stored credential, so a
+successful list also proves the connection and credential work. Pick the models to add and
+the gateway creates them with what the provider reports:
+
+| Provider | Listing endpoint | Reported details |
+|---|---|---|
+| OpenAI, OpenAI-compatible, Azure AI Foundry | `GET {baseUrl}/models` | context size and USD prices where present (OpenRouter-style) |
+| Anthropic | `GET {baseUrl}/models` | context size and capabilities |
+| Ollama, Ollama Cloud | `GET /api/tags` then `POST /api/show` (a trailing `/v1` is stripped from the base URL) | context size and capabilities (tools, vision, thinking, embedding, ...) |
+| Azure OpenAI | not supported (deployments are not listable via the data plane) | add models manually |
+
+Capabilities are stored on each model (`features`), shown in the Models table, and can be
+edited in the model drawer. Most providers, including Ollama Cloud, do not publish prices, so
+add them under the model's price history. Audio, image-generation-only and moderation models
+are left out of the list. Models added before this feature have no capabilities until you set
+them or re-add them through discovery. Database migration `ModelFeatures` adds the column and
+runs with the normal migration service.
 
 The UI is `https://localhost:5173`. Local Keycloak test users/roles are provisioned by
 the realm import; get development passwords through Aspire's secret store without

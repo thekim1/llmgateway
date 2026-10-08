@@ -13,7 +13,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import { useModelsStore } from '@/stores/models'
 import { useProvidersStore } from '@/stores/providers'
 import { formatNumber, formatUsd } from '@/utils/format'
-import { KIND_LABEL, PROVIDER_TYPE_LABEL, plural } from '@/utils/labels'
+import { KIND_LABEL, PROVIDER_TYPE_LABEL, featureLabel, plural } from '@/utils/labels'
 
 type Segment = 'providers' | 'models'
 
@@ -46,6 +46,7 @@ const modelColumns: Column[] = [
   { key: 'name', label: 'Model' },
   { key: 'provider', label: 'Provider' },
   { key: 'kind', label: 'Kind' },
+  { key: 'features', label: 'Capabilities' },
   { key: 'context', label: 'Context', align: 'right' },
   { key: 'price', label: 'USD per 1M tokens (in / out)', align: 'right' },
   { key: 'status', label: 'Status' },
@@ -137,6 +138,10 @@ onMounted(load)
           </span>
         </template>
         <template #cell-kind="{ row }">{{ KIND_LABEL[row.kind] }}</template>
+        <template #cell-features="{ row }">
+          <span v-if="row.features.length" class="flex flex-wrap gap-1"><UiBadge v-for="f in row.features" :key="f" tone="neutral" :label="featureLabel(f)" /></span>
+          <span v-else class="text-fg-3">Unknown</span>
+        </template>
         <template #cell-context="{ row }">{{ row.contextWindow == null ? '—' : formatNumber(row.contextWindow) }}</template>
         <template #cell-price="{ row }">
           <span v-if="row.currentPrice">{{ formatUsd(row.currentPrice.inputPerMillionUsd) }} / {{ formatUsd(row.currentPrice.outputPerMillionUsd) }}</span>

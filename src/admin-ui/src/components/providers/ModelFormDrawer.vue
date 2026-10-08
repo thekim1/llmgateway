@@ -6,7 +6,7 @@ import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelsStore } from '@/stores/models'
 import { useUiStore } from '@/stores/ui'
 import { formatDateTime, formatUsd } from '@/utils/format'
-import { KIND_LABEL, PARAMETER_PROFILE_LABEL } from '@/utils/labels'
+import { KIND_LABEL, MODEL_FEATURES, PARAMETER_PROFILE_LABEL, featureLabel } from '@/utils/labels'
 import AsyncState from '../ui/AsyncState.vue'
 import CheckField from '../ui/CheckField.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
@@ -15,6 +15,7 @@ import FieldGroup from '../ui/FieldGroup.vue'
 import InlineError from '../ui/InlineError.vue'
 import SelectField from '../ui/SelectField.vue'
 import TextField from '../ui/TextField.vue'
+import ToggleChip from '../ui/ToggleChip.vue'
 import UiBadge from '../ui/UiBadge.vue'
 import UiButton from '../ui/UiButton.vue'
 import UiDrawer from '../ui/UiDrawer.vue'
@@ -43,6 +44,7 @@ const kind = ref<ModelKind>('Chat')
 const parameterProfile = ref<ParameterProfile>('Standard')
 const contextWindow = ref('')
 const isEnabled = ref(true)
+const features = ref<string[]>([])
 const busy = ref(false)
 const priceDraft = ref(emptyPriceDraft())
 const priceErrors = ref<PriceErrors>({})
@@ -52,6 +54,10 @@ const pricesError = ref<unknown>(null)
 const addPrice = ref(false)
 const confirmDelete = ref(false)
 
+const featureOptions = computed(() => [...new Set([...MODEL_FEATURES, ...features.value])])
+function toggleFeature(f: string, on: boolean): void {
+  features.value = on ? [...features.value, f] : features.value.filter((x) => x !== f)
+}
 const providerOptions = computed(() => props.providers.map((p) => ({ value: p.id, label: p.displayName ?? p.name })))
 const kindOptions = MODEL_KINDS.map((v) => ({ value: v, label: KIND_LABEL[v] }))
 const profileOptions = PARAMETER_PROFILES.map((v) => ({ value: v, label: PARAMETER_PROFILE_LABEL[v] }))
@@ -88,6 +94,7 @@ watch(
     parameterProfile.value = m?.parameterProfile ?? 'Standard'
     contextWindow.value = m?.contextWindow != null ? String(m.contextWindow) : ''
     isEnabled.value = m?.isEnabled ?? true
+    features.value = [...(m?.features ?? [])]
     priceDraft.value = emptyPriceDraft()
     priceErrors.value = {}
     prices.value = []
@@ -122,6 +129,7 @@ async function submit(): Promise<void> {
       parameterProfile: parameterProfile.value,
       contextWindow: contextWindow.value.trim() === '' ? null : Number(contextWindow.value),
       isEnabled: isEnabled.value,
+      features: features.value,
     }
     if (props.model) await models.update(props.model.id, body)
     else await models.create({ ...body, providerId: providerId.value, ...(withPrice ? { price: toNewPrice(priceDraft.value) } : {}) })
@@ -160,6 +168,11 @@ async function priceAdded(): Promise<void> {
       <SelectField id="model-kind" v-model="kind" label="Kind" :options="kindOptions" :error="errors.kind" />
       <SelectField id="model-profile" v-model="parameterProfile" label="Parameter profile" :options="profileOptions" :error="errors.parameterProfile" />
       <TextField id="model-context" v-model="contextWindow" label="Context window (tokens)" type="number" min="1" inputmode="numeric" hint="Optional." :error="errors.contextWindow" />
+      <FieldGroup legend="Capabilities" hint="What the model can do. Filled in automatically when you add it with Discover models.">
+        <div class="flex flex-wrap gap-2">
+          <ToggleChip v-for="f in featureOptions" :key="f" :label="featureLabel(f)" :model-value="features.includes(f)" @update:model-value="toggleFeature(f, $event)" />
+        </div>
+      </FieldGroup>
       <CheckField v-model="isEnabled" label="Enabled" description="Turn off to stop routing to this model." />
       <FieldGroup v-if="!model" legend="Price" hint="Optional. You can add it later.">
         <PriceFields v-model="priceDraft" :errors="priceErrors" id-prefix="model-price" />

@@ -13,7 +13,7 @@ Build a self-hosted LLM gateway POC in .NET 10, modelled on Bifrost:
 - Metadata-only logging.
 
 Also required:
-- A Vue 3 + Pinia admin UI meeting WCAG 2.2 AAA, with 4 themes and dark mode.
+- A Vue 3 + Pinia + Tailwind admin UI meeting WCAG 2.2 AAA, with light, dark and Lumen themes.
 - Orchestration by the Aspire 13.6 project (`src/Ume.LlmGateway.AppHost`) and Docker Compose publish.
 - Compliance with GDPR, OSL, NIS2 and the AI Act; hosted on-prem.
 - Unit, component and integration tests, plus Playwright e2e with axe AAA scans.
@@ -24,13 +24,13 @@ Also required:
 | Solution scaffold, `Directory.Build.props` / `Directory.Packages.props` (central packages, warnings as errors) | ✅ |
 | `Ume.LlmGateway.ServiceDefaults` (OTel, `/health/live`, `/health/ready`, `/version`) | ✅ |
 | `Ume.LlmGateway.Domain` + `tests/Ume.LlmGateway.Domain.Tests` (71 passing) | ✅ |
-| `Ume.LlmGateway.Infrastructure` (EF/Npgsql, migration `InitialCreate`, Redis and in-memory stores, Data Protection, provider adapters including Anthropic⇄OpenAI translation) | ✅ Postgres/provider paths covered by gateway tests; Redis awaits integration tests |
+| `Ume.LlmGateway.Infrastructure` (EF/Npgsql, migrations `InitialCreate` and `ModelFeatures`, Redis and in-memory stores, Data Protection, provider adapters including Anthropic⇄OpenAI translation) | ✅ Postgres/provider paths covered by gateway tests; Redis awaits integration tests |
 | `Ume.LlmGateway.MigrationService` (migrate + dev seed) | ✅ builds |
 | `Ume.LlmGateway.FakeLlm` (fake OpenAI/Anthropic provider for demos/tests) | ✅ builds |
 | `Ume.LlmGateway.Gateway` (full pipeline in `Pipeline/`, `Program.cs`) | ✅ component-tested; bounded body reads and stable 415 errors fixed |
 | `tests/Ume.LlmGateway.Gateway.Tests` | ✅ 57 passing, including signed live operations, writer retry/recovery and production HTTPS enforcement |
 | `Ume.LlmGateway.AdminApi` | ✅ BFF, RBAC, CRUD, reports, live ops, transactional config import and audit; 35 tests passing |
-| `src/admin-ui` | ✅ All routed pages, Swedish/English, forms, role-aware navigation, show-once flows; 193 unit/component/contrast tests and real-stack browser coverage |
+| `src/admin-ui` | ⚠️ Rebuilt 2026-10 from `Design prototype/` (Vue 3 + Pinia + Tailwind 3, English only, light/dark/Lumen, reusable `components/ui`). Typecheck, lint, build and 7 unit tests pass. Playwright specs in `tests/e2e` still target the old Swedish UI and need updating; old store/component specs were removed and need replacing |
 | AppHost wiring | ✅ HTTPS stack starts healthy; migrations finish before APIs; live fallback and PII rerouting verified |
 | Integration tests | ✅ 6 passing: real FakeLlm + Postgres + authenticated Redis, API-to-gateway accounting, budgets/rotation, invalidation, rate limits and atomic reservations |
 | Playwright | ✅ 12 real-stack browser/accessibility/demo tests passing |
@@ -427,3 +427,12 @@ data processing or certify WCAG AAA/production compliance. Read the release gate
   portal/session/operations/logout browser journey. The enabled-Ollama publish refusal
   still works. Earlier full-suite counts above are prior POC evidence, not reruns here.
 - The exact new AppHost was stopped successfully after verification. No commits created.
+
+## Frontend rebuild and model discovery � 2026-10-08 (latest)
+
+- **Frontend** rebuilt from the design prototype; see README "Admin UI". Known gaps: route form lost its up/down reorder buttons, Ops page has no provider drain/resume action, e2e specs outdated, unit/component specs to rewrite, themes/mobile need a browser check.
+- **Start scripts:** `scripts/Start-Dev.ps1` (demo data by default, `-Empty` for an admin-only environment via `Seed__Enabled=false`). The AppHost seeds only in run mode when `Seed:Enabled` is true. Not yet verified with a full AppHost build.
+- **Model discovery:** `POST /api/providers/{id}/discover-models` (`AdminApi/ModelDiscovery.cs`) lists upstream models, doubling as a connection test. Ollama uses `/api/tags` + `/api/show`; Azure OpenAI is unsupported. Dialog: `components/providers/DiscoverModelsDialog.vue`.
+- **Model capabilities:** new `ModelDeployment.Features` (`text[]`), migration `ModelFeatures`, exposed as `features` on the model API, shown in the Models table and editable in the model drawer.
+- Not yet covered by automated tests: discovery (needs a fake `HttpMessageHandler` test) and the dialog.
+- Prices are not available from Ollama, OpenAI or Anthropic APIs; add them manually.

@@ -17,7 +17,9 @@ import ToggleChip from '../ui/ToggleChip.vue'
 import UiBadge from '../ui/UiBadge.vue'
 import UiButton from '../ui/UiButton.vue'
 import UiDrawer from '../ui/UiDrawer.vue'
+import DiscoverModelsDialog from './DiscoverModelsDialog.vue'
 
+const discoverOpen = ref(false)
 const props = defineProps<{ open: boolean; provider: Provider | null }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'deleted'): void }>()
 
@@ -198,6 +200,12 @@ async function remove(): Promise<void> {
       <CheckField v-model="isEnabled" label="Enabled" description="Turn off to stop routing to this provider." />
     </form>
 
+    <section v-if="provider" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="prov-discover">
+      <h3 id="prov-discover" class="text-heading">Models</h3>
+      <p class="text-fg-2">Fetch the models this provider offers and add them in one go. This also tests the connection with the saved credential.</p>
+      <div><UiButton icon="search" @click="discoverOpen = true">Discover models</UiButton></div>
+    </section>
+
     <section v-if="provider" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="prov-traffic">
       <h3 id="prov-traffic" class="text-heading">Traffic</h3>
       <p class="text-fg-2">
@@ -221,6 +229,7 @@ async function remove(): Promise<void> {
       </template>
     </template>
 
+    <DiscoverModelsDialog v-model:open="discoverOpen" :provider="provider" />
     <ConfirmDialog v-model:open="confirmDelete" title="Delete provider?" confirm-label="Delete provider" danger :action="remove">
       <span class="font-mono">{{ provider?.name }}</span> is removed for good.
     </ConfirmDialog>

@@ -1,0 +1,263 @@
+using System.Globalization;
+using System.Net.Http.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Security;
+
+namespace Ume.LlmGateway.AdminApi;
+
+public sealed record DiscoveredPrice(decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd);
+
+public sealed record DiscoveredModel(
+    string Id,
+    string DisplayName,
+    ModelKind Kind,
+    ParameterProfile ParameterProfile,
+    int? ContextWindow,
+    string[] Features,
+    DiscoveredPrice? Price,
+    bool AlreadyAdded);
+
+/// <summary>
+/// Lists the models an upstream provider exposes, using the provider's stored credential. Doubles as a
+/// connection test. Providers rarely publish prices or capabilities, so those fields are best effort.
+/// </summary>
+public static partial class ModelDiscovery
+{
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
+
+    [GeneratedRegex(@"(^|[-/])(whisper|tts|dall-e|gpt-image|sora)|moderation|transcribe|realtime|audio", RegexOptions.IgnoreCase)]
+    private static partial Regex NonTextModel();
+
+    [GeneratedRegex(@"^(o\d|gpt-5)", RegexOptions.IgnoreCase)]
+    private static partial Regex ReasoningModel();
+
+    public static async Task<DiscoveredModel[]> DiscoverAsync(
+        ProviderAccount provider, HttpClient http, CredentialProtector protector, CancellationToken ct)
+    {
+        if (provider.Type == ProviderType.AzureOpenAI)
+        {
+            throw new AdminFaultException(400, "Azure OpenAI kan inte lista distributioner via API:et. Lägg till modellerna manuellt.");
+        }
+
+        var anthropic = provider.Type == ProviderType.Anthropic;
+        var ollama = provider.Type is ProviderType.Ollama or ProviderType.OllamaCloud;
+        // Ollama's OpenAI-compatible base URL ends in /v1; model listing lives on the native /api.
+        var root = provider.BaseUrl.TrimEnd('/');
+        if (ollama && root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            root = root[..^3];
+        }
+        var credential = protector.Unprotect(provider.EncryptedCredential);
+
+        HttpRequestMessage CreateRequest(HttpMethod method, string url)
+        {
+            var request = new HttpRequestMessage(method, new Uri(url));
+            if (!string.IsNullOrEmpty(credential))
+            {
+                switch (provider.AuthMode)
+                {
+                    case ProviderAuthMode.Bearer:
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
+                        break;
+                    case ProviderAuthMode.ApiKeyHeader:
+                        request.Headers.TryAddWithoutValidation("api-key", credential);
+                        break;
+                    case ProviderAuthMode.XApiKeyHeader:
+                        request.Headers.TryAddWithoutValidation("x-api-key", credential);
+                        break;
+                }
+            }
+            if (anthropic)
+            {
+                request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicAdapter.ApiVersion);
+            }
+            return request;
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(Timeout);
+        JsonNode? body;
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, ollama ? root + "/api/tags" : root + "/models" + (anthropic ? "?limit=1000" : string.Empty));
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var hint = (int)response.StatusCode is 401 or 403 ? "Kontrollera API-nyckeln." : "Kontrollera adressen och inloggningsmetoden.";
+                throw new AdminFaultException(502, $"Leverant�ren svarade {(int)response.StatusCode}. {hint}");
+            }
+            body = JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new AdminFaultException(504, "Leverant�ren svarade inte i tid.");
+        }
+        catch (HttpRequestException)
+        {
+            throw new AdminFaultException(502, "Kunde inte ansluta till leverant�ren. Kontrollera adressen.");
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            throw new AdminFaultException(502, "Leverant�ren returnerade ett ov�ntat svar och verkar inte ha en modellista.");
+        }
+
+        var items = body switch
+        {
+            JsonArray array => array,
+            JsonObject obj => (obj["data"] ?? obj["models"]) as JsonArray,
+            _ => null,
+        } ?? throw new AdminFaultException(502, "Leverant�ren returnerade ingen modellista.");
+
+        if (ollama)
+        {
+            await EnrichOllamaAsync(items, http, CreateRequest, root, timeout.Token);
+        }
+
+        var existing = provider.Deployments.Select(d => d.UpstreamModel).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. items.OfType<JsonObject>()
+            .Select(item => Map(item, existing))
+            .OfType<DiscoveredModel>()
+            .Where(m => !NonTextModel().IsMatch(m.Id))
+            .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>Best effort: <c>/api/show</c> reports capabilities and context length per Ollama model.</summary>
+    private static async Task EnrichOllamaAsync(
+        JsonArray items, HttpClient http, Func<HttpMethod, string, HttpRequestMessage> create, string root, CancellationToken ct)
+    {
+        using var gate = new SemaphoreSlim(8);
+        await Task.WhenAll(items.OfType<JsonObject>().Select(async item =>
+        {
+            var name = Text(item, "model") ?? Text(item, "name");
+            if (name is null)
+            {
+                return;
+            }
+            await gate.WaitAsync(ct);
+            try
+            {
+                using var request = create(HttpMethod.Post, root + "/api/show");
+                request.Content = JsonContent.Create(new { model = name });
+                using var response = await http.SendAsync(request, ct);
+                if (!response.IsSuccessStatusCode || JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) is not JsonObject show)
+                {
+                    return;
+                }
+                if (show["capabilities"] is JsonArray caps)
+                {
+                    item["ollama_capabilities"] = caps.DeepClone();
+                }
+                if (show["model_info"] is JsonObject info)
+                {
+                    foreach (var (key, value) in info)
+                    {
+                        if (key.EndsWith(".context_length", StringComparison.Ordinal) && value is JsonValue v && v.TryGetValue<long>(out var l))
+                        {
+                            item["context_length"] = l;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                // Details are optional; the model is still listed.
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+    }
+
+    private static string Normalize(string feature) => feature.Trim().ToLowerInvariant() switch
+    {
+        "image" or "image output" or "image generation" => "image generation",
+        "image input" or "images" or "vision" => "vision",
+        "tool use" or "tool calling" or "tools" => "tools",
+        "reasoning" or "thinking" => "thinking",
+        var other => other,
+    };
+
+    private static string[] OllamaCapabilities(JsonObject item) =>
+        item["ollama_capabilities"] is JsonArray a
+            ? [.. a.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var s) ? s : null).OfType<string>()]
+            : [];
+
+    private static DiscoveredModel? Map(JsonObject item, HashSet<string> existing)
+    {
+        var id = Text(item, "id") ?? Text(item, "model") ?? Text(item, "name");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var ollamaCaps = OllamaCapabilities(item);
+        var kind = id.Contains("embed", StringComparison.OrdinalIgnoreCase) || ollamaCaps.Contains("embedding") ? ModelKind.Embedding : ModelKind.Chat;
+        var context = Number(item, "context_length") ?? Number(item, "max_input_tokens") ?? Number(item, "context_window");
+        return new DiscoveredModel(
+            id,
+            Text(item, "display_name") ?? id,
+            kind,
+            ReasoningModel().IsMatch(id) ? ParameterProfile.OpenAIReasoning : ParameterProfile.Standard,
+            context is > 0 and <= int.MaxValue ? (int)context : null,
+            Features(item),
+            Price(item),
+            existing.Contains(id));
+    }
+
+    private static string? Text(JsonObject o, string key) => o[key] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+
+    private static long? Number(JsonObject o, string key) => o[key] switch
+    {
+        JsonValue v when v.TryGetValue<long>(out var l) => l,
+        JsonValue v when v.TryGetValue<string>(out var s) && long.TryParse(s, CultureInfo.InvariantCulture, out var l) => l,
+        _ => null,
+    };
+
+    /// <summary>Anthropic-style <c>capabilities</c> flags and OpenRouter-style <c>architecture.input_modalities</c>.</summary>
+    private static string[] Features(JsonObject item)
+    {
+        var features = new List<string>(OllamaCapabilities(item).Where(c => c is not "completion"));
+        if (item["capabilities"] is JsonObject caps)
+        {
+            foreach (var (name, value) in caps)
+            {
+                if (value is JsonObject flag && flag["supported"] is JsonValue s && s.TryGetValue<bool>(out var on) && on)
+                {
+                    features.Add(name.Replace('_', ' '));
+                }
+            }
+        }
+        if (item["architecture"]?["input_modalities"] is JsonArray modalities)
+        {
+            features.AddRange(modalities.OfType<JsonValue>()
+                .Select(m => m.TryGetValue<string>(out var s) ? s : null)
+                .Where(m => m is not null and not "text")
+                .Select(m => $"{m} input"));
+        }
+        return [.. features.Select(Normalize).Where(f => f is not ("completion" or "insert")).Distinct().Order()];
+    }
+
+    /// <summary>OpenRouter-style pricing is USD per token as strings; convert to USD per million tokens.</summary>
+    private static DiscoveredPrice? Price(JsonObject item)
+    {
+        if (item["pricing"] is not JsonObject pricing)
+        {
+            return null;
+        }
+        decimal? PerMillion(string key) =>
+            pricing[key] is JsonValue v && v.TryGetValue<string>(out var s) && decimal.TryParse(s, CultureInfo.InvariantCulture, out var d)
+                ? Math.Round(d * 1_000_000m, 4)
+                : null;
+        var input = PerMillion("prompt");
+        var output = PerMillion("completion");
+        return input is null || output is null
+            ? null
+            : new DiscoveredPrice(input.Value, PerMillion("input_cache_read") ?? input.Value, output.Value);
+    }
+}

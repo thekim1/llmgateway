@@ -27,6 +27,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddScoped<AdminContext>();
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddHttpClient("provider-discovery").ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) });
 var requestsPerMinute = builder.Configuration.GetValue<int?>("Admin:RequestsPerMinute") ?? 120;
 if (requestsPerMinute is < 1 or > 10000) { throw new InvalidOperationException("Admin:RequestsPerMinute must be between 1 and 10000."); }
 builder.Services.AddRateLimiter(o =>

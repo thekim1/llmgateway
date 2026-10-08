@@ -47,7 +47,8 @@ public sealed record ModelRequest(
     [property: EnumDataType(typeof(ParameterProfile))] ParameterProfile ParameterProfile,
     [property: Range(1, int.MaxValue)] int? ContextWindow = null,
     bool IsEnabled = true,
-    PriceRequest? Price = null) : AdminRequest;
+    PriceRequest? Price = null,
+    [property: MaxLength(20)] string[]? Features = null) : AdminRequest;
 public sealed record TargetRequest(Guid ModelId, [property: Range(0, 1000)] int Priority, [property: Range(1, 1000000)] int Weight) : AdminRequest;
 public sealed record RouteRequest(
     [property: Required, StringLength(200)] string Name,
@@ -89,7 +90,7 @@ public static class ConfigurationEndpoints
     public static object ModelDto(ModelDeployment m, DateTimeOffset now) => new
     {
         m.Id, providerId = m.ProviderAccountId, providerName = m.ProviderAccount?.Name, residency = m.ProviderAccount?.Residency,
-        m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled,
+        m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile,         m.ContextWindow, m.IsEnabled, m.Features,
         currentPrice = m.PriceAt(now) is { } p ? PriceDto(p) : null,
     };
     public static object RouteDto(RouteAlias r) => new
@@ -131,6 +132,11 @@ public static class ConfigurationEndpoints
             var before = ProviderDto(p); p.IsDrained = input.Drained;
             await ctx.SaveAsync(user, "drain", "Provider", id, before, ProviderDto(p), InvalidationKind.Config, ct);
             return Results.Ok(ProviderDto(p));
+        });
+        providers.MapPost("/{id:guid}/discover-models", async (Guid id, AdminContext ctx, CredentialProtector protector, IHttpClientFactory clients, CancellationToken ct) =>
+        {
+            var p = await ProviderAsync(ctx, id, ct);
+            return Results.Ok(await ModelDiscovery.DiscoverAsync(p, clients.CreateClient("provider-discovery"), protector, ct));
         });
         providers.MapDelete("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -303,6 +309,10 @@ public static class ConfigurationEndpoints
     {
         m.Name = input.Name.Trim(); m.UpstreamModel = input.UpstreamModel.Trim(); m.Kind = input.Kind; m.ParameterProfile = input.ParameterProfile;
         m.ContextWindow = input.ContextWindow; m.IsEnabled = input.IsEnabled;
+        if (input.Features is not null)
+        {
+            m.Features = [.. input.Features.Select(f => f.Trim().ToLowerInvariant()).Where(f => f.Length is > 0 and <= 40).Distinct().Take(20).Order()];
+        }
     }
     internal static ModelPrice Price(PriceRequest input, DateTimeOffset now) => new()
     {

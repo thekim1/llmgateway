@@ -271,6 +271,7 @@ export interface Model {
   parameterProfile: ParameterProfile
   contextWindow: number | null
   isEnabled: boolean
+  features: string[]
   currentPrice: Price | null
 }
 
@@ -282,6 +283,7 @@ export interface CreateModelRequest {
   parameterProfile: ParameterProfile
   contextWindow?: number | null
   isEnabled: boolean
+  features?: string[]
   price?: NewPrice
 }
 
@@ -292,6 +294,7 @@ export interface UpdateModelRequest {
   parameterProfile: ParameterProfile
   contextWindow?: number | null
   isEnabled: boolean
+  features?: string[]
 }
 
 export interface RouteTarget {
@@ -555,3 +558,14 @@ export const GATEWAY_ERROR_CODES = [
   'invalid_request',
 ] as const
 export type GatewayErrorCode = (typeof GATEWAY_ERROR_CODES)[number]
+
+export interface DiscoveredModel {
+  id: string
+  displayName: string
+  kind: ModelKind
+  parameterProfile: ParameterProfile
+  contextWindow: number | null
+  features: string[]
+  price: { inputPerMillionUsd: number; cachedInputPerMillionUsd: number; outputPerMillionUsd: number } | null
+  alreadyAdded: boolean
+}
