@@ -13,6 +13,13 @@ public static class BudgetPeriods
     public static PeriodWindow GetWindow(BudgetPeriod period, DateTimeOffset now, TimeZoneInfo? zone = null)
     {
         zone ??= Stockholm;
+        if (period == BudgetPeriod.Hourly)
+        {
+            // Stockholm's UTC offset is always a whole number of hours, so UTC hours coincide with local hours.
+            var hourStart = new DateTimeOffset(now.UtcDateTime.Year, now.UtcDateTime.Month, now.UtcDateTime.Day, now.UtcDateTime.Hour, 0, 0, TimeSpan.Zero);
+            return new PeriodWindow(hourStart, hourStart.AddHours(1));
+        }
+
         var local = TimeZoneInfo.ConvertTime(now, zone).DateTime;
         var date = local.Date;
 

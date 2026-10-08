@@ -168,7 +168,10 @@ async function signOut(): Promise<void> {
           <span class="sr-only md:hidden">Search</span>
         </button>
         <div class="ml-auto hidden items-center gap-3 md:flex">
-          <span class="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-[13px] bg-ok-soft px-2.5 text-caption font-medium text-ok"><span class="size-1.5 rounded-full bg-ok" aria-hidden="true"></span>Production</span>
+          <span
+            class="inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-[13px] px-2.5 text-caption font-medium"
+            :class="auth.isDevelopment ? 'bg-warn-soft text-warn' : 'bg-ok-soft text-ok'"
+          ><span class="size-1.5 rounded-full" :class="auth.isDevelopment ? 'bg-warn' : 'bg-ok'" aria-hidden="true"></span>{{ auth.isDevelopment ? 'Development' : 'Production' }}</span>
           <span v-if="sessionLeft" class="tabular whitespace-nowrap text-small text-fg-3">{{ sessionLeft }}</span>
         </div>
       </header>

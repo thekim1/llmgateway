@@ -56,6 +56,7 @@ export const PII_HINT: Record<PiiPolicy, string> = {
 
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const PERIOD_LABEL: Record<BudgetPeriod, string> = {
+  Hourly: 'Hourly',
   Daily: 'Daily',
   Weekly: 'Weekly',
   Monthly: 'Monthly',

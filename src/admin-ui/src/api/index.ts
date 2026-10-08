@@ -73,6 +73,9 @@ export const api = {
     rotate: (keyId: string, mode: KeyRotationMode) =>
       http.post<RotateKeyResponse>(`/api/keys/${id(keyId)}/rotate`, { mode }),
     revoke: (keyId: string) => http.post<VirtualKey>(`/api/keys/${id(keyId)}/revoke`),
+    /** gateway-admin only. Every call is written to the audit log. */
+    reveal: (keyId: string, purpose: 'Reveal' | 'Copy') =>
+      http.post<{ secret: string }>(`/api/keys/${id(keyId)}/reveal`, { purpose }),
   },
   providers: {
     list: () => http.get<Provider[]>('/api/providers'),

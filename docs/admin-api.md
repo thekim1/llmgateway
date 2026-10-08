@@ -60,7 +60,7 @@ Roles (OIDC `roles` claim):
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
-allowedResidencies: DataResidency[], piiPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
+allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
 (empty `allowedModels` / `allowedResidencies` = all allowed)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
@@ -69,6 +69,7 @@ allowedResidencies: DataResidency[], piiPolicy, requestsPerMinute, tokensPerMinu
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
 - `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
+- `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
 - Rotation retains the predecessor's key budgets and spend across the full rotation lineage, including
   the grace-period key. It does not reset the remaining budget. Concurrent conflicting mutations → 409.
@@ -142,3 +143,5 @@ allowedResidencies: DataResidency[], piiPolicy, requestsPerMinute, tokensPerMinu
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.
+
+**Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced per minute (429 `rate_limited`; token usage is counted after each response).

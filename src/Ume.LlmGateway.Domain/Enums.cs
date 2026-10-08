@@ -120,6 +120,7 @@ public enum BudgetPeriod
     Monthly = 2,
     Quarterly = 3,
     Yearly = 4,
+    Hourly = 5,
 }
 
 public enum KeyRotationMode

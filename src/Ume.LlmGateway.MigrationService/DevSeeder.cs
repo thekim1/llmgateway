@@ -258,6 +258,7 @@ public sealed partial class DevSeeder(
             Description = "Skapad automatiskt för lokal utveckling och tester.",
             Prefix = plain[..11],
             KeyHash = hash,
+            EncryptedSecret = protector.Protect(plain),
             CreatedAt = time.GetUtcNow(),
             CreatedBy = "system:seed",
             PiiPolicy = PiiPolicy.RerouteToOnPrem,

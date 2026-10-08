@@ -161,11 +161,13 @@ public sealed class GatewayFixture : IAsyncLifetime
         return route.Name;
     }
 
-    public async Task AddBudgetAsync(BudgetScope scopeType, Guid id, decimal limit)
+    public Task AddBudgetAsync(BudgetScope scopeType, Guid id, decimal limit) => AddBudgetAsync(scopeType, id, limit, BudgetPeriod.Monthly);
+
+    public async Task AddBudgetAsync(BudgetScope scopeType, Guid id, decimal limit, BudgetPeriod period)
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        db.Budgets.Add(new Budget { Scope = scopeType, ScopeId = id, LimitSek = limit, Period = BudgetPeriod.Monthly, CreatedAt = DateTimeOffset.UtcNow });
+        db.Budgets.Add(new Budget { Scope = scopeType, ScopeId = id, LimitSek = limit, Period = period, CreatedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
     }
 

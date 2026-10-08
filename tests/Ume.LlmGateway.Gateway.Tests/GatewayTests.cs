@@ -250,6 +250,88 @@ public sealed class GatewayTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task Provider_allowlist_rejects_routes_without_an_allowed_provider()
+    {
+        var key = await fixture.CreateKeyAsync(k => k.AllowedProviders = ["eu"]);
+        using var forbidden = await fixture.SendAsync(key, "onprem/ok");
+        await AssertErrorAsync(forbidden, 403, "model_not_allowed");
+        using var allowed = await fixture.SendAsync(key, "eu/ok");
+        allowed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await fixture.UsageAsync(allowed)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Provider_allowlist_skips_disallowed_providers_in_fallback_chain()
+    {
+        // The route prefers a failing "onprem" target and falls back to "eu"; the key may only use "external".
+        var alias = await fixture.CreateRouteAsync("onprem/ok", "eu/ok", "external/ok");
+        var key = await fixture.CreateKeyAsync(k => k.AllowedProviders = ["external"]);
+        using var response = await fixture.SendAsync(key, alias);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await fixture.UsageAsync(response)).ProviderName.ShouldBe("external");
+    }
+
+    [Fact]
+    public async Task Provider_allowlist_is_case_insensitive_and_empty_means_all()
+    {
+        using var upper = await fixture.SendAsync(await fixture.CreateKeyAsync(k => k.AllowedProviders = ["EU"]), "eu/ok");
+        upper.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var all = await fixture.SendAsync(await fixture.CreateKeyAsync(), "onprem/ok");
+        all.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Models_list_filters_by_provider_allowlist()
+    {
+        var key = await fixture.CreateKeyAsync(k => k.AllowedProviders = ["onprem"]);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/models");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        using var response = await fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var ids = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["data"]!.AsArray()
+            .Select(n => n!["id"]!.GetValue<string>()).ToList();
+        ids.ShouldNotBeEmpty();
+        ids.ShouldAllBe(id => id.StartsWith("onprem/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Token_rate_limit_blocks_once_the_minute_budget_is_used()
+    {
+        // Each mocked call reports 120 tokens (100 in + 20 out); the limit of 100 is crossed by the first one.
+        var key = await fixture.CreateKeyAsync(k => k.TokensPerMinute = 100);
+        using var first = await fixture.SendAsync(key);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await fixture.UsageAsync(first);
+        using var second = await fixture.SendAsync(key);
+        await AssertErrorAsync(second, 429, "rate_limited");
+        (await fixture.UsageAsync(second)).Outcome.ShouldBe(RequestOutcome.RateLimited);
+    }
+
+    [Fact]
+    public async Task Key_with_several_budget_periods_is_blocked_by_the_tightest_one()
+    {
+        var key = await fixture.CreateKeyAsync();
+        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 1000, BudgetPeriod.Monthly);
+        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 1000, BudgetPeriod.Daily);
+        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 0, BudgetPeriod.Hourly);
+        using var response = await fixture.SendAsync(key);
+        await AssertErrorAsync(response, 402, "budget_exceeded");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldContain("timme");
+    }
+
+    [Fact]
+    public async Task Key_with_generous_budgets_in_every_period_is_allowed_and_charged_to_all()
+    {
+        var key = await fixture.CreateKeyAsync();
+        foreach (var period in new[] { BudgetPeriod.Hourly, BudgetPeriod.Daily, BudgetPeriod.Weekly, BudgetPeriod.Monthly })
+        {
+            await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 1000, period);
+        }
+        using var response = await fixture.SendAsync(key);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await fixture.UsageAsync(response)).CostSek.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task Anthropic_chat_is_translated_and_messages_pass_through()
     {
         var key = await fixture.CreateKeyAsync();

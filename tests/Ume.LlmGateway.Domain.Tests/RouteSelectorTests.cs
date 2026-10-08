@@ -89,4 +89,17 @@ public class RouteSelectorTests
         RouteSelector.EffectiveResidencies([DataResidency.Eu, DataResidency.OnPrem], DataResidency.OnPrem).ShouldBe([DataResidency.OnPrem]);
         RouteSelector.EffectiveResidencies([DataResidency.Eu], DataResidency.OnPrem)!.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void Provider_allowlist_removes_other_providers_and_empty_means_all()
+    {
+        var a = Target("a", 0);
+        var b = Target("b", 1);
+        var c = Target("c", 2);
+
+        RouteSelector.Order([a, b, c], Chat with { AllowedProviders = ["b", "C"] }, new Random(1)).ShouldBe([b, c]);
+        RouteSelector.Order([a, b, c], Chat with { AllowedProviders = [] }, new Random(1)).ShouldBe([a, b, c]);
+        RouteSelector.Order([a, b, c], Chat with { AllowedProviders = null }, new Random(1)).ShouldBe([a, b, c]);
+        RouteSelector.Order([a, b, c], Chat with { AllowedProviders = ["missing"] }, new Random(1)).ShouldBeEmpty();
+    }
 }

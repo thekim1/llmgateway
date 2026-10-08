@@ -41,7 +41,7 @@ public static class AdminAuthentication
             }
             return Results.Challenge(new AuthenticationProperties { RedirectUri = destination }, [OpenIdConnectDefaults.AuthenticationScheme]);
         });
-        app.MapGet("/bff/user", async (HttpContext http, IAntiforgery antiforgery) =>
+        app.MapGet("/bff/user", async (HttpContext http, IAntiforgery antiforgery, IHostEnvironment environment) =>
         {
             var tokens = antiforgery.GetAndStoreTokens(http);
             http.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
@@ -52,6 +52,7 @@ public static class AdminAuthentication
             return Results.Ok(new
             {
                 isAuthenticated = http.User.Identity?.IsAuthenticated == true,
+                environment = environment.EnvironmentName,
                 name = http.User.Identity?.Name,
                 email = http.User.FindFirstValue("email"),
                 roles = http.User.FindAll("roles").Select(c => c.Value).ToArray(),

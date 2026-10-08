@@ -53,6 +53,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.Prefix).HasMaxLength(20);
             e.Property(x => x.KeyHash).HasMaxLength(64);
+            e.Property(x => x.EncryptedSecret).HasMaxLength(1000);
             e.Property(x => x.CreatedBy).HasMaxLength(200);
             e.HasIndex(x => x.KeyHash).IsUnique();
             e.Property(x => x.RotatedToKeyId).IsConcurrencyToken();

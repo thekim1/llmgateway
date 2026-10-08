@@ -10,6 +10,8 @@ export interface ModelOption {
   /** "route" = model alias with fallback; "model" = a single deployment. */
   source: 'route' | 'model'
   residencies: DataResidency[]
+  /** Provider account names that serve this name. Empty = unknown (non-admin catalogue), so never filtered out. */
+  providers: string[]
 }
 
 /**
@@ -33,15 +35,16 @@ export function useModelOptions() {
           name: r.name,
           source: 'route' as const,
           residencies: [...new Set(r.targets.map((t) => t.residency))],
+          providers: [...new Set(r.targets.map((t) => t.providerName))],
         })),
-        ...models.items.map((m) => ({ name: m.name, source: 'model' as const, residencies: [m.residency] })),
+        ...models.items.map((m) => ({ name: m.name, source: 'model' as const, residencies: [m.residency], providers: [m.providerName] })),
       ]
     }
     const data = catalog.catalog
     if (!data) return []
     return [
-      ...data.routes.map((r) => ({ name: r.name, source: 'route' as const, residencies: r.residencies })),
-      ...data.models.map((m) => ({ name: m.name, source: 'model' as const, residencies: [m.residency] })),
+      ...data.routes.map((r) => ({ name: r.name, source: 'route' as const, residencies: r.residencies, providers: [] as string[] })),
+      ...data.models.map((m) => ({ name: m.name, source: 'model' as const, residencies: [m.residency], providers: [] as string[] })),
     ]
   })
 

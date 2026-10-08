@@ -38,6 +38,18 @@ public sealed class AdminContext(GatewayDbContext db, IInvalidationBus bus, Time
         _ => null,
     };
 
+    /// <summary>Writes an audit entry without publishing a cache invalidation (for read-only actions such as revealing a key).</summary>
+    public async Task AuditAsync(ClaimsPrincipal user, string action, string entityType, object id, object? details, CancellationToken ct)
+    {
+        Db.AuditLog.Add(new AuditLogEntry
+        {
+            Timestamp = Now, Actor = user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown",
+            Action = action, EntityType = entityType, EntityId = id.ToString(),
+            Details = JsonSerializer.Serialize(new { before = (object?)null, after = details }),
+        });
+        await Db.SaveChangesAsync(ct);
+    }
+
     public async Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct)
     {
         Db.AuditLog.Add(new AuditLogEntry

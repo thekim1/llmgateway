@@ -33,6 +33,12 @@ everything yourself. To switch an existing local environment, stop the stack, de
 AppHost's Postgres Docker volume (`docker volume ls`, then `docker volume rm <name>`; or the
 volume named in `DevelopmentVolumes:Postgres`) and start again.
 
+### Fake LLM toggle
+
+The fake provider (`fake-llm`) starts with the AppHost by default. Set `"FakeLlm:Enabled": false`
+in the AppHost user secrets (or `FakeLlm__Enabled=false` in the environment) to skip it. The admin UI
+badge shows **Development** or **Production** from the admin API's environment.
+
 ### Running from Visual Studio
 
 1. Install Visual Studio 2022 17.14+ (or newer) with the .NET 10 SDK, Docker Desktop (running), Node 24+, and run `dotnet dev-certs https --trust` once.

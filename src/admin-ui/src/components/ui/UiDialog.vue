@@ -12,6 +12,8 @@ withDefaults(
     tone?: Tone
     /** When false, Esc and scrim clicks do nothing (e.g. an unconfirmed secret). */
     dismissible?: boolean
+    /** Wider dialog for lists and editors. */
+    wide?: boolean
   }>(),
   { tone: 'neutral', dismissible: true },
 )
@@ -23,7 +25,8 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-dialog bg-scrim" />
       <DialogContent
-        class="material-overlay fixed left-1/2 top-1/2 z-dialog flex max-h-[calc(100vh-32px)] w-dialog max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 flex-col gap-5 overflow-auto rounded-dialog p-7 text-fg max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-auto max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:rounded-t-sheet max-md:p-6"
+        class="material-overlay fixed left-1/2 top-1/2 z-dialog flex max-h-[calc(100vh-32px)] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 flex-col gap-5 overflow-auto rounded-dialog p-7 text-fg max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-auto max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:rounded-t-sheet max-md:p-6"
+        :class="wide ? 'w-[760px]' : 'w-dialog'"
         @escape-key-down="(e) => !dismissible && e.preventDefault()"
         @pointer-down-outside="(e) => !dismissible && e.preventDefault()"
         @interact-outside="(e) => !dismissible && e.preventDefault()"

@@ -3,7 +3,9 @@ import { computed, reactive, ref, watch } from 'vue'
 import { DATA_RESIDENCIES, PII_POLICIES, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelOptions } from '@/composables/useModelOptions'
+import { useAuthStore } from '@/stores/auth'
 import { useKeysStore } from '@/stores/keys'
+import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
 import { PII_HINT, PII_LABEL, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
@@ -27,6 +29,8 @@ const emit = defineEmits<{
 }>()
 
 const keys = useKeysStore()
+const auth = useAuthStore()
+const providers = useProvidersStore()
 const teams = useTeamsStore()
 const modelOptions = useModelOptions()
 
@@ -38,6 +42,7 @@ const ids = {
   allowedResidencies: 'key-residency',
   piiPolicy: 'key-pii',
   allowedModels: 'key-models',
+  allowedProviders: 'key-providers',
   requestsPerMinute: 'key-rpm',
   tokensPerMinute: 'key-tpm',
 } as const
@@ -51,6 +56,8 @@ const values = reactive({
   piiPolicy: 'RerouteToOnPrem' as PiiPolicy,
   allowAll: true,
   models: [] as string[],
+  allProviders: true,
+  providerNames: [] as string[],
   requestsPerMinute: '60',
   tokensPerMinute: '',
   expiresAt: '',
@@ -67,11 +74,36 @@ const teamOptions = computed(() => {
   return list
 })
 
-// Keep models already on the key selectable even if they are no longer in the catalogue.
+// Only gateway-admin can list providers; for everyone else the key's providers are left unchanged.
+const canPickProviders = computed(() => auth.isGatewayAdmin)
+const providerChoices = computed(() => {
+  const known = providers.items.map((p) => ({ name: p.name, label: p.displayName ?? p.name, residency: p.residency }))
+  const extra = values.providerNames.filter((n) => !known.some((k) => k.name.toLowerCase() === n.toLowerCase())).map((name) => ({ name, label: name, residency: null }))
+  return [...known, ...extra]
+})
+
+// Models offered for selection: only those served by the selected providers (all providers = no filter).
+// Names without provider information (non-admin catalogue) are always shown. Models already on the key stay
+// visible even if they are no longer in the catalogue.
+const selectedProviders = computed(() => (!canPickProviders.value || values.allProviders ? null : values.providerNames.map((n) => n.toLowerCase())))
+function servedBySelection(option: { providers: string[] }): boolean {
+  const selected = selectedProviders.value
+  return selected === null || option.providers.length === 0 || option.providers.some((p) => selected.includes(p.toLowerCase()))
+}
 const modelChoices = computed(() => {
   const known = modelOptions.options.value
-  const extra = values.models.filter((m) => !known.some((o) => o.name === m)).map((name) => ({ name, source: 'model' as const, residencies: [] as DataResidency[] }))
-  return [...known, ...extra]
+  const shown = known.filter(servedBySelection)
+  const extra = values.models.filter((m) => !known.some((o) => o.name === m)).map((name) => ({ name, source: 'model' as const, residencies: [] as DataResidency[], providers: [] as string[] }))
+  return [...shown, ...extra]
+})
+
+// Changing the provider selection drops models the selected providers can no longer serve.
+watch(selectedProviders, () => {
+  const known = modelOptions.options.value
+  values.models = values.models.filter((name) => {
+    const option = known.find((o) => o.name === name)
+    return !option || servedBySelection(option)
+  })
 })
 
 function describeModel(source: 'route' | 'model', residencies: DataResidency[]): string {
@@ -89,6 +121,8 @@ function reset(): void {
   values.piiPolicy = key?.piiPolicy ?? 'RerouteToOnPrem'
   values.allowAll = key ? key.allowedModels.length === 0 : true
   values.models = [...(key?.allowedModels ?? [])]
+  values.allProviders = key ? (key.allowedProviders ?? []).length === 0 : true
+  values.providerNames = [...(key?.allowedProviders ?? [])]
   values.requestsPerMinute = key ? (key.requestsPerMinute?.toString() ?? '') : '60'
   values.tokensPerMinute = key?.tokensPerMinute?.toString() ?? ''
   values.expiresAt = isoToDateInput(key?.expiresAt)
@@ -102,6 +136,7 @@ watch(
     reset()
     void teams.load()
     void modelOptions.load()
+    if (canPickProviders.value && !providers.loaded) void providers.load()
   },
   { immediate: true },
 )
@@ -112,6 +147,10 @@ function toggleResidency(residency: DataResidency, on: boolean): void {
 
 function toggleModel(name: string, on: boolean): void {
   values.models = on ? [...values.models, name] : values.models.filter((m) => m !== name)
+}
+
+function toggleProvider(name: string, on: boolean): void {
+  values.providerNames = on ? [...values.providerNames, name] : values.providerNames.filter((n) => n !== name)
 }
 
 function limitError(value: string, label: string): string | null {
@@ -132,6 +171,7 @@ async function submit(): Promise<void> {
     teamId: !isEdit.value && !values.teamId && 'Choose the team that owns this key.',
     name: isBlank(values.name) && 'Give the key a name so people can recognise it.',
     allowedModels: !values.allowAll && values.models.length === 0 && 'Select at least one model, or allow all models.',
+    allowedProviders: canPickProviders.value && !values.allProviders && values.providerNames.length === 0 && 'Select at least one provider, or allow all providers.',
     requestsPerMinute: limitError(values.requestsPerMinute, 'Requests per minute'),
     tokensPerMinute: limitError(values.tokensPerMinute, 'Tokens per minute'),
     expiresAt: expiryError(),
@@ -143,6 +183,7 @@ async function submit(): Promise<void> {
     expiresAt: dateInputToIso(values.expiresAt),
     allowedModels: values.allowAll ? [] : [...values.models],
     allowedResidencies: [...values.residencies],
+    ...(canPickProviders.value ? { allowedProviders: values.allProviders ? [] : [...values.providerNames] } : {}),
     piiPolicy: values.piiPolicy,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
@@ -224,13 +265,35 @@ async function submit(): Promise<void> {
             <span v-if="errors.piiPolicy" class="text-small text-danger">{{ errors.piiPolicy }}</span>
           </div>
 
+          <div v-if="canPickProviders" :id="ids.allowedProviders" class="flex flex-col gap-2" tabindex="-1">
+            <CheckField v-model="values.allProviders" label="Allow all providers" description="Includes providers added later." />
+            <template v-if="!values.allProviders">
+              <AsyncState :loading="providers.loading" :error="providers.error" :empty="false" @retry="providers.load()">
+                <fieldset class="m-0 flex min-w-0 flex-col gap-1 border-0 p-0 pl-7">
+                  <legend class="sr-only">Allowed providers</legend>
+                  <p v-if="providerChoices.length === 0" class="text-small text-fg-3">No providers are available to choose from yet.</p>
+                  <CheckField
+                    v-for="option in providerChoices"
+                    :key="option.name"
+                    :label="option.label"
+                    :description="option.residency ? `${option.name} · ${RESIDENCY[option.residency].label}` : option.name"
+                    :model-value="values.providerNames.includes(option.name)"
+                    @update:model-value="toggleProvider(option.name, $event)"
+                  />
+                </fieldset>
+              </AsyncState>
+            </template>
+            <span class="text-small text-fg-3">Choose providers first. The model list below only shows models from the selected providers.</span>
+            <span v-if="errors.allowedProviders" class="flex items-start gap-1 text-small text-danger">{{ errors.allowedProviders }}</span>
+          </div>
+
           <div :id="ids.allowedModels" class="flex flex-col gap-2" tabindex="-1">
             <CheckField v-model="values.allowAll" label="Allow all models" description="Includes models added later." />
             <template v-if="!values.allowAll">
               <AsyncState :loading="modelOptions.loading.value" :error="modelOptions.error.value" :empty="false" @retry="modelOptions.load()">
                 <fieldset class="m-0 flex min-w-0 flex-col gap-1 border-0 p-0 pl-7">
                   <legend class="sr-only">Allowed models</legend>
-                  <p v-if="modelChoices.length === 0" class="text-small text-fg-3">No models are available to choose from yet.</p>
+                  <p v-if="modelChoices.length === 0" class="text-small text-fg-3">{{ selectedProviders ? 'The selected providers have no models yet.' : 'No models are available to choose from yet.' }}</p>
                   <CheckField
                     v-for="option in modelChoices"
                     :key="option.name"
@@ -244,6 +307,7 @@ async function submit(): Promise<void> {
             </template>
             <span v-if="errors.allowedModels" class="flex items-start gap-1 text-small text-danger">{{ errors.allowedModels }}</span>
           </div>
+
         </FieldGroup>
 
         <FieldGroup legend="Limits" hint="Leave a field empty for no limit.">

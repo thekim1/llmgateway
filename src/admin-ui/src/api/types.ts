@@ -42,7 +42,7 @@ export type PiiPolicy = (typeof PII_POLICIES)[number]
 export const BUDGET_SCOPES = ['Department', 'Team', 'VirtualKey'] as const
 export type BudgetScope = (typeof BUDGET_SCOPES)[number]
 
-export const BUDGET_PERIODS = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'] as const
+export const BUDGET_PERIODS = ['Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'] as const
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number]
 
 export const KEY_ROTATION_MODES = ['RevokeImmediately', 'Grace24Hours'] as const
@@ -88,6 +88,8 @@ export interface ProblemDetails {
 // ---------- BFF ----------
 export interface BffUser {
   isAuthenticated: boolean
+  /** ASP.NET Core environment name of the admin API, for example Development or Production. */
+  environment?: string
   name: string | null
   email: string | null
   roles: string[]
@@ -157,10 +159,14 @@ export interface VirtualKey {
   allowedModels: string[]
   /** Empty = all residencies allowed. */
   allowedResidencies: DataResidency[]
+  /** Provider account names the key may use. Empty = all providers. */
+  allowedProviders: string[]
   piiPolicy: PiiPolicy
   requestsPerMinute: number | null
   tokensPerMinute: number | null
   rotatedToKeyId: string | null
+  /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
+  canReveal?: boolean
 }
 
 export interface KeyFilter {
@@ -176,6 +182,8 @@ export interface CreateKeyRequest {
   expiresAt?: IsoDateTime | null
   allowedModels: string[]
   allowedResidencies: DataResidency[]
+  /** Provider account names the key may use. Empty = all; omitted = unchanged. */
+  allowedProviders?: string[]
   piiPolicy: PiiPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
@@ -193,6 +201,7 @@ export interface UpdateKeyRequest {
   expiresAt?: IsoDateTime | null
   allowedModels: string[]
   allowedResidencies: DataResidency[]
+  allowedProviders?: string[]
   piiPolicy: PiiPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null

@@ -193,6 +193,148 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Key_limits_provider_allowlist_and_budgets_round_trip()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        using var create = await client.PostAsJsonAsync("/api/keys", new
+        {
+            teamId = org.Team, name = "Limited", allowedModels = new[] { "ume/chat-standard" }, allowedResidencies = new[] { "Eu" },
+            allowedProviders = new[] { " ollama-cloud ", "OLLAMA-CLOUD", "anthropic" }, piiPolicy = "Off", requestsPerMinute = 30, tokensPerMinute = 5000,
+        }, TestContext.Current.CancellationToken);
+        var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
+        key["allowedProviders"]!.AsArray().Select(p => p!.GetValue<string>()).ShouldBe(["ollama-cloud", "anthropic"]);
+        key["requestsPerMinute"]!.GetValue<int>().ShouldBe(30);
+        key["tokensPerMinute"]!.GetValue<int>().ShouldBe(5000);
+        var keyId = key["id"]!.GetValue<Guid>();
+
+        using var update = await client.PutAsJsonAsync($"/api/keys/{keyId}", new
+        {
+            teamId = org.Team, name = "Limited", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(),
+            allowedProviders = Array.Empty<string>(), piiPolicy = "Off",
+        }, TestContext.Current.CancellationToken);
+        var updated = await AdminFixture.ReadAsync(update);
+        updated["allowedProviders"]!.AsArray().ShouldBeEmpty();
+
+        using var invalid = await client.PostAsJsonAsync("/api/keys", new
+        {
+            teamId = org.Team, name = "Bad", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(),
+            allowedProviders = new[] { " " }, piiPolicy = "Off",
+        }, TestContext.Current.CancellationToken);
+        invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // Several budgets on one key, one per period; a second budget for the same period is refused.
+        foreach (var period in new[] { "Hourly", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly" })
+        {
+            using var budget = await client.PostAsJsonAsync("/api/budgets", new
+            {
+                scope = "VirtualKey", scopeId = keyId, limitSek = 100, period, alertThresholds = new[] { 80, 100 }, isActive = true,
+            }, TestContext.Current.CancellationToken);
+            (await AdminFixture.ReadAsync(budget, HttpStatusCode.Created))["period"]!.GetValue<string>().ShouldBe(period);
+        }
+        using var duplicate = await client.PostAsJsonAsync("/api/budgets", new
+        {
+            scope = "VirtualKey", scopeId = keyId, limitSek = 5, period = "Hourly", alertThresholds = new[] { 100 }, isActive = true,
+        }, TestContext.Current.CancellationToken);
+        duplicate.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        using var list = await client.GetAsync($"/api/budgets?scope=VirtualKey&scopeId={keyId}", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(list)).AsArray().Count.ShouldBe(6);
+    }
+
+    [Fact]
+    public async Task Budget_period_cannot_be_changed_to_one_that_already_exists()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        async Task<Guid> AddAsync(string period)
+        {
+            using var response = await client.PostAsJsonAsync("/api/budgets", new
+            {
+                scope = "Team", scopeId = org.Team, limitSek = 10, period, alertThresholds = new[] { 100 }, isActive = true,
+            }, TestContext.Current.CancellationToken);
+            return (await AdminFixture.ReadAsync(response, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+        }
+        await AddAsync("Daily");
+        var monthly = await AddAsync("Monthly");
+        using var clash = await client.PutAsJsonAsync($"/api/budgets/{monthly}", new
+        {
+            scope = "Team", scopeId = org.Team, limitSek = 20, period = "Daily", alertThresholds = new[] { 100 }, isActive = true,
+        }, TestContext.Current.CancellationToken);
+        clash.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        using var sameKeepsWorking = await client.PutAsJsonAsync($"/api/budgets/{monthly}", new
+        {
+            scope = "Team", scopeId = org.Team, limitSek = 20, period = "Monthly", alertThresholds = new[] { 100 }, isActive = true,
+        }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(sameKeepsWorking))["limitSek"]!.GetValue<decimal>().ShouldBe(20);
+    }
+
+    [Fact]
+    public async Task Gateway_admin_can_reveal_and_copy_a_key_and_every_access_is_audited()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        using var create = await client.PostAsJsonAsync("/api/keys", KeyBody(org.Team), TestContext.Current.CancellationToken);
+        var created = await AdminFixture.ReadAsync(create, HttpStatusCode.Created);
+        var keyId = created["key"]!["id"]!.GetValue<Guid>();
+        var secret = created["secret"]!.GetValue<string>();
+        created["key"]!["canReveal"]!.GetValue<bool>().ShouldBeTrue();
+
+        using var reveal = await client.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Reveal" }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(reveal))["secret"]!.GetValue<string>().ShouldBe(secret);
+        using var copy = await client.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Copy" }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(copy))["secret"]!.GetValue<string>().ShouldBe(secret);
+
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        var audits = await db.AuditLog.Where(a => a.EntityId == keyId.ToString() && (a.Action == "reveal" || a.Action == "copy")).ToListAsync(TestContext.Current.CancellationToken);
+        audits.Select(a => a.Action).Order().ShouldBe(["copy", "reveal"]);
+        audits.ShouldAllBe(a => !string.IsNullOrWhiteSpace(a.Actor));
+        string.Join("", audits.Select(a => a.Details)).ShouldNotContain(secret);
+
+        var stored = await db.VirtualKeys.SingleAsync(k => k.Id == keyId, TestContext.Current.CancellationToken);
+        stored.EncryptedSecret.ShouldNotBeNullOrEmpty();
+        stored.EncryptedSecret.ShouldNotContain(secret);
+
+        using var revoke = await client.PostAsync($"/api/keys/{keyId}/revoke", null, TestContext.Current.CancellationToken);
+        revoke.EnsureSuccessStatusCode();
+        using var afterRevoke = await client.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Reveal" }, TestContext.Current.CancellationToken);
+        afterRevoke.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Theory]
+    [InlineData("department-admin")]
+    [InlineData("viewer")]
+    public async Task Only_gateway_admin_can_reveal_keys(string role)
+    {
+        using var admin = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(admin);
+        using var create = await admin.PostAsJsonAsync("/api/keys", KeyBody(org.Team), TestContext.Current.CancellationToken);
+        var keyId = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        using var other = await fixture.ClientAsync(role, org.Code);
+        using var response = await other.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Reveal" }, TestContext.Current.CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Keys_without_stored_secret_cannot_be_revealed()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        using var create = await client.PostAsJsonAsync("/api/keys", KeyBody(org.Team), TestContext.Current.CancellationToken);
+        var keyId = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            (await db.VirtualKeys.SingleAsync(k => k.Id == keyId, TestContext.Current.CancellationToken)).EncryptedSecret = null;
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        using var get = await client.GetAsync($"/api/keys/{keyId}", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(get))["canReveal"]!.GetValue<bool>().ShouldBeFalse();
+        using var response = await client.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Reveal" }, TestContext.Current.CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task Provider_credential_is_write_only_and_export_import_is_secret_free()
     {
         using var client = await fixture.ClientAsync();

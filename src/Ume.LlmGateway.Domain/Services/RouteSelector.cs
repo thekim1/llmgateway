@@ -6,7 +6,8 @@ namespace Ume.LlmGateway.Domain.Services;
 public sealed record RoutingConstraints(
     GatewayEndpoint Endpoint,
     IReadOnlyCollection<DataResidency>? AllowedResidencies,
-    Func<Guid, bool>? IsProviderHealthy = null);
+    Func<Guid, bool>? IsProviderHealthy = null,
+    IReadOnlyCollection<string>? AllowedProviders = null);
 
 public static class RouteSelector
 {
@@ -72,7 +73,19 @@ public static class RouteSelector
             return false;
         }
 
+        if (!IsProviderAllowed(provider, constraints.AllowedProviders))
+        {
+            return false;
+        }
+
         return constraints.AllowedResidencies is null || constraints.AllowedResidencies.Contains(provider.Residency);
+    }
+
+    /// <summary>A key's provider allow-list: null or empty = any provider.</summary>
+    public static bool IsProviderAllowed(ProviderAccount provider, IReadOnlyCollection<string>? allowed)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        return allowed is null || allowed.Count == 0 || allowed.Contains(provider.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

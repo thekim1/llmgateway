@@ -101,3 +101,5 @@ success does not waive these decisions.
   [AI Omnibus text](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=OJ:L_202601744)
 - [IMY: data protection impact assessments](https://www.imy.se/verksamhet/dataskydd/det-har-galler-enligt-gdpr/konsekvensbedomningar-och-forhandssamrad/)
 - [DIGG: digital accessibility](https://www.digg.se/digital-tillganglighet)
+
+**Virtual key reveal.** Besides the HMAC hash used for authentication, the full key is stored encrypted (ASP.NET Core Data Protection, same key ring as provider credentials) so a gateway-admin can show or copy it later. The UI masks it by default, only `gateway-admin` can call `POST /api/keys/{id}/reveal`, and each reveal or copy is audit-logged with the actor (the key itself is never written to the log). A database dump together with the Data Protection key ring can therefore recover keys; protect both as secrets.

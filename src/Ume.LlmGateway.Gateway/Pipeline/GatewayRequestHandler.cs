@@ -118,6 +118,13 @@ public sealed partial class GatewayRequestHandler(
             return;
         }
 
+        if (key.AllowedProviders.Count > 0
+            && !resolved.Targets.Any(t => t.ModelDeployment?.ProviderAccount is { } p && RouteSelector.IsProviderAllowed(p, key.AllowedProviders)))
+        {
+            await RejectAsync(http, state, 403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda någon leverantör som tillhandahåller '{resolved.Name}'.", RequestOutcome.Rejected);
+            return;
+        }
+
         var expectedKind = endpoint == GatewayEndpoint.Embeddings ? ModelKind.Embedding : ModelKind.Chat;
         if (resolved.Kind != expectedKind)
         {
@@ -183,7 +190,7 @@ public sealed partial class GatewayRequestHandler(
         var residencies = RouteSelector.EffectiveResidencies(key.AllowedResidencies, restrictTo);
         var providerIds = resolved.Targets.Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId).Distinct().ToList();
         var open = await circuits.GetOpenAsync(providerIds, ct);
-        var candidates = RouteSelector.Order(resolved.Targets, new RoutingConstraints(endpoint, residencies, id => !open.Contains(id)), Random.Shared)
+        var candidates = RouteSelector.Order(resolved.Targets, new RoutingConstraints(endpoint, residencies, id => !open.Contains(id), key.AllowedProviders), Random.Shared)
             .Where(t => !stream || t.ModelDeployment!.ProviderAccount!.Capabilities.HasFlag(ProviderCapabilities.Streaming))
             .ToList();
         if (candidates.Count == 0)
@@ -332,7 +339,7 @@ public sealed partial class GatewayRequestHandler(
         var data = new JsonArray();
         foreach (var route in snapshot.Routes.Values.Where(r => r.IsEnabled && Allowed(r.Name)).OrderBy(r => r.Name, StringComparer.Ordinal))
         {
-            var available = route.Targets.Where(t => t.ModelDeployment is { IsEnabled: true, ProviderAccount: { IsAvailable: true } p } && ResidencyOk(p)).ToList();
+            var available = route.Targets.Where(t => t.ModelDeployment is { IsEnabled: true, ProviderAccount: { IsAvailable: true } p } && ResidencyOk(p) && RouteSelector.IsProviderAllowed(p, key.AllowedProviders)).ToList();
             if (available.Count == 0)
             {
                 continue;
@@ -355,7 +362,7 @@ public sealed partial class GatewayRequestHandler(
         }
 
         foreach (var deployment in snapshot.Deployments.Values
-                     .Where(d => d.IsEnabled && d.ProviderAccount is { IsAvailable: true } && ResidencyOk(d.ProviderAccount) && Allowed(d.Name))
+                     .Where(d => d.IsEnabled && d.ProviderAccount is { IsAvailable: true } && ResidencyOk(d.ProviderAccount) && RouteSelector.IsProviderAllowed(d.ProviderAccount, key.AllowedProviders) && Allowed(d.Name))
                      .OrderBy(d => d.Name, StringComparer.Ordinal))
         {
             data.Add(new JsonObject
@@ -536,6 +543,7 @@ public sealed partial class GatewayRequestHandler(
 
     private static string PeriodName(BudgetPeriod period) => period switch
     {
+        BudgetPeriod.Hourly => "timme",
         BudgetPeriod.Daily => "dag",
         BudgetPeriod.Weekly => "vecka",
         BudgetPeriod.Monthly => "månad",

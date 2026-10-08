@@ -58,6 +58,7 @@ public static class KeyRotation
             ExpiresAt = oldKey.ExpiresAt,
             AllowedModels = [.. oldKey.AllowedModels],
             AllowedResidencies = [.. oldKey.AllowedResidencies],
+            AllowedProviders = [.. oldKey.AllowedProviders],
             PiiPolicy = oldKey.PiiPolicy,
             RequestsPerMinute = oldKey.RequestsPerMinute,
             TokensPerMinute = oldKey.TokensPerMinute,

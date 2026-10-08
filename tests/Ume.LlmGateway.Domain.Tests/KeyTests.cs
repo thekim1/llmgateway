@@ -73,6 +73,7 @@ public class KeyStatusAndRotationTests
         TeamId = Guid.NewGuid(),
         AllowedModels = ["ume/chat-standard"],
         AllowedResidencies = [DataResidency.OnPrem],
+        AllowedProviders = ["ollama-cloud"],
         PiiPolicy = PiiPolicy.RerouteToOnPrem,
         RequestsPerMinute = 60,
         TokensPerMinute = 10_000,
@@ -113,6 +114,8 @@ public class KeyStatusAndRotationTests
         replacement.AllowedModels.ShouldBe(old.AllowedModels);
         replacement.AllowedModels.ShouldNotBeSameAs(old.AllowedModels);
         replacement.AllowedResidencies.ShouldBe(old.AllowedResidencies);
+        replacement.AllowedProviders.ShouldBe(old.AllowedProviders);
+        replacement.AllowedProviders.ShouldNotBeSameAs(old.AllowedProviders);
         replacement.PiiPolicy.ShouldBe(PiiPolicy.RerouteToOnPrem);
         replacement.RequestsPerMinute.ShouldBe(60);
         replacement.TokensPerMinute.ShouldBe(10_000);

@@ -1,4 +1,6 @@
 <script setup lang="ts" generic="Row extends Record<string, any>">
+import AppIcon from './AppIcon.vue'
+
 export interface Column {
   key: string
   label: string
@@ -6,6 +8,8 @@ export interface Column {
   /** Visually hide the header text (e.g. actions column). */
   hideLabel?: boolean
   class?: string
+  /** Header becomes a button that emits `sort` with this column's key. */
+  sortable?: boolean
 }
 
 const props = defineProps<{
@@ -19,8 +23,16 @@ const props = defineProps<{
   emptyText?: string
   /** Shows a "Clear filters" action in the empty state. */
   clearable?: boolean
+  sortKey?: string
+  sortDir?: 'asc' | 'desc'
 }>()
-const emit = defineEmits<{ (e: 'row-click', row: Row): void; (e: 'clear'): void }>()
+const emit = defineEmits<{ (e: 'row-click', row: Row): void; (e: 'clear'): void; (e: 'sort', key: string): void }>()
+
+function ariaSort(col: Column): 'ascending' | 'descending' | 'none' | undefined {
+  if (!col.sortable) return undefined
+  if (props.sortKey !== col.key) return 'none'
+  return props.sortDir === 'desc' ? 'descending' : 'ascending'
+}
 
 function open(row: Row): void {
   if (props.clickable) emit('row-click', row)
@@ -40,8 +52,19 @@ function open(row: Row): void {
             class="h-9 px-3 font-medium first:px-5 last:px-5"
             :class="[col.align === 'right' ? 'text-right' : 'text-left', col.class]"
             :data-first="i === 0 || undefined"
+            :aria-sort="ariaSort(col)"
           >
-            <span :class="{ 'sr-only': col.hideLabel }">{{ col.label }}</span>
+            <button
+              v-if="col.sortable"
+              type="button"
+              class="-mx-1 inline-flex items-center gap-1 rounded-chip px-1 font-medium hover:text-fg"
+              :class="{ 'text-fg': sortKey === col.key }"
+              @click="emit('sort', col.key)"
+            >
+              {{ col.label }}
+              <AppIcon name="arrow_downward" :size="16" :class="sortKey === col.key ? (sortDir === 'asc' ? 'rotate-180' : '') : 'opacity-30'" />
+            </button>
+            <span v-else :class="{ 'sr-only': col.hideLabel }">{{ col.label }}</span>
           </th>
         </tr>
       </thead>

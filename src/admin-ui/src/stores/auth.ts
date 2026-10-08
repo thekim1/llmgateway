@@ -30,6 +30,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => status.value === 'authenticated' && !!user.value?.isAuthenticated)
   const roles = computed<string[]>(() => (isAuthenticated.value ? (user.value?.roles ?? []) : []))
   const effective = computed(() => effectiveRoles(roles.value))
+  const isDevelopment = computed(() => user.value?.environment === 'Development')
   const departmentCodes = computed(() => user.value?.departmentCodes ?? [])
   const sessionExpiresAt = computed<Date | null>(() => {
     const value = user.value?.sessionExpiresAt
@@ -112,6 +113,7 @@ export const useAuthStore = defineStore('auth', () => {
     roles,
     departmentCodes,
     sessionExpiresAt,
+    isDevelopment,
     isGatewayAdmin,
     canManage,
     hasRole,

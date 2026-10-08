@@ -223,6 +223,15 @@ public static class ConfigurationEndpoints
         }).RequireAuthorization("admin");
     }
 
+    /// <summary>One budget per owner and period: spend counters are keyed by owner and period, so two would share one counter.</summary>
+    private static async Task EnsureUniquePeriodAsync(AdminContext ctx, BudgetRequest input, Guid? self, CancellationToken ct)
+    {
+        if (await ctx.Db.Budgets.AnyAsync(x => x.Scope == input.Scope && x.ScopeId == input.ScopeId && x.Period == input.Period && x.Id != self, ct))
+        {
+            throw new AdminFaultException(409, "Det finns redan en budget för samma period. Ändra den befintliga budgeten.");
+        }
+    }
+
     private static void MapBudgets(RouteGroupBuilder api)
     {
         api.MapGet("/budgets", async (BudgetScope? scope, Guid? scopeId, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
@@ -237,6 +246,7 @@ public static class ConfigurationEndpoints
         api.MapPost("/budgets", async (BudgetRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var name = await ctx.ScopeNameAsync(user, input.Scope, input.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgetens ägare finns inte.");
+            await EnsureUniquePeriodAsync(ctx, input, null, ct);
             var b = new Budget { Scope = input.Scope, ScopeId = input.ScopeId, LimitSek = input.LimitSek, Period = input.Period, AlertThresholds = [.. input.AlertThresholds.Distinct().Order()], IsActive = input.IsActive, CreatedAt = ctx.Now };
             ctx.Db.Budgets.Add(b);
             await ctx.SaveAsync(user, "create", "Budget", b.Id, null, new { b.Scope, b.ScopeId, b.LimitSek, b.Period, b.AlertThresholds, b.IsActive }, InvalidationKind.Config, ct);
@@ -247,6 +257,7 @@ public static class ConfigurationEndpoints
             var b = await ctx.Db.Budgets.SingleOrDefaultAsync(b => b.Id == id, ct) ?? throw new AdminFaultException(404, "Budgeten finns inte.");
             var oldName = await ctx.ScopeNameAsync(user, b.Scope, b.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgeten finns inte.");
             var name = await ctx.ScopeNameAsync(user, input.Scope, input.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgetens ägare finns inte.");
+            await EnsureUniquePeriodAsync(ctx, input, id, ct);
             var before = await BudgetDtoAsync(b, oldName, ctx, ct);
             b.Scope = input.Scope; b.ScopeId = input.ScopeId; b.LimitSek = input.LimitSek; b.Period = input.Period; b.AlertThresholds = [.. input.AlertThresholds.Distinct().Order()]; b.IsActive = input.IsActive;
             await ctx.SaveAsync(user, "update", "Budget", id, before, new { b.Scope, b.ScopeId, b.LimitSek, b.Period, b.AlertThresholds, b.IsActive }, InvalidationKind.Config, ct);

@@ -51,6 +51,23 @@ public class BudgetPeriodTests
     }
 
     [Fact]
+    public void Hourly_window_is_aligned_to_the_hour()
+    {
+        var now = new DateTimeOffset(2026, 10, 8, 13, 47, 12, TimeSpan.FromHours(2)); // 11:47 UTC
+        var window = BudgetPeriods.GetWindow(BudgetPeriod.Hourly, now);
+        window.Start.ShouldBe(new DateTimeOffset(2026, 10, 8, 11, 0, 0, TimeSpan.Zero));
+        window.End.ShouldBe(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
+        BudgetPeriods.GetWindow(BudgetPeriod.Hourly, window.End).Start.ShouldBe(window.End);
+    }
+
+    [Fact]
+    public void Hourly_window_is_one_hour_across_dst_changes()
+    {
+        var window = BudgetPeriods.GetWindow(BudgetPeriod.Hourly, new DateTimeOffset(2026, 10, 25, 1, 30, 0, TimeSpan.Zero)); // CEST -> CET at 01:00 UTC
+        (window.End - window.Start).ShouldBe(TimeSpan.FromHours(1));
+    }
+
+    [Fact]
     public void Daily_and_yearly_windows()
     {
         var now = new DateTimeOffset(2026, 6, 15, 22, 30, 0, TimeSpan.Zero); // 00:30 next day in Stockholm

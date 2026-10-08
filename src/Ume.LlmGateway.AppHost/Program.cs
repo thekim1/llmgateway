@@ -22,7 +22,8 @@ var keycloak = builder.ExecutionContext.IsRunMode ? builder.AddKeycloak("keycloa
     .WithEnvironment("UME_DEV_USER_PASSWORD", devUserPassword)
     .WithHttpsDeveloperCertificate() : null;
 
-var fakeLlm = builder.ExecutionContext.IsRunMode ? builder.AddProject<Projects.Ume_LlmGateway_FakeLlm>("fake-llm", o => o.ExcludeLaunchProfile = true)
+// FakeLlm:Enabled=false (AppHost user secrets or appsettings) keeps the fake provider from starting in local runs.
+var fakeLlm = builder.ExecutionContext.IsRunMode && builder.Configuration.GetValue("FakeLlm:Enabled", true) ? builder.AddProject<Projects.Ume_LlmGateway_FakeLlm>("fake-llm", o => o.ExcludeLaunchProfile = true)
     .WithHttpsEndpoint()
     .WithHttpHealthCheck("/health/ready", endpointName: "https") : null;
 
@@ -32,10 +33,14 @@ var migrations = builder.AddProject<Projects.Ume_LlmGateway_MigrationService>("m
     .WithEnvironment("Seed__Enabled", builder.ExecutionContext.IsRunMode && builder.Configuration.GetValue("Seed:Enabled", true) ? "true" : "false")
     .WaitFor(database);
 
+if (builder.ExecutionContext.IsRunMode)
+{
+    migrations.WithEnvironment("Seed__DevKey", devKey);
+}
+
 if (fakeLlm is not null)
 {
-    migrations.WithEnvironment("Seed__DevKey", devKey)
-        .WithEnvironment("Seed__FakeLlmUrl", ReferenceExpression.Create($"{fakeLlm.GetEndpoint("https")}/v1"))
+    migrations.WithEnvironment("Seed__FakeLlmUrl", ReferenceExpression.Create($"{fakeLlm.GetEndpoint("https")}/v1"))
         .WaitFor(fakeLlm);
 }
 

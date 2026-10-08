@@ -44,6 +44,9 @@ public sealed class VirtualKey
     /// <summary>Hex HMAC-SHA256 of the full key using the server-side pepper.</summary>
     public required string KeyHash { get; set; }
 
+    /// <summary>Data-Protection-encrypted full key so gateway admins can reveal it later. Null for keys created before this was stored.</summary>
+    public string? EncryptedSecret { get; set; }
+
     public bool IsEnabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
@@ -61,6 +64,9 @@ public sealed class VirtualKey
 
     /// <summary>Allowed provider residencies. Empty = all.</summary>
     public List<DataResidency> AllowedResidencies { get; set; } = [];
+
+    /// <summary>Allowed provider account names (<see cref="ProviderAccount.Name"/>). Empty = all providers.</summary>
+    public List<string> AllowedProviders { get; set; } = [];
 
     public PiiPolicy PiiPolicy { get; set; } = PiiPolicy.Off;
     public int? RequestsPerMinute { get; set; }
