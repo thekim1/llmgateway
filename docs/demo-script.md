@@ -5,6 +5,8 @@ screen recordings, browser traces, screenshots of show-once dialogs or saved pla
 Do not copy dashboard login tokens into documents. A human may keep a show-once key in
 memory during the demo and then revoke it; never paste it into shell history.
 
+For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -Empty` (see README).
+
 1. Start `src\Ume.LlmGateway.AppHost\Ume.LlmGateway.AppHost.csproj` via Aspire and wait for admin-ui. Sign in through real
    Keycloak as gateway-admin using the development secret store without printing credentials.
 2. Create a synthetic department/team and key in Organisation/Nycklar. Review the PII,
@@ -20,7 +22,7 @@ memory during the demo and then revoke it; never paste it into shell history.
    verify the replacement is still blocked: rotation does not reset the budget.
 6. With a separate unrestricted synthetic key, rotate with 24h grace. Both keys work;
    revoke the predecessor and verify only the replacement remains usable.
-7. Show the four themes, Swedish/English, keyboard skip/focus, 320px reflow and data tables.
+7. Show the three themes (light, dark, Lumen), keyboard focus, the mobile layout and data tables.
    Explain automatic checks and remaining manual assessment; do not claim AAA certification.
 8. Show Drift/Hälsa: component status, actual gateway version, live usage queue, schema,
    provider statistics. Demonstrate audited drain/circuit/cache action with confirmation.

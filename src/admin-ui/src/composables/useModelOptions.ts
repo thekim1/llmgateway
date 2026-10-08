@@ -1,9 +1,16 @@
 import { computed, onMounted } from 'vue'
+import type { DataResidency } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
 import { useModelsStore } from '@/stores/models'
 import { useRoutesStore } from '@/stores/routes'
-import type { ModelOption } from '@/components/types'
+
+export interface ModelOption {
+  name: string
+  /** "route" = model alias with fallback; "model" = a single deployment. */
+  source: 'route' | 'model'
+  residencies: DataResidency[]
+}
 
 /**
  * Names that can be put in a key's "allowed models" list: route aliases + model names.
@@ -16,9 +23,8 @@ export function useModelOptions() {
   const models = useModelsStore()
   const catalog = useCatalogStore()
 
-  const loading = computed(() =>
-    auth.isGatewayAdmin ? routes.loading || models.loading : catalog.loading,
-  )
+  const loading = computed(() => (auth.isGatewayAdmin ? routes.loading || models.loading : catalog.loading))
+  const error = computed(() => (auth.isGatewayAdmin ? (routes.error ?? models.error) : catalog.error))
 
   const options = computed<ModelOption[]>(() => {
     if (auth.isGatewayAdmin) {
@@ -51,5 +57,5 @@ export function useModelOptions() {
     void load()
   })
 
-  return { options, loading, load }
+  return { options, loading, error, load }
 }

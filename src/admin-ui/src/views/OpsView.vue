@@ -1,61 +1,120 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { api } from '@/api'
+import { computed, onMounted, ref } from 'vue'
 import type { OpsProviderHealth } from '@/api/types'
 import { useOpsStore } from '@/stores/ops'
-import { useNotify } from '@/composables/useForm'
-import PageHeader from '@/components/PageHeader.vue'
-import AsyncState from '@/components/AsyncState.vue'
-import HealthBadge from '@/components/HealthBadge.vue'
-import ScrollTable from '@/components/ScrollTable.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import CodeBlock from '@/components/CodeBlock.vue'
-const { t } = useI18n()
+import { useUiStore } from '@/stores/ui'
+import { HEALTH_STATUS } from '@/utils/labels'
+import { formatDateTime, formatNumber } from '@/utils/format'
+import AsyncState from '@/components/ui/AsyncState.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import DetailRow from '@/components/ui/DetailRow.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import UiBadge from '@/components/ui/UiBadge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import ConfigDialog from '@/components/ops/ConfigDialog.vue'
+import ProviderCircuitTable from '@/components/ops/ProviderCircuitTable.vue'
+
 const ops = useOpsStore()
-const notify = useNotify()
-const config = ref('')
-const confirmOpen = ref(false)
-const actionTitle = ref('')
-const busy = ref(false)
-let action: (() => Promise<unknown>) | null = null
-function review(title: string, work: () => Promise<unknown>): void { actionTitle.value = title; action = work; confirmOpen.value = true }
-function reviewDrain(provider: OpsProviderHealth): void { review(provider.name, () => api.providers.drain(provider.id, !provider.isDrained)) }
-function reviewCircuit(provider: OpsProviderHealth): void { review(provider.name, () => ops.setCircuit(provider.id, provider.circuitState === 'Open' ? 'Closed' : 'Open')) }
-async function execute(): Promise<void> {
-  if (!action || busy.value) return
-  busy.value = true
-  try { await action(); confirmOpen.value = false; notify.success(t('common.saved')); await ops.loadHealth() }
-  catch (e) { notify.error(e) } finally { busy.value = false }
+const ui = useUiStore()
+
+const circuitTarget = ref<OpsProviderHealth | null>(null)
+const circuitOpen = ref(false)
+const cacheOpen = ref(false)
+const configOpen = ref(false)
+
+const health = computed(() => ops.health)
+const writer = computed(() => health.value?.usageWriter ?? null)
+const isOpening = computed(() => circuitTarget.value?.circuitState !== 'Open')
+
+function reviewCircuit(provider: OpsProviderHealth): void {
+  circuitTarget.value = provider
+  circuitOpen.value = true
 }
-async function exportConfig(): Promise<void> {
-  try { config.value = JSON.stringify(await ops.exportConfig(), null, 2) } catch (e) { notify.error(e) }
+
+async function toggleCircuit(): Promise<void> {
+  const provider = circuitTarget.value
+  if (!provider) return
+  const next = provider.circuitState === 'Open' ? 'Closed' : 'Open'
+  await ops.setCircuit(provider.id, next)
+  ui.notify(`Circuit ${next === 'Open' ? 'opened' : 'closed'} for ${provider.name}.`)
 }
-function importConfig(): void {
-  let value: unknown
-  try { value = JSON.parse(config.value) } catch { notify.errorText(t('common.invalid')); return }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) { notify.errorText(t('common.invalid')); return }
-  const document = Object.fromEntries(Object.entries(value))
-  review(t('ops.import'), () => ops.importConfig(document))
+
+async function invalidateCache(): Promise<void> {
+  await ops.invalidateKeyCache()
+  ui.notify('Key cache invalidated.')
 }
-onMounted(() => { void ops.loadHealth() })
+
+onMounted(() => {
+  void ops.loadHealth()
+})
 </script>
+
 <template>
-  <PageHeader :title="t('nav.ops')" :lead="t('ops.help')"><template #actions><button class="btn btn--secondary" type="button" @click="ops.loadHealth">{{ t('common.refresh') }}</button></template></PageHeader>
-  <AsyncState :loading="ops.healthLoading" :error="ops.healthError" @retry="ops.loadHealth">
-    <h2>{{ t('ops.components') }}</h2><ul><li v-for="component in ops.health?.components ?? []" :key="component.name">{{ component.name }} · <HealthBadge :status="component.status" /> · {{ component.description }}</li></ul>
-    <h2>{{ t('ops.versions') }}</h2><dl class="details"><template v-for="(value, name) in ops.health?.versions ?? {}" :key="name"><dt>{{ name }}</dt><dd>{{ value ?? t('ops.unavailable') }}</dd></template></dl>
-    <h2>{{ t('ops.usageWriter') }}</h2>
-    <dl v-if="ops.health?.usageWriter" class="details">
-      <dt>{{ t('ops.queueDepth') }}</dt><dd>{{ ops.health.usageWriter.queueDepth }} / {{ ops.health.usageWriter.capacity }}</dd>
-      <dt>{{ t('ops.inFlight') }}</dt><dd>{{ ops.health.usageWriter.inFlightRecords }}</dd>
-      <dt>{{ t('ops.lastWrite') }}</dt><dd>{{ ops.health.usageWriter.lastWriteAt ?? t('ops.noWrites') }}</dd>
-      <dt>{{ t('ops.writeFailures') }}</dt><dd>{{ ops.health.usageWriter.consecutiveFailures }}</dd>
-    </dl><p v-else class="notice notice--warning">{{ t('ops.unavailable') }}</p>
-    <h2>{{ t('nav.providers') }}</h2><ScrollTable :label="t('nav.providers')"><table class="table"><caption>{{ t('nav.providers') }}</caption><thead><tr><th scope="col">{{ t('common.name') }}</th><th scope="col">{{ t('ops.circuit') }}</th><th scope="col">{{ t('usage.requests') }} (24 h)</th><th scope="col">p50 / p95 (ms)</th><th scope="col">{{ t('common.actions') }}</th></tr></thead><tbody><tr v-for="provider in ops.health?.providers ?? []" :key="provider.id"><th scope="row">{{ provider.name }}</th><td>{{ provider.circuitState }} · {{ provider.isDrained ? t('ops.drain') : t('ops.resume') }}</td><td>{{ provider.requests24h }}</td><td>{{ provider.p50LatencyMs ?? '—' }} / {{ provider.p95LatencyMs ?? '—' }}</td><td><div class="actions"><button class="btn btn--secondary" type="button" @click="reviewDrain(provider)">{{ t(provider.isDrained ? 'ops.resume' : 'ops.drain') }} {{ provider.name }}</button><button class="btn btn--secondary" type="button" @click="reviewCircuit(provider)">{{ t(provider.circuitState === 'Open' ? 'ops.close' : 'ops.open') }} {{ provider.name }}</button></div></td></tr></tbody></table></ScrollTable>
+  <PageHeader title="Health & operations" description="Component status, usage recording and provider circuits.">
+    <UiButton icon="refresh" :loading="ops.healthLoading" @click="ops.loadHealth">Refresh</UiButton>
+  </PageHeader>
+
+  <AsyncState :loading="ops.healthLoading" :error="ops.healthError" :empty="!health" empty-text="No health data yet." @retry="ops.loadHealth">
+    <div v-if="health" class="flex flex-col gap-6">
+      <UiCard title="Components" :meta="`Checked ${formatDateTime(health.checkedAt, true)}`" heading-id="ops-components">
+        <ul class="m-0 list-none p-0">
+          <li v-for="component in health.components" :key="component.name" class="flex flex-wrap items-center justify-between gap-3 border-b border-border py-2.5 last:border-b-0">
+            <div class="min-w-0">
+              <p class="font-medium">{{ component.name }}</p>
+              <p v-if="component.description" class="text-small text-fg-2">{{ component.description }}</p>
+            </div>
+            <UiBadge :tone="HEALTH_STATUS[component.status].tone">{{ HEALTH_STATUS[component.status].label }}</UiBadge>
+          </li>
+        </ul>
+        <dl class="mt-4 m-0">
+          <DetailRow label="Admin API">{{ health.versions.adminApi }}</DetailRow>
+          <DetailRow label="Gateway">{{ health.versions.gateway ?? 'Unavailable' }}</DetailRow>
+          <DetailRow label="Schema">{{ health.versions.schema }}</DetailRow>
+        </dl>
+      </UiCard>
+
+      <UiCard title="Usage writer" heading-id="ops-writer">
+        <dl v-if="writer" class="m-0">
+          <DetailRow label="Queue">{{ formatNumber(writer.queueDepth) }} of {{ formatNumber(writer.capacity) }}</DetailRow>
+          <DetailRow label="In flight">{{ formatNumber(writer.inFlightRecords) }} records</DetailRow>
+          <DetailRow label="Last write">{{ writer.lastWriteAt ? formatDateTime(writer.lastWriteAt, true) : 'No writes yet' }}</DetailRow>
+          <DetailRow label="Consecutive failures">
+            <UiBadge :tone="writer.consecutiveFailures > 0 ? 'danger' : 'ok'">{{ formatNumber(writer.consecutiveFailures) }}</UiBadge>
+          </DetailRow>
+        </dl>
+        <p v-else class="text-fg-2">Usage writer status is unavailable.</p>
+      </UiCard>
+
+      <section aria-labelledby="ops-providers" class="flex flex-col gap-3">
+        <h2 id="ops-providers" class="text-heading">Provider circuits</h2>
+        <ProviderCircuitTable :providers="health.providers" @toggle="reviewCircuit" />
+      </section>
+
+      <UiCard title="Maintenance" heading-id="ops-maintenance">
+        <div class="flex flex-wrap gap-3">
+          <UiButton icon="sync" @click="cacheOpen = true">Invalidate key cache</UiButton>
+          <UiButton icon="data_object" @click="configOpen = true">Export or import configuration</UiButton>
+        </div>
+        <p class="mt-3 text-small text-fg-3">Invalidating the key cache makes the gateway re-read every virtual key on its next request.</p>
+      </UiCard>
+    </div>
   </AsyncState>
-  <h2>{{ t('ops.config') }}</h2><div class="actions"><button class="btn btn--secondary" type="button" @click="review(t('ops.invalidate'), ops.invalidateKeyCache)">{{ t('ops.invalidate') }}</button><button class="btn btn--secondary" type="button" @click="exportConfig">{{ t('ops.export') }}</button></div>
-  <form class="form" @submit.prevent="importConfig"><label for="ops-config">{{ t('ops.config') }}</label><p id="ops-config-help" class="help">{{ t('ops.configHelp') }}</p><textarea id="ops-config" v-model="config" class="textarea mono" rows="12" aria-describedby="ops-config-help" required></textarea><button class="btn btn--primary" type="submit">{{ t('ops.import') }}</button></form>
-  <CodeBlock v-if="config" :code="config" :label="t('ops.export')" />
-  <ConfirmDialog v-model:open="confirmOpen" :title="actionTitle" :description="t('ops.confirm')" :confirm-label="t('common.confirm')" :acknowledge-label="t('common.acknowledge')" :busy="busy" @confirm="execute" />
+
+  <ConfirmDialog
+    v-model:open="circuitOpen"
+    :title="isOpening ? `Open circuit for ${circuitTarget?.name ?? ''}?` : `Close circuit for ${circuitTarget?.name ?? ''}?`"
+    :consequence="isOpening ? 'The gateway stops sending requests to this provider and uses fallbacks until the circuit is closed.' : 'The gateway resumes sending requests to this provider.'"
+    :confirm-label="isOpening ? 'Open circuit' : 'Close circuit'"
+    :danger="isOpening"
+    :action="toggleCircuit"
+  />
+  <ConfirmDialog
+    v-model:open="cacheOpen"
+    title="Invalidate key cache?"
+    consequence="Gateway instances re-read all virtual keys on their next request, which briefly increases database load."
+    confirm-label="Invalidate cache"
+    :action="invalidateCache"
+  />
+  <ConfigDialog v-model:open="configOpen" />
 </template>

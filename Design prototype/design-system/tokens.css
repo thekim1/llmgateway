@@ -1,0 +1,142 @@
+/* Ume AI Gateway — design tokens. Single source of truth for all three themes.
+   Apply a theme with <html data-theme="light|dark|lumen">. Default = light.
+   Every text/background pair below meets WCAG 2.2 AA (4.5:1 body, 3:1 UI boundaries). */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #F4F4F2;
+  --on-fg: #FFFFFF;
+  --sidebar: #EDEDEA;
+  --surface: #FFFFFF;
+  --surface-2: #F8F8F6;
+  --overlay: #FFFFFF;
+  --sunken: #EEEEEB;
+  --hover: rgba(22, 22, 26, 0.045);
+  --border: #E2E2DE;
+  --border-strong: #CFCFCA;
+  --border-input: #8C8C86;
+  --fg: #16161A;
+  --fg-2: #4A4A52;
+  --fg-3: #67676F;
+  --accent: #3446DB;
+  --accent-hover: #2836B8;
+  --accent-fg: #FFFFFF;
+  --accent-soft: #EBEDFC;
+  --accent-ink: #2633A8;
+  --ok: #1C7343;
+  --ok-soft: #E2F2E8;
+  --warn: #8A5000;
+  --warn-soft: #FBEED6;
+  --danger: #B8261A;
+  --danger-soft: #FBE5E2;
+  --res-onprem: #0F6E6A;
+  --res-eu: #2F4FC9;
+  --res-ext: #9A4A00;
+  --chart: #3446DB;
+  --chart-muted: #C7CCF4;
+  --focus: #3446DB;
+  --scrim: rgba(16, 16, 20, 0.36);
+  --shadow-1: 0 1px 2px rgba(20, 20, 30, 0.05), 0 0 0 1px rgba(20, 20, 30, 0.05);
+  --shadow-2: 0 24px 48px -16px rgba(20, 20, 30, 0.22), 0 0 0 1px rgba(20, 20, 30, 0.06);
+  --blur: none;
+  --r-card: 16px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0D0D0F;
+  --on-fg: #0D0D0F;
+  --sidebar: #111114;
+  --surface: #17171B;
+  --surface-2: #1D1D22;
+  --overlay: #1B1B20;
+  --sunken: #111114;
+  --hover: rgba(255, 255, 255, 0.05);
+  --border: #26262C;
+  --border-strong: #3A3A42;
+  --border-input: #707079;
+  --fg: #F3F3F1;
+  --fg-2: #B9B9C1;
+  --fg-3: #92929B;
+  --accent: #8C98FF;
+  --accent-hover: #A5AEFF;
+  --accent-fg: #0D0D14;
+  --accent-soft: #1F2346;
+  --accent-ink: #B6BDFF;
+  --ok: #52C78D;
+  --ok-soft: #13291D;
+  --warn: #F2B552;
+  --warn-soft: #2E2312;
+  --danger: #FF7D71;
+  --danger-soft: #35171A;
+  --res-onprem: #4FD1C5;
+  --res-eu: #8FA6FF;
+  --res-ext: #F5A661;
+  --chart: #8C98FF;
+  --chart-muted: #2B3166;
+  --focus: #A5AEFF;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-2: 0 24px 48px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --blur: none;
+  --r-card: 16px;
+}
+
+/* "Lumen" — 2027 trend theme: ambient light field, frosted material, deeper radii,
+   tactile edges. Glass is always ≥74% opaque so text contrast never depends on what is behind it. */
+[data-theme="lumen"] {
+  color-scheme: light;
+  --on-fg: #FFFFFF;
+  --canvas:
+    radial-gradient(1100px 760px at 8% -12%, #DCE2FF 0%, rgba(220, 226, 255, 0) 62%),
+    radial-gradient(900px 700px at 104% 4%, #FFE2EA 0%, rgba(255, 226, 234, 0) 58%),
+    radial-gradient(1100px 900px at 62% 118%, #D6F2EA 0%, rgba(214, 242, 234, 0) 60%),
+    #EDEFF5;
+  --sidebar: rgba(255, 255, 255, 0.5);
+  --surface: rgba(255, 255, 255, 0.76);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --overlay: rgba(255, 255, 255, 0.94);
+  --sunken: rgba(236, 239, 247, 0.85);
+  --hover: rgba(15, 18, 34, 0.045);
+  --border: rgba(15, 18, 34, 0.07);
+  --border-strong: rgba(15, 18, 34, 0.14);
+  --border-input: #7E8499;
+  --fg: #0F1222;
+  --fg-2: #3B4157;
+  --fg-3: #575D74;
+  --accent: #5236F0;
+  --accent-hover: #4127D6;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(82, 54, 240, 0.1);
+  --accent-ink: #3B22C2;
+  --ok: #0F6E46;
+  --ok-soft: rgba(15, 110, 70, 0.1);
+  --warn: #855000;
+  --warn-soft: rgba(196, 128, 0, 0.14);
+  --danger: #B11F2E;
+  --danger-soft: rgba(177, 31, 46, 0.1);
+  --res-onprem: #0B6B66;
+  --res-eu: #3B43D6;
+  --res-ext: #964600;
+  --chart: #5236F0;
+  --chart-muted: rgba(82, 54, 240, 0.2);
+  --focus: #5236F0;
+  --scrim: rgba(30, 34, 60, 0.28);
+  --shadow-1: 0 1px 1px rgba(15, 18, 34, 0.04), 0 10px 30px -14px rgba(15, 18, 34, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(15, 18, 34, 0.06);
+  --shadow-2: 0 40px 80px -24px rgba(30, 30, 80, 0.35), inset 0 1px 0 rgba(255, 255, 255, 1), 0 0 0 1px rgba(15, 18, 34, 0.08);
+  --blur: blur(28px) saturate(1.6);
+  --r-card: 22px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: "Geist", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid CanvasText; }
+}

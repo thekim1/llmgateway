@@ -1,116 +1,86 @@
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { DEFAULT_LOCALE, isAppLocale, setLocale as applyLocale, type AppLocale } from '@/i18n'
-import {
-  applyTheme,
-  isThemePreference,
-  readSystemPreferences,
-  resolveTheme,
-  type SystemPreferences,
-  type ThemeId,
-  type ThemePreference,
-} from '@/theme/themes'
 
-/** Only non-sensitive display preferences are persisted. */
-export const THEME_STORAGE_KEY = 'ume-admin.theme'
-export const LOCALE_STORAGE_KEY = 'ume-admin.locale'
+export const THEME_STORAGE_KEY = 'ume-theme'
+export const THEMES = ['light', 'dark', 'lumen'] as const
+export type Theme = (typeof THEMES)[number]
 
-export type ToastKind = 'success' | 'info' | 'warning' | 'error'
 export interface Toast {
   id: number
-  kind: ToastKind
   message: string
 }
 
-/** Maximum number of visible toasts. Errors are never removed automatically. */
-const MAX_TOASTS = 4
+const TOAST_MS = 4000
 
-function readStorage(key: string): string | null {
+export function isTheme(value: unknown): value is Theme {
+  return typeof value === 'string' && (THEMES as readonly string[]).includes(value)
+}
+
+function readStoredTheme(): Theme | null {
   try {
-    return window.localStorage.getItem(key)
+    const value = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return isTheme(value) ? value : null
   } catch {
     return null
   }
 }
 
-function writeStorage(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // Storage may be unavailable (private mode) – preferences then last for the session only.
-  }
+function systemTheme(): Theme {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 export const useUiStore = defineStore('ui', () => {
-  const storedTheme = readStorage(THEME_STORAGE_KEY)
-  const storedLocale = readStorage(LOCALE_STORAGE_KEY)
-
-  const themePreference = ref<ThemePreference>(isThemePreference(storedTheme) ? storedTheme : 'system')
-  const systemPreferences = ref<SystemPreferences>(readSystemPreferences())
-  const theme = computed<ThemeId>(() => resolveTheme(themePreference.value, systemPreferences.value))
-  const locale = ref<AppLocale>(isAppLocale(storedLocale) ? storedLocale : DEFAULT_LOCALE)
-
+  const theme = ref<Theme>(readStoredTheme() ?? systemTheme())
   const toasts = ref<Toast[]>([])
-  let nextToastId = 1
+  const timers = new Map<number, ReturnType<typeof setTimeout>>()
+  let nextId = 1
 
-  function setTheme(preference: ThemePreference): void {
-    themePreference.value = preference
-    writeStorage(THEME_STORAGE_KEY, preference)
-    applyTheme(theme.value)
+  function apply(): void {
+    document.documentElement.dataset.theme = theme.value
   }
 
-  function setLocale(next: AppLocale): void {
-    locale.value = next
-    writeStorage(LOCALE_STORAGE_KEY, next)
-    applyLocale(next)
+  function setTheme(next: Theme): void {
+    theme.value = next
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, next)
+    } catch {
+      // Storage may be unavailable; the choice then lasts for the session.
+    }
+    apply()
   }
 
-  let mediaListenersAttached = false
-  /** Applies the current preferences and follows OS changes when the preference is `system`. */
   function init(): void {
-    applyTheme(theme.value)
-    applyLocale(locale.value)
-    if (mediaListenersAttached || typeof window === 'undefined' || !window.matchMedia) return
-    mediaListenersAttached = true
-    const update = () => {
-      systemPreferences.value = readSystemPreferences()
-      applyTheme(theme.value)
-    }
-    for (const query of ['(prefers-color-scheme: dark)', '(prefers-contrast: more)']) {
-      window.matchMedia(query).addEventListener?.('change', update)
-    }
-  }
-
-  function notify(kind: ToastKind, message: string): number {
-    const id = nextToastId++
-    const next = [...toasts.value, { id, kind, message }]
-    while (next.length > MAX_TOASTS) {
-      const removable = next.findIndex((t) => t.kind !== 'error')
-      if (removable === -1) break
-      next.splice(removable, 1)
-    }
-    toasts.value = next
-    return id
+    apply()
   }
 
   function dismiss(id: number): void {
+    const timer = timers.get(id)
+    if (timer) clearTimeout(timer)
+    timers.delete(id)
     toasts.value = toasts.value.filter((t) => t.id !== id)
   }
 
-  function dismissAll(): void {
-    toasts.value = []
+  function schedule(id: number): void {
+    timers.set(id, setTimeout(() => dismiss(id), TOAST_MS))
   }
 
-  return {
-    themePreference,
-    theme,
-    locale,
-    toasts,
-    setTheme,
-    setLocale,
-    init,
-    notify,
-    dismiss,
-    dismissAll,
+  /** Success confirmations only. Errors are shown inline, never as toasts. */
+  function notify(message: string): number {
+    const id = nextId++
+    toasts.value = [...toasts.value, { id, message }]
+    schedule(id)
+    return id
   }
+
+  function pause(id: number): void {
+    const timer = timers.get(id)
+    if (timer) clearTimeout(timer)
+    timers.delete(id)
+  }
+
+  function resume(id: number): void {
+    if (!timers.has(id)) schedule(id)
+  }
+
+  return { theme, toasts, setTheme, init, notify, dismiss, pause, resume }
 })

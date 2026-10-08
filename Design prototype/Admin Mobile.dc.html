@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..24,400,0..1,0&display=block">
+<link rel="stylesheet" href="design-system/tokens.css">
+<style>a{color:var(--accent-ink)}a:hover{color:var(--accent-hover)}</style>
+</helmet>
+<div style="padding:56px; background:#D9D9D6; min-height:100vh; font-family:Geist, ui-sans-serif, system-ui, sans-serif; display:flex; flex-direction:column; gap:32px">
+  <div style="display:flex; flex-direction:column; gap:6px; color:#16161A">
+    <h1 style="margin:0; font-size:28px; font-weight:600; letter-spacing:-0.02em">Mobile · monitoring and urgent actions</h1>
+    <p style="margin:0; font-size:15px; color:#4A4A52; max-width:720px">Four tabs. Everything else stays on desktop. Theme: {{ themeName }} (change in Tweaks). All screens are live: acknowledge alerts, revoke a key, open or close a circuit.</p>
+  </div>
+
+  <div data-theme="{{ theme }}" style="display:flex; gap:40px; flex-wrap:wrap; align-items:flex-start">
+    <sc-for list="{{ phones }}" as="ph" hint-placeholder-count="4">
+      <div style="display:flex; flex-direction:column; gap:12px">
+        <span style="font-size:13px; font-weight:600; color:#16161A; font-family:Geist, sans-serif">{{ ph.caption }}</span>
+        <div style="width:390px; height:844px; border-radius:52px; padding:10px; background:#111; box-shadow:0 30px 60px -20px rgba(0,0,0,.4)">
+          <div lang="en" style="position:relative; width:100%; height:100%; border-radius:42px; overflow:hidden; background:var(--canvas); color:var(--fg); font-size:15px; line-height:20px; display:flex; flex-direction:column">
+            <div aria-hidden="true" style="height:50px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 30px 0 34px; font-size:15px; font-weight:600"><span>9:41</span><span style="width:120px; height:32px; border-radius:16px; background:#000"></span><span style="font-family:'Material Symbols Rounded'; font-size:18px; letter-spacing:2px">signal_cellular_alt wifi battery_full</span></div>
+
+            <div style="flex:1; overflow:auto; padding:8px 16px 24px; display:flex; flex-direction:column; gap:16px">
+              <div style="display:flex; align-items:flex-end; justify-content:space-between; padding:8px 4px 0">
+                <div style="display:flex; flex-direction:column; gap:2px">
+                  <span style="font-size:13px; color:var(--fg-3); font-weight:500">{{ ph.kicker }}</span>
+                  <h2 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">{{ ph.title }}</h2>
+                </div>
+                <div aria-hidden="true" style="width:36px; height:36px; border-radius:18px; background:var(--accent-soft); color:var(--accent-ink); display:grid; place-items:center; font-weight:600; font-size:13px">EK</div>
+              </div>
+
+              <sc-if value="{{ ph.isHome }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ attention }}" as="a" hint-placeholder-count="2">
+                  <div style="display:flex; gap:12px; padding:16px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1)">
+                    <span aria-hidden="true" style="width:36px; height:36px; flex-shrink:0; border-radius:11px; display:grid; place-items:center; background:{{ a.bg }}; color:{{ a.fg }}; font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">{{ a.icon }}</span>
+                    <div style="display:flex; flex-direction:column; gap:2px; flex:1">
+                      <span style="font-weight:600">{{ a.title }}</span>
+                      <span style="font-size:13px; color:var(--fg-2)">{{ a.body }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                  <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+                    <div style="padding:16px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:4px">
+                      <span style="font-size:13px; color:var(--fg-2); font-weight:500">{{ m.label }}</span>
+                      <span style="font-size:26px; line-height:32px; font-weight:600; letter-spacing:-0.03em; font-variant-numeric:tabular-nums">{{ m.value }}</span>
+                      <span style="font-size:12px; color:var(--fg-3)">{{ m.sub }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="padding:16px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:12px">
+                  <div style="display:flex; justify-content:space-between"><span style="font-weight:600">Spend in October</span><span style="color:var(--fg-2); font-variant-numeric:tabular-nums">214 080 kr</span></div>
+                  <div role="meter" aria-label="57% of all budgets used" aria-valuenow="57" aria-valuemin="0" aria-valuemax="100" style="height:8px; border-radius:4px; background:var(--sunken)"><div style="width:57%; height:100%; border-radius:4px; background:var(--chart)"></div></div>
+                  <span style="font-size:13px; color:var(--fg-3)">57% of 378 000 kr across all budgets</span>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ ph.isAlerts }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ alerts }}" as="al" hint-placeholder-count="3">
+                  <div style="padding:16px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:12px; opacity:{{ al.opacity }}">
+                    <div style="display:flex; gap:12px">
+                      <span aria-hidden="true" style="width:36px; height:36px; flex-shrink:0; border-radius:11px; display:grid; place-items:center; background:{{ al.bg }}; color:{{ al.fg }}; font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">{{ al.icon }}</span>
+                      <div style="display:flex; flex-direction:column; gap:2px; flex:1"><span style="font-weight:600" lang="sv">{{ al.title }}</span><span style="font-size:13px; color:var(--fg-2)">{{ al.body }}</span></div>
+                    </div>
+                    <div role="meter" aria-label="{{ al.meterLabel }}" aria-valuenow="{{ al.pct }}" aria-valuemin="0" aria-valuemax="100" style="height:6px; border-radius:3px; background:var(--sunken)"><div style="height:100%; width:{{ al.w }}; border-radius:3px; background:{{ al.fg }}"></div></div>
+                    <sc-if value="{{ al.open }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ al.ack }}" style="height:44px; border:none; border-radius:12px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border-strong); color:var(--fg); font-weight:600; font-size:15px; cursor:pointer">Acknowledge</button>
+                    </sc-if>
+                    <sc-if value="{{ al.done }}" hint-placeholder-val="{{ false }}">
+                      <span style="display:flex; align-items:center; gap:6px; color:var(--ok); font-weight:500; font-size:14px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">check_circle</span>Acknowledged by you</span>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ ph.isKey }}" hint-placeholder-val="{{ false }}">
+                <label style="height:44px; display:flex; align-items:center; gap:8px; padding:0 12px; border-radius:12px; background:var(--sunken)"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; color:var(--fg-3)">search</span><span style="position:absolute; left:-9999px">Search keys</span><input placeholder="Search keys" value="ume-sk-7f3a" style="flex:1; border:none; outline:none; background:transparent; font-size:16px"></label>
+                <div style="padding:20px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:14px">
+                  <span style="display:inline-flex; align-self:flex-start; align-items:center; gap:6px; height:24px; padding:0 10px; border-radius:12px; background:{{ key.sBg }}; color:{{ key.sFg }}; font-size:13px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ key.sFg }}"></span>{{ key.status }}</span>
+                  <div style="display:flex; flex-direction:column; gap:2px"><span style="font-size:22px; line-height:28px; font-weight:600; letter-spacing:-0.02em">Case summariser</span><span style="font-family:'Geist Mono', monospace; font-size:13px; color:var(--fg-2)">ume-sk-7f3a…</span></div>
+                  <dl style="margin:0">
+                    <sc-for list="{{ keyRows }}" as="r" hint-placeholder-count="4">
+                      <div style="display:flex; justify-content:space-between; gap:12px; padding:12px 0; border-top:1px solid var(--border)"><dt style="color:var(--fg-2)">{{ r.k }}</dt><dd lang="{{ r.lang }}" style="margin:0; font-weight:500; text-align:right">{{ r.v }}</dd></div>
+                    </sc-for>
+                  </dl>
+                </div>
+                <sc-if value="{{ key.canRevoke }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ askRevoke }}" style="height:50px; border:none; border-radius:14px; background:var(--danger-soft); color:var(--danger); font-weight:600; font-size:16px; cursor:pointer">Revoke key</button>
+                  <p style="margin:-6px 4px 0; font-size:13px; color:var(--fg-3)">To rotate or edit, use the desktop app.</p>
+                </sc-if>
+              </sc-if>
+
+              <sc-if value="{{ ph.isHealth }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; gap:8px; align-items:center; padding:12px 14px; border-radius:14px; background:{{ healthBannerBg }}; color:{{ healthBannerFg }}; font-weight:500; font-size:14px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">{{ healthBannerIcon }}</span>{{ healthBanner }}</div>
+                <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px">
+                  <sc-for list="{{ providers }}" as="p" hint-placeholder-count="4">
+                    <li style="padding:14px 16px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:12px">
+                      <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start">
+                        <div style="display:flex; flex-direction:column; gap:2px"><span style="font-family:'Geist Mono', monospace; font-size:14px; font-weight:500">{{ p.name }}</span><span style="font-size:13px; color:{{ p.resColor }}"><span aria-hidden="true">{{ p.resGlyph }} </span>{{ p.resLabel }} <span style="color:var(--fg-3)">· p95 {{ p.p95 }} · {{ p.err }} errors</span></span></div>
+                        <span style="display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px; border-radius:12px; background:{{ p.bg }}; color:{{ p.fg }}; font-size:13px; font-weight:500; white-space:nowrap"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ p.fg }}"></span>{{ p.state }}</span>
+                      </div>
+                      <sc-if value="{{ p.canToggle }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ p.toggle }}" style="height:44px; border:none; border-radius:12px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border-strong); color:{{ p.actionColor }}; font-weight:600; font-size:15px; cursor:pointer">{{ p.action }}</button>
+                      </sc-if>
+                    </li>
+                  </sc-for>
+                </ul>
+              </sc-if>
+            </div>
+
+            <nav aria-label="Tabs" style="flex-shrink:0; display:grid; grid-template-columns:repeat(4, 1fr); padding:8px 8px 28px; background:var(--overlay); backdrop-filter:var(--blur); border-top:1px solid var(--border)">
+              <sc-for list="{{ ph.tabs }}" as="t" hint-placeholder-count="4">
+                <a href="#" aria-current="{{ t.current }}" style="height:50px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; text-decoration:none; color:{{ t.color }}; font-size:11px; font-weight:500; position:relative">
+                  <span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:24px; font-variation-settings:'FILL' {{ t.fill }}">{{ t.icon }}</span>{{ t.label }}
+                  <sc-if value="{{ t.badge }}" hint-placeholder-val="{{ false }}"><span aria-label="{{ t.badgeLabel }}" style="position:absolute; top:2px; left:calc(50% + 6px); min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--danger); color:#fff; font-size:11px; font-weight:600; display:grid; place-items:center">{{ t.badge }}</span></sc-if>
+                </a>
+              </sc-for>
+            </nav>
+
+            <sc-if value="{{ ph.sheet }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute; inset:0; display:flex; flex-direction:column; justify-content:flex-end">
+                <div onClick="{{ cancelSheet }}" style="position:absolute; inset:0; background:var(--scrim)"></div>
+                <div role="dialog" aria-modal="true" aria-labelledby="rv-t" style="position:relative; margin:8px; padding:24px 20px 28px; border-radius:32px; background:var(--overlay); backdrop-filter:var(--blur); box-shadow:var(--shadow-2); display:flex; flex-direction:column; gap:16px">
+                  <span aria-hidden="true" style="width:44px; height:44px; border-radius:14px; display:grid; place-items:center; background:var(--danger-soft); color:var(--danger); font-family:'Material Symbols Rounded'; font-size:24px; font-variation-settings:'FILL' 1">block</span>
+                  <h3 id="rv-t" style="margin:0; font-size:22px; line-height:28px; font-weight:600; letter-spacing:-0.02em">Revoke “Case summariser”?</h3>
+                  <p style="margin:0; color:var(--fg-2)">Requests using this key fail straight away. This can't be undone.</p>
+                  <button onClick="{{ doRevoke }}" style="height:50px; border:none; border-radius:14px; background:var(--danger); color:#fff; font-weight:600; font-size:16px; cursor:pointer">Revoke key</button>
+                  <button onClick="{{ cancelSheet }}" style="height:50px; border:none; border-radius:14px; background:var(--sunken); color:var(--fg); font-weight:600; font-size:16px; cursor:pointer">Cancel</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;,&quot;lumen&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'|'lumen'&quot;}}">
+const TONE = { ok: ['var(--ok-soft)', 'var(--ok)'], warn: ['var(--warn-soft)', 'var(--warn)'], danger: ['var(--danger-soft)', 'var(--danger)'], neutral: ['var(--sunken)', 'var(--fg-2)'], accent: ['var(--accent-soft)', 'var(--accent-ink)'] };
+const RES = { OnPrem: { label: 'On-prem', glyph: '■', color: 'var(--res-onprem)' }, Eu: { label: 'EU', glyph: '●', color: 'var(--res-eu)' }, External: { label: 'External', glyph: '◆', color: 'var(--res-ext)' } };
+const TABS = [['home', 'Overview', 'space_dashboard'], ['alerts', 'Alerts', 'notifications'], ['keys', 'Keys', 'key'], ['health', 'Health', 'monitor_heart']];
+
+class Component extends DCLogic {
+  state = { acked: {}, revoked: false, sheet: false, circuits: { 'azure-sweden': true } };
+  renderVals() {
+    const s = this.state;
+    const theme = this.props.theme || 'light';
+    const openAlerts = ['a1', 'a2', 'a3'].filter(id => !s.acked[id]).length;
+    const openCircuits = Object.values(s.circuits).filter(Boolean).length;
+    const tabsFor = cur => TABS.map(([id, label, icon]) => { const badge = id === 'alerts' && openAlerts ? String(openAlerts) : id === 'health' && openCircuits ? String(openCircuits) : false; return { label, icon, current: id === cur ? 'page' : 'false', color: id === cur ? 'var(--accent)' : 'var(--fg-3)', fill: id === cur ? 1 : 0, badge, badgeLabel: badge ? badge + ' need attention' : '' }; });
+    const phones = [
+      { caption: '01 · Overview', kicker: 'Thursday 8 October', title: 'Overview', isHome: true, tabs: tabsFor('home') },
+      { caption: '02 · Alerts', kicker: `${openAlerts} open`, title: 'Alerts', isAlerts: true, tabs: tabsFor('alerts') },
+      { caption: '03 · Key → revoke', kicker: 'Keys', title: 'Key', isKey: true, tabs: tabsFor('keys'), sheet: s.sheet },
+      { caption: '04 · Provider health', kicker: 'Last 24 hours', title: 'Health', isHealth: true, tabs: tabsFor('health') },
+    ];
+    const attention = [];
+    if (!s.acked.a1) attention.push({ icon: 'error', title: 'Utbildning is over budget', body: '48 210 of 48 000 kr. Requests are being rejected.', bg: TONE.danger[0], fg: TONE.danger[1] });
+    if (s.circuits['azure-sweden']) attention.push({ icon: 'electric_bolt', title: 'Circuit open · azure-sweden', body: 'Traffic falls back to mistral-eu and on-prem.', bg: TONE.warn[0], fg: TONE.warn[1] });
+    if (!attention.length) attention.push({ icon: 'check_circle', title: 'All clear', body: 'Nothing needs your attention right now.', bg: TONE.ok[0], fg: TONE.ok[1] });
+    const metrics = [{ label: 'Requests', value: '184 920', sub: '24 h · +6.2%' }, { label: 'Errors', value: '0.42%', sub: '24 h' }, { label: 'p95', value: '2.1 s', sub: 'p50 640 ms' }, { label: 'Fallbacks', value: '1.8%', sub: '24 h' }];
+    const A = [['a1', 'Utbildning', 'Department · monthly', 48210, 48000, 'Today 08:14'], ['a2', 'Elevstöd', 'Team · monthly', 16900, 20000, 'Yesterday 17:02'], ['a3', 'Schools chatbot', 'Key · weekly', 4100, 5000, 'Mon 09:30']];
+    const alerts = A.map(([id, name, scope, sp, lim, when]) => { const u = sp / lim; const over = u >= 1; const pct = Math.round(u * 100); const done = !!s.acked[id]; return { title: over ? `${name} · 100% reached` : `${name} · passed 80%`, body: `${scope} · ${sp.toLocaleString('sv-SE')} of ${lim.toLocaleString('sv-SE')} kr · ${when}`, icon: over ? 'error' : 'warning', bg: over ? TONE.danger[0] : TONE.warn[0], fg: over ? TONE.danger[1] : TONE.warn[1], w: Math.min(100, u * 100) + '%', pct, meterLabel: `${pct}% used`, open: !done, done, opacity: done ? 0.7 : 1, ack: () => this.setState({ acked: { ...s.acked, [id]: true } }) }; });
+    const key = s.revoked ? { status: 'Revoked', sBg: TONE.danger[0], sFg: TONE.danger[1], canRevoke: false } : { status: 'Active', sBg: TONE.ok[0], sFg: TONE.ok[1], canRevoke: true };
+    const keyRows = [{ k: 'Team', v: 'Digital socialtjänst', lang: 'sv' }, { k: 'Route', v: 'chat-sensitive', lang: 'en' }, { k: 'Residency', v: 'On-prem only', lang: 'en' }, { k: 'Last used', v: s.revoked ? 'Revoked just now' : '2 min ago', lang: 'en' }, { k: 'Spend this month', v: '3 412 kr', lang: 'en' }];
+    const P = [['azure-sweden', 'Eu', '—', '3.9%'], ['mistral-eu', 'Eu', '1.8 s', '0.2%'], ['onprem-gpu', 'OnPrem', '2.4 s', '0.1%'], ['anthropic', 'External', '2.9 s', '0.3%']];
+    const providers = P.map(([name, res, p95, err]) => { const open = !!s.circuits[name]; const r = RES[res]; return { name, p95: open ? '—' : (p95 === '—' ? '1.6 s' : p95), err, resLabel: r.label, resGlyph: r.glyph, resColor: r.color, state: open ? 'Circuit open' : 'Healthy', bg: open ? TONE.danger[0] : TONE.ok[0], fg: open ? TONE.danger[1] : TONE.ok[1], canToggle: true, action: open ? 'Close circuit' : 'Open circuit for 15 min', actionColor: open ? 'var(--accent-ink)' : 'var(--danger)', toggle: () => this.setState({ circuits: { ...s.circuits, [name]: !open } }) }; });
+    return {
+      theme, themeName: { light: 'Light', dark: 'Dark', lumen: 'Lumen (2027)' }[theme], phones, attention, metrics, alerts, key, keyRows, providers,
+      askRevoke: () => this.setState({ sheet: true }), cancelSheet: () => this.setState({ sheet: false }), doRevoke: () => this.setState({ revoked: true, sheet: false }),
+      healthBanner: openCircuits ? `${openCircuits} provider out of rotation` : 'All providers in rotation', healthBannerIcon: openCircuits ? 'warning' : 'check_circle', healthBannerBg: openCircuits ? 'var(--warn-soft)' : 'var(--ok-soft)', healthBannerFg: openCircuits ? 'var(--warn)' : 'var(--ok)',
+    };
+  }
+}
+</script>
+</body>
+</html>

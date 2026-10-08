@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..24,400,0..1,0&display=block">
+<link rel="stylesheet" href="design-system/tokens.css">
+<style>a{color:var(--accent-ink)}a:hover{color:var(--accent-hover)}</style>
+</helmet>
+<div data-theme="{{ theme }}" lang="en" style="min-height:100vh; display:flex; background:var(--canvas); background-attachment:fixed; color:var(--fg); font-family:Geist, ui-sans-serif, system-ui, sans-serif; font-size:14px; line-height:20px">
+
+  <a href="#main" style="position:absolute; left:-9999px; top:8px; z-index:100; padding:8px 12px; background:var(--accent); color:var(--accent-fg); border-radius:8px" style-focus="left:8px">Skip to content</a>
+
+  <nav aria-label="Main" style="width:248px; flex-shrink:0; position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:24px; padding:20px 14px 16px; background:var(--sidebar); backdrop-filter:var(--blur); border-right:1px solid var(--border)">
+    <div style="display:flex; align-items:center; gap:10px; padding:0 8px">
+      <div aria-hidden="true" style="width:30px; height:30px; border-radius:9px; background:var(--fg); color:var(--on-fg); display:grid; place-items:center; font-weight:700; font-size:13px; letter-spacing:-0.02em; background-color:var(--fg)">U</div>
+      <div style="display:flex; flex-direction:column; line-height:16px">
+        <span style="font-weight:600; font-size:14px; letter-spacing:-0.01em">AI Gateway</span>
+        <span style="font-size:12px; color:var(--fg-3); white-space:nowrap">Umeå kommun</span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:20px; flex:1; overflow:auto">
+      <sc-for list="{{ navGroups }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex; flex-direction:column; gap:2px">
+          <div style="padding:0 10px 6px; font-size:12px; font-weight:500; color:var(--fg-3)">{{ g.label }}</div>
+          <sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3">
+            <button onClick="{{ n.go }}" aria-current="{{ n.current }}" style="display:flex; align-items:center; gap:10px; height:34px; padding:0 10px; border:none; border-radius:9px; background:{{ n.bg }}; box-shadow:{{ n.shadow }}; color:{{ n.fg }}; font-size:14px; font-weight:{{ n.weight }}; text-align:left; cursor:pointer" style-hover="background:var(--hover)">
+              <span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; line-height:20px; width:20px; font-variation-settings:'FILL' {{ n.fill }}">{{ n.icon }}</span>
+              <span style="flex:1">{{ n.label }}</span>
+              <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}">
+                <span aria-label="{{ n.badgeLabel }}" style="min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--danger); color:#fff; font-size:12px; font-weight:600; display:grid; place-items:center">{{ n.badge }}</span>
+              </sc-if>
+            </button>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px">
+      <div role="group" aria-label="Theme" style="display:grid; grid-template-columns:repeat(3,1fr); gap:2px; padding:3px; border-radius:10px; background:var(--sunken)">
+        <sc-for list="{{ themeOpts }}" as="t" hint-placeholder-count="3">
+          <button onClick="{{ t.go }}" aria-pressed="{{ t.pressed }}" style="white-space:nowrap; height:28px; border:none; border-radius:8px; background:{{ t.bg }}; box-shadow:{{ t.shadow }}; color:{{ t.fg }}; font-size:12px; font-weight:500; cursor:pointer">{{ t.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; padding:8px; border-radius:12px; background:var(--surface); box-shadow:var(--shadow-1)">
+        <div aria-hidden="true" style="width:32px; height:32px; border-radius:16px; background:var(--accent-soft); color:var(--accent-ink); display:grid; place-items:center; font-weight:600; font-size:12px">EK</div>
+        <div style="display:flex; flex-direction:column; min-width:0; flex:1; line-height:16px">
+          <span style="font-weight:500; font-size:13px">Erik Karlsson</span>
+          <span style="font-size:12px; color:var(--fg-3)">{{ roleLabel }}</span>
+        </div>
+        <button aria-label="Sign out" style="width:32px; height:32px; border:none; border-radius:8px; background:transparent; color:var(--fg-2); cursor:pointer; display:grid; place-items:center" style-hover="background:var(--hover)"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px">logout</span></button>
+      </div>
+    </div>
+  </nav>
+
+  <div style="flex:1; min-width:0; display:flex; flex-direction:column">
+    <div style="position:sticky; top:0; z-index:10; height:60px; display:flex; align-items:center; gap:16px; padding:0 40px; background:var(--canvas); background-attachment:fixed; border-bottom:1px solid var(--border)">
+      <button style="flex:1; min-width:0; max-width:420px; height:36px; display:flex; align-items:center; gap:8px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:var(--shadow-1); color:var(--fg-3); font-size:14px; cursor:pointer; text-align:left">
+        <span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px">search</span>
+        <span style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Search keys, teams or request ID</span>
+        <kbd style="font-family:'Geist Mono', monospace; font-size:12px; padding:2px 6px; border-radius:6px; background:var(--sunken); color:var(--fg-2)">⌘K</kbd>
+      </button>
+      <span style="margin-left:auto; flex-shrink:0; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 10px; border-radius:13px; background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:var(--ok)"></span>Production</span>
+      <span style="font-size:13px; color:var(--fg-3); white-space:nowrap; flex-shrink:0">6 h 12 min left</span>
+    </div>
+
+    <main id="main" style="flex:1; padding:36px 40px 64px; width:100%; max-width:1320px">
+
+      <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+        <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:32px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h1 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">Good morning, Erik</h1>
+            <p style="margin:0; color:var(--fg-2)">Thursday 8 October · All figures are metadata only, never prompt content.</p>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); color:var(--fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">download</span>Export CSV</button>
+            <button onClick="{{ openCreate }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px" style-hover="background:var(--accent-hover)"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>New key</button>
+          </div>
+        </header>
+
+        <section aria-labelledby="att-h" style="margin-bottom:32px">
+          <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:12px">
+            <h2 id="att-h" style="margin:0; font-size:16px; font-weight:600">Needs attention</h2>
+            <span style="color:var(--fg-3); font-size:13px">{{ attentionCount }} items</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px">
+            <sc-for list="{{ attention }}" as="a" hint-placeholder-count="3">
+              <article style="display:flex; flex-direction:column; gap:14px; padding:18px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1)">
+                <div style="display:flex; align-items:center; gap:10px">
+                  <span aria-hidden="true" style="width:32px; height:32px; border-radius:10px; display:grid; place-items:center; background:{{ a.bg }}; color:{{ a.fg }}; font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">{{ a.icon }}</span>
+                  <div style="display:flex; flex-direction:column; min-width:0">
+                    <span style="font-size:12px; font-weight:500; color:{{ a.fg }}">{{ a.kind }}</span>
+                    <h3 style="margin:0; font-size:15px; font-weight:600">{{ a.title }}</h3>
+                  </div>
+                </div>
+                <p style="margin:0; color:var(--fg-2); font-size:13px; flex:1; text-wrap:pretty">{{ a.body }}</p>
+                <button onClick="{{ a.act }}" style="align-self:flex-start; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border-strong); color:var(--fg); font-weight:500; font-size:13px; cursor:pointer">{{ a.cta }}</button>
+              </article>
+            </sc-for>
+          </div>
+        </section>
+
+        <section aria-label="Key figures" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:12px">
+          <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+            <div style="display:flex; flex-direction:column; gap:6px; padding:20px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1)">
+              <span style="font-size:13px; color:var(--fg-2); font-weight:500">{{ m.label }}</span>
+              <span style="font-size:34px; line-height:40px; font-weight:600; letter-spacing:-0.03em; font-variant-numeric:tabular-nums">{{ m.value }}</span>
+              <sc-if value="{{ m.meter }}" hint-placeholder-val="{{ false }}">
+                <div role="meter" aria-valuenow="{{ m.meter }}" aria-valuemin="0" aria-valuemax="100" aria-label="Share of monthly budget used" style="height:6px; border-radius:3px; background:var(--sunken); overflow:hidden; margin-top:4px">
+                  <div style="height:100%; width:{{ m.meterW }}; background:var(--chart); border-radius:3px"></div>
+                </div>
+              </sc-if>
+              <span style="font-size:13px; color:var(--fg-3)">{{ m.sub }}</span>
+            </div>
+          </sc-for>
+        </section>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:12px; margin-bottom:12px">
+          <section aria-labelledby="spend-h" style="padding:20px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:16px">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px">
+              <h2 id="spend-h" style="margin:0; font-size:16px; font-weight:600">Daily spend</h2>
+              <span style="font-size:13px; color:var(--fg-3)">9 Sep – 8 Oct · SEK</span>
+            </div>
+            <div role="img" aria-label="{{ chartLabel }}" style="height:180px; display:flex; align-items:flex-end; gap:4px; border-bottom:1px solid var(--border)">
+              <sc-for list="{{ spendBars }}" as="b" hint-placeholder-count="30">
+                <div title="{{ b.title }}" style="flex:1; height:{{ b.h }}; background:{{ b.c }}; border-radius:4px 4px 0 0; min-height:2px"></div>
+              </sc-for>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--fg-3); font-variant-numeric:tabular-nums"><span>9 Sep</span><span>23 Sep</span><span>Today</span></div>
+          </section>
+
+          <section aria-labelledby="prov-h" style="padding:20px 20px 8px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:8px">
+            <div style="display:flex; justify-content:space-between; align-items:baseline">
+              <h2 id="prov-h" style="margin:0; font-size:16px; font-weight:600">Providers</h2>
+              <span style="font-size:13px; color:var(--fg-3)">p95 · 24 h</span>
+            </div>
+            <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column">
+              <sc-for list="{{ providers }}" as="p" hint-placeholder-count="5">
+                <li style="display:grid; grid-template-columns:minmax(0,1fr) auto 64px; align-items:center; gap:12px; min-height:48px; border-top:1px solid var(--border)">
+                  <div style="display:flex; flex-direction:column; min-width:0">
+                    <span style="font-family:'Geist Mono', monospace; font-size:13px; font-weight:500">{{ p.name }}</span>
+                    <span style="font-size:12px; color:{{ p.resColor }}"><span aria-hidden="true">{{ p.resGlyph }} </span>{{ p.resLabel }}</span>
+                  </div>
+                  <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ p.bg }}; color:{{ p.fg }}; font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ p.fg }}"></span>{{ p.state }}</span>
+                  <span style="text-align:right; font-variant-numeric:tabular-nums; color:var(--fg-2)">{{ p.p95 }}</span>
+                </li>
+              </sc-for>
+            </ul>
+          </section>
+        </div>
+
+        <section aria-labelledby="dept-h" style="padding:20px 20px 8px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1)">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px">
+            <h2 id="dept-h" style="margin:0; font-size:16px; font-weight:600">Spend by department · October</h2>
+            <button onClick="{{ goBudgets }}" style="border:none; background:none; color:var(--accent-ink); font-weight:500; cursor:pointer; padding:4px">See budgets</button>
+          </div>
+          <table style="width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums">
+            <thead><tr style="color:var(--fg-3); font-size:12px; text-align:left">
+              <th scope="col" style="font-weight:500; padding:8px 0">Department</th>
+              <th scope="col" style="font-weight:500; padding:8px 12px">Cost center</th>
+              <th scope="col" style="font-weight:500; padding:8px 12px; text-align:right">Requests</th>
+              <th scope="col" style="font-weight:500; padding:8px 12px; text-align:right">Spend</th>
+              <th scope="col" style="font-weight:500; padding:8px 0; width:28%">Share</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ deptSpend }}" as="d" hint-placeholder-count="6">
+                <tr style="border-top:1px solid var(--border); height:48px">
+                  <th scope="row" lang="sv" style="text-align:left; font-weight:500; padding:0">{{ d.name }}</th>
+                  <td style="padding:0 12px; font-family:'Geist Mono', monospace; font-size:13px; color:var(--fg-2)">{{ d.code }}</td>
+                  <td style="padding:0 12px; text-align:right; color:var(--fg-2)">{{ d.req }}</td>
+                  <td style="padding:0 12px; text-align:right; font-weight:500">{{ d.cost }}</td>
+                  <td style="padding:0"><div style="display:flex; align-items:center; gap:10px"><div style="flex:1; height:6px; border-radius:3px; background:var(--sunken)"><div style="height:100%; width:{{ d.w }}; border-radius:3px; background:var(--chart)"></div></div><span style="width:36px; text-align:right; font-size:12px; color:var(--fg-3)">{{ d.share }}</span></div></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{ isKeys }}" hint-placeholder-val="{{ false }}">
+        <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:24px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h1 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">Virtual keys</h1>
+            <p style="margin:0; color:var(--fg-2)">{{ keySummary }}</p>
+          </div>
+          <button onClick="{{ openCreate }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px" style-hover="background:var(--accent-hover)"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>New key</button>
+        </header>
+
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
+          <label style="flex:1; min-width:240px; max-width:360px; height:36px; display:flex; align-items:center; gap:8px; padding:0 12px; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input)">
+            <span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; color:var(--fg-3)">search</span>
+            <span style="position:absolute; left:-9999px">Search keys</span>
+            <input value="{{ q }}" onInput="{{ setQ }}" placeholder="Name, prefix or team" style="flex:1; border:none; outline:none; background:transparent; height:100%; font-size:14px; min-width:0">
+          </label>
+          <div role="group" aria-label="Filter by status" style="display:flex; gap:2px; padding:3px; border-radius:10px; background:var(--sunken)">
+            <sc-for list="{{ statusTabs }}" as="s" hint-placeholder-count="5">
+              <button onClick="{{ s.go }}" aria-pressed="{{ s.pressed }}" style="white-space:nowrap; height:30px; padding:0 12px; border:none; border-radius:8px; background:{{ s.bg }}; box-shadow:{{ s.shadow }}; color:{{ s.fg }}; font-size:13px; font-weight:500; cursor:pointer; display:inline-flex; gap:6px; align-items:center">{{ s.label }}<span style="color:var(--fg-3); font-variant-numeric:tabular-nums">{{ s.count }}</span></button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); overflow-x:auto">
+          <table style="width:100%; border-collapse:collapse">
+            <caption style="position:absolute; left:-9999px">Virtual keys, {{ keyRowsCount }} shown</caption>
+            <thead><tr style="color:var(--fg-3); font-size:12px; text-align:left; background:var(--surface-2)">
+              <th scope="col" style="font-weight:500; padding:10px 20px">Key</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px">Owner</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px">Status</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px">Access</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px">Last used</th>
+              <th scope="col" style="padding:10px 20px"><span style="position:absolute; left:-9999px">Actions</span></th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ keyRows }}" as="k" hint-placeholder-count="8">
+                <tr onClick="{{ k.open }}" style="border-top:1px solid var(--border); height:60px; cursor:pointer" style-hover="background:var(--hover)">
+                  <th scope="row" style="text-align:left; padding:0 20px; font-weight:400">
+                    <button onClick="{{ k.open }}" style="border:none; background:none; padding:0; text-align:left; cursor:pointer; display:flex; flex-direction:column; gap:2px">
+                      <span style="font-weight:500; color:var(--fg)">{{ k.name }}</span>
+                      <span style="font-family:'Geist Mono', monospace; font-size:12px; color:var(--fg-3); white-space:nowrap">{{ k.prefix }}…</span>
+                    </button>
+                  </th>
+                  <td style="padding:0 12px"><div style="display:flex; flex-direction:column; gap:2px" lang="sv"><span>{{ k.team }}</span><span style="font-size:12px; color:var(--fg-3)">{{ k.dept }}</span></div></td>
+                  <td style="padding:0 12px"><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ k.sBg }}; color:{{ k.sFg }}; font-size:12px; font-weight:500; white-space:nowrap"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ k.sFg }}"></span>{{ k.statusLabel }}</span></td>
+                  <td style="padding:0 12px"><div style="display:flex; flex-direction:column; gap:2px"><span title="{{ k.modelsLabel }}" style="display:block; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ k.modelsLabel }}</span><span style="font-size:12px; color:var(--fg-3)">{{ k.resLabel }}</span></div></td>
+                  <td style="padding:0 12px; color:var(--fg-2); white-space:nowrap">{{ k.lastUsed }}</td>
+                  <td style="padding:0 20px; text-align:right"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; color:var(--fg-3)">chevron_right</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <sc-if value="{{ noKeys }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:48px 20px; text-align:center; color:var(--fg-2)">No keys match “{{ q }}”. <button onClick="{{ clearFilters }}" style="border:none; background:none; color:var(--accent-ink); font-weight:500; cursor:pointer">Clear filters</button></div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isOrg }}" hint-placeholder-val="{{ false }}">
+        <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:24px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h1 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">Organisation</h1>
+            <p style="margin:0; color:var(--fg-2)">Departments (<span lang="sv">förvaltningar</span>) own teams. Teams own keys.</p>
+          </div>
+          <button style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); color:var(--fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>New department</button>
+        </header>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:16px; align-items:start">
+          <nav aria-label="Departments" style="padding:8px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:2px">
+            <sc-for list="{{ deptList }}" as="d" hint-placeholder-count="6">
+              <button onClick="{{ d.go }}" aria-current="{{ d.current }}" style="display:flex; align-items:center; gap:12px; min-height:52px; padding:8px 12px; border:none; border-radius:10px; background:{{ d.bg }}; color:var(--fg); text-align:left; cursor:pointer" style-hover="background:var(--hover)">
+                <div style="flex:1; display:flex; flex-direction:column; min-width:0" lang="sv">
+                  <span style="font-weight:{{ d.weight }}">{{ d.name }}</span>
+                  <span style="font-size:12px; color:var(--fg-3); font-family:'Geist Mono', monospace">{{ d.code }}</span>
+                </div>
+                <span style="font-size:12px; color:var(--fg-3); white-space:nowrap">{{ d.teamsLabel }}</span>
+              </button>
+            </sc-for>
+          </nav>
+
+          <section aria-labelledby="dept-title" style="display:flex; flex-direction:column; gap:16px; min-width:0">
+            <div style="padding:24px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start">
+              <div style="flex:1; min-width:220px; display:flex; flex-direction:column; gap:4px">
+                <span style="font-size:12px; color:var(--fg-3); font-weight:500">Department · cost center <span style="font-family:'Geist Mono', monospace">{{ dept.code }}</span></span>
+                <h2 id="dept-title" lang="sv" style="margin:0; font-size:24px; line-height:30px; font-weight:600; letter-spacing:-0.02em">{{ dept.name }}</h2>
+                <span style="color:var(--fg-2)">{{ dept.summary }}</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px; min-width:200px">
+                <span style="font-size:12px; color:var(--fg-3); font-weight:500">Monthly budget</span>
+                <span style="font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">{{ dept.budget }}</span>
+                <div style="height:6px; border-radius:3px; background:var(--sunken)"><div style="height:100%; width:{{ dept.budgetW }}; border-radius:3px; background:{{ dept.budgetC }}"></div></div>
+              </div>
+              <div style="display:flex; gap:8px">
+                <button style="white-space:nowrap; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; font-size:13px; cursor:pointer">Edit</button>
+              </div>
+            </div>
+
+            <div style="border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); overflow:hidden">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px">
+                <h3 style="margin:0; font-size:16px; font-weight:600">Teams</h3>
+                <button onClick="{{ addTeam }}" style="white-space:nowrap; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--accent); color:var(--accent-fg); font-weight:500; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:4px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>Add team</button>
+              </div>
+              <table style="width:100%; border-collapse:collapse">
+                <thead><tr style="color:var(--fg-3); font-size:12px; text-align:left; background:var(--surface-2)">
+                  <th scope="col" style="font-weight:500; padding:10px 20px">Team</th>
+                  <th scope="col" style="font-weight:500; padding:10px 12px; text-align:right">Keys</th>
+                  <th scope="col" style="font-weight:500; padding:10px 12px">Status</th>
+                  <th scope="col" style="padding:10px 20px"><span style="position:absolute; left:-9999px">Actions</span></th>
+                </tr></thead>
+                <tbody>
+                  <sc-for list="{{ dept.teams }}" as="t" hint-placeholder-count="3">
+                    <tr style="border-top:1px solid var(--border); height:60px">
+                      <th scope="row" style="text-align:left; padding:0 20px; font-weight:400"><div style="display:flex; flex-direction:column; gap:2px"><span lang="sv" style="font-weight:500">{{ t.name }}</span><span style="font-size:12px; color:var(--fg-3)">{{ t.desc }}</span></div></th>
+                      <td style="padding:0 12px; text-align:right; font-variant-numeric:tabular-nums">{{ t.keys }}</td>
+                      <td style="padding:0 12px"><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ t.sBg }}; color:{{ t.sFg }}; font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ t.sFg }}"></span>{{ t.status }}</span></td>
+                      <td style="padding:0 20px"><div style="display:flex; justify-content:flex-end; align-items:center; gap:4px">
+                        <button onClick="{{ t.viewKeys }}" style="white-space:nowrap; height:32px; padding:0 10px; border:none; border-radius:8px; background:transparent; color:var(--fg); font-size:13px; font-weight:500; cursor:pointer" style-hover="background:var(--hover)">Keys</button>
+                        <button style="white-space:nowrap; height:32px; padding:0 10px; border:none; border-radius:8px; background:transparent; color:var(--fg); font-size:13px; font-weight:500; cursor:pointer" style-hover="background:var(--hover)">Edit</button>
+                        <button aria-disabled="{{ t.locked }}" aria-describedby="{{ t.reasonId }}" style="white-space:nowrap; height:32px; padding:0 10px; border:none; border-radius:8px; background:transparent; color:{{ t.delColor }}; font-size:13px; font-weight:500; cursor:pointer" style-hover="background:var(--hover)">Delete</button>
+                      </div>
+                      <sc-if value="{{ t.locked }}" hint-placeholder-val="{{ false }}"><div id="{{ t.reasonId }}" style="text-align:right; font-size:12px; color:var(--fg-3); margin-top:-4px; padding-bottom:6px">{{ t.reason }}</div></sc-if></td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRoutes }}" hint-placeholder-val="{{ false }}">
+        <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:24px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h1 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">Routes</h1>
+            <p style="margin:0; color:var(--fg-2)">A route is the model name clients call. It falls back by priority, then splits by weight.</p>
+          </div>
+          <button style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>New route</button>
+        </header>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:16px; align-items:start">
+          <nav aria-label="Routes" style="padding:8px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:2px">
+            <sc-for list="{{ routeList }}" as="r" hint-placeholder-count="4">
+              <button onClick="{{ r.go }}" aria-current="{{ r.current }}" style="display:flex; align-items:center; gap:12px; min-height:56px; padding:8px 12px; border:none; border-radius:10px; background:{{ r.bg }}; color:var(--fg); text-align:left; cursor:pointer" style-hover="background:var(--hover)">
+                <div style="flex:1; display:flex; flex-direction:column; min-width:0; gap:2px">
+                  <span style="font-family:'Geist Mono', monospace; font-size:13px; font-weight:500">{{ r.name }}</span>
+                  <span style="font-size:12px; color:var(--fg-3)">{{ r.meta }}</span>
+                </div>
+                <sc-if value="{{ r.warn }}" hint-placeholder-val="{{ false }}"><span aria-label="Has a degraded target" style="font-family:'Material Symbols Rounded'; font-size:18px; color:var(--warn); font-variation-settings:'FILL' 1">warning</span></sc-if>
+              </button>
+            </sc-for>
+          </nav>
+
+          <section aria-labelledby="route-title" style="display:flex; flex-direction:column; gap:16px; min-width:0">
+            <div style="padding:24px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:24px">
+              <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; justify-content:space-between">
+                <div style="display:flex; flex-direction:column; gap:6px; min-width:0; flex:1">
+                  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0">
+                    <h2 id="route-title" style="margin:0; min-width:0; overflow-wrap:anywhere; font-family:'Geist Mono', monospace; font-size:22px; line-height:28px; font-weight:500; letter-spacing:-0.02em">{{ route.name }}</h2>
+                    <span style="height:22px; padding:0 8px; border-radius:11px; background:var(--accent-soft); color:var(--accent-ink); font-size:12px; font-weight:500; display:inline-flex; align-items:center">{{ route.kind }}</span>
+                  </div>
+                  <span style="color:var(--fg-2)">{{ route.desc }}</span>
+                </div>
+                <div style="display:flex; gap:8px">
+                  <button style="white-space:nowrap; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; font-size:13px; cursor:pointer">Edit targets</button>
+                </div>
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:12px">
+                <h3 style="margin:0; font-size:14px; font-weight:600">Fallback chain</h3>
+                <ol style="list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:12px; align-items:stretch">
+                  <sc-for list="{{ route.tiers }}" as="tier" hint-placeholder-count="2">
+                    <li style="display:flex; align-items:stretch; gap:12px; flex:1 1 260px; min-width:min(100%, 260px)">
+                      <sc-if value="{{ tier.notFirst }}" hint-placeholder-val="{{ false }}">
+                        <div aria-hidden="true" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; color:var(--fg-3); font-size:12px; width:56px; flex-shrink:0"><span style="font-family:'Material Symbols Rounded'; font-size:20px">arrow_forward</span>on failure</div>
+                      </sc-if>
+                      <div style="flex:1; display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:14px; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--border)">
+                        <div style="display:flex; justify-content:space-between; align-items:baseline"><span style="font-size:12px; font-weight:600; color:var(--fg-2)">{{ tier.label }}</span><span style="font-size:12px; color:var(--fg-3)">{{ tier.hint }}</span></div>
+                        <sc-for list="{{ tier.targets }}" as="tg" hint-placeholder-count="1">
+                          <div style="display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:10px; background:var(--surface); box-shadow:var(--shadow-1)">
+                            <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start">
+                              <div style="display:flex; flex-direction:column; min-width:0">
+                                <span style="font-family:'Geist Mono', monospace; font-size:13px; font-weight:500">{{ tg.model }}</span>
+                                <span style="font-size:12px; color:var(--fg-3)">{{ tg.provider }} · <span style="color:{{ tg.resColor }}"><span aria-hidden="true">{{ tg.resGlyph }} </span>{{ tg.resLabel }}</span></span>
+                              </div>
+                              <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ tg.hBg }}; color:{{ tg.hFg }}; font-size:12px; font-weight:500; white-space:nowrap"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ tg.hFg }}"></span>{{ tg.health }}</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px"><div style="flex:1; height:6px; border-radius:3px; background:var(--sunken)"><div style="height:100%; width:{{ tg.share }}; border-radius:3px; background:var(--chart)"></div></div><span style="font-size:12px; color:var(--fg-2); font-variant-numeric:tabular-nums; width:72px; text-align:right">{{ tg.shareLabel }}</span></div>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </li>
+                  </sc-for>
+                </ol>
+                <p style="margin:0; font-size:13px; color:var(--fg-3)">Falls back on retryable provider errors. Never falls back after a streamed response has started.</p>
+              </div>
+            </div>
+
+            <div style="padding:20px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:8px">
+              <h3 style="margin:0; font-size:14px; font-weight:600">Where requests land, by key data residency</h3>
+              <p style="margin:0 0 8px; font-size:13px; color:var(--fg-2)">Targets outside a key's allowed residencies are skipped before routing.</p>
+              <sc-for list="{{ route.paths }}" as="pth" hint-placeholder-count="3">
+                <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:12px; align-items:center; min-height:40px; border-top:1px solid var(--border)">
+                  <span style="font-weight:500">{{ pth.label }}</span>
+                  <span style="color:{{ pth.color }}">{{ pth.result }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBudgets }}" hint-placeholder-val="{{ false }}">
+        <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:24px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h1 style="margin:0; font-size:30px; line-height:36px; font-weight:600; letter-spacing:-0.025em">Budgets & alerts</h1>
+            <p style="margin:0; color:var(--fg-2)">Periods follow the Stockholm calendar. Requests stop when any budget in the chain is used up.</p>
+          </div>
+          <button onClick="{{ openBudget }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px">add</span>New budget</button>
+        </header>
+
+        <sc-if value="{{ hasAlerts }}" hint-placeholder-val="{{ true }}">
+          <section aria-labelledby="alerts-h" style="margin-bottom:24px; display:flex; flex-direction:column; gap:8px">
+            <h2 id="alerts-h" style="margin:0 0 4px; font-size:16px; font-weight:600">Open alerts</h2>
+            <sc-for list="{{ alerts }}" as="al" hint-placeholder-count="2">
+              <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:14px 16px 14px 14px; border-radius:14px; background:{{ al.bg }}">
+                <span aria-hidden="true" style="width:32px; height:32px; border-radius:10px; display:grid; place-items:center; background:var(--surface); color:{{ al.fg }}; font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">{{ al.icon }}</span>
+                <div style="flex:1; min-width:220px; display:flex; flex-direction:column">
+                  <span style="font-weight:600; color:var(--fg)">{{ al.title }}</span>
+                  <span style="font-size:13px; color:var(--fg-2)">{{ al.body }}</span>
+                </div>
+                <button onClick="{{ al.ack }}" style="white-space:nowrap; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; font-size:13px; cursor:pointer">Acknowledge</button>
+              </div>
+            </sc-for>
+          </section>
+        </sc-if>
+
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px">
+          <div role="group" aria-label="Filter by scope" style="display:flex; gap:2px; padding:3px; border-radius:10px; background:var(--sunken)">
+            <sc-for list="{{ scopeTabs }}" as="s" hint-placeholder-count="4">
+              <button onClick="{{ s.go }}" aria-pressed="{{ s.pressed }}" style="white-space:nowrap; height:30px; padding:0 12px; border:none; border-radius:8px; background:{{ s.bg }}; box-shadow:{{ s.shadow }}; color:{{ s.fg }}; font-size:13px; font-weight:500; cursor:pointer">{{ s.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); overflow:hidden">
+          <table style="width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums">
+            <thead><tr style="color:var(--fg-3); font-size:12px; text-align:left; background:var(--surface-2)">
+              <th scope="col" style="font-weight:500; padding:10px 20px">Owner</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px">Period</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px; width:38%">Used</th>
+              <th scope="col" style="font-weight:500; padding:10px 12px; text-align:right">Spent / limit</th>
+              <th scope="col" style="font-weight:500; padding:10px 20px">Resets</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ budgetRows }}" as="b" hint-placeholder-count="6">
+                <tr style="border-top:1px solid var(--border); height:64px">
+                  <th scope="row" style="text-align:left; padding:0 20px; font-weight:400"><div style="display:flex; flex-direction:column; gap:2px"><span lang="sv" style="font-weight:500">{{ b.name }}</span><span style="font-size:12px; color:var(--fg-3)">{{ b.scope }}</span></div></th>
+                  <td style="padding:0 12px; color:var(--fg-2)">{{ b.period }}</td>
+                  <td style="padding:0 12px">
+                    <div style="display:flex; align-items:center; gap:12px">
+                      <div role="meter" aria-label="{{ b.meterLabel }}" aria-valuenow="{{ b.pct }}" aria-valuemin="0" aria-valuemax="100" style="position:relative; flex:1; height:8px; border-radius:4px; background:var(--sunken)">
+                        <div style="height:100%; width:{{ b.w }}; border-radius:4px; background:{{ b.c }}"></div>
+                        <sc-for list="{{ b.ticks }}" as="tk" hint-placeholder-count="2"><div aria-hidden="true" style="position:absolute; top:-3px; bottom:-3px; left:{{ tk }}; width:2px; border-radius:1px; background:var(--fg-3); opacity:.5"></div></sc-for>
+                      </div>
+                      <span style="width:52px; text-align:right; font-weight:600; color:{{ b.pctColor }}">{{ b.pctLabel }}</span>
+                    </div>
+                  </td>
+                  <td style="padding:0 12px; text-align:right"><span style="font-weight:500">{{ b.spent }}</span><span style="color:var(--fg-3)"> / {{ b.limit }}</span></td>
+                  <td style="padding:0 20px; color:var(--fg-2)">{{ b.resets }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:12px 0 0; font-size:13px; color:var(--fg-3)">Tick marks show alert thresholds. Figures are estimates from gateway metadata, not invoices.</p>
+      </sc-if>
+
+      <sc-if value="{{ isOther }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:64px 24px; text-align:center; display:flex; flex-direction:column; gap:8px; align-items:center">
+          <h1 style="margin:0; font-size:24px; font-weight:600; letter-spacing:-0.02em">{{ otherTitle }}</h1>
+          <p style="margin:0; color:var(--fg-2); max-width:420px">Not part of this mockup round. Build it from the same page, table and card patterns.</p>
+        </div>
+      </sc-if>
+    </main>
+  </div>
+
+  <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed; inset:0; z-index:40; display:flex; justify-content:flex-end">
+      <div onClick="{{ closeAll }}" style="position:absolute; inset:0; background:var(--scrim)"></div>
+      <aside role="dialog" aria-modal="true" aria-labelledby="dk-title" style="position:relative; width:min(480px, 100%); height:100%; display:flex; flex-direction:column; background:var(--overlay); backdrop-filter:var(--blur); box-shadow:var(--shadow-2)">
+        <div style="display:flex; align-items:flex-start; gap:12px; padding:24px 24px 20px; border-bottom:1px solid var(--border)">
+          <div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width:0">
+            <span style="display:inline-flex; align-self:flex-start; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ dk.sBg }}; color:{{ dk.sFg }}; font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ dk.sFg }}"></span>{{ dk.statusLabel }}</span>
+            <h2 id="dk-title" style="margin:0; font-size:22px; line-height:28px; font-weight:600; letter-spacing:-0.02em">{{ dk.name }}</h2>
+            <span style="font-family:'Geist Mono', monospace; font-size:13px; color:var(--fg-2)">{{ dk.prefix }}…</span>
+          </div>
+          <button onClick="{{ closeAll }}" aria-label="Close" style="width:36px; height:36px; border:none; border-radius:10px; background:var(--sunken); cursor:pointer; display:grid; place-items:center"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px">close</span></button>
+        </div>
+        <div style="flex:1; overflow:auto; padding:8px 24px 24px; display:flex; flex-direction:column; gap:24px">
+          <sc-for list="{{ dk.sections }}" as="sec" hint-placeholder-count="3">
+            <section style="display:flex; flex-direction:column">
+              <h3 style="margin:16px 0 4px; font-size:12px; font-weight:600; color:var(--fg-3)">{{ sec.title }}</h3>
+              <dl style="margin:0">
+                <sc-for list="{{ sec.rows }}" as="row" hint-placeholder-count="3">
+                  <div style="display:grid; grid-template-columns:150px minmax(0,1fr); gap:12px; padding:10px 0; border-bottom:1px solid var(--border)">
+                    <dt style="color:var(--fg-2)">{{ row.k }}</dt><dd style="margin:0; font-weight:500; text-wrap:pretty">{{ row.v }}</dd>
+                  </div>
+                </sc-for>
+              </dl>
+            </section>
+          </sc-for>
+        </div>
+        <div style="display:flex; gap:8px; padding:16px 24px; border-top:1px solid var(--border); flex-wrap:wrap; align-items:center">
+          <button aria-disabled="{{ dk.locked }}" onClick="{{ askRotate }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; opacity:{{ dk.lockedOpacity }}">Rotate</button>
+          <button style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; cursor:pointer">Edit</button>
+          <div style="flex:1"></div>
+          <button aria-disabled="{{ dk.revoked }}" onClick="{{ askRevoke }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:transparent; color:var(--danger); font-weight:500; cursor:pointer; opacity:{{ dk.revokedOpacity }}" style-hover="background:var(--danger-soft)">Revoke</button>
+          <sc-if value="{{ dk.locked }}" hint-placeholder-val="{{ false }}"><p style="margin:0; width:100%; font-size:12px; color:var(--fg-3)">Only active keys that haven't been rotated can be rotated.</p></sc-if>
+        </div>
+      </aside>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ createOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed; inset:0; z-index:40; display:flex; justify-content:flex-end">
+      <div onClick="{{ closeAll }}" style="position:absolute; inset:0; background:var(--scrim)"></div>
+      <form onSubmit="{{ submitCreate }}" role="dialog" aria-modal="true" aria-labelledby="nk-title" novalidate style="position:relative; width:min(520px, 100%); height:100%; display:flex; flex-direction:column; background:var(--overlay); backdrop-filter:var(--blur); box-shadow:var(--shadow-2); margin:0">
+        <div style="display:flex; align-items:center; gap:12px; padding:24px; border-bottom:1px solid var(--border)">
+          <h2 id="nk-title" style="flex:1; margin:0; font-size:22px; line-height:28px; font-weight:600; letter-spacing:-0.02em">New key</h2>
+          <button type="button" onClick="{{ closeAll }}" aria-label="Close" style="width:36px; height:36px; border:none; border-radius:10px; background:var(--sunken); cursor:pointer; display:grid; place-items:center"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px">close</span></button>
+        </div>
+        <div style="flex:1; overflow:auto; padding:24px; display:flex; flex-direction:column; gap:28px">
+          <fieldset style="border:none; margin:0; padding:0; display:flex; flex-direction:column; gap:16px">
+            <legend style="padding:0; margin-bottom:12px; font-size:12px; font-weight:600; color:var(--fg-3)">Basics</legend>
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <label for="nk-name" style="font-weight:500">Name</label>
+              <input id="nk-name" value="{{ newName }}" onInput="{{ setNewName }}" aria-invalid="{{ nameInvalid }}" aria-describedby="nk-name-err" placeholder="e.g. Permit triage" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 {{ nameBorderW }} {{ nameBorder }}; font-size:14px">
+              <sc-if value="{{ nameInvalid }}" hint-placeholder-val="{{ false }}"><span id="nk-name-err" style="display:flex; align-items:center; gap:4px; color:var(--danger); font-size:13px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:16px">error</span>Give the key a name so people can recognise it.</span></sc-if>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <label for="nk-team" style="font-weight:500">Team</label>
+              <select id="nk-team" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input); font-size:14px">
+                <option>Digital socialtjänst — Socialtjänsten</option><option>Elevstöd — Utbildning</option><option>Bygglov — Stadsbyggnad</option><option>Servicedesk — IT-avdelningen</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <fieldset style="border:none; margin:0; padding:0; display:flex; flex-direction:column; gap:16px">
+            <legend style="padding:0; margin-bottom:12px; font-size:12px; font-weight:600; color:var(--fg-3)">Access</legend>
+            <div style="display:flex; flex-direction:column; gap:8px">
+              <span id="nk-res" style="font-weight:500">Data residency</span>
+              <div role="group" aria-labelledby="nk-res" style="display:flex; gap:8px; flex-wrap:wrap">
+                <sc-for list="{{ resOpts }}" as="ro" hint-placeholder-count="3">
+                  <button type="button" onClick="{{ ro.toggle }}" aria-pressed="{{ ro.on }}" style="white-space:nowrap; height:36px; padding:0 12px; border:none; border-radius:10px; background:{{ ro.bg }}; box-shadow:inset 0 0 0 {{ ro.bw }} {{ ro.bc }}; color:var(--fg); font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:6px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:18px; color:{{ ro.checkColor }}">{{ ro.icon }}</span>{{ ro.label }}</button>
+                </sc-for>
+              </div>
+              <span style="font-size:13px; color:var(--fg-3)">{{ resHint }}</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px">
+              <span id="nk-pii" style="font-weight:500">Personal data (PII)</span>
+              <div role="radiogroup" aria-labelledby="nk-pii" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:2px; padding:3px; border-radius:10px; background:var(--sunken)">
+                <sc-for list="{{ piiOpts }}" as="po" hint-placeholder-count="5">
+                  <button type="button" role="radio" aria-checked="{{ po.on }}" onClick="{{ po.go }}" style="white-space:nowrap; height:32px; border:none; border-radius:8px; background:{{ po.bg }}; box-shadow:{{ po.shadow }}; color:{{ po.fg }}; font-size:13px; font-weight:500; cursor:pointer">{{ po.label }}</button>
+                </sc-for>
+              </div>
+              <span style="font-size:13px; color:var(--fg-2)">{{ piiHint }}</span>
+            </div>
+            <label style="display:flex; align-items:center; gap:10px; min-height:24px; cursor:pointer"><input type="checkbox" checked style="width:18px; height:18px; accent-color:var(--accent); margin:0"><span style="font-weight:500">Allow all models</span><span style="color:var(--fg-3); font-size:13px">Including models added later</span></label>
+          </fieldset>
+
+          <fieldset style="border:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:16px">
+            <legend style="padding:0; margin-bottom:12px; font-size:12px; font-weight:600; color:var(--fg-3)">Limits · optional</legend>
+            <div style="display:flex; flex-direction:column; gap:6px"><label for="nk-rpm" style="font-weight:500">Requests / min</label><input id="nk-rpm" inputmode="numeric" placeholder="No limit" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input); font-size:14px"></div>
+            <div style="display:flex; flex-direction:column; gap:6px"><label for="nk-tpm" style="font-weight:500">Tokens / min</label><input id="nk-tpm" inputmode="numeric" placeholder="No limit" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input); font-size:14px"></div>
+            <div style="display:flex; flex-direction:column; gap:6px; grid-column:1 / -1"><label for="nk-exp" style="font-weight:500">Expires</label><input id="nk-exp" type="date" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input); font-size:14px"><span style="font-size:13px; color:var(--fg-3)">Leave empty for no expiry. We'll flag it 7 days before.</span></div>
+          </fieldset>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; padding:16px 24px; border-top:1px solid var(--border)">
+          <button type="button" onClick="{{ closeAll }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; cursor:pointer">Cancel</button>
+          <button type="submit" style="white-space:nowrap; height:36px; padding:0 16px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer">Create key</button>
+        </div>
+      </form>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:24px">
+      <div onClick="{{ closeModal }}" style="position:absolute; inset:0; background:var(--scrim)"></div>
+      <div role="dialog" aria-modal="true" aria-labelledby="md-title" style="position:relative; width:min(480px, 100%); padding:28px; border-radius:24px; background:var(--overlay); backdrop-filter:var(--blur); box-shadow:var(--shadow-2); display:flex; flex-direction:column; gap:20px">
+
+        <sc-if value="{{ isRotate }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h2 id="md-title" style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Rotate “{{ dk.name }}”</h2>
+            <p style="margin:0; color:var(--fg-2)">You'll get a new secret. Budgets and spend carry over to it.</p>
+          </div>
+          <div role="radiogroup" aria-label="What happens to the old key" style="display:flex; flex-direction:column; gap:8px">
+            <sc-for list="{{ rotateOpts }}" as="ro" hint-placeholder-count="2">
+              <button role="radio" aria-checked="{{ ro.on }}" onClick="{{ ro.go }}" style="display:flex; gap:12px; align-items:flex-start; padding:14px; border:none; border-radius:14px; background:{{ ro.bg }}; box-shadow:inset 0 0 0 {{ ro.bw }} {{ ro.bc }}; text-align:left; cursor:pointer">
+                <span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; color:{{ ro.dot }}; font-variation-settings:'FILL' 1">{{ ro.icon }}</span>
+                <span style="display:flex; flex-direction:column; gap:2px"><span style="font-weight:600">{{ ro.label }}</span><span style="font-size:13px; color:var(--fg-2)">{{ ro.desc }}</span></span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end">
+            <button onClick="{{ closeModal }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; cursor:pointer">Cancel</button>
+            <button onClick="{{ doRotate }}" style="white-space:nowrap; height:36px; padding:0 16px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer">Rotate key</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isRevoke }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:12px">
+            <span aria-hidden="true" style="width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:var(--danger-soft); color:var(--danger); font-family:'Material Symbols Rounded'; font-size:22px; font-variation-settings:'FILL' 1">block</span>
+            <h2 id="md-title" style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Revoke “{{ dk.name }}”?</h2>
+            <p style="margin:0; color:var(--fg-2); text-wrap:pretty">Requests with <span style="font-family:'Geist Mono', monospace; color:var(--fg)">{{ dk.prefix }}…</span> fail straight away with <span style="font-family:'Geist Mono', monospace; color:var(--fg)">key_revoked</span>. Any grace period ends too. This can't be undone.</p>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end">
+            <button onClick="{{ closeModal }}" style="white-space:nowrap; height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); font-weight:500; cursor:pointer">Cancel</button>
+            <button onClick="{{ doRevoke }}" style="white-space:nowrap; height:36px; padding:0 16px; border:none; border-radius:10px; background:var(--danger); color:#fff; font-weight:500; cursor:pointer">Revoke key</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isSecret }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:12px">
+            <span aria-hidden="true" style="width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:var(--ok-soft); color:var(--ok); font-family:'Material Symbols Rounded'; font-size:22px; font-variation-settings:'FILL' 1">key</span>
+            <h2 id="md-title" style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Copy your secret now</h2>
+            <p style="margin:0; color:var(--fg-2)">This is the only time it's shown. If you lose it, rotate the key.</p>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; padding:6px 6px 6px 14px; border-radius:12px; background:var(--sunken)">
+            <code style="flex:1; font-family:'Geist Mono', monospace; font-size:13px; word-break:break-all">{{ secret }}</code>
+            <button onClick="{{ copySecret }}" style="white-space:nowrap; height:32px; padding:0 12px; border:none; border-radius:9px; background:var(--surface); box-shadow:var(--shadow-1); font-weight:500; font-size:13px; cursor:pointer; display:inline-flex; gap:4px; align-items:center"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:16px">{{ copyIcon }}</span>{{ copyLabel }}</button>
+          </div>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer"><input type="checkbox" checked="{{ stored }}" onChange="{{ toggleStored }}" style="width:18px; height:18px; accent-color:var(--accent); margin:0"><span>I've stored the secret somewhere safe</span></label>
+          <div style="display:flex; justify-content:flex-end">
+            <button onClick="{{ finishSecret }}" aria-disabled="{{ notStored }}" style="white-space:nowrap; height:36px; padding:0 16px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; cursor:pointer; opacity:{{ doneOpacity }}">Done</button>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <div role="status" aria-live="polite" style="position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:60">
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:14px; background:var(--fg); color:var(--on-fg); background-color:var(--fg); box-shadow:var(--shadow-2); font-weight:500"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:20px; font-variation-settings:'FILL' 1">check_circle</span>{{ toast }}</div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;,&quot;lumen&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'|'lumen'&quot;},&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gateway-admin&quot;,&quot;department-admin&quot;,&quot;viewer&quot;],&quot;default&quot;:&quot;gateway-admin&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;overview&quot;,&quot;keys&quot;,&quot;org&quot;,&quot;routes&quot;,&quot;budgets&quot;],&quot;default&quot;:&quot;overview&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const fmt = n => new Intl.NumberFormat('sv-SE').format(n);
+const kr = n => fmt(Math.round(n)) + ' kr';
+const TONE = { ok: ['var(--ok-soft)', 'var(--ok)'], warn: ['var(--warn-soft)', 'var(--warn)'], danger: ['var(--danger-soft)', 'var(--danger)'], neutral: ['var(--sunken)', 'var(--fg-2)'], accent: ['var(--accent-soft)', 'var(--accent-ink)'] };
+const STATUS = { Active: ['Active', 'ok'], InGracePeriod: ['Grace period', 'warn'], Expired: ['Expired', 'neutral'], Revoked: ['Revoked', 'danger'], Disabled: ['Disabled', 'neutral'] };
+const RES = { OnPrem: { label: 'On-prem', glyph: '■', color: 'var(--res-onprem)' }, Eu: { label: 'EU', glyph: '●', color: 'var(--res-eu)' }, External: { label: 'External', glyph: '◆', color: 'var(--res-ext)' } };
+const PII = { Off: 'No PII check. Use only for public data.', Allow: 'PII is detected and logged as a category, then sent on.', Redact: 'Detected PII is masked before it leaves the gateway.', Block: 'Requests containing PII are rejected with pii_blocked.', RerouteToOnPrem: 'Requests with PII are sent to on-prem models only.' };
+
+const KEYS = [
+  { id: 'k1', name: 'Case summariser', prefix: 'ume-sk-7f3a', team: 'Digital socialtjänst', dept: 'Socialtjänsten', status: 'Active', models: ['chat-sensitive'], res: ['OnPrem'], pii: 'Redact', rpm: 120, tpm: 200000, lastUsed: '2 min ago', created: '12 Mar 2026', by: 'anna.lind', expires: '31 Dec 2026' },
+  { id: 'k2', name: 'Schools chatbot', prefix: 'ume-sk-21cd', team: 'Elevstöd', dept: 'Utbildning', status: 'Active', models: [], res: ['OnPrem', 'Eu'], pii: 'Block', rpm: 600, tpm: 1000000, lastUsed: 'Just now', created: '2 Feb 2026', by: 'jonas.berg', expires: 'Never' },
+  { id: 'k3', name: 'Permit triage', prefix: 'ume-sk-9b02', team: 'Bygglov', dept: 'Stadsbyggnad', status: 'InGracePeriod', models: ['chat-default'], res: ['Eu'], pii: 'Redact', rpm: 60, tpm: null, lastUsed: '14 min ago', created: '20 Apr 2026', by: 'erik.karlsson', expires: 'Today 16:40 (grace)' },
+  { id: 'k4', name: 'Library search', prefix: 'ume-sk-4e11', team: 'Bibliotek', dept: 'Kultur & fritid', status: 'Active', models: ['embed-default'], res: ['OnPrem'], pii: 'Off', rpm: null, tpm: null, lastUsed: '1 h ago', created: '8 Jan 2026', by: 'sara.holm', expires: 'Never' },
+  { id: 'k5', name: 'Meeting minutes', prefix: 'ume-sk-a830', team: 'Nämndservice', dept: 'Kommunledningskontoret', status: 'Active', models: ['chat-default', 'chat-reasoning'], res: ['Eu'], pii: 'RerouteToOnPrem', rpm: 30, tpm: 100000, lastUsed: 'Yesterday', created: '14 Oct 2025', by: 'erik.karlsson', expires: '14 Oct 2026 · in 6 days' },
+  { id: 'k6', name: 'Service desk assistant', prefix: 'ume-sk-e2b4', team: 'Servicedesk', dept: 'IT-avdelningen', status: 'Active', models: [], res: [], pii: 'Allow', rpm: 300, tpm: null, lastUsed: '5 min ago', created: '3 Jun 2026', by: 'li.wang', expires: 'Never' },
+  { id: 'k7', name: 'Code review CI', prefix: 'ume-sk-77aa', team: 'Utveckling', dept: 'IT-avdelningen', status: 'Disabled', models: ['chat-reasoning'], res: ['Eu', 'External'], pii: 'Block', rpm: 20, tpm: null, lastUsed: '12 days ago', created: '1 Aug 2026', by: 'li.wang', expires: 'Never' },
+  { id: 'k8', name: 'Legacy intranet bot', prefix: 'ume-sk-0c7e', team: 'Intranät', dept: 'Kommunledningskontoret', status: 'Expired', models: ['chat-default'], res: ['Eu'], pii: 'Redact', rpm: null, tpm: null, lastUsed: '2 months ago', created: '1 Sep 2025', by: 'anna.lind', expires: '1 Sep 2026' },
+  { id: 'k9', name: 'Translation pilot', prefix: 'ume-sk-5d9f', team: 'Mottagning', dept: 'Socialtjänsten', status: 'Revoked', models: ['chat-default'], res: ['Eu'], pii: 'Redact', rpm: null, tpm: null, lastUsed: '3 weeks ago', created: '5 May 2026', by: 'anna.lind', expires: '—' },
+];
+const DEPTS = [
+  { id: 'd1', name: 'Socialtjänsten', code: '4100', spent: 76800, limit: 120000, req: 51240, teams: [{ name: 'Digital socialtjänst', desc: 'Case work tooling', keys: 4, active: true }, { name: 'Mottagning', desc: 'Intake and translation', keys: 2, active: true }, { name: 'Äldreomsorg', desc: 'Pilot starting November', keys: 0, active: false }] },
+  { id: 'd2', name: 'Utbildning', code: '4200', spent: 48210, limit: 48000, req: 62870, teams: [{ name: 'Elevstöd', desc: 'Student support assistants', keys: 3, active: true }, { name: 'Skoladministration', desc: '', keys: 1, active: true }] },
+  { id: 'd3', name: 'Stadsbyggnad', code: '4300', spent: 21300, limit: 60000, req: 18030, teams: [{ name: 'Bygglov', desc: 'Permit applications', keys: 2, active: true }] },
+  { id: 'd4', name: 'Kultur & fritid', code: '4400', spent: 6900, limit: 20000, req: 9410, teams: [{ name: 'Bibliotek', desc: 'Search and recommendations', keys: 1, active: true }] },
+  { id: 'd5', name: 'Kommunledningskontoret', code: '1100', spent: 9670, limit: 40000, req: 8610, teams: [{ name: 'Nämndservice', desc: 'Minutes and agendas', keys: 1, active: true }, { name: 'Intranät', desc: '', keys: 1, active: true }] },
+  { id: 'd6', name: 'IT-avdelningen', code: '1200', spent: 51200, limit: 90000, req: 34760, teams: [{ name: 'Servicedesk', desc: 'Internal support', keys: 2, active: true }, { name: 'Utveckling', desc: 'Engineering and CI', keys: 5, active: true }] },
+];
+const PROVIDERS = { 'azure-sweden': 'circuit', 'mistral-eu': 'ok', 'onprem-gpu': 'ok', 'onprem-gpu-2': 'drained', 'anthropic': 'ok' };
+const ROUTES = [
+  { id: 'r1', name: 'chat-default', kind: 'Chat', desc: 'General-purpose chat for most assistants.', tiers: [[['gpt-4.1-mini', 'azure-sweden', 'Eu', 70], ['mistral-medium', 'mistral-eu', 'Eu', 30]], [['llama-3.3-70b', 'onprem-gpu', 'OnPrem', 100]]] },
+  { id: 'r2', name: 'chat-sensitive', kind: 'Chat', desc: 'On-prem only. Use for personal and case data.', tiers: [[['qwen-2.5-72b', 'onprem-gpu', 'OnPrem', 100]], [['llama-3.3-70b', 'onprem-gpu-2', 'OnPrem', 100]]] },
+  { id: 'r3', name: 'chat-reasoning', kind: 'Chat', desc: 'Multi-step reasoning. Slower and more expensive.', tiers: [[['o4-mini', 'azure-sweden', 'Eu', 100]], [['claude-sonnet-4.5', 'anthropic', 'External', 100]]] },
+  { id: 'r4', name: 'embed-default', kind: 'Embedding', desc: 'Embeddings for search and retrieval.', tiers: [[['bge-m3', 'onprem-gpu', 'OnPrem', 100]], [['text-embedding-3-large', 'azure-sweden', 'Eu', 100]]] },
+];
+const BUDGETS = [
+  { scope: 'Department', name: 'Utbildning', period: 'Monthly', limit: 48000, spent: 48210, th: [50, 80, 100], resets: '1 Nov' },
+  { scope: 'Team', name: 'Elevstöd', period: 'Monthly', limit: 20000, spent: 16900, th: [80, 100], resets: '1 Nov' },
+  { scope: 'Department', name: 'Socialtjänsten', period: 'Monthly', limit: 120000, spent: 76800, th: [50, 80, 100], resets: '1 Nov' },
+  { scope: 'Department', name: 'IT-avdelningen', period: 'Monthly', limit: 90000, spent: 51200, th: [80, 100], resets: '1 Nov' },
+  { scope: 'Key', name: 'Schools chatbot', period: 'Weekly', limit: 5000, spent: 2100, th: [80], resets: 'Mon 12 Oct' },
+  { scope: 'Department', name: 'Stadsbyggnad', period: 'Quarterly', limit: 60000, spent: 21300, th: [50, 90], resets: '1 Jan' },
+  { scope: 'Team', name: 'Bygglov', period: 'Monthly', limit: 8000, spent: 3900, th: [80, 100], resets: '1 Nov' },
+];
+const ALERTS = [
+  { id: 'a1', scope: 'Department', name: 'Utbildning', th: 100, spent: 48210, limit: 48000, when: 'Today 08:14' },
+  { id: 'a2', scope: 'Team', name: 'Elevstöd', th: 80, spent: 16900, limit: 20000, when: 'Yesterday 17:02' },
+];
+const SPEND = Array.from({ length: 30 }, (_, i) => { const d = new Date(2026, 8, 9 + i); const wk = d.getDay() === 0 || d.getDay() === 6; return Math.round((wk ? 2600 : 15200 + Math.sin(i * 1.3) * 2600 + i * 90)); });
+const NAV = [
+  { label: 'Monitor', items: [['overview', 'Overview', 'space_dashboard'], ['usage', 'Usage', 'monitoring'], ['ops', 'Operations', 'monitor_heart']] },
+  { label: 'Access', items: [['keys', 'Keys', 'key'], ['org', 'Organisation', 'account_tree'], ['catalog', 'Catalogue', 'menu_book']] },
+  { label: 'Routing', items: [['routes', 'Routes', 'alt_route'], ['providers', 'Providers & models', 'dns']] },
+  { label: 'Cost & compliance', items: [['budgets', 'Budgets & alerts', 'savings'], ['audit', 'Audit log', 'history']] },
+];
+const ROLE_SCREENS = { 'gateway-admin': null, 'department-admin': ['overview', 'usage', 'keys', 'org', 'catalog', 'budgets'], viewer: ['overview', 'usage', 'catalog'] };
+const ROLE_LABEL = { 'gateway-admin': 'Gateway admin', 'department-admin': 'Department admin', viewer: 'Viewer' };
+const seg = on => ({ bg: on ? 'var(--surface)' : 'transparent', shadow: on ? 'var(--shadow-1)' : 'none', fg: on ? 'var(--fg)' : 'var(--fg-2)', pressed: on ? 'true' : 'false' });
+
+class Component extends DCLogic {
+  state = { screen: null, themeOverride: null, keys: KEYS, statusFilter: 'all', q: '', drawerId: null, creating: false, modal: null, rotateMode: 'RevokeImmediately', stored: false, secret: '', copied: false, newName: '', nameInvalid: false, newRes: { OnPrem: true, Eu: true, External: false }, newPii: 'Redact', deptId: 'd2', routeId: 'r1', alerts: ALERTS, scope: 'all', toast: null, circuitOpen: true };
+
+  componentDidMount() {
+    this.onKey = e => { if (e.key === 'Escape') { if (this.state.modal) this.setState({ modal: null }); else this.setState({ drawerId: null, creating: false }); } };
+    window.addEventListener('keydown', this.onKey);
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this.onKey); clearTimeout(this.tt); }
+  componentDidUpdate(prev) { if (prev.theme !== this.props.theme && this.state.themeOverride) this.setState({ themeOverride: null }); }
+  toast(msg) { clearTimeout(this.tt); this.setState({ toast: msg }); this.tt = setTimeout(() => this.setState({ toast: null }), 3200); }
+  go(screen) { this.setState({ screen, drawerId: null }); }
+
+  renderVals() {
+    const s = this.state, p = this.props;
+    const theme = s.themeOverride || p.theme || 'light';
+    const role = p.role || 'gateway-admin';
+    const screen = s.screen || p.startScreen || 'overview';
+    const allowed = ROLE_SCREENS[role];
+    const unacked = s.alerts.length;
+
+    const navGroups = NAV.map(g => ({ label: g.label, items: g.items.filter(([id]) => !allowed || allowed.includes(id)).map(([id, label, icon]) => {
+      const cur = id === screen;
+      const badge = id === 'budgets' && unacked ? String(unacked) : (id === 'ops' && s.circuitOpen && !allowed ? '1' : false);
+      return { label, icon, go: () => this.go(id), current: cur ? 'page' : 'false', bg: cur ? 'var(--surface)' : 'transparent', shadow: cur ? 'var(--shadow-1)' : 'none', fg: cur ? 'var(--fg)' : 'var(--fg-2)', weight: cur ? 600 : 500, fill: cur ? 1 : 0, badge, badgeLabel: badge ? badge + ' open' : '' };
+    }) })).filter(g => g.items.length);
+
+    const themeOpts = [['light', 'Light'], ['dark', 'Dark'], ['lumen', 'Lumen']].map(([id, label]) => ({ label, go: () => this.setState({ themeOverride: id }), ...seg(theme === id) }));
+
+    // overview
+    const util = d => d.spent / d.limit;
+    const attention = [];
+    if (s.alerts.find(a => a.th >= 100)) attention.push({ kind: 'Budget', icon: 'error', title: 'Utbildning is over budget', body: '48 210 kr of 48 000 kr this month. New requests from its keys are being rejected.', cta: 'Review budget', act: () => this.go('budgets'), ...{ bg: TONE.danger[0], fg: TONE.danger[1] } });
+    if (s.circuitOpen) attention.push({ kind: 'Provider', icon: 'electric_bolt', title: 'Circuit open on azure-sweden', body: 'Opened after repeated errors. Traffic falls back to mistral-eu and on-prem. Closes automatically 14:32.', cta: 'Close circuit', act: () => { this.setState({ circuitOpen: false }); this.toast('Circuit closed. azure-sweden is back in rotation.'); }, bg: TONE.warn[0], fg: TONE.warn[1] });
+    attention.push({ kind: 'Keys', icon: 'schedule', title: '3 keys expire within 7 days', body: 'Meeting minutes, Permit triage and 1 more. Rotate them before clients start failing.', cta: 'View keys', act: () => this.go('keys'), bg: TONE.accent[0], fg: TONE.accent[1] });
+
+    const totalSpent = DEPTS.reduce((a, d) => a + d.spent, 0), totalLimit = DEPTS.reduce((a, d) => a + d.limit, 0);
+    const pct = Math.round(totalSpent / totalLimit * 100);
+    const metrics = [
+      { label: 'Spend in October', value: kr(totalSpent), sub: `${pct}% of ${kr(totalLimit)} across all budgets`, meter: pct, meterW: pct + '%' },
+      { label: 'Requests · 24 h', value: fmt(184920), sub: '+6.2% vs. previous day', meter: false },
+      { label: 'Error rate · 24 h', value: '0.42%', sub: '1.8% of requests used a fallback', meter: false },
+      { label: 'Latency p95 · 24 h', value: '2.1 s', sub: 'p50 640 ms', meter: false },
+    ];
+    const max = Math.max(...SPEND);
+    const spendBars = SPEND.map((v, i) => ({ h: (v / max * 100).toFixed(1) + '%', c: i === 29 ? 'var(--chart)' : 'var(--chart-muted)', title: kr(v) }));
+    const provState = { ok: ['Healthy', 'ok'], circuit: ['Circuit open', 'danger'], drained: ['Drained', 'neutral'] };
+    const P95 = { 'azure-sweden': '—', 'mistral-eu': '1.8 s', 'onprem-gpu': '2.4 s', 'onprem-gpu-2': '—', anthropic: '2.9 s' };
+    const PRES = { 'azure-sweden': 'Eu', 'mistral-eu': 'Eu', 'onprem-gpu': 'OnPrem', 'onprem-gpu-2': 'OnPrem', anthropic: 'External' };
+    const pstate = name => (name === 'azure-sweden' && !s.circuitOpen) ? 'ok' : PROVIDERS[name];
+    const providers = Object.keys(PROVIDERS).map(name => { const [st, tone] = provState[pstate(name)]; const r = RES[PRES[name]]; return { name, state: st, bg: TONE[tone][0], fg: TONE[tone][1], p95: P95[name] === '—' && pstate(name) === 'ok' ? '1.6 s' : P95[name], resLabel: r.label, resGlyph: r.glyph, resColor: r.color }; });
+    const deptSpend = [...DEPTS].sort((a, b) => b.spent - a.spent).map(d => ({ name: d.name, code: d.code, req: fmt(d.req), cost: kr(d.spent), w: (d.spent / totalSpent * 100).toFixed(1) + '%', share: Math.round(d.spent / totalSpent * 100) + '%' }));
+
+    // keys
+    const q = s.q.trim().toLowerCase();
+    const counts = { all: s.keys.length };
+    s.keys.forEach(k => { counts[k.status] = (counts[k.status] || 0) + 1; });
+    const statusTabs = [['all', 'All'], ['Active', 'Active'], ['InGracePeriod', 'Grace'], ['Expired', 'Expired'], ['Revoked', 'Revoked']].map(([id, label]) => ({ label, count: counts[id] || 0, go: () => this.setState({ statusFilter: id }), ...seg(s.statusFilter === id) }));
+    const view = k => { const [statusLabel, tone] = STATUS[k.status]; return { ...k, statusLabel, sBg: TONE[tone][0], sFg: TONE[tone][1], modelsLabel: k.models.length ? k.models.join(', ') : 'All models', resLabel: k.res.length ? k.res.map(r => RES[r].label).join(' · ') : 'Any residency' }; };
+    const keyRows = s.keys.filter(k => (s.statusFilter === 'all' || k.status === s.statusFilter) && (!q || (k.name + k.prefix + k.team + k.dept).toLowerCase().includes(q))).map(k => ({ ...view(k), open: e => { e && e.stopPropagation && e.stopPropagation(); this.setState({ drawerId: k.id }); } }));
+    const active = counts.Active || 0;
+
+    const dkRaw = s.keys.find(k => k.id === s.drawerId) || s.keys[0];
+    const dv = view(dkRaw);
+    const locked = dkRaw.status !== 'Active';
+    const dk = { ...dv, locked, lockedOpacity: locked ? 0.45 : 1, revoked: dkRaw.status === 'Revoked', revokedOpacity: dkRaw.status === 'Revoked' ? 0.45 : 1, sections: [
+      { title: 'Owner', rows: [{ k: 'Team', v: dkRaw.team }, { k: 'Department', v: dkRaw.dept }] },
+      { title: 'Access', rows: [{ k: 'Models', v: dv.modelsLabel }, { k: 'Data residency', v: dv.resLabel }, { k: 'Personal data', v: ({ RerouteToOnPrem: 'Reroute to on-prem' })[dkRaw.pii] || dkRaw.pii }] },
+      { title: 'Limits', rows: [{ k: 'Requests / min', v: dkRaw.rpm ? fmt(dkRaw.rpm) : 'No limit' }, { k: 'Tokens / min', v: dkRaw.tpm ? fmt(dkRaw.tpm) : 'No limit' }] },
+      { title: 'Lifecycle', rows: [{ k: 'Created', v: `${dkRaw.created} by ${dkRaw.by}` }, { k: 'Expires', v: dkRaw.expires }, { k: 'Last used', v: dkRaw.lastUsed }] },
+    ] };
+
+    // create
+    const resOpts = Object.keys(RES).map(id => { const on = s.newRes[id]; return { label: RES[id].label, on: on ? 'true' : 'false', icon: on ? 'check_circle' : 'radio_button_unchecked', checkColor: on ? 'var(--accent)' : 'var(--fg-3)', bg: on ? 'var(--accent-soft)' : 'var(--surface)', bw: on ? '2px' : '1px', bc: on ? 'var(--accent)' : 'var(--border-input)', toggle: () => this.setState({ newRes: { ...s.newRes, [id]: !on } }) }; });
+    const resOn = Object.keys(s.newRes).filter(r => s.newRes[r]);
+    const resHint = resOn.length ? `Requests may go to ${resOn.map(r => RES[r].label).join(' and ')} providers.` : 'None selected means any residency is allowed.';
+    const piiOpts = [['Off', 'Off'], ['Allow', 'Allow'], ['Redact', 'Redact'], ['Block', 'Block'], ['RerouteToOnPrem', 'On-prem']].map(([id, label]) => ({ label, go: () => this.setState({ newPii: id }), ...seg(s.newPii === id), on: s.newPii === id ? 'true' : 'false' }));
+
+    // org
+    const dept = DEPTS.find(d => d.id === s.deptId);
+    const du = util(dept);
+    const deptList = DEPTS.map(d => ({ name: d.name, code: d.code, teamsLabel: d.teams.length + (d.teams.length === 1 ? ' team' : ' teams'), go: () => this.setState({ deptId: d.id }), current: d.id === s.deptId ? 'true' : 'false', bg: d.id === s.deptId ? 'var(--accent-soft)' : 'transparent', weight: d.id === s.deptId ? 600 : 500 }));
+    const deptView = { name: dept.name, code: dept.code, summary: `${dept.teams.length} teams · ${dept.teams.reduce((a, t) => a + t.keys, 0)} keys · ${fmt(dept.req)} requests this month`, budget: `${kr(dept.spent)} of ${kr(dept.limit)}`, budgetW: Math.min(100, du * 100).toFixed(1) + '%', budgetC: du >= 1 ? 'var(--danger)' : du >= 0.8 ? 'var(--warn)' : 'var(--chart)',
+      teams: dept.teams.map((t, i) => ({ ...t, desc: t.desc || 'No description', status: t.active ? 'Active' : 'Inactive', sBg: TONE[t.active ? 'ok' : 'neutral'][0], sFg: TONE[t.active ? 'ok' : 'neutral'][1], locked: t.keys > 0, reasonId: 'tr-' + i, reason: `Remove its ${t.keys} key${t.keys > 1 ? 's' : ''} first`, delColor: t.keys > 0 ? 'var(--fg-3)' : 'var(--danger)', viewKeys: () => this.setState({ screen: 'keys', q: t.name }) })) };
+
+    // routes
+    const route = ROUTES.find(r => r.id === s.routeId);
+    const health = prov => { const st = pstate(prov); return st === 'ok' ? ['Healthy', 'ok'] : st === 'circuit' ? ['Circuit open', 'danger'] : ['Drained', 'neutral']; };
+    const routeList = ROUTES.map(r => ({ name: r.name, meta: `${r.kind} · ${r.tiers.flat().length} targets`, go: () => this.setState({ routeId: r.id }), current: r.id === s.routeId ? 'true' : 'false', bg: r.id === s.routeId ? 'var(--accent-soft)' : 'transparent', warn: r.tiers.flat().some(t => pstate(t[1]) !== 'ok') }));
+    const tiers = route.tiers.map((tier, i) => { const sum = tier.reduce((a, t) => a + t[3], 0); return { label: `Priority ${i + 1}`, hint: i === 0 ? 'Tried first' : 'Fallback', notFirst: i > 0, targets: tier.map(([model, provider, res, weight]) => { const [h, tone] = health(provider); const r = RES[res]; return { model, provider, resLabel: r.label, resGlyph: r.glyph, resColor: r.color, health: h, hBg: TONE[tone][0], hFg: TONE[tone][1], share: (weight / sum * 100) + '%', shareLabel: Math.round(weight / sum * 100) + '% · w' + weight }; }) }; });
+    const pathFor = allowedRes => { for (let i = 0; i < route.tiers.length; i++) { const ok = route.tiers[i].filter(t => !allowedRes || allowedRes.includes(t[2])); if (ok.length) return { result: `Priority ${i + 1} → ${ok.map(t => t[0]).join(', ')}`, color: 'var(--fg)' }; } return { result: 'No eligible target · fails with no_eligible_provider', color: 'var(--danger)' }; };
+    const paths = [['Any residency', null], ['EU only', ['Eu']], ['On-prem only', ['OnPrem']]].map(([label, r]) => ({ label, ...pathFor(r) }));
+
+    // budgets
+    const scopeTabs = [['all', 'All'], ['Department', 'Departments'], ['Team', 'Teams'], ['Key', 'Keys']].map(([id, label]) => ({ label, go: () => this.setState({ scope: id }), ...seg(s.scope === id) }));
+    const budgetRows = BUDGETS.filter(b => s.scope === 'all' || b.scope === s.scope).map(b => { const u = b.spent / b.limit; const c = u >= 1 ? 'var(--danger)' : u >= 0.8 ? 'var(--warn)' : 'var(--chart)'; const pc = Math.round(u * 100); return { name: b.name, scope: b.scope === 'Key' ? 'Key' : b.scope, period: b.period, spent: kr(b.spent), limit: kr(b.limit), w: Math.min(100, u * 100).toFixed(1) + '%', c, pct: pc, pctLabel: pc + '%', pctColor: u >= 0.8 ? c : 'var(--fg)', ticks: b.th.filter(t => t < 100).map(t => t + '%'), resets: b.resets, meterLabel: `${b.name}: ${pc}% of budget used` }; });
+    const alerts = s.alerts.map(a => { const over = a.th >= 100; return { title: over ? `${a.name} reached 100% of its budget` : `${a.name} passed ${a.th}%`, body: `${a.scope} · ${kr(a.spent)} of ${kr(a.limit)} · ${a.when}`, icon: over ? 'error' : 'warning', bg: over ? 'var(--danger-soft)' : 'var(--warn-soft)', fg: over ? 'var(--danger)' : 'var(--warn)', ack: () => { this.setState({ alerts: s.alerts.filter(x => x.id !== a.id) }); this.toast('Alert acknowledged'); } }; });
+
+    const otherTitles = { usage: 'Usage', ops: 'Operations', catalog: 'Catalogue', providers: 'Providers & models', audit: 'Audit log' };
+    const rotateOpts = [['RevokeImmediately', 'Revoke old key now', 'Recommended if the secret may have leaked.', 'Default'], ['Grace24Hours', 'Keep old key for 24 hours', 'Gives clients time to switch. Both keys share one budget.']].map(([id, label, desc]) => { const on = s.rotateMode === id; return { label, desc, on: on ? 'true' : 'false', go: () => this.setState({ rotateMode: id }), bg: on ? 'var(--accent-soft)' : 'var(--surface)', bw: on ? '2px' : '1px', bc: on ? 'var(--accent)' : 'var(--border-strong)', dot: on ? 'var(--accent)' : 'var(--fg-3)', icon: on ? 'radio_button_checked' : 'radio_button_unchecked' }; });
+    const newSecret = () => 'ume-sk-' + Math.random().toString(16).slice(2, 6) + '_' + Array.from({ length: 40 }, () => 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 57)]).join('');
+
+    return {
+      theme, roleLabel: ROLE_LABEL[role], navGroups, themeOpts,
+      isOverview: screen === 'overview', isKeys: screen === 'keys', isOrg: screen === 'org', isRoutes: screen === 'routes', isBudgets: screen === 'budgets', isOther: !!otherTitles[screen], otherTitle: otherTitles[screen] || '',
+      attention, attentionCount: attention.length, metrics, spendBars, chartLabel: `Daily spend over 30 days, from ${kr(Math.min(...SPEND))} to ${kr(max)}. Today ${kr(SPEND[29])}.`, providers, deptSpend, goBudgets: () => this.go('budgets'),
+      keySummary: `${s.keys.length} keys, ${active} active. Secrets are shown once, when a key is created or rotated.`, statusTabs, keyRows, keyRowsCount: keyRows.length, noKeys: keyRows.length === 0, q: s.q,
+      setQ: e => this.setState({ q: e.target.value }), clearFilters: () => this.setState({ q: '', statusFilter: 'all' }),
+      drawerOpen: !!s.drawerId && !s.creating, dk, closeAll: () => this.setState({ drawerId: null, creating: false, modal: null }),
+      askRotate: () => { if (!locked) this.setState({ modal: 'rotate', rotateMode: 'RevokeImmediately' }); }, askRevoke: () => { if (dkRaw.status !== 'Revoked') this.setState({ modal: 'revoke' }); },
+      modalOpen: !!s.modal, isRotate: s.modal === 'rotate', isRevoke: s.modal === 'revoke', isSecret: s.modal === 'secret', closeModal: () => this.setState({ modal: s.modal === 'secret' && !s.stored ? 'secret' : null }), rotateOpts,
+      doRotate: () => { const grace = s.rotateMode === 'Grace24Hours'; const nk = { ...dkRaw, id: 'k' + Date.now(), prefix: 'ume-sk-' + Math.random().toString(16).slice(2, 6), status: 'Active', created: '8 Oct 2026', by: 'erik.karlsson', lastUsed: 'Never' }; this.setState({ keys: [nk, ...s.keys.map(k => k.id === dkRaw.id ? { ...k, status: grace ? 'InGracePeriod' : 'Revoked', expires: grace ? 'Tomorrow (grace)' : '—' } : k)], drawerId: nk.id, modal: 'secret', secret: newSecret(), stored: false, copied: false }); },
+      doRevoke: () => { this.setState({ keys: s.keys.map(k => k.id === dkRaw.id ? { ...k, status: 'Revoked' } : k), modal: null }); this.toast(`“${dkRaw.name}” revoked. Gateways update within seconds.`); },
+      secret: s.secret, stored: s.stored, notStored: s.stored ? 'false' : 'true', doneOpacity: s.stored ? 1 : 0.45, toggleStored: () => this.setState({ stored: !s.stored }),
+      copySecret: () => { try { navigator.clipboard.writeText(s.secret); } catch (e) {} this.setState({ copied: true }); }, copyLabel: s.copied ? 'Copied' : 'Copy', copyIcon: s.copied ? 'check' : 'content_copy',
+      finishSecret: () => { if (s.stored) { this.setState({ modal: null, creating: false }); this.toast('Key ready to use'); } },
+      createOpen: s.creating, openCreate: () => this.setState({ creating: true, drawerId: null, newName: '', nameInvalid: false }),
+      newName: s.newName, setNewName: e => this.setState({ newName: e.target.value, nameInvalid: false }), nameInvalid: s.nameInvalid, nameBorder: s.nameInvalid ? 'var(--danger)' : 'var(--border-input)', nameBorderW: s.nameInvalid ? '2px' : '1px',
+      submitCreate: e => { e.preventDefault(); if (!s.newName.trim()) { this.setState({ nameInvalid: true }); document.getElementById('nk-name')?.focus(); return; } const nk = { id: 'k' + Date.now(), name: s.newName.trim(), prefix: 'ume-sk-' + Math.random().toString(16).slice(2, 6), team: 'Digital socialtjänst', dept: 'Socialtjänsten', status: 'Active', models: [], res: resOn, pii: s.newPii, rpm: null, tpm: null, lastUsed: 'Never', created: '8 Oct 2026', by: 'erik.karlsson', expires: 'Never' }; this.setState({ keys: [nk, ...s.keys], creating: false, drawerId: nk.id, modal: 'secret', secret: newSecret(), stored: false, copied: false, screen: 'keys' }); },
+      resOpts, resHint, piiOpts, piiHint: PII[s.newPii],
+      deptList, dept: deptView, addTeam: () => this.toast('Team form opens here'),
+      routeList, route: { ...route, tiers, paths },
+      hasAlerts: alerts.length > 0, alerts, scopeTabs, budgetRows, openBudget: () => this.toast('Budget form opens here'),
+      toast: s.toast || false,
+    };
+  }
+}
+</script>
+</body>
+</html>

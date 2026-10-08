@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..24,400,0..1,0&display=block">
+<link rel="stylesheet" href="design-system/tokens.css">
+<style>a{color:#3446DB}a:hover{color:#2836B8}</style>
+</helmet>
+<div style="padding:64px; background:#E4E4E1; min-height:100vh; font-family:Geist, ui-sans-serif, system-ui, sans-serif; color:#16161A; display:flex; flex-direction:column; gap:48px">
+  <header style="display:flex; flex-direction:column; gap:8px; max-width:880px">
+    <span style="font-size:13px; font-weight:600; color:#4A4A52">AI Gateway · Design system v1</span>
+    <h1 style="margin:0; font-size:44px; line-height:48px; font-weight:600; letter-spacing:-0.03em">One system, three themes</h1>
+    <p style="margin:0; font-size:16px; line-height:24px; color:#4A4A52; text-wrap:pretty">Calm surfaces, one accent, and status shown with words and shapes, not color alone. Every pair passes WCAG 2.2 AA. The source is <span style="font-family:'Geist Mono', monospace">design-system/DESIGN.md</span>, <span style="font-family:'Geist Mono', monospace">tokens.css</span> and <span style="font-family:'Geist Mono', monospace">tailwind.config.js</span>. Give all three to the LLM.</p>
+  </header>
+
+  <section aria-label="Themes" style="display:grid; grid-template-columns:repeat(3, 520px); gap:24px">
+    <sc-for list="{{ themes }}" as="t" hint-placeholder-count="3">
+      <div data-theme="{{ t.id }}" style="border-radius:28px; overflow:hidden; background:var(--canvas); color:var(--fg); padding:28px; display:flex; flex-direction:column; gap:24px; box-shadow:0 20px 40px -20px rgba(0,0,0,.3)">
+        <div style="display:flex; flex-direction:column; gap:4px">
+          <span style="font-size:12px; font-weight:600; color:var(--fg-3)">data-theme="{{ t.id }}"</span>
+          <h2 style="margin:0; font-size:28px; line-height:34px; font-weight:600; letter-spacing:-0.025em">{{ t.name }}</h2>
+          <p style="margin:0; color:var(--fg-2); font-size:14px; line-height:20px; text-wrap:pretty">{{ t.desc }}</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px">
+          <sc-for list="{{ swatches }}" as="sw" hint-placeholder-count="12">
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <div style="height:44px; border-radius:12px; background:{{ sw.v }}; box-shadow:inset 0 0 0 1px var(--border)"></div>
+              <span style="font-family:'Geist Mono', monospace; font-size:11px; color:var(--fg-2)">{{ sw.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="padding:20px; border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); display:flex; flex-direction:column; gap:16px">
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <button style="height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; font-size:14px">Primary</button>
+            <button style="height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-strong); color:var(--fg); font-weight:500; font-size:14px">Secondary</button>
+            <button style="height:36px; padding:0 14px; border:none; border-radius:10px; background:transparent; color:var(--danger); font-weight:500; font-size:14px">Revoke</button>
+            <button style="height:36px; padding:0 14px; border:none; border-radius:10px; background:var(--accent); color:var(--accent-fg); font-weight:500; font-size:14px; outline:2px solid var(--focus); outline-offset:2px">Focused</button>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap">
+            <sc-for list="{{ badges }}" as="b" hint-placeholder-count="5">
+              <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ b.bg }}; color:{{ b.fg }}; font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ b.fg }}"></span>{{ b.label }}</span>
+            </sc-for>
+          </div>
+          <div style="display:flex; gap:14px; font-size:13px">
+            <span style="color:var(--res-onprem)">■ On-prem</span><span style="color:var(--res-eu)">● EU</span><span style="color:var(--res-ext)">◆ External</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <label style="font-weight:500; font-size:14px">Name</label>
+            <input value="Permit triage" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 1px var(--border-input); font-size:14px; color:var(--fg)">
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <label style="font-weight:500; font-size:14px">Cost center</label>
+            <input value="" placeholder="4100" style="height:40px; padding:0 12px; border:none; border-radius:10px; background:var(--surface); box-shadow:inset 0 0 0 2px var(--danger); font-size:14px; color:var(--fg)">
+            <span style="display:flex; align-items:center; gap:4px; color:var(--danger); font-size:13px"><span aria-hidden="true" style="font-family:'Material Symbols Rounded'; font-size:16px">error</span>Enter the department's cost center code.</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:2px; padding:3px; border-radius:10px; background:var(--sunken)">
+            <span style="height:30px; display:grid; place-items:center; border-radius:8px; background:var(--surface); box-shadow:var(--shadow-1); font-size:13px; font-weight:500">Active</span>
+            <span style="height:30px; display:grid; place-items:center; font-size:13px; font-weight:500; color:var(--fg-2)">Grace</span>
+            <span style="height:30px; display:grid; place-items:center; font-size:13px; font-weight:500; color:var(--fg-2)">Revoked</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div style="display:flex; justify-content:space-between; font-size:13px"><span style="font-weight:500">Utbildning</span><span style="font-weight:600; color:var(--warn)">86%</span></div>
+            <div style="position:relative; height:8px; border-radius:4px; background:var(--sunken)"><div style="width:86%; height:100%; border-radius:4px; background:var(--warn)"></div><div style="position:absolute; left:80%; top:-3px; bottom:-3px; width:2px; background:var(--fg-3); opacity:.5"></div></div>
+          </div>
+        </div>
+
+        <div style="border-radius:var(--r-card); background:var(--surface); backdrop-filter:var(--blur); box-shadow:var(--shadow-1); overflow:hidden; font-size:14px">
+          <div style="display:grid; grid-template-columns:1.4fr 1fr 0.8fr; padding:10px 16px; background:var(--surface-2); font-size:12px; color:var(--fg-3); font-weight:500"><span>Key</span><span>Status</span><span style="text-align:right">Last used</span></div>
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+            <div style="display:grid; grid-template-columns:1.4fr 1fr 0.8fr; align-items:center; min-height:56px; padding:0 16px; border-top:1px solid var(--border)">
+              <span style="display:flex; flex-direction:column"><span style="font-weight:500">{{ r.name }}</span><span style="font-family:'Geist Mono', monospace; font-size:12px; color:var(--fg-3)">{{ r.prefix }}</span></span>
+              <span><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:11px; background:{{ r.bg }}; color:{{ r.fg }}; font-size:12px; font-weight:500"><span aria-hidden="true" style="width:6px; height:6px; border-radius:3px; background:{{ r.fg }}"></span>{{ r.status }}</span></span>
+              <span style="text-align:right; color:var(--fg-2)">{{ r.used }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <section style="display:grid; grid-template-columns:repeat(3, 520px); gap:24px">
+    <div style="padding:28px; border-radius:24px; background:#FFFFFF; display:flex; flex-direction:column; gap:16px">
+      <h2 style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Type · Geist and Geist Mono</h2>
+      <sc-for list="{{ type }}" as="ty" hint-placeholder-count="7">
+        <div style="display:grid; grid-template-columns:110px 1fr; gap:12px; align-items:baseline; border-top:1px solid #E2E2DE; padding-top:10px">
+          <span style="font-family:'Geist Mono', monospace; font-size:12px; color:#67676F">{{ ty.token }}</span>
+          <span style="font-size:{{ ty.size }}; line-height:{{ ty.lh }}; font-weight:{{ ty.w }}; letter-spacing:{{ ty.ls }}; font-family:{{ ty.f }}">{{ ty.sample }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="padding:28px; border-radius:24px; background:#FFFFFF; display:flex; flex-direction:column; gap:16px">
+      <h2 style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Space, size and radius</h2>
+      <sc-for list="{{ space }}" as="sp" hint-placeholder-count="8">
+        <div style="display:grid; grid-template-columns:110px 1fr 60px; gap:12px; align-items:center">
+          <span style="font-family:'Geist Mono', monospace; font-size:12px; color:#67676F">{{ sp.n }}</span>
+          <div style="height:12px; width:{{ sp.v }}; background:#3446DB; border-radius:3px"></div>
+          <span style="font-size:13px; color:#4A4A52; text-align:right">{{ sp.v }}</span>
+        </div>
+      </sc-for>
+      <div style="border-top:1px solid #E2E2DE; padding-top:16px; display:flex; flex-direction:column; gap:8px; font-size:14px; line-height:20px; color:#4A4A52">
+        <span><b style="color:#16161A">Controls:</b> 32 compact · 36 default · 44 mobile</span>
+        <span><b style="color:#16161A">Radius:</b> 8 chip · 10 control · 16 card (22 Lumen) · 24 dialog</span>
+        <span><b style="color:#16161A">Layout:</b> sidebar 248 · content max 1320 · gutter 40 / 16 mobile</span>
+      </div>
+    </div>
+    <div style="padding:28px; border-radius:24px; background:#FFFFFF; display:flex; flex-direction:column; gap:12px">
+      <h2 style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.015em">Rules that fix the old UI</h2>
+      <sc-for list="{{ rules }}" as="ru" hint-placeholder-count="8">
+        <div style="display:grid; grid-template-columns:24px 1fr; gap:10px; border-top:1px solid #E2E2DE; padding-top:10px; font-size:14px; line-height:20px">
+          <span style="font-family:'Geist Mono', monospace; font-size:12px; color:#67676F">{{ ru.n }}</span>
+          <span><b>{{ ru.t }}</b> <span style="color:#4A4A52">{{ ru.d }}</span></span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const T = { ok: ['var(--ok-soft)', 'var(--ok)'], warn: ['var(--warn-soft)', 'var(--warn)'], danger: ['var(--danger-soft)', 'var(--danger)'], neutral: ['var(--sunken)', 'var(--fg-2)'], accent: ['var(--accent-soft)', 'var(--accent-ink)'] };
+    const b = (label, t) => ({ label, bg: T[t][0], fg: T[t][1] });
+    return {
+      themes: [
+        { id: 'light', name: 'Light', desc: 'The default. Warm paper neutrals, crisp white cards, one indigo accent.' },
+        { id: 'dark', name: 'Dark', desc: 'Graphite, not black. Lighter accent for contrast. Cards are lifted by hairlines, not shadows.' },
+        { id: 'lumen', name: 'Lumen · 2027', desc: 'Ambient light field behind frosted material. Deeper radii and tactile edges. Glass stays 74%+ opaque so text never loses contrast.' },
+      ],
+      swatches: ['--fg', '--fg-2', '--fg-3', '--accent', '--surface', '--sunken', '--border-input', '--accent-soft', '--ok', '--warn', '--danger', '--chart-muted'].map(n => ({ n: n.slice(2), v: `var(${n})` })),
+      badges: [b('Active', 'ok'), b('Grace period', 'warn'), b('Revoked', 'danger'), b('Expired', 'neutral'), b('Chat', 'accent')],
+      rows: [{ name: 'Case summariser', prefix: 'ume-sk-7f3a…', status: 'Active', used: '2 min', bg: T.ok[0], fg: T.ok[1] }, { name: 'Permit triage', prefix: 'ume-sk-9b02…', status: 'Grace period', used: '14 min', bg: T.warn[0], fg: T.warn[1] }, { name: 'Translation pilot', prefix: 'ume-sk-5d9f…', status: 'Revoked', used: '3 wk', bg: T.danger[0], fg: T.danger[1] }],
+      type: [
+        { token: 'display', size: '44px', lh: '48px', w: 600, ls: '-0.03em', f: 'Geist', sample: '214 080 kr' },
+        { token: 'title-1', size: '30px', lh: '36px', w: 600, ls: '-0.025em', f: 'Geist', sample: 'Virtual keys' },
+        { token: 'title-2', size: '22px', lh: '28px', w: 600, ls: '-0.02em', f: 'Geist', sample: 'Rotate key' },
+        { token: 'heading', size: '16px', lh: '22px', w: 600, ls: '0', f: 'Geist', sample: 'Needs attention' },
+        { token: 'body', size: '14px', lh: '20px', w: 400, ls: '0', f: 'Geist', sample: 'Requests fail straight away.' },
+        { token: 'caption', size: '12px', lh: '16px', w: 500, ls: '0', f: 'Geist', sample: 'Last used · 24 h' },
+        { token: 'mono', size: '13px', lh: '18px', w: 500, ls: '0', f: "'Geist Mono', monospace", sample: 'ume-sk-7f3a… chat-default' },
+      ],
+      space: [['space-1', 4], ['space-2', 8], ['space-3', 12], ['space-4', 16], ['space-5', 20], ['space-6', 24], ['space-8', 32], ['space-10', 40]].map(([n, v]) => ({ n, v: v + 'px' })),
+      rules: [
+        { n: '01', t: 'One primary action per view.', d: 'Top right of the page header. Everything else is secondary or a quiet text button.' },
+        { n: '02', t: 'Labels are 1–2 words.', d: '“Rotate”, not “Rotate this virtual key”. Badges are one word or one short phrase.' },
+        { n: '03', t: 'Attention first.', d: 'Pages that can have problems open with a “Needs attention” block, then figures, then detail.' },
+        { n: '04', t: 'Everything on a 4 px grid.', d: 'Cards align to one column grid. Numbers are tabular and right-aligned.' },
+        { n: '05', t: 'Status = dot + word + color.', d: 'Residency = shape + word. Color is never the only signal (WCAG 1.4.1).' },
+        { n: '06', t: 'Explain disabled actions.', d: 'Show why next to the control (“Remove its 4 keys first”) instead of only greying it out.' },
+        { n: '07', t: 'Danger needs a confirm.', d: 'The dialog names the object and its effect. Secrets are shown once, behind an “I've stored it” check.' },
+        { n: '08', t: 'Keyboard first.', d: 'Visible 2 px focus ring, Esc closes, focus returns to the trigger, ⌘K opens search.' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

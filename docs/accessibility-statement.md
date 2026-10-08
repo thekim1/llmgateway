@@ -14,7 +14,7 @@ Verifierat: 18 routade sidor i fyra teman med tillgängliga axe-regler för A/AA
 44px-kontroller; 320px omflöde/200% text; tangentbords-skipplänk och fokus;
 forced-colors och reduced-motion; komponent-axe och kontrasttester för design-tokenpar.
 Verkliga Keycloak-inloggningar, behörighetsroller och nyckeldialoger ingår i webbresorna.
-Teman: Umeå ljus/mörk och hög kontrast ljus/mörk. Språk: svenska/engelska.
+Teman: ljus, mörk och Lumen (efter designprototypen). Språk: engelska (gränssnittet är ej längre tvåspråkigt; svenska serverfel visas med lang="sv"). Skärmläsar- och tangentbordskontroller samt axe-skanning måste göras om för det nya gränssnittet.
 Kontrasttester för tokenpar bevisar inte kontrast för varje möjlig överlagring och
 tredjeparts-IdP. Inloggningsleverantören behöver egen granskning.
 

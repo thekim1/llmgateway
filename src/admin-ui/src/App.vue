@@ -1,25 +1,17 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import AppShell from '@/components/layout/AppShell.vue'
-import AppIcon from '@/components/AppIcon.vue'
-import SignInView from '@/views/SignInView.vue'
+import { onMounted } from 'vue'
+import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import AppShell from '@/components/layout/AppShell.vue'
+import SignIn from '@/components/layout/SignIn.vue'
 
-const { t } = useI18n()
 const auth = useAuthStore()
-const route = useRoute()
+onMounted(() => void auth.ensureLoaded())
 </script>
 
 <template>
-  <AppShell>
-    <div v-if="auth.status === 'unknown' || auth.status === 'loading'" aria-busy="true">
-      <p class="loading">
-        <AppIcon name="hourglass_top" />
-        {{ t('common.loading') }}
-      </p>
-    </div>
-    <SignInView v-else-if="!auth.isAuthenticated" :return-url="route.fullPath" :failed="auth.status === 'error'" />
-    <RouterView v-else />
-  </AppShell>
+  <div v-if="auth.status === 'unknown' || auth.status === 'loading'" class="flex min-h-screen items-center justify-center text-small text-fg-3" role="status">Loading…</div>
+  <SignIn v-else-if="auth.status === 'error'" failed />
+  <SignIn v-else-if="!auth.isAuthenticated" />
+  <AppShell v-else><RouterView /></AppShell>
 </template>

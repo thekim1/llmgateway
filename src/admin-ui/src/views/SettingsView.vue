@@ -1,38 +1,72 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
-import { useForm, useNotify } from '@/composables/useForm'
-import PageHeader from '@/components/PageHeader.vue'
-import ThemePicker from '@/components/ThemePicker.vue'
-import LocalePicker from '@/components/LocalePicker.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ErrorSummary from '@/components/form/ErrorSummary.vue'
-import FormField from '@/components/form/FormField.vue'
-import AsyncState from '@/components/AsyncState.vue'
-const { t } = useI18n()
-const auth = useAuthStore()
+import { useUiStore } from '@/stores/ui'
+import { formatDateTime } from '@/utils/format'
+import { parseDecimal } from '@/utils/validation'
+import AsyncState from '@/components/ui/AsyncState.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import TextField from '@/components/ui/TextField.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+
 const budgets = useBudgetsStore()
-const form = useForm('exchange', ['sekPerUnit'] as const)
-const { summary, busy } = form
-const notify = useNotify()
-const rate = ref(10)
-const confirm = ref(false)
-function validate(): void { if (!Number.isFinite(Number(rate.value)) || Number(rate.value) <= 0) form.setError('sekPerUnit', t('common.invalid')) }
-async function review(): Promise<void> { await form.submit(validate, async () => { confirm.value = true }) }
-async function save(): Promise<void> {
-  if (busy.value) return
-  const ok = await form.submit(validate, async () => { await budgets.updateExchangeRate(Number(rate.value)); confirm.value = false; notify.success(t('common.saved')) })
-  if (!ok) confirm.value = false
+const ui = useUiStore()
+
+const rate = ref('')
+const rateError = ref<string | null>(null)
+const parsed = ref(0)
+const confirmOpen = ref(false)
+const loading = ref(true)
+
+async function load(): Promise<void> {
+  loading.value = true
+  const result = await budgets.loadExchangeRate()
+  if (result) rate.value = String(result.sekPerUnit).replace('.', ',')
+  loading.value = false
 }
-async function load(): Promise<void> { const result = await budgets.loadExchangeRate(); if (result) rate.value = result.sekPerUnit }
-onMounted(() => { if (auth.isGatewayAdmin) void load() })
+
+function review(): void {
+  const value = parseDecimal(rate.value)
+  if (value === null || Number.isNaN(value) || value <= 0) {
+    rateError.value = 'Enter a rate above 0, for example 10,50.'
+    return
+  }
+  rateError.value = null
+  parsed.value = value
+  confirmOpen.value = true
+}
+
+async function save(): Promise<void> {
+  await budgets.updateExchangeRate(parsed.value)
+  ui.notify('Exchange rate saved')
+}
+
+onMounted(load)
 </script>
+
 <template>
-  <PageHeader :title="t('nav.settings')" :lead="t('settings.help')" />
-  <h2>{{ t('theme.label') }}</h2><ThemePicker id="settings-theme" /><h2>{{ t('locale.label') }}</h2><LocalePicker id="settings-locale" />
-  <h2>{{ t('settings.accessibility') }}</h2><p>{{ t('settings.accessibilityHelp') }}</p>
-  <template v-if="auth.isGatewayAdmin"><h2>{{ t('settings.exchange') }}</h2><AsyncState :loading="false" :error="budgets.exchangeRateError" @retry="load"><form class="form" novalidate @submit.prevent="review"><ErrorSummary :id="form.summaryId" :items="summary" /><FormField :id="form.fieldId('sekPerUnit')" :label="t('settings.exchange')" :help="t('common.confirmBody')" :error="form.errors.sekPerUnit" required><template #default="{ id, describedBy, invalid }"><input :id="id" v-model="rate" type="number" min="0.000001" step="any" class="input" :aria-describedby="describedBy" :aria-invalid="invalid || undefined"></template></FormField><button class="btn btn--primary" type="submit" :disabled="busy">{{ t('common.review') }}</button></form></AsyncState></template>
-  <ConfirmDialog v-model:open="confirm" :title="t('settings.exchange')" :description="`${t('common.confirmBody')} 1 USD = ${rate} SEK`" :confirm-label="t('common.save')" :acknowledge-label="t('common.acknowledge')" tone="primary" :busy="busy" @confirm="save" />
+  <PageHeader title="Settings" description="Gateway-wide settings. Theme and display options are in the top bar." />
+
+  <UiCard title="Exchange rate" meta="USD to SEK" heading-id="rate-h" class="max-w-xl">
+    <AsyncState :loading="loading" :error="budgets.exchangeRateError" :empty="false" @retry="load">
+      <p class="mb-4 text-fg-2">
+        Model prices are set in USD per 1M tokens. Costs and budgets are shown in SEK using this rate.
+        <template v-if="budgets.exchangeRate">Current rate in effect since {{ formatDateTime(budgets.exchangeRate.effectiveFrom) }}.</template>
+      </p>
+      <form class="flex flex-col items-start gap-4" novalidate @submit.prevent="review">
+        <TextField v-model="rate" label="SEK per 1 USD" inputmode="decimal" :error="rateError" hint="Applies to new usage from the moment you save." />
+        <UiButton type="submit" variant="primary">Review change</UiButton>
+      </form>
+    </AsyncState>
+  </UiCard>
+
+  <ConfirmDialog
+    v-model:open="confirmOpen"
+    title="Change exchange rate?"
+    :consequence="`1 USD will count as ${rate} kr for new usage. Recorded costs are not recalculated.`"
+    confirm-label="Save rate"
+    :action="save"
+  />
 </template>

@@ -29,7 +29,7 @@ var fakeLlm = builder.ExecutionContext.IsRunMode ? builder.AddProject<Projects.U
 var migrations = builder.AddProject<Projects.Ume_LlmGateway_MigrationService>("migrations")
     .WithReference(database)
     .WithEnvironment("Security__KeyPepper", pepper)
-    .WithEnvironment("Seed__Enabled", builder.ExecutionContext.IsRunMode ? "true" : "false")
+    .WithEnvironment("Seed__Enabled", builder.ExecutionContext.IsRunMode && builder.Configuration.GetValue("Seed:Enabled", true) ? "true" : "false")
     .WaitFor(database);
 
 if (fakeLlm is not null)
