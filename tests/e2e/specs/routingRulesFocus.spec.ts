@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { confirmDialog, login, mutate, ready, remove, testTeam } from '../helpers'
 
-// Automated stand-ins for the screen reader checklist in docs/handover-ui-verification.md. They cover what a script can
+// Automated stand-ins for the screen reader checklist in HANDOVER.md. They cover what a script can
 // prove (focus, names, heading levels, language). They are NOT a screen reader pass: what is announced still has to be
 // listened to with NVDA or VoiceOver.
 test.afterEach(async ({ page }) => { await page.close() })

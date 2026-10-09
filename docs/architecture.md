@@ -79,4 +79,27 @@ The authenticated ops API displays component status, schema/version, provider st
 drain/circuit actions and key-cache invalidation. Reachability is not a successful upstream
 inference probe; an idle provider's historical latency is unavailable, not zero.
 
+## Scope and confirmed decisions
+
+Originally approved scope, kept here after the delivery plan was retired. It is a POC; the
+[security and compliance](security-and-compliance.md) release gates still apply.
+
+| Topic | Decision |
+|---|---|
+| Providers | Ollama (local and cloud), Azure OpenAI, Azure AI Foundry, OpenAI, Anthropic, generic OpenAI-compatible (vLLM etc.) |
+| Hierarchy | Department (förvaltning) -> team -> virtual key, budgets at every level |
+| Admin auth | Generic OIDC through a BFF; Keycloak in local run mode, an external HTTPS IdP in production |
+| Content logging | Metadata only; prompts and responses are never persisted |
+| PII guard | Optional, per key: Off / Allow / Redact / Block / Reroute to on-prem |
+| Currency | Budgets in SEK; prices in USD with a configurable USD to SEK rate |
+| Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`; Anthropic `/v1/messages` |
+| Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
+| Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
+| Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |
+| Provider classification | OnPrem / EU / External; drives PII rerouting and key residency limits |
+| Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
+
+Out of scope for the POC: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
+an automated exchange-rate feed, and invoicing integration (CSV export per cost centre instead).
+
 See [ADRs](adr.md), [runbook](runbook.md) and the exact [API contract](admin-api.md).

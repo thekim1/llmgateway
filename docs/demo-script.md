@@ -28,7 +28,7 @@ For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -
 7. With a separate unrestricted synthetic key, rotate with 24h grace. Both keys work;
    revoke the predecessor and verify only the replacement remains usable.
 8. Show the three themes (light, dark, Lumen), keyboard focus, the mobile layout and data tables.
-   Explain automatic checks and remaining manual assessment; do not claim AAA certification.
+   Explain automatic checks and remaining manual assessment; do not claim WCAG certification.
 9. Show Drift/Hälsa: component status, actual gateway version, live usage queue, schema,
    provider statistics. Demonstrate audited drain/circuit/cache action with confirmation.
 10. Sign in as viewer/department-admin to show read-only and department isolation. Explicitly

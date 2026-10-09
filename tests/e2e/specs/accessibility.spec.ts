@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { login, mutate, openRow, pages, ready, remove, testKey, testTeam, themeStorageKey, themes, undersizedControls } from '../helpers'
 
 // The design target is WCAG 2.2 AA. AAA rules (7:1 contrast and so on) are not part of the gate: the old
-// high-contrast themes that met them are gone (see the findings log in docs/handover-ui-verification.md).
+// high-contrast themes that met them are gone (the target is WCAG 2.2 AA, see docs/accessibility-statement.md).
 const tags = [...new Set(axe.getRules().flatMap(rule => rule.tags))]
   .filter(tag => /^wcag(2|21|22)(a|aa)$/.test(tag))
 

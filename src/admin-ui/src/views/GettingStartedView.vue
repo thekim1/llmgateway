@@ -55,6 +55,29 @@ onMounted(async () => {
       </div>
     </AsyncState>
 
+    <UiCard title="Routing examples" padding="lg">
+      <div class="flex flex-col gap-6">
+        <p class="text-fg-2">
+          A gateway administrator creates these under
+          <RouterLink :to="{ name: 'routing-rules' }" class="text-accent-ink underline">Routing &gt; Routing rules</RouterLink>.
+          Your application keeps asking for the same model name; the gateway decides where the request goes.
+        </p>
+        <section aria-labelledby="gs-ex-fallback" class="flex flex-col gap-3">
+          <h3 id="gs-ex-fallback" class="text-heading">Use another model if the main model doesn’t answer</h3>
+          <p>Ask for <span class="font-mono">ume/chat-advanced</span>. If every provider behind it fails or times out, the gateway tries <span class="font-mono">ume/chat-standard</span> instead. The response header <span class="font-mono">x-ume-fallbacks</span> counts the extra attempts.</p>
+          <CodeBlock code='model == "ume/chat-advanced"' label="Condition" />
+          <p class="text-small text-fg-2">Targets: <span class="font-mono">ume/chat-advanced</span>. Fallbacks: <span class="font-mono">ume/chat-standard</span>.</p>
+        </section>
+        <section aria-labelledby="gs-ex-pii" class="flex flex-col gap-3">
+          <h3 id="gs-ex-pii" class="text-heading">Keep chats with personal data on our own servers</h3>
+          <p>When the gateway finds personal data (such as a personnummer) in a chat request, send it to <span class="font-mono">ume/chat-onprem</span> instead of an EU or external provider. Add no fallbacks, so the chat never leaves the municipality: if the on-prem model is down, the call fails rather than going elsewhere. Move this rule above the others, because the first matching rule wins.</p>
+          <CodeBlock code='pii_detected &amp;&amp; endpoint == "chat_completions"' label="Condition" />
+          <p class="text-small text-fg-2">Targets: <span class="font-mono">ume/chat-onprem</span>. Fallbacks: none.</p>
+        </section>
+        <p class="text-small text-fg-2">Use <strong>Test a request</strong> on the Routing rules page to check what a rule does before relying on it. More examples are in docs/routing-rules.md.</p>
+      </div>
+    </UiCard>
+
     <UiCard title="Common errors" padding="lg">
       <ul class="m-0 flex list-none flex-wrap gap-2 p-0">
         <li v-for="code in GATEWAY_ERROR_CODES" :key="code" class="rounded-chip bg-sunken px-2 py-1 font-mono text-small">{{ code }}</li>

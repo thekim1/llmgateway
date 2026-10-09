@@ -6,8 +6,91 @@ existing model aliases (see *Routes* in the admin UI) and are modelled on
 [Bifrost routing rules](https://docs.getbifrost.ai/providers/routing-rules).
 
 > **Status.** Rules are stored, compiled, **applied to live requests** and managed through the admin API and
-> the admin UI (**Routing > Routing rules**). This page is updated as each step lands; see
-> [the plan](routing-rules-plan.md) for what is left.
+> the admin UI (**Routing > Routing rules**).
+
+## Worked examples
+
+Both examples are global rules created under **Routing > Routing rules** (gateway-admin) with the demo data. Your applications keep
+asking for the same model name; the rules decide where the request goes. The screenshots were taken from the real UI.
+
+### Example 1: use another model if the main model doesn't answer
+
+*Ask for `ume/chat-advanced`. If every provider behind it fails or times out, try `ume/chat-standard` instead.*
+
+| Field | Value |
+|---|---|
+| Name | Advanced model with fallback |
+| Applies to | Global |
+| Condition | `model == "ume/chat-advanced"` |
+| Send to | `ume/chat-advanced` (weight 1) |
+| Fallbacks | 1. `ume/chat-standard` |
+
+![The new rule form with the condition, the target and one fallback](images/routing-fallback-form.png)
+
+After **Create rule** the rule shows up in the list, in the order the gateway checks it:
+
+![The saved rule: condition, target and "Then, if those fail" fallback](images/routing-fallback-rule.png)
+
+How it behaves: the target is tried first (with its own provider order from the route). The fallbacks are tried only when the call fails
+in a way that can be retried (a timeout, 408, 409, 429, a 5xx or a provider configuration error), and never after the response has started
+streaming. Other client errors (such as 400) are returned as they are. The response header `x-ume-fallbacks` counts the extra attempts and
+`x-ume-rule` names the rule. Providers whose circuit breaker is open are moved last, so the fallback is tried before a known-broken primary.
+
+### Example 2 (advanced): chats with personal data go to an on-prem model
+
+*When the gateway finds personal data in a chat (a personnummer, an email address, a phone number, an IBAN), send the request to
+`ume/chat-onprem` instead of an EU or external provider.*
+
+| Field | Value |
+|---|---|
+| Name | Personal data stays on-prem |
+| Applies to | Global |
+| Condition | `pii_detected && endpoint == "chat_completions"` |
+| Send to | `ume/chat-onprem` |
+| Fallbacks | none, on purpose |
+
+![The new rule form with the pii_detected condition and the on-prem route as target](images/routing-pii-form.png)
+
+Three things make this safe:
+
+1. **Order matters: the first matching rule wins.** New rules are added last, so use **Check earlier** (the arrow buttons next to *Order*) until the
+   rule is number 1. Otherwise a request with personal data that also matches *Premium via header* would go to `ume/chat-advanced`.
+2. **No fallbacks.** If the on-prem model is down the call fails with `503 no_eligible_provider` or `502 all_providers_failed` instead of
+   quietly sending the chat to an EU or external provider. Add a fallback only if it is also on-prem.
+3. **Rules never widen access.** A key's allowed providers and residencies are applied after the rules, so the rule cannot send a chat anywhere the
+   key may not go.
+
+![The rule at the top of the list, checked first](images/routing-pii-rule.png)
+
+Check the rule before relying on it with **Test a request**: ask for `ume/chat-standard`, open *Usage values* and set *Personal data* to
+*Personal data found*:
+
+![The Test a request dialog with "Personal data found" selected](images/routing-pii-test-input.png)
+
+The result says which rule applies, which models the request is tried against and why each condition was true or false:
+
+![The test result: Personal data stays on-prem applies, request goes to ume/chat-onprem](images/routing-pii-test-result.png)
+
+On the real gateway (checked with the demo data and a synthetic personnummer): a chat containing `19121212-1212` was served by
+`fake-onprem` (`x-ume-residency: OnPrem`, `x-ume-rule` set), while a chat without personal data went to the EU provider as before.
+
+Notes:
+
+- `pii_detected` is evaluated for every request that a rule asks about it, **whatever the key's PII policy** (Off, Allow, Redact), so the rule
+  works even for keys that have no PII policy. If the key's policy is **Block**, the request is rejected before the rules run.
+- If you only need "personal data stays on-prem" for specific keys, the key's PII policy **Reroute to on-prem** does the same without a rule.
+  Use a rule when you want it per team or department, per model, with a chosen on-prem model, or combined with other conditions
+  (for example `pii_detected && department_name == "Individ- och familjeomsorgen"`).
+- Detection covers Swedish personnummer and samordningsnummer (with checksum), email addresses, Swedish phone numbers and IBANs (not bankgiro numbers).
+  It is a safety net, not a guarantee that no personal data reaches a provider.
+
+The same two examples are on the **Getting started** page of the admin UI:
+
+![The Routing examples card on the Getting started page](images/getting-started-routing.png)
+
+To regenerate the screenshots after a UI change, start the test stack (`.\scripts\Start-E2E.ps1`) and run
+`npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
+changes the (disposable) test database only.
 
 ## How a rule works
 
