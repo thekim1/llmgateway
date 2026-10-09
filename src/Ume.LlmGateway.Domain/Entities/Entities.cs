@@ -69,6 +69,7 @@ public sealed class VirtualKey
     public List<string> AllowedProviders { get; set; } = [];
 
     public PiiPolicy PiiPolicy { get; set; } = PiiPolicy.Off;
+    public AttachmentPolicy AttachmentPolicy { get; set; } = AttachmentPolicy.Allowed;
     public int? RequestsPerMinute { get; set; }
     public int? TokensPerMinute { get; set; }
 

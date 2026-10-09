@@ -4,9 +4,10 @@ import { api } from '@/api'
 import type { VirtualKey } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { PII_HINT, PII_LABEL, modelsLabel } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import DetailRow from '@/components/ui/DetailRow.vue'
 import DetailSection from '@/components/ui/DetailSection.vue'
 import KeyStatusBadge from '@/components/ui/KeyStatusBadge.vue'
@@ -112,6 +113,13 @@ const reason = computed(() => {
         <DetailRow label="PII policy">
           {{ PII_LABEL[keyData.piiPolicy] }}
           <span class="block text-small text-fg-3">{{ PII_HINT[keyData.piiPolicy] }}</span>
+        </DetailRow>
+        <DetailRow label="Attached files">
+          {{ ATTACHMENT_LABEL[keyData.attachmentPolicy] }}
+          <span class="block text-small text-fg-3">{{ ATTACHMENT_HINT[keyData.attachmentPolicy] }}</span>
+          <span v-if="keyData.attachmentPolicy !== 'Allowed'" class="mt-1 flex items-start gap-1.5 text-small text-fg-3">
+            <AppIcon name="info" :size="16" class="mt-px shrink-0" />{{ ATTACHMENT_LIMIT_NOTE }}
+          </span>
         </DetailRow>
       </DetailSection>
       <DetailSection title="Limits">

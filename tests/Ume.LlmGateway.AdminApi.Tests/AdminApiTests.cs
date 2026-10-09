@@ -193,6 +193,32 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Key_attachment_policy_defaults_to_allowed_and_is_kept_when_omitted()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        object Body(string? attachmentPolicy) => attachmentPolicy is null
+            ? new { teamId = org.Team, name = "Files", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(), piiPolicy = "Off" }
+            : new { teamId = org.Team, name = "Files", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(), piiPolicy = "Off", attachmentPolicy };
+
+        using var create = await client.PostAsJsonAsync("/api/keys", Body(null), TestContext.Current.CancellationToken);
+        var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
+        key["attachmentPolicy"]!.GetValue<string>().ShouldBe("Allowed");
+        var keyId = key["id"]!.GetValue<Guid>();
+
+        using var restrict = await client.PutAsJsonAsync($"/api/keys/{keyId}", Body("None"), TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(restrict))["attachmentPolicy"]!.GetValue<string>().ShouldBe("None");
+        using var omit = await client.PutAsJsonAsync($"/api/keys/{keyId}", Body(null), TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(omit))["attachmentPolicy"]!.GetValue<string>().ShouldBe("None");
+
+        using var rotate = await client.PostAsJsonAsync($"/api/keys/{keyId}/rotate", new { mode = "RevokeImmediately" }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(rotate))["key"]!["attachmentPolicy"]!.GetValue<string>().ShouldBe("None");
+
+        using var invalid = await client.PostAsJsonAsync("/api/keys", Body("Sometimes"), TestContext.Current.CancellationToken);
+        invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Key_limits_provider_allowlist_and_budgets_round_trip()
     {
         using var client = await fixture.ClientAsync();

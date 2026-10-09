@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { DATA_RESIDENCIES, PII_POLICIES, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
+import { ATTACHMENT_POLICIES, DATA_RESIDENCIES, PII_POLICIES, type AttachmentPolicy, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelOptions } from '@/composables/useModelOptions'
 import { useAuthStore } from '@/stores/auth'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { PII_HINT, PII_LABEL, RESIDENCY } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { todayIso } from '@/utils/format'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import CheckField from '@/components/ui/CheckField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
@@ -41,6 +42,7 @@ const ids = {
   expiresAt: 'key-expires',
   allowedResidencies: 'key-residency',
   piiPolicy: 'key-pii',
+  attachmentPolicy: 'key-attachments',
   allowedModels: 'key-models',
   allowedProviders: 'key-providers',
   requestsPerMinute: 'key-rpm',
@@ -54,6 +56,7 @@ const values = reactive({
   description: '',
   residencies: [] as DataResidency[],
   piiPolicy: 'RerouteToOnPrem' as PiiPolicy,
+  attachmentPolicy: 'Allowed' as AttachmentPolicy,
   allowAll: true,
   models: [] as string[],
   allProviders: true,
@@ -64,6 +67,7 @@ const values = reactive({
   isEnabled: true,
 })
 const piiOptions = PII_POLICIES.map((p) => ({ value: p, label: PII_LABEL[p] }))
+const attachmentOptions = ATTACHMENT_POLICIES.map((p) => ({ value: p, label: ATTACHMENT_LABEL[p] }))
 const busy = ref(false)
 const isEdit = computed(() => !!props.existing)
 
@@ -119,6 +123,7 @@ function reset(): void {
   values.description = key?.description ?? ''
   values.residencies = [...(key?.allowedResidencies ?? [])]
   values.piiPolicy = key?.piiPolicy ?? 'RerouteToOnPrem'
+  values.attachmentPolicy = key?.attachmentPolicy ?? 'Allowed'
   values.allowAll = key ? key.allowedModels.length === 0 : true
   values.models = [...(key?.allowedModels ?? [])]
   values.allProviders = key ? (key.allowedProviders ?? []).length === 0 : true
@@ -185,6 +190,7 @@ async function submit(): Promise<void> {
     allowedResidencies: [...values.residencies],
     ...(canPickProviders.value ? { allowedProviders: values.allProviders ? [] : [...values.providerNames] } : {}),
     piiPolicy: values.piiPolicy,
+    attachmentPolicy: values.attachmentPolicy,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
   }
@@ -263,6 +269,22 @@ async function submit(): Promise<void> {
             />
             <span class="text-small text-fg-2">{{ PII_HINT[values.piiPolicy] }}</span>
             <span v-if="errors.piiPolicy" class="text-small text-danger">{{ errors.piiPolicy }}</span>
+          </div>
+
+          <div :id="ids.attachmentPolicy" class="flex flex-col gap-1.5" tabindex="-1">
+            <span class="font-medium">Attached files</span>
+            <SegmentedControl
+              v-model="values.attachmentPolicy"
+              mode="radio"
+              label="Attached files"
+              :options="attachmentOptions"
+            />
+            <span class="text-small text-fg-2">{{ ATTACHMENT_HINT[values.attachmentPolicy] }}</span>
+            <p v-if="values.attachmentPolicy !== 'Allowed'" class="m-0 flex items-start gap-2 text-small text-fg-2">
+              <AppIcon name="info" :size="18" class="mt-px shrink-0" />
+              {{ ATTACHMENT_LIMIT_NOTE }}
+            </p>
+            <span v-if="errors.attachmentPolicy" class="text-small text-danger">{{ errors.attachmentPolicy }}</span>
           </div>
 
           <div v-if="canPickProviders" :id="ids.allowedProviders" class="flex flex-col gap-2" tabindex="-1">

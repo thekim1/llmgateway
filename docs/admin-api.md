@@ -41,6 +41,7 @@ Roles (OIDC `roles` claim):
 - `ProviderCapabilities` (array of): `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`
 - `ModelKind`: `Chat`, `Embedding`; `ParameterProfile`: `Standard`, `OpenAIReasoning`
 - `PiiPolicy`: `Off`, `Allow`, `Redact`, `Block`, `RerouteToOnPrem`
+- `AttachmentPolicy`: `Allowed` (default), `ImagesOnly`, `None` (text only)
 - `BudgetScope`: `Department`, `Team`, `VirtualKey`; `BudgetPeriod`: `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`
 - `KeyRotationMode`: `RevokeImmediately` (default), `Grace24Hours`
 - `KeyStatus`: `Active`, `InGracePeriod`, `Expired`, `Revoked`, `Disabled`
@@ -60,15 +61,16 @@ Roles (OIDC `roles` claim):
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
-allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
+allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
 (empty `allowedModels` / `allowedResidencies` = all allowed)
+(`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, requestsPerMinute?, tokensPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -179,6 +181,24 @@ and invalidate the gateway catalogue.
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `budget_exceeded`,
-  `rate_limited`, `pii_blocked`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.
+  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.
+  A provider-side refusal is passed through with the provider's status; one the gateway raises itself is
+  `unsupported_content` (400): a Chat Completions request to a Claude model contains a part the Messages API cannot
+  take (audio, an OpenAI `file_id`, or a file other than PDF or plain text).
+
+**Attached files.** Files travel inline in the JSON body as content parts; the gateway has no upload endpoint.
+The key's `attachmentPolicy` is checked right after the body is parsed, before rate limiting and the PII policy:
+
+| Kind | Chat Completions | Responses | Anthropic Messages |
+|---|---|---|---|
+| Image | `image_url` | `input_image` | `image` |
+| Document | `file` (`file_data` or `file_id`) | `input_file` (`file_data`, `file_id` or `file_url`) | `document`, `container_upload` |
+| Audio | `input_audio` | — | — |
+
+Parts nested inside other content (for example an Anthropic `tool_result`) are found too. `ImagesOnly` refuses
+documents and audio; `None` refuses all three. A refused request gets 400 `attachment_not_allowed` and is recorded
+with outcome `Rejected`. The PII policy scans text only, never file contents, so a key that must not send personal
+data to a provider should use `None`. It cannot stop a client that extracts a file's text itself and sends it as an
+ordinary message (common in chat front-ends); the PII policy is what covers that text.
 
 **Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced per minute (429 `rate_limited`; token usage is counted after each response).

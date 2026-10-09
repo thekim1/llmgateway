@@ -30,7 +30,18 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
             return new ProviderFailure(400, true, "endpoint_not_supported");
         }
 
-        var body = translate ? AnthropicTranslator.ToMessagesRequest(call.Body, call.Deployment.UpstreamModel) : call.Body;
+        JsonObject body;
+        try
+        {
+            body = translate ? AnthropicTranslator.ToMessagesRequest(call.Body, call.Deployment.UpstreamModel) : call.Body;
+        }
+        catch (NotSupportedException ex)
+        {
+            // The client's content, not the provider, is the problem: answer 400 without touching circuit health.
+            var error = new JsonObject { ["error"] = new JsonObject { ["message"] = ex.Message, ["type"] = "invalid_request_error", ["code"] = "unsupported_content" } };
+            return new ProviderFailure(400, false, "unsupported_content", error.ToJsonString(), "application/json");
+        }
+
         var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, "messages"), body, call, timeout, cancellationToken);
         if (failure is not null)

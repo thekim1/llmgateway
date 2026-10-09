@@ -20,7 +20,8 @@ public sealed record KeyRequest(
     [property: Range(1, int.MaxValue)] int? RequestsPerMinute = null,
     [property: Range(1, int.MaxValue)] int? TokensPerMinute = null,
     bool IsEnabled = true,
-    [property: MaxLength(100)] List<string>? AllowedProviders = null) : AdminRequest, IValidatableObject
+    [property: MaxLength(100)] List<string>? AllowedProviders = null,
+    [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -51,7 +52,7 @@ public static class KeyEndpoints
         departmentName = k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         status = k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt,
         k.RevokedAt, k.GraceUntil, k.LastUsedAt, k.AllowedModels, k.AllowedResidencies, k.AllowedProviders,
-        k.PiiPolicy, k.RequestsPerMinute, k.TokensPerMinute, k.RotatedToKeyId,
+        k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute, k.RotatedToKeyId,
         canReveal = k.EncryptedSecret is not null,
     };
 
@@ -130,6 +131,7 @@ public static class KeyEndpoints
     {
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();
         key.AllowedModels = [.. input.AllowedModels]; key.AllowedResidencies = [.. input.AllowedResidencies]; if (input.AllowedProviders is not null) { key.AllowedProviders = [.. input.AllowedProviders.Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)]; } key.PiiPolicy = input.PiiPolicy;
+        if (input.AttachmentPolicy is { } attachments) { key.AttachmentPolicy = attachments; }
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
     }
 }

@@ -75,6 +75,7 @@ public static class KeyRotation
             AllowedResidencies = [.. oldKey.AllowedResidencies],
             AllowedProviders = [.. oldKey.AllowedProviders],
             PiiPolicy = oldKey.PiiPolicy,
+            AttachmentPolicy = oldKey.AttachmentPolicy,
             RequestsPerMinute = oldKey.RequestsPerMinute,
             TokensPerMinute = oldKey.TokensPerMinute,
         };

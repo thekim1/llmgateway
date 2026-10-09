@@ -14,7 +14,7 @@ function key(overrides: Partial<VirtualKey> = {}): VirtualKey {
   return {
     id: 'k1', teamId: 't', teamName: 'Team', departmentId: 'd', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-AbC1',
     status: 'Active', isEnabled: true, createdAt: '2026-10-01T00:00:00Z', createdBy: 'me', expiresAt: null, revokedAt: null, graceUntil: null,
-    lastUsedAt: null, allowedModels: [], allowedResidencies: [], allowedProviders: ['ollama-cloud'], piiPolicy: 'Off',
+    lastUsedAt: null, allowedModels: [], allowedResidencies: [], allowedProviders: ['ollama-cloud'], piiPolicy: 'Off', attachmentPolicy: 'Allowed',
     requestsPerMinute: null, tokensPerMinute: null, rotatedToKeyId: null, canReveal: true, ...overrides,
   } as VirtualKey
 }

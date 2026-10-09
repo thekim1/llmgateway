@@ -30,12 +30,13 @@ isolating Redis to the gateway alone would break these control-plane functions.
 
 ## Request and accounting flow
 
-Bounded JSON request -> HMAC authentication -> model/endpoint authorization -> Redis
+Bounded JSON request -> HMAC authentication -> key attachment policy -> model/endpoint authorization -> Redis
 rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
 budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
 Fallback occurs for retryable/provider-configuration failures, never after streaming
 has sent bytes. Unknown JSON fields pass through; model parameter rewrites are explicit.
-Anthropic/OpenAI translation covers the implemented text/tool/streaming paths.
+Anthropic/OpenAI translation covers the implemented text/image/document/tool/streaming paths; content the Messages API
+cannot take (audio, other file types) is rejected with `unsupported_content` rather than dropped.
 
 With warm caches the request path makes no Postgres calls and two Redis round trips before the first byte (rate limit
 pipelined with circuit state; one atomic budget reservation), plus one pipelined round trip for reconciliation after the

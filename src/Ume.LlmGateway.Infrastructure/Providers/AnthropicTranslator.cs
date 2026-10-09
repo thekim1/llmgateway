@@ -5,7 +5,9 @@ namespace Ume.LlmGateway.Infrastructure.Providers;
 
 /// <summary>
 /// Translates between the OpenAI Chat Completions format (what clients send to /v1/chat/completions) and the
-/// Anthropic Messages API. Scope: text, images, tools/tool results, streaming and usage.
+/// Anthropic Messages API. Scope: text, images, PDF/text documents, tools/tool results, streaming and usage.
+/// Content the Messages API cannot take (audio, other file types) throws <see cref="NotSupportedException"/>
+/// rather than being dropped.
 /// </summary>
 public static class AnthropicTranslator
 {
@@ -288,6 +290,14 @@ public static class AnthropicTranslator
                             }
 
                             break;
+                        case "file":
+                            blocks.Add(DocumentBlock(part["file"] as JsonObject));
+                            break;
+                        case "input_audio":
+                            throw new NotSupportedException("Claude-modeller tar inte emot ljud. Välj en modell som stöder ljud.");
+                        case var other:
+                            // Dropping a part would silently send a different question than the client asked.
+                            throw new NotSupportedException($"Innehållstypen '{other}' kan inte skickas till en Claude-modell.");
                     }
                 }
 
@@ -295,6 +305,72 @@ public static class AnthropicTranslator
         }
 
         return blocks;
+    }
+
+    /// <summary>
+    /// OpenAI <c>{"type":"file","file":{"file_data":"data:…;base64,…","filename":…}}</c> → Anthropic <c>document</c>.
+    /// Claude reads PDFs and plain text; other formats and OpenAI file ids cannot be forwarded.
+    /// </summary>
+    private static JsonObject DocumentBlock(JsonObject? file)
+    {
+        var filename = file?["filename"]?.GetValue<string>();
+        if (file?["file_data"]?.GetValue<string>() is not { Length: > 0 } fileData)
+        {
+            throw new NotSupportedException(file?["file_id"] is not null
+                ? "Filreferenser (file_id) från OpenAI kan inte användas med en Claude-modell. Skicka filen som file_data i stället."
+                : "Filen saknar innehåll (file_data).");
+        }
+
+        string mediaType, data;
+        if (fileData.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = fileData.IndexOf(',', StringComparison.Ordinal);
+            mediaType = fileData[5..Math.Max(5, comma)].Split(';')[0].ToLowerInvariant();
+            data = comma < 0 ? string.Empty : fileData[(comma + 1)..];
+        }
+        else
+        {
+            // Some clients send bare base64 and let the file name carry the type.
+            mediaType = Path.GetExtension(filename)?.ToLowerInvariant() switch
+            {
+                ".pdf" => "application/pdf",
+                ".txt" or ".md" or ".csv" => "text/plain",
+                _ => string.Empty,
+            };
+            data = fileData;
+        }
+
+        JsonObject source;
+        if (mediaType == "application/pdf")
+        {
+            source = new JsonObject { ["type"] = "base64", ["media_type"] = mediaType, ["data"] = data };
+        }
+        else if (mediaType.StartsWith("text/", StringComparison.Ordinal))
+        {
+            string text;
+            try
+            {
+                text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(data));
+            }
+            catch (FormatException)
+            {
+                throw new NotSupportedException("Filens innehåll är inte giltig base64.");
+            }
+
+            source = new JsonObject { ["type"] = "text", ["media_type"] = "text/plain", ["data"] = text };
+        }
+        else
+        {
+            throw new NotSupportedException($"Claude-modeller kan läsa PDF- och textfiler, inte '{(mediaType.Length > 0 ? mediaType : filename ?? "okänd filtyp")}'.");
+        }
+
+        var block = new JsonObject { ["type"] = "document", ["source"] = source };
+        if (!string.IsNullOrWhiteSpace(filename))
+        {
+            block["title"] = filename;
+        }
+
+        return block;
     }
 
     private static JsonObject ImageSource(string url)

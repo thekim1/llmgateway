@@ -210,6 +210,64 @@ public sealed class GatewayTests(GatewayFixture fixture)
         await AssertErrorAsync(response, 503, "no_eligible_provider");
     }
 
+    private const string ImagePart = """{"type":"image_url","image_url":{"url":"data:image/png;base64,YWJj"}}""";
+    private const string PdfPart = """{"type":"file","file":{"filename":"beslut.pdf","file_data":"data:application/pdf;base64,JVBERi0="}}""";
+
+    private static string ChatWith(string model, string part) =>
+        $$"""{"model":"{{model}}","messages":[{"role":"user","content":[{"type":"text","text":"Sammanfatta"},{{part}}]}]}""";
+
+    [Theory]
+    [InlineData(AttachmentPolicy.Allowed, PdfPart, 200)]
+    [InlineData(AttachmentPolicy.ImagesOnly, ImagePart, 200)]
+    [InlineData(AttachmentPolicy.ImagesOnly, PdfPart, 400)]
+    [InlineData(AttachmentPolicy.None, ImagePart, 400)]
+    [InlineData(AttachmentPolicy.None, """{"type":"text","text":"bara text"}""", 200)]
+    public async Task Attachment_policy_is_enforced(AttachmentPolicy policy, string part, int status)
+    {
+        var key = await fixture.CreateKeyAsync(k => k.AttachmentPolicy = policy);
+        using var response = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("eu/ok", part));
+        if (status == 200)
+        {
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            return;
+        }
+
+        await AssertErrorAsync(response, 400, "attachment_not_allowed");
+        var usage = await fixture.UsageAsync(response);
+        usage.Outcome.ShouldBe(RequestOutcome.Rejected);
+        usage.ErrorCode.ShouldBe("attachment_not_allowed");
+    }
+
+    [Fact]
+    public async Task Attachment_policy_finds_documents_nested_in_anthropic_tool_results()
+    {
+        var key = await fixture.CreateKeyAsync(k => k.AttachmentPolicy = AttachmentPolicy.ImagesOnly);
+        using var response = await fixture.SendRawAsync(key, "/v1/messages", """
+            {"model":"anthropic/ok","max_tokens":10,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[
+              {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBERi0="}}]}]}]}
+            """);
+        ((int)response.StatusCode).ShouldBe(400);
+        var error = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["error"]!;
+        error["code"]!.GetValue<string>().ShouldBe("attachment_not_allowed");
+        error["message"]!.GetValue<string>().ShouldContain("dokument");
+    }
+
+    [Fact]
+    public async Task Chat_files_reach_anthropic_as_documents_and_unsupported_parts_are_rejected()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var pdf = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", PdfPart));
+        pdf.StatusCode.ShouldBe(HttpStatusCode.OK);
+        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Body!.Contains("\"type\":\"document\"", StringComparison.Ordinal)
+            && e.RequestMessage.Body.Contains("beslut.pdf", StringComparison.Ordinal));
+
+        using var audio = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", """{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}"""));
+        ((int)audio.StatusCode).ShouldBe(400);
+        var error = JsonNode.Parse(await audio.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["error"]!;
+        error["code"]!.GetValue<string>().ShouldBe("unsupported_content");
+        (await fixture.UsageAsync(audio)).ErrorCode.ShouldBe("provider_rejected");
+    }
+
     [Theory]
     [InlineData("""{"model":"missing"}""", "application/json", 404, "model_not_found")]
     [InlineData("""{"model":"eu/ok"}""", "text/plain", 415, "unsupported_media_type")]

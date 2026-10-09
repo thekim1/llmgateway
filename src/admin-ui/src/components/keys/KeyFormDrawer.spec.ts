@@ -128,4 +128,31 @@ describe('KeyFormDrawer provider then model selection', () => {
     await flushPromises()
     expect(update.mock.calls[0]![1]).not.toHaveProperty('allowedProviders')
   })
+
+  it('sends the chosen attachment policy and keeps the existing one on edit', async () => {
+    create.mockResolvedValue({ key: {}, secret: 's' })
+    const wrapper = mountForm()
+    await flushPromises()
+    await wrapper.find('select').setValue('t1')
+    await wrapper.find('input[autocomplete=off]').setValue('Sensitive key')
+    expect(wrapper.find('[role=radiogroup][aria-label="Attached files"] [aria-checked=true]').text()).toBe('All files')
+    expect(wrapper.text()).not.toContain('A safeguard, not a guarantee')
+    await wrapper.findAll('[role=radiogroup][aria-label="Attached files"] [role=radio]').find((b) => b.text() === 'Text only')!.trigger('click')
+    expect(wrapper.text()).toContain('Any attached file is rejected')
+    expect(wrapper.text()).toContain('A safeguard, not a guarantee')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(create.mock.calls[0]![0]).toMatchObject({ attachmentPolicy: 'None' })
+
+    update.mockResolvedValue({})
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', attachmentPolicy: 'ImagesOnly', requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
+    } as unknown as VirtualKey
+    const edit = mountForm(existing)
+    await flushPromises()
+    await edit.find('form').trigger('submit')
+    await flushPromises()
+    expect(update.mock.calls[0]![1]).toMatchObject({ attachmentPolicy: 'ImagesOnly' })
+  })
 })

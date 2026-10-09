@@ -39,6 +39,9 @@ export type ParameterProfile = (typeof PARAMETER_PROFILES)[number]
 export const PII_POLICIES = ['Off', 'Allow', 'Redact', 'Block', 'RerouteToOnPrem'] as const
 export type PiiPolicy = (typeof PII_POLICIES)[number]
 
+export const ATTACHMENT_POLICIES = ['Allowed', 'ImagesOnly', 'None'] as const
+export type AttachmentPolicy = (typeof ATTACHMENT_POLICIES)[number]
+
 export const BUDGET_SCOPES = ['Department', 'Team', 'VirtualKey'] as const
 export type BudgetScope = (typeof BUDGET_SCOPES)[number]
 
@@ -162,6 +165,8 @@ export interface VirtualKey {
   /** Provider account names the key may use. Empty = all providers. */
   allowedProviders: string[]
   piiPolicy: PiiPolicy
+  /** Which file parts (images, documents, audio) requests may carry. */
+  attachmentPolicy: AttachmentPolicy
   requestsPerMinute: number | null
   tokensPerMinute: number | null
   rotatedToKeyId: string | null
@@ -185,6 +190,8 @@ export interface CreateKeyRequest {
   /** Provider account names the key may use. Empty = all; omitted = unchanged. */
   allowedProviders?: string[]
   piiPolicy: PiiPolicy
+  /** Omitted = Allowed on create, unchanged on update. */
+  attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
 }
@@ -203,6 +210,8 @@ export interface UpdateKeyRequest {
   allowedResidencies: DataResidency[]
   allowedProviders?: string[]
   piiPolicy: PiiPolicy
+  /** Omitted = Allowed on create, unchanged on update. */
+  attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
   isEnabled: boolean
@@ -708,6 +717,7 @@ export const GATEWAY_ERROR_CODES = [
   'budget_exceeded',
   'rate_limited',
   'pii_blocked',
+  'attachment_not_allowed',
   'no_eligible_provider',
   'all_providers_failed',
   'invalid_request',

@@ -1,4 +1,5 @@
 import type {
+  AttachmentPolicy,
   BudgetPeriod,
   BudgetScope,
   CircuitState,
@@ -54,6 +55,22 @@ export const PII_HINT: Record<PiiPolicy, string> = {
   Block: 'Requests containing PII are rejected with pii_blocked.',
   RerouteToOnPrem: 'Requests with PII are sent to on-prem models only.',
 }
+
+export const ATTACHMENT_LABEL: Record<AttachmentPolicy, string> = {
+  Allowed: 'All files',
+  ImagesOnly: 'Images only',
+  None: 'Text only',
+}
+
+export const ATTACHMENT_HINT: Record<AttachmentPolicy, string> = {
+  Allowed: 'Images, documents and audio are sent on. The PII check cannot read file contents.',
+  ImagesOnly: 'Images are sent on; documents, audio and file references are rejected with attachment_not_allowed.',
+  None: 'Any attached file is rejected with attachment_not_allowed. Use for keys handling sensitive data.',
+}
+
+/** Shown with a restrictive attachment policy: the check stops files, not text a client extracted from a file. */
+export const ATTACHMENT_LIMIT_NOTE =
+  'A safeguard, not a guarantee: some chat apps read a file themselves and paste its text into the message. That text is no longer a file, so it gets through. The PII policy still checks it.'
 
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }

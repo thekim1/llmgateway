@@ -61,6 +61,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.RotatedToKeyId).IsConcurrencyToken();
             e.Property(x => x.RevokedAt).IsConcurrencyToken();
             e.Property(x => x.PiiPolicy).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.AttachmentPolicy).HasConversion<string>().HasMaxLength(20);
         });
 
         modelBuilder.Entity<ProviderAccount>(e =>

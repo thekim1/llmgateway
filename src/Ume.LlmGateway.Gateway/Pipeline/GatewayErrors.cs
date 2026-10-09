@@ -17,6 +17,7 @@ public static class GatewayErrorCodes
     public const string ModelNotAllowed = "model_not_allowed";
     public const string RateLimited = "rate_limited";
     public const string PiiBlocked = "pii_blocked";
+    public const string AttachmentNotAllowed = "attachment_not_allowed";
     public const string NoEligibleProvider = "no_eligible_provider";
     public const string BudgetExceeded = "budget_exceeded";
     public const string AllProvidersFailed = "all_providers_failed";

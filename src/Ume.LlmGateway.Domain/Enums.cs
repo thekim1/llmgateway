@@ -97,6 +97,34 @@ public enum PiiPolicy
     RerouteToOnPrem = 4,
 }
 
+/// <summary>
+/// Which inline file parts (images, documents, audio) a key may send. Files are base64 payloads the PII guard
+/// cannot inspect, so keys for very sensitive work can refuse them outright.
+/// </summary>
+public enum AttachmentPolicy
+{
+    /// <summary>Images, documents and audio are forwarded.</summary>
+    Allowed = 0,
+
+    /// <summary>Images are forwarded; documents, audio and provider file references are rejected.</summary>
+    ImagesOnly = 1,
+
+    /// <summary>Text only: any file part is rejected.</summary>
+    None = 2,
+}
+
+/// <summary>Kinds of inline file parts found in a request body.</summary>
+[Flags]
+public enum AttachmentKinds
+{
+    None = 0,
+    Image = 1,
+
+    /// <summary>PDFs and other files, including references to files uploaded to a provider (<c>file_id</c>).</summary>
+    Document = 2,
+    Audio = 4,
+}
+
 public enum PiiCategory
 {
     Personnummer = 0,

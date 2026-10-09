@@ -36,6 +36,36 @@ public sealed class ProviderUnitTests
         chat["model"]!.GetValue<string>().ShouldBe("alias");
     }
 
+    [Fact]
+    public void Anthropic_request_maps_pdf_and_text_files_to_documents()
+    {
+        var chat = JsonNode.Parse("""
+            {"model":"alias","messages":[{"role":"user","content":[
+              {"type":"file","file":{"filename":"beslut.pdf","file_data":"data:application/pdf;base64,JVBERi0="}},
+              {"type":"file","file":{"filename":"notes.txt","file_data":"data:text/plain;base64,aGVqIGTDpQ=="}},
+              {"type":"file","file":{"filename":"bare.pdf","file_data":"JVBERi0="}}]}]}
+            """)!.AsObject();
+        var blocks = AnthropicTranslator.ToMessagesRequest(chat, "claude")["messages"]![0]!["content"]!.AsArray();
+        blocks.Count.ShouldBe(3);
+        blocks[0]!["type"]!.GetValue<string>().ShouldBe("document");
+        blocks[0]!["title"]!.GetValue<string>().ShouldBe("beslut.pdf");
+        blocks[0]!["source"]!.ToJsonString().ShouldBe("""{"type":"base64","media_type":"application/pdf","data":"JVBERi0="}""");
+        blocks[1]!["source"]!["type"]!.GetValue<string>().ShouldBe("text");
+        blocks[1]!["source"]!["data"]!.GetValue<string>().ShouldBe("hej då");
+        blocks[2]!["source"]!["media_type"]!.GetValue<string>().ShouldBe("application/pdf");
+    }
+
+    [Theory]
+    [InlineData("""{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}""", "ljud")]
+    [InlineData("""{"type":"file","file":{"file_id":"file-abc"}}""", "file_id")]
+    [InlineData("""{"type":"file","file":{"filename":"a.docx","file_data":"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEs="}}""", "wordprocessingml")]
+    [InlineData("""{"type":"something_new"}""", "something_new")]
+    public void Anthropic_request_rejects_content_it_cannot_carry(string part, string mentions)
+    {
+        var chat = JsonNode.Parse($$"""{"model":"alias","messages":[{"role":"user","content":[{"type":"text","text":"Hej"},{{part}}]}]}""")!.AsObject();
+        Should.Throw<NotSupportedException>(() => AnthropicTranslator.ToMessagesRequest(chat, "claude")).Message.ShouldContain(mentions);
+    }
+
     [Theory]
     [InlineData("end_turn", "stop")]
     [InlineData("stop_sequence", "stop")]

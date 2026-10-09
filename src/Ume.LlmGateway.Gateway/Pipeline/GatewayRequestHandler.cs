@@ -122,6 +122,16 @@ public sealed partial class GatewayRequestHandler(
 
         state.RequestedModel = model.Length > 200 ? model[..200] : model;
 
+        // 2b. Attachment policy (per key): files are base64 the PII guard cannot read, so sensitive keys may refuse them.
+        if (key.AttachmentPolicy != AttachmentPolicy.Allowed
+            && AttachmentScanner.Disallowed(key.AttachmentPolicy, AttachmentScanner.Scan(body)) is var refused and not AttachmentKinds.None)
+        {
+            await RejectAsync(http, state, 400, GatewayErrorCodes.AttachmentNotAllowed,
+                $"Nyckeln tillåter inte bifogade {AttachmentNames(refused)}{(key.AttachmentPolicy == AttachmentPolicy.ImagesOnly ? " (endast bilder är tillåtna)" : string.Empty)}. Skicka förfrågan utan filer.",
+                RequestOutcome.Rejected);
+            return;
+        }
+
         // 3. Resolve model alias and check the key's allow-list and endpoint compatibility.
         var snapshot = await catalog.GetAsync(ct);
         var resolution = router.ResolveModel(snapshot, key, endpoint, model);
@@ -643,6 +653,12 @@ public sealed partial class GatewayRequestHandler(
 
     /// <summary>Upstream 401/403/404 means our provider configuration is wrong, not the client's request: try the next provider.</summary>
     private static bool IsProviderConfigError(int status) => status is 401 or 403 or 404;
+
+    private static readonly (AttachmentKinds Kind, string Name)[] AttachmentKindNames =
+        [(AttachmentKinds.Image, "bilder"), (AttachmentKinds.Document, "dokument"), (AttachmentKinds.Audio, "ljudfiler")];
+
+    private static string AttachmentNames(AttachmentKinds kinds) =>
+        string.Join(" eller ", AttachmentKindNames.Where(n => kinds.HasFlag(n.Kind)).Select(n => n.Name));
 
     private static string FormatSek(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
 

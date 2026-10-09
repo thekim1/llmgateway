@@ -5,7 +5,7 @@ authenticated Redis and Aspire 13.6. This is a demonstrator, **not a production 
 legal compliance attestation or WCAG certification**.
 
 The gateway provides virtual keys, department/team/key budgets in SEK, provider fallback,
-residency restrictions and optional PII policy. It stores usage metadata, never prompt or
+residency restrictions, optional PII policy and a per-key policy for attached files. It stores usage metadata, never prompt or
 response content. Providers/models are configuration, not hardcoded model-family lists.
 Routing rules (conditions on headers, team, budget use and PII that rewrite where a request goes,
 with weights, fallbacks and chaining) are applied to live requests and described in
@@ -254,6 +254,30 @@ The same two examples are on the **Getting started** page of the admin UI:
 To regenerate the screenshots after a UI change, start the test stack (`.\scripts\Start-E2E.ps1`) and run
 `npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
 changes the (disposable) test database only.
+
+## Attached files
+
+Applications send images, PDFs and audio inline in the request body, as content parts (`image_url`/`file`/`input_audio`
+in Chat Completions, `input_image`/`input_file` in Responses, `image`/`document` in Anthropic Messages). The gateway has
+no upload endpoint: a provider `file_id` only works with the one provider account it was uploaded to, which would
+break alias routing and fallback.
+
+Each key has an **Attached files** setting (Keys > edit key > Access):
+
+| Setting | Effect |
+|---|---|
+| **All files** (`Allowed`, default) | Everything is sent on, as before. |
+| **Images only** (`ImagesOnly`) | Images are sent on; documents, audio and `file_id` references are rejected. |
+| **Text only** (`None`) | Any file is rejected. |
+
+A refused request gets 400 `attachment_not_allowed`. The PII policy reads text, not file contents, so use **Text only**
+for keys whose users handle data that must never reach a provider. A chat front-end that extracts a file's text itself
+and sends it as an ordinary message is not stopped by this setting; the PII policy covers that text. Details:
+[admin-api.md](docs/admin-api.md#gateway-data-plane--for-the-developer-portal-snippets).
+
+Chat Completions requests to Claude models now carry PDF and plain-text files as Anthropic `document` blocks (they used
+to be dropped silently). Parts Claude cannot take (audio, other file types, OpenAI `file_id`) return 400
+`unsupported_content` instead of being left out of the prompt.
 
 ## Deployment and documentation
 
