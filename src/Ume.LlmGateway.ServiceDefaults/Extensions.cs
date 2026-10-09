@@ -26,10 +26,20 @@ public static class Extensions
         {
             return null;
         }
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        // Runs inside the container, so this is the container's own listener (the Kestrel URL in Compose),
+        // not the host port published to the network. Override only if that internal URL changes.
+        var url = Environment.GetEnvironmentVariable("UME_HEALTHCHECK_URL") ?? "https://localhost:8443" + ReadyPath;
+        // The loopback name need not be in the certificate (certificates issued for the public name),
+        // so a name mismatch is accepted; an untrusted or expired certificate still fails the probe.
+        using var handler = new SocketsHttpHandler
+        {
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, errors) =>
+                errors is System.Net.Security.SslPolicyErrors.None or System.Net.Security.SslPolicyErrors.RemoteCertificateNameMismatch },
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
         try
         {
-            using var response = await client.GetAsync("https://localhost:8443/health/ready");
+            using var response = await client.GetAsync(url);
             return response.IsSuccessStatusCode ? 0 : 1;
         }
         catch (HttpRequestException)

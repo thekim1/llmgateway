@@ -4,9 +4,18 @@
 #   2. docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 #
 # Secrets and certificates are mounted as files, never passed as environment variables.
+# This variant expects you to run init-deployment.sh on the host. If you cannot run scripts
+# (Portainer, managed hosts), use compose.portainer.yaml instead: same stack, configured only
+# through environment variables, with certificates and secrets generated in Docker volumes.
 # See docs/runbook.md for the layout and operations. Keep this file in sync with
 # compose.hardening.yaml, which Test-Deployment.ps1 verifies.
 name: ume-gateway
+
+# Ports: inside its container every app listens on 8443 (Kestrel__Endpoints__Https__Url) and the
+# health probe (--health-check) checks https://localhost:8443 there. Only the HOST side of the
+# mapping ("host:UME_*_PORT:8443") is configurable, so changing UME_GATEWAY_PORT / UME_ADMIN_PORT or
+# putting a reverse proxy in front does not affect the probe. If you change the internal 8443,
+# also set UME_HEALTHCHECK_URL on that service.
 
 x-hardened: &hardened
   read_only: true

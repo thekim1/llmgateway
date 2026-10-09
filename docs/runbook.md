@@ -24,6 +24,33 @@ For municipal PKI, replace the generated certificate files (same names) before s
 The sections below describe the same layout for operators who provision it by other means,
 and the Aspire-generated base plus `compose.hardening.yaml`.
 
+## Portainer and other hosts without shell access
+
+`deploy/compose.portainer.yaml` is the same hardened stack configured **only through environment
+variables**, for operators who cannot run `init-deployment.sh` (Portainer, managed Docker hosts).
+Paste it into a Portainer stack (Web editor) or deploy the repository's file via Git, and set the
+variables listed at the top of the file (images, `UME_OIDC_AUTHORITY`, `UME_GATEWAY_HOST`,
+`UME_GATEWAY_PUBLIC_URL`; optional claim mapping and ports). The images must be in a registry the
+host can pull from.
+
+A one-shot `bootstrap` container creates the internal CA, certificates, passwords, key pepper and
+Redis ACL in the `ume-certs` and `ume-secrets` volumes on first start; the services still read them
+as read-only files, never as environment variables. It is idempotent: secrets are never regenerated,
+service certificates are re-issued when they expire within 30 days or the hostnames change (restart the
+stack to renew; redeploying runs bootstrap again). `UME_OIDC_CLIENT_SECRET`, if used, is the one secret
+you enter yourself; it is stored in the Portainer stack's environment, so restrict who can view it.
+
+- **Back up** `ume-secrets/.pepper` and `ume-certs/data-protection.pfx` (for example
+  `docker run --rm -v <stack>_ume-secrets:/s alpine cat /s/.pepper`). Deleting the stack's volumes loses
+  them, and a database restored without them is unusable.
+- Ports default to `0.0.0.0`; behind Nginx Proxy Manager or another proxy follow *Reverse proxy and PKI*
+  (two hostnames, HTTPS upstreams) and firewall the ports to the proxy.
+- PKI-issued certificates are not supported by this variant; use `compose.prod.yaml` with
+  `init-deployment.sh` for that.
+- `compose.portainer.yaml` is generated: edit `compose.portainer.template.yaml`,
+  `portainer/bootstrap.sh` or the postgres/redis config files, then run `deploy/build-portainer-stack.sh`
+  (CI fails if the generated file is stale).
+
 ## Identity provider (existing Keycloak, AD FS, Entra ID, Active Directory)
 
 The bundled Keycloak realm (`dev/keycloak`) is for local runs only; **production always uses an

@@ -261,6 +261,10 @@ It is safe to re-run: existing secrets are never overwritten. All options are av
 non-interactively (`--help`); `--renew-certs` re-issues the service certificates. Back up
 `deploy/secrets/.pepper` and `deploy/certs/data-protection.pfx` separately from database dumps.
 
+No shell access (**Portainer**)? Use `deploy/compose.portainer.yaml`: the same stack configured only through
+environment variables, with certificates and secrets generated automatically in Docker volumes on
+first start. See the runbook, *Portainer and other hosts without shell access*.
+
 Behind **Nginx Proxy Manager, nginx or an F5** that terminates TLS: add `--proxy` (two hostnames,
 an nginx config is generated). With certificates from your **PKI**: pass `--gateway-cert`,
 `--gateway-key`, `--admin-cert`, `--admin-key` (and `--ca-file`). Details and the Nginx Proxy

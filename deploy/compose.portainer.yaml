@@ -1,0 +1,363 @@
+# GENERATED FILE: edit compose.portainer.template.yaml (and the files it includes), then run
+# deploy/build-portainer-stack.sh. Do not edit compose.portainer.yaml by hand.
+#
+# Environment-driven production stack for Portainer (or any host where you cannot run scripts).
+# Paste this file into a Portainer stack (Web editor) or deploy it from the Git repository, and
+# set the variables below under "Environment variables". Nothing else is needed: the one-shot
+# `bootstrap` service creates the certificates and secrets inside Docker volumes on first start.
+# The containers still read secrets and certificates from read-only files, never from
+# environment variables. Requires Docker 28+ / a recent Compose (configs content, volume subpath).
+#
+# Required variables
+#   GATEWAY_IMAGE, ADMINAPI_IMAGE, MIGRATIONS_IMAGE   images pushed to a registry the host can pull
+#   UME_OIDC_AUTHORITY        https URL of your OIDC provider (Keycloak realm, AD FS, Entra ID)
+#   UME_GATEWAY_HOST          public hostname of the gateway API (for example llm.example.se)
+#   UME_GATEWAY_PUBLIC_URL    its public URL (https://llm.example.se, add :port if not 443)
+# Optional variables
+#   UME_ADMIN_HOST            public hostname of the admin UI (defaults to UME_GATEWAY_HOST)
+#   UME_OIDC_CLIENT_ID (ume-admin), UME_OIDC_CLIENT_SECRET (confidential clients only)
+#   UME_GATEWAY_BIND / UME_ADMIN_BIND (0.0.0.0), UME_GATEWAY_PORT (8443), UME_ADMIN_PORT (9443)
+#   UME_OIDC_ROLE_CLAIM, UME_OIDC_DEPARTMENT_CLAIM, UME_OIDC_GROUP_CLAIM, UME_OIDC_EXTRA_SCOPE,
+#   UME_OIDC_GROUPS_GATEWAY_ADMIN / _DEPARTMENT_ADMIN / _VIEWER   (see docs/runbook.md, "Identity provider")
+#
+# The data lives in the volumes <stack>_postgres-data, <stack>_ume-certs and <stack>_ume-secrets
+# (<stack>_ume-config holds static configuration and is rewritten on every start).
+# Do not delete them: a restored database is unusable without the key pepper and the Data
+# Protection certificate (back up ume-secrets/.pepper and ume-certs/data-protection.pfx).
+# Ports: inside the containers the apps listen on 8443 and the health probe checks that; only
+# the host side of the mapping is configurable (see compose.prod.yaml for details).
+name: ume-gateway
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp]
+
+x-certs: &certs-mount
+  type: volume
+  source: ume-certs
+  target: /run/certs
+  read_only: true
+
+x-conf: &conf-mount
+  type: volume
+  source: ume-config
+  target: /run/config
+  read_only: true
+
+x-secrets: &secrets-mount
+  type: volume
+  source: ume-secrets
+  read_only: true
+
+services:
+  bootstrap:
+    image: docker.io/alpine/openssl@sha256:59c5cb51e536d40587667229468b007a2a6cae1705397e59e5f7774c08b74029
+    restart: "no"
+    entrypoint: [/bin/sh, /config/bootstrap.sh]
+    environment:
+      UME_GATEWAY_HOST: ${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST}
+      UME_ADMIN_HOST: ${UME_ADMIN_HOST:-}
+      UME_OIDC_CLIENT_SECRET: ${UME_OIDC_CLIENT_SECRET:-}
+    configs:
+      - {source: bootstrap-script, target: /config/bootstrap.sh}
+      - {source: redis-acl-template, target: /config/users.acl.example}
+      - {source: redis-conf, target: /config/redis.conf}
+      - {source: postgres-init, target: /config/postgres-init.sql}
+      - {source: postgres-hba, target: /config/pg_hba.conf}
+      - {source: app-roles, target: /config/app-roles.sql}
+    volumes:
+      - ume-certs:/certs
+      - ume-secrets:/secrets
+      - ume-config:/conf
+    networks: [data]
+
+  postgres:
+    <<: *hardened
+    image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    user: "70:70"
+    restart: unless-stopped
+    tmpfs: [/tmp, "/var/run/postgresql:uid=70,gid=70,mode=0700"]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/postgres-secrets/bootstrap_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/run/certs/postgres.crt, -c, ssl_key_file=/run/certs/postgres.key, -c, ssl_ca_file=/run/certs/ca.pem, -c, hba_file=/run/config/pg_hba.conf, -c, log_statement=none]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - {<<: *conf-mount, target: /docker-entrypoint-initdb.d, volume: {subpath: postgres-init}}
+      - {<<: *conf-mount, volume: {subpath: postgres}}
+      - {<<: *certs-mount, volume: {subpath: postgres}}
+      - {<<: *secrets-mount, target: /run/postgres-secrets, volume: {subpath: postgres}}
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    networks: [data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, gatewaydb]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    <<: *hardened
+    image: docker.io/library/redis:8.6@sha256:2f07354308a997554f9d676888ca927ada1293c7c2154dd01ae77f57dd9c6d5f
+    user: "999:999"
+    restart: unless-stopped
+    entrypoint: [redis-server]
+    command: [/run/config/redis.conf]
+    volumes:
+      - {<<: *conf-mount, volume: {subpath: redis}}
+      - {<<: *certs-mount, volume: {subpath: redis}}
+      - {<<: *secrets-mount, target: /run/redis-secrets, volume: {subpath: redis}}
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, "redis-cli --tls --cacert /run/certs/ca.pem -h redis PING | grep -q NOAUTH"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  migrations:
+    <<: *hardened
+    image: ${MIGRATIONS_IMAGE:?Set MIGRATIONS_IMAGE}
+    user: "1654:1654"
+    restart: "no"
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Migration__RolesSqlPath: /run/config/app-roles.sql
+      Seed__Enabled: "false"
+    volumes:
+      - {<<: *conf-mount, volume: {subpath: migrations}}
+      - {<<: *certs-mount, volume: {subpath: migrations}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: migrations}}
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+
+  gateway:
+    <<: *hardened
+    image: ${GATEWAY_IMAGE:?Set GATEWAY_IMAGE}
+    user: "1654:1654"
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports: ["${UME_GATEWAY_BIND:-0.0.0.0}:${UME_GATEWAY_PORT:-8443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/gateway.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/gateway.key
+      SSL_CERT_FILE: /run/certs/ca.pem
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "50"
+    volumes:
+      - {<<: *certs-mount, volume: {subpath: gateway}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: gateway}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data, llm]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.Gateway.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+  adminapi:
+    <<: *hardened
+    image: ${ADMINAPI_IMAGE:?Set ADMINAPI_IMAGE}
+    user: "1654:1654"
+    restart: unless-stopped
+    ports: ["${UME_ADMIN_BIND:-0.0.0.0}:${UME_ADMIN_PORT:-9443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/adminapi.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/adminapi.key
+      Oidc__Authority: ${UME_OIDC_AUTHORITY:?Set UME_OIDC_AUTHORITY (https URL)}
+      Oidc__ClientId: ${UME_OIDC_CLIENT_ID:-ume-admin}
+      Oidc__RoleClaim: ${UME_OIDC_ROLE_CLAIM:-roles}
+      Oidc__DepartmentClaim: ${UME_OIDC_DEPARTMENT_CLAIM:-departmentCodes}
+      Oidc__GroupClaim: ${UME_OIDC_GROUP_CLAIM:-groups}
+      Oidc__ExtraScopes__0: ${UME_OIDC_EXTRA_SCOPE:-email}
+      Oidc__RoleGroups__gateway-admin: ${UME_OIDC_GROUPS_GATEWAY_ADMIN:-}
+      Oidc__RoleGroups__department-admin: ${UME_OIDC_GROUPS_DEPARTMENT_ADMIN:-}
+      Oidc__RoleGroups__viewer: ${UME_OIDC_GROUPS_VIEWER:-}
+      Gateway__BaseUrl: ${UME_GATEWAY_PUBLIC_URL:?Set UME_GATEWAY_PUBLIC_URL (https URL)}
+      Gateway__OperationsUrl: https://gateway:8443
+      SSL_CERT_FILE: /run/certs/ca.pem
+    volumes:
+      - {<<: *certs-mount, volume: {subpath: adminapi}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: adminapi}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.AdminApi.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+configs:
+  bootstrap-script:
+    content: |
+      #!/bin/sh
+      # One-shot bootstrap for compose.portainer.yaml: creates the internal CA, service certificates,
+      # Data Protection certificate, passwords, key pepper and Redis ACL in the ume-certs / ume-secrets
+      # volumes. Idempotent: existing secrets are never overwritten (a new pepper or Data Protection
+      # certificate would break existing data); service certificates are re-issued when they expire
+      # within 30 days or the hostnames change. Inputs come from environment variables.
+      set -eu
+      umask 077
+      C=/certs
+      S=/secrets
+      : "$${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST (public hostname of the gateway API)}"
+      ADMIN_HOST="$${UME_ADMIN_HOST:-$$UME_GATEWAY_HOST}"
+      for d in postgres redis gateway adminapi migrations; do mkdir -p "$$C/$$d" "$$S/$$d"; done
+      rand() { openssl rand -hex 32; }
+      quiet() { "$$@" >/dev/null 2>&1; }
+
+      if [ ! -f "$$C/ca.pem" ]; then
+        quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout "$$C/ca.key" -out "$$C/ca.pem" -days 3650 -subj /CN=ume-gateway-internal-ca
+      fi
+
+      # issue SERVICE SAN-LIST: (re)issue unless a valid certificate for exactly these names exists
+      issue() {
+        svc="$$1"; san="$$2"; dir="$$C/$$svc"
+        if [ -f "$$dir/$$svc.crt" ] && [ "$$(cat "$$dir/.san" 2>/dev/null)" = "$$san" ] &&
+           quiet openssl x509 -checkend 2592000 -noout -in "$$dir/$$svc.crt"; then
+          return
+        fi
+        echo "bootstrap: issuing certificate for $$svc ($$san)"
+        quiet openssl req -newkey rsa:3072 -nodes -keyout "$$dir/$$svc.key" -out "/tmp/$$svc.csr" -subj "/CN=$$svc"
+        printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$$san" > "/tmp/$$svc.ext"
+        quiet openssl x509 -req -in "/tmp/$$svc.csr" -CA "$$C/ca.pem" -CAkey "$$C/ca.key" -CAcreateserial -CAserial /tmp/ca.srl \
+          -out "$$dir/$$svc.crt" -days 825 -extfile "/tmp/$$svc.ext"
+        printf '%s' "$$san" > "$$dir/.san"
+      }
+      issue postgres "DNS:postgres,DNS:localhost"
+      issue redis "DNS:redis,DNS:localhost"
+      issue gateway "DNS:gateway,DNS:localhost,DNS:$$UME_GATEWAY_HOST"
+      issue adminapi "DNS:adminapi,DNS:localhost,DNS:$$ADMIN_HOST"
+
+      if [ ! -f "$$C/data-protection.pfx" ]; then
+        quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout /tmp/dp.key -out /tmp/dp.crt -days 3650 -subj /CN=ume-gateway-data-protection
+        quiet openssl pkcs12 -export -inkey /tmp/dp.key -in /tmp/dp.crt -out "$$C/data-protection.pfx" -passout pass:
+      fi
+      for d in gateway adminapi migrations; do cp "$$C/data-protection.pfx" "$$C/$$d/data-protection.pfx"; done
+      for d in postgres redis gateway adminapi migrations; do cp "$$C/ca.pem" "$$C/$$d/ca.pem"; done
+
+      for role in bootstrap migrator gateway admin; do
+        [ -f "$$S/postgres/$${role}_password" ] || rand > "$$S/postgres/$${role}_password"
+      done
+      [ -f "$$S/redis/redis_password" ] || rand > "$$S/redis/redis_password"
+      if [ ! -f "$$S/redis/users.acl" ]; then
+        hash="$$(tr -d '\n' < "$$S/redis/redis_password" | openssl dgst -sha256 | awk '{print $$NF}')"
+        sed "s/REPLACE_WITH_SHA256_PASSWORD_HASH/$$hash/" /config/users.acl.example > "$$S/redis/users.acl"
+      fi
+      [ -f "$$S/.pepper" ] || openssl rand -hex 48 > "$$S/.pepper"
+      for svc in gateway adminapi migrations; do
+        role="$$svc"; case "$$svc" in adminapi) role=admin;; migrations) role=migrator;; esac
+        printf '%s' "$$(cat "$$S/.pepper")" > "$$S/$$svc/Security__KeyPepper"
+        printf 'Host=postgres;Database=gatewaydb;Username=ume_%s;Password=%s;SSL Mode=VerifyFull;Root Certificate=/run/certs/ca.pem;GSS Encryption Mode=Disable' \
+          "$$role" "$$(cat "$$S/postgres/$${role}_password")" > "$$S/$$svc/ConnectionStrings__gatewaydb"
+        if [ "$$svc" != migrations ]; then
+          printf 'redis:6379,user=gateway,password=%s,ssl=true,sslHost=redis,abortConnect=false' \
+            "$$(cat "$$S/redis/redis_password")" > "$$S/$$svc/ConnectionStrings__redis"
+        fi
+      done
+      # Confidential OIDC client (optional); the file follows the variable, so removing it clears the secret.
+      if [ -n "$${UME_OIDC_CLIENT_SECRET:-}" ]; then
+        printf '%s' "$$UME_OIDC_CLIENT_SECRET" > "$$S/adminapi/Oidc__ClientSecret"
+      else
+        rm -f "$$S/adminapi/Oidc__ClientSecret"
+      fi
+
+      # Static configuration files (services run read-only, so they get them from a volume).
+      F=/conf
+      mkdir -p "$$F/postgres-init" "$$F/postgres" "$$F/redis" "$$F/migrations"
+      cp /config/postgres-init.sql "$$F/postgres-init/10-roles.sql"
+      cp /config/pg_hba.conf "$$F/postgres/pg_hba.conf"
+      cp /config/redis.conf "$$F/redis/redis.conf"
+      cp /config/app-roles.sql "$$F/migrations/app-roles.sql"
+      chmod -R a+rX "$$F"
+
+      chown -R 70:70 "$$C/postgres" "$$S/postgres"
+      chown -R 999:999 "$$C/redis" "$$S/redis"
+      chown -R 1654:1654 "$$C/gateway" "$$C/adminapi" "$$C/migrations" "$$S/gateway" "$$S/adminapi" "$$S/migrations"
+      chmod 755 "$$C" "$$S"
+      echo "bootstrap: certificates and secrets ready"
+  redis-acl-template:
+    content: |
+      user default off
+      user gateway on #REPLACE_WITH_SHA256_PASSWORD_HASH ~ume:* &ume:invalidate -@all +auth +hello +ping +echo +quit +client|setname +client|setinfo +client|id +info +get +mget +set +incr +incrby +expire +pexpire +del +eval +evalsha +script|load +publish +subscribe +unsubscribe
+  redis-conf:
+    content: |
+      bind 0.0.0.0
+      protected-mode yes
+      port 0
+      tls-port 6379
+      tls-cert-file /run/certs/redis.crt
+      tls-key-file /run/certs/redis.key
+      tls-ca-cert-file /run/certs/ca.pem
+      tls-auth-clients no
+      aclfile /run/redis-secrets/users.acl
+      save ""
+      appendonly no
+      loglevel warning
+  postgres-init:
+    content: |
+      SET log_statement = 'none';
+      DO $$$$
+      BEGIN
+        EXECUTE format('CREATE ROLE ume_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+          btrim(pg_read_file('/run/postgres-secrets/migrator_password'), E'\r\n '));
+        EXECUTE format('CREATE ROLE ume_gateway LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+          btrim(pg_read_file('/run/postgres-secrets/gateway_password'), E'\r\n '));
+        EXECUTE format('CREATE ROLE ume_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+          btrim(pg_read_file('/run/postgres-secrets/admin_password'), E'\r\n '));
+      END $$$$;
+      CREATE DATABASE gatewaydb OWNER ume_migrator;
+      REVOKE ALL ON DATABASE gatewaydb FROM PUBLIC;
+      GRANT CONNECT ON DATABASE gatewaydb TO ume_gateway, ume_admin;
+      \connect gatewaydb
+      REVOKE ALL ON SCHEMA public FROM PUBLIC;
+      ALTER SCHEMA public OWNER TO ume_migrator;
+      GRANT USAGE ON SCHEMA public TO ume_gateway, ume_admin;
+  postgres-hba:
+    content: |
+      local all all scram-sha-256
+      hostnossl all all all reject
+      hostssl gatewaydb ume_migrator,ume_gateway,ume_admin all scram-sha-256
+  app-roles:
+    content: |
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO ume_gateway, ume_admin;
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ume_gateway, ume_admin;
+      GRANT INSERT ON "UsageRecords", "AlertEvents", "DataProtectionKeys" TO ume_gateway;
+      GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
+      GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
+        "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
+        "Budgets", "ExchangeRates" TO ume_admin;
+      GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
+      GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
+
+networks:
+  edge: {driver: bridge}
+  data: {driver: bridge, internal: true}
+  llm: {driver: bridge}
+
+volumes:
+  postgres-data:
+  ume-certs:
+  ume-secrets:
+  ume-config:
