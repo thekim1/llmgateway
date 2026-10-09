@@ -11,6 +11,120 @@ For production Ollama/vLLM, provide an independently managed approved HTTPS endp
 with municipal network/egress controls rather than deploying an unhardened HTTP container.
 Read [security/compliance](security-and-compliance.md) before introducing real data.
 
+## Quick start (recommended)
+
+After building and pushing the images (next section), run `deploy/init-deployment.sh` on the
+Docker host, then
+`docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait`.
+The script generates everything in *Nonsecret deployment inputs* and *Certificate and secret
+layout* below (internal CA, certificates, secrets, `deploy/.env`) and prints the OIDC redirect
+URIs to register. It never overwrites existing secrets; `--renew-certs` re-issues service
+certificates (generated leaves last 825 days, the CA and Data Protection certificate 10 years).
+For municipal PKI, replace the generated certificate files (same names) before starting.
+The sections below describe the same layout for operators who provision it by other means,
+and the Aspire-generated base plus `compose.hardening.yaml`.
+
+## Identity provider (existing Keycloak, AD FS, Entra ID, Active Directory)
+
+The bundled Keycloak realm (`dev/keycloak`) is for local runs only; **production always uses an
+existing OIDC provider** (`UME_OIDC_AUTHORITY` in `deploy/.env`). The admin API needs a client
+(authorization code + PKCE; redirect URIs `https://<admin host>/signin-oidc` and
+`/signout-callback-oidc`) and these
+claims **in the ID token**:
+
+| Claim | Meaning |
+|---|---|
+| `roles` | `gateway-admin`, `department-admin` and/or `viewer` |
+| `departmentCodes` | Department codes a `department-admin`/`viewer` may see (strings or a JSON array) |
+| `name`, `email` | Display |
+
+If the provider cannot emit those names or values, remap them instead of changing the provider
+(settings in `deploy/.env`; for local runs the same keys as `Oidc:<Setting>` in AppHost user secrets):
+
+| Setting | Env variable | Purpose |
+|---|---|---|
+| `Oidc:RoleClaim` / `DepartmentClaim` | `UME_OIDC_ROLE_CLAIM` / `UME_OIDC_DEPARTMENT_CLAIM` | Read roles/department codes from a differently named claim (`role`, `department`) |
+| `Oidc:GroupClaim` | `UME_OIDC_GROUP_CLAIM` | Claim holding group names (default `groups`) |
+| `Oidc:RoleGroups:<role>` | `UME_OIDC_GROUPS_GATEWAY_ADMIN`, `_DEPARTMENT_ADMIN`, `_VIEWER` | Groups (`;`-separated, case-insensitive) that grant a role, so no IdP-side roles are needed |
+| `Oidc:ExtraScopes:0` | `UME_OIDC_EXTRA_SCOPE` | Additional scope to request (`groups`) |
+| `Oidc:ClientSecret` | `--oidc-client-secret-file` (init script) | Confidential client; stored as the `Oidc__ClientSecret` secret file |
+
+Users without a granted role can sign in but are refused (403) by the role policies; there is no default role.
+
+**Active Directory.** Do not talk LDAP directly; use one of:
+
+1. *An existing Keycloak federated to AD (recommended if one exists).* Create a client `ume-admin` in
+   the realm. Add the AD groups to the realm via the LDAP provider's *group-ldap-mapper* (or
+   *role-ldap-mapper* to get realm roles named `gateway-admin` etc. directly) and a token mapper:
+   either *User Realm Role* with claim `roles`, or *Group Membership* (full path off) with claim
+   `groups` plus `UME_OIDC_GROUPS_*`. Map an AD attribute (for example `department`) to a user attribute with the
+   LDAP *user-attribute-mapper* and expose it with a *User Attribute* mapper, claim `departmentCodes`, multivalued.
+   Add all mappers to the ID token. Authority: `https://<keycloak>/realms/<realm>`.
+2. *AD FS* (OpenID Connect application group): issue the AD group membership (`group` claim, names
+   as the token shows them, e.g. `DOMAIN\\GG-Llm-Admins`) and a department attribute as claims in the ID token. Set
+   `UME_OIDC_GROUP_CLAIM=group`, `UME_OIDC_DEPARTMENT_CLAIM=<claim>` and `UME_OIDC_GROUPS_*`. Authority:
+   `https://<adfs>/adfs`.
+3. *Entra ID (hybrid AD)*: app roles named `gateway-admin` etc. arrive in `roles` with no mapping; the
+   department needs an optional or custom claim. Authority: `https://login.microsoftonline.com/<tenant>/v2.0`.
+
+Only the Keycloak realm defaults are tested end to end; the AD FS and Entra settings are the intended
+mapping and should be verified against the real IdP: sign in, then check `/bff/user`, which shows the
+`roles` and `departmentCodes` the API received. Test all three roles and department scoping.
+
+**Local development against an existing provider.** Set `Oidc:Authority` (and `Oidc:ClientId`,
+`Oidc:ClientSecret`, any mapping settings above) in AppHost user secrets. The AppHost then does not start
+the bundled Keycloak and passes all `Oidc:*` settings to the admin API. Register the local admin
+callback URL (see the dashboard) at the provider. The test users from `dev/keycloak` no longer apply.
+
+## Reverse proxy and PKI
+
+`deploy/init-deployment.sh` supports three ways of exposing the stack. Pick the one that
+matches your environment; they combine (a proxy in front, with PKI certificates behind it).
+
+| Setup | Command | Public URLs |
+|---|---|---|
+| Direct, internal CA (default; tests, small sites) | `init-deployment.sh` | `https://host:8443` (gateway), `https://host:9443` (admin UI) |
+| Behind a reverse proxy (Nginx Proxy Manager, nginx, F5, ingress) | `init-deployment.sh --proxy` | `https://llm.example.se`, `https://llm-admin.example.se` (443) |
+| Certificates from your PKI | `init-deployment.sh --gateway-cert ... --gateway-key ... --admin-cert ... --admin-key ... [--ca-file chain.pem]` | as above |
+
+**Proxy mode.** Both services only speak HTTPS, so the proxy terminates the public TLS
+(with its own certificate for the public name) and **re-encrypts** to
+`https://<docker-host>:8443` (gateway) and `https://<docker-host>:9443` (admin UI). Requirements:
+
+- Two distinct hostnames, one per service: the proxy routes by name.
+- Preserve the `Host` header (`proxy_set_header Host $host;`, the default in Nginx Proxy
+  Manager). The admin UI builds its OIDC redirect URIs from it, so register
+  `https://<admin host>/signin-oidc` and `/signout-callback-oidc` in the IdP.
+- Do not enable forwarded-header trust; it is not needed because the upstream hop is HTTPS.
+- Gateway host: disable response buffering and allow long reads (streamed completions can run
+  for minutes), and allow bodies of a few MB or more.
+- The upstream certificate is signed by the internal CA, so the proxy must either skip
+  upstream verification (the nginx default; Nginx Proxy Manager does this) or trust
+  `deploy/certs/ca.pem` and use `proxy_ssl_name gateway;` / `adminapi;`. With F5, import
+  the CA into the server-side SSL profile.
+- Ports 8443/9443 are bound to `0.0.0.0` in this mode; restrict them to the proxy with the host
+  firewall (or pass `--bind <address>` / put the proxy on the same host with `--bind 127.0.0.1`).
+
+`deploy/proxy/nginx.conf.example` holds the complete nginx configuration (the script writes a filled-in
+`proxy/nginx.conf`). In **Nginx Proxy Manager**, create two Proxy Hosts:
+
+| Setting | Gateway host | Admin UI host |
+|---|---|---|
+| Scheme / Forward host / port | `https` / Docker host / 8443 | `https` / Docker host / 9443 |
+| SSL tab | your certificate, Force SSL, HTTP/2 | same |
+| Websockets Support | off | off |
+| Advanced (custom nginx configuration) | `proxy_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 32m;` | (none) |
+
+**PKI certificates.** Pass the certificate chain and key for each public name (the
+leaf certificate file should include intermediates). `--ca-file` appends your root and
+intermediates to the services' trust store, which also needs to cover the IdP and
+approved providers if those use a private CA (`SSL_CERT_FILE` replaces the system store).
+Because a PKI certificate seldom covers the internal name `gateway`, the admin API then reaches
+the gateway's operations endpoint through its public URL (`UME_GATEWAY_OPERATIONS_URL`
+in `deploy/.env`): the container must be able to resolve and reach that name. Postgres and Redis
+always keep internal certificates. PKI-supplied certificates are not touched by `--renew-certs`;
+replace the files (or re-run with the options) before they expire and restart the services.
+
 ## Build and publish
 
 Stop the exact local AppHost before backend builds. Generate from the AppHost, never

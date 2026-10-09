@@ -1,0 +1,46 @@
+# nginx in front of the gateway (re-encrypting to the HTTPS upstreams).
+# deploy/init-deployment.sh --proxy fills in the @placeholders@ and writes proxy/nginx.conf.
+# Add your own ssl_certificate / ssl_certificate_key (from your PKI or Let's Encrypt).
+# Pass the Host header through unchanged: the admin UI builds its OIDC redirect URIs from it.
+
+upstream ume_gateway { server @UPSTREAM@:@GATEWAY_PORT@; keepalive 32; }
+upstream ume_admin   { server @UPSTREAM@:@ADMIN_PORT@; }
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name @GATEWAY_HOST@;
+    # ssl_certificate     /etc/ssl/@GATEWAY_HOST@.crt;
+    # ssl_certificate_key /etc/ssl/@GATEWAY_HOST@.key;
+
+    client_max_body_size 32m;          # prompts with documents/images
+    location / {
+        proxy_pass https://ume_gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_buffering off;           # stream tokens as they arrive (SSE)
+        proxy_read_timeout 600s;       # long generations
+        proxy_send_timeout 600s;
+        # The upstream presents the internal CA's certificate. To verify it, copy
+        # certs/ca.pem to the proxy and enable:
+        # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
+        # proxy_ssl_name gateway;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name @ADMIN_HOST@;
+    # ssl_certificate     /etc/ssl/@ADMIN_HOST@.crt;
+    # ssl_certificate_key /etc/ssl/@ADMIN_HOST@.key;
+
+    location / {
+        proxy_pass https://ume_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
+        # proxy_ssl_name adminapi;
+    }
+}

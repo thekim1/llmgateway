@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Lint gate: `npm run lint` now fails on warnings like CI does (`lint:fix` added), and `.githooks/pre-commit` runs it for admin UI changes (`git config core.hooksPath .githooks`). Fixed the two `vue/html-quotes` warnings in `GettingStartedView.vue`. The hook calls node directly (works from Visual Studio's git) and skips with a warning when node or `node_modules` is missing. Debug builds of `Ume.LlmGateway.AdminApi` run the admin UI lint (`LintAdminUi` target) and report problems as a warning.
+
+First-run production setup: `deploy/init-deployment.sh` generates the internal CA, service and Data Protection certificates, database/Redis passwords, key pepper and `deploy/.env` (prompting for the OIDC authority and hostnames, or via options); new self-contained, hardened `deploy/compose.prod.yaml` as the recommended production file. Documented in the README and runbook.
+
+Exposure options for `init-deployment.sh`: `--proxy` (Nginx Proxy Manager, nginx, F5; re-encrypting to the HTTPS upstreams, generates `deploy/proxy/nginx.conf` from `nginx.conf.example`) and PKI-issued certificates (`--gateway-cert`, `--admin-cert`, keys, `--ca-file`; `UME_GATEWAY_OPERATIONS_URL` for the admin API's gateway calls). See the runbook, *Reverse proxy and PKI*.
+
+Existing identity providers: the bundled Keycloak is skipped in local runs when `Oidc:Authority` is set (all `Oidc:*` settings are passed to the admin API). The admin API can read roles and department codes from differently named claims (`Oidc:RoleClaim`, `Oidc:DepartmentClaim`), request extra scopes, and derive roles from group membership (`Oidc:GroupClaim`, `Oidc:RoleGroups:<role>`) for Active Directory via Keycloak federation, AD FS or Entra ID. `init-deployment.sh --oidc-client-secret-file` installs a confidential client's secret; `compose.prod.yaml` exposes the mapping settings as `UME_OIDC_*`. Unit tests cover the claim mapping. See the runbook, *Identity provider*.
+
 Routing examples (fallback to another model; personal data stays on-prem) with screenshots in `docs/images`, in the README, `docs/routing-rules.md` and a new *Routing examples* card on the Getting started page. `tests/e2e/docs/screenshots.spec.ts` (`playwright.docs.config.ts`) regenerates the screenshots from the real UI.
 
 Documentation cleanup: the finished implementation plan, routing rules plan and UI verification handover were removed (scope and decisions moved to `docs/architecture.md`, open items to `HANDOVER.md`); `HANDOVER.md` rewritten as a current-state file; the accessibility statement now matches the AA target, three themes and the 34-test e2e suite.

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Same lint gate as CI (zero warnings) for admin UI changes. Enable once per clone:
+#   git config core.hooksPath .githooks
+# Skips with a warning (CI still enforces) when Node is not reachable from the git client,
+# for example Visual Studio's git environment or a clone without installed dependencies.
+git diff --cached --name-only | grep -q '^src/admin-ui/' || exit 0
+PATH="$PATH:/c/Program Files/nodejs:/mnt/c/Program Files/nodejs"
+# Call node directly: the npm shell wrapper does not run under every Windows git client.
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node not found, skipping admin UI lint (CI will run it)" >&2; exit 0
+fi
+cd "$(git rev-parse --show-toplevel)/src/admin-ui" || exit 0
+if [ ! -f node_modules/eslint/bin/eslint.js ]; then
+  echo "pre-commit: no node_modules, skipping admin UI lint (run 'npm ci')" >&2; exit 0
+fi
+node node_modules/eslint/bin/eslint.js . --max-warnings 0 || { echo "pre-commit: lint failed. Try 'npm run lint:fix' in src/admin-ui." >&2; exit 1; }

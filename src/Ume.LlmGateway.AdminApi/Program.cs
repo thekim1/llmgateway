@@ -49,6 +49,7 @@ builder.Services.AddAntiforgery(o =>
     o.Cookie.SameSite = SameSiteMode.Lax;
     o.Cookie.Path = "/";
 });
+var oidcClaims = builder.Configuration.GetSection("Oidc").Get<OidcClaimOptions>() ?? new OidcClaimOptions();
 builder.Services.AddAuthentication(o =>
 {
     o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -77,9 +78,13 @@ builder.Services.AddAuthentication(o =>
     o.TokenValidationParameters.NameClaimType = "name";
     o.TokenValidationParameters.RoleClaimType = "roles";
     o.Scope.Add("email");
+    foreach (var scope in oidcClaims.ExtraScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
+    {
+        o.Scope.Add(scope);
+    }
     o.Events.OnTokenValidated = ctx =>
     {
-        AdminAuthentication.ExpandArrayClaims(ctx.Principal);
+        AdminAuthentication.ApplyClaimMapping(ctx.Principal, oidcClaims);
         return Task.CompletedTask;
     };
     // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the

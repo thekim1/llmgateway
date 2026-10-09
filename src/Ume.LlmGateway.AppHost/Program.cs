@@ -16,7 +16,10 @@ var postgres = builder.AddPostgres("postgres").WithImageTag("17-alpine")
 var database = postgres.AddDatabase("gatewaydb");
 var redis = builder.AddRedis("redis", password: Secret("redis-password", 48));
 
-var keycloak = builder.ExecutionContext.IsRunMode ? builder.AddKeycloak("keycloak")
+// Oidc:Authority (AppHost user secrets or appsettings) points local runs at an existing identity provider
+// (company Keycloak, AD FS, Entra ID) instead of the bundled test Keycloak, which is then not started.
+var externalOidc = !string.IsNullOrWhiteSpace(builder.Configuration["Oidc:Authority"]);
+var keycloak = builder.ExecutionContext.IsRunMode && !externalOidc ? builder.AddKeycloak("keycloak")
     .WithRealmImport(Path.Combine("..", "..", "dev", "keycloak"))
     .WithEnvironment("UME_OIDC_CLIENT_SECRET", oidcSecret)
     .WithEnvironment("UME_DEV_USER_PASSWORD", devUserPassword)
@@ -88,6 +91,18 @@ if (keycloak is not null)
 else
 {
     adminApi.WithExternalHttpEndpoints();
+}
+
+if (externalOidc)
+{
+    // Every Oidc:* setting (Authority, ClientId, ClientSecret, RoleClaim, RoleGroups:..., ...) is passed through.
+    foreach (var (key, value) in builder.Configuration.GetSection("Oidc").AsEnumerable(makePathsRelative: true))
+    {
+        if (value is not null)
+        {
+            adminApi.WithEnvironment("Oidc__" + key.Replace(":", "__"), value);
+        }
+    }
 }
 
 var adminUi = builder.AddViteApp("admin-ui", Path.Combine("..", "admin-ui"))

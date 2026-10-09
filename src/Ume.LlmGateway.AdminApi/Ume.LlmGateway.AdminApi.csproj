@@ -16,6 +16,17 @@
   <Target Name="RequireAdminUiAssets" BeforeTargets="Publish" Condition="'$(PublishAdminUi)' == 'true'">
     <Error Condition="!Exists('..\admin-ui\dist\index.html')" Text="Build src\admin-ui before publishing with PublishAdminUi=true." />
   </Target>
+  <!-- Local builds only: surfaces admin UI lint problems as a build warning (CI runs the strict lint itself). -->
+  <ItemGroup>
+    <AdminUiSources Include="..\admin-ui\src\**\*.vue;..\admin-ui\src\**\*.ts" />
+  </ItemGroup>
+  <Target Name="LintAdminUi" BeforeTargets="CoreCompile" Condition="'$(Configuration)' == 'Debug' And '$(CI)' != 'true' And Exists('..\admin-ui\node_modules\eslint')"
+          Inputs="..\admin-ui\eslint.config.js;@(AdminUiSources)" Outputs="$(IntermediateOutputPath)admin-ui-lint.stamp">
+    <Exec Command="npm run lint --silent" WorkingDirectory="..\admin-ui" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="AdminUiLintExit" />
+    </Exec>
+    <Touch Files="$(IntermediateOutputPath)admin-ui-lint.stamp" AlwaysCreate="true" Condition="'$(AdminUiLintExit)' == '0'" />
+  </Target>
   <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.Infrastructure\Ume.LlmGateway.Infrastructure.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.ServiceDefaults\Ume.LlmGateway.ServiceDefaults.csproj" />

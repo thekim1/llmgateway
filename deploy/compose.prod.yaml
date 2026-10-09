@@ -1,0 +1,155 @@
+# Recommended production Compose file (self-contained; no `aspire publish` needed).
+#
+#   1. ./init-deployment.sh        generates certificates, secrets and deploy/.env
+#   2. docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
+#
+# Secrets and certificates are mounted as files, never passed as environment variables.
+# See docs/runbook.md for the layout and operations. Keep this file in sync with
+# compose.hardening.yaml, which Test-Deployment.ps1 verifies.
+name: ume-gateway
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp]
+
+services:
+  postgres:
+    <<: *hardened
+    image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    user: "70:70"
+    restart: unless-stopped
+    tmpfs: [/tmp, "/var/run/postgresql:uid=70,gid=70,mode=0700"]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/postgres-secrets/bootstrap_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/run/certs/postgres.crt, -c, ssl_key_file=/run/certs/postgres.key, -c, ssl_ca_file=/run/certs/ca.pem, -c, hba_file=/run/config/pg_hba.conf, -c, log_statement=none]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ${UME_CERTS_DIR:?Run deploy/init-deployment.sh first}/postgres:/run/certs:ro
+      - ${UME_SECRETS_DIR:?Run deploy/init-deployment.sh first}/postgres:/run/postgres-secrets:ro
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+      - ./postgres/pg_hba.conf:/run/config/pg_hba.conf:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, gatewaydb]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    <<: *hardened
+    image: docker.io/library/redis:8.6@sha256:2f07354308a997554f9d676888ca927ada1293c7c2154dd01ae77f57dd9c6d5f
+    user: "999:999"
+    restart: unless-stopped
+    entrypoint: [redis-server]
+    command: [/run/config/redis.conf]
+    volumes:
+      - ./redis/redis.conf:/run/config/redis.conf:ro
+      - ${UME_CERTS_DIR}/redis:/run/certs:ro
+      - ${UME_SECRETS_DIR}/redis:/run/redis-secrets:ro
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, "redis-cli --tls --cacert /run/certs/ca.pem -h redis PING | grep -q NOAUTH"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  migrations:
+    <<: *hardened
+    image: ${MIGRATIONS_IMAGE:-ume-llm-gateway/migrations:0.1.0}
+    user: "1654:1654"
+    restart: "no"
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Migration__RolesSqlPath: /run/config/app-roles.sql
+      Seed__Enabled: "false"
+    volumes:
+      - ${UME_SECRETS_DIR}/migrations:/run/app-secrets:ro
+      - ${UME_CERTS_DIR}/migrations:/run/certs:ro
+      - ./postgres/app-roles.sql:/run/config/app-roles.sql:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+
+  gateway:
+    <<: *hardened
+    image: ${GATEWAY_IMAGE:-ume-llm-gateway/gateway:0.1.0}
+    user: "1654:1654"
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports: ["${UME_GATEWAY_BIND:-127.0.0.1}:${UME_GATEWAY_PORT:-8443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/gateway.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/gateway.key
+      SSL_CERT_FILE: /run/certs/ca.pem
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "50"
+    volumes:
+      - ${UME_SECRETS_DIR}/gateway:/run/app-secrets:ro
+      - ${UME_CERTS_DIR}/gateway:/run/certs:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data, llm]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.Gateway.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+  adminapi:
+    <<: *hardened
+    image: ${ADMINAPI_IMAGE:-ume-llm-gateway/adminapi:0.1.0}
+    user: "1654:1654"
+    restart: unless-stopped
+    ports: ["${UME_ADMIN_BIND:-127.0.0.1}:${UME_ADMIN_PORT:-9443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      DataProtection__CertificatePath: /run/certs/data-protection.pfx
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/adminapi.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/adminapi.key
+      Oidc__Authority: ${UME_OIDC_AUTHORITY:?Set HTTPS OIDC authority in deploy/.env}
+      Oidc__ClientId: ${UME_OIDC_CLIENT_ID:-ume-admin}
+      Oidc__RoleClaim: ${UME_OIDC_ROLE_CLAIM:-roles}
+      Oidc__DepartmentClaim: ${UME_OIDC_DEPARTMENT_CLAIM:-departmentCodes}
+      Oidc__GroupClaim: ${UME_OIDC_GROUP_CLAIM:-groups}
+      Oidc__ExtraScopes__0: ${UME_OIDC_EXTRA_SCOPE:-email}
+      Oidc__RoleGroups__gateway-admin: ${UME_OIDC_GROUPS_GATEWAY_ADMIN:-}
+      Oidc__RoleGroups__department-admin: ${UME_OIDC_GROUPS_DEPARTMENT_ADMIN:-}
+      Oidc__RoleGroups__viewer: ${UME_OIDC_GROUPS_VIEWER:-}
+      Gateway__BaseUrl: ${UME_GATEWAY_PUBLIC_URL:?Set HTTPS gateway URL in deploy/.env}
+      Gateway__OperationsUrl: ${UME_GATEWAY_OPERATIONS_URL:-https://gateway:8443}
+      SSL_CERT_FILE: /run/certs/ca.pem
+    volumes:
+      - ${UME_SECRETS_DIR}/adminapi:/run/app-secrets:ro
+      - ${UME_CERTS_DIR}/adminapi:/run/certs:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.AdminApi.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+networks:
+  edge: {driver: bridge}
+  data: {driver: bridge, internal: true}
+  llm: {driver: bridge}
+
+volumes:
+  postgres-data:

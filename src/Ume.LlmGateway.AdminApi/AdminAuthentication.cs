@@ -9,13 +9,18 @@ namespace Ume.LlmGateway.AdminApi;
 
 public static class AdminAuthentication
 {
-    public static void ExpandArrayClaims(ClaimsPrincipal? principal)
+    /// <summary>
+    /// Normalises identity-provider claims to the names the API authorises on ("roles", "departmentCodes"):
+    /// expands JSON-array claims, copies differently named claims, and derives roles from group membership.
+    /// </summary>
+    public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcClaimOptions options)
     {
         if (principal?.Identity is not ClaimsIdentity identity)
         {
             return;
         }
-        foreach (var claim in identity.Claims.Where(c => c.Type is "roles" or "departmentCodes" && c.Value.StartsWith('[')).ToArray())
+        var sources = new[] { options.RoleClaim, options.DepartmentClaim, options.GroupClaim };
+        foreach (var claim in identity.Claims.Where(c => sources.Contains(c.Type) && c.Value.StartsWith('[')).ToArray())
         {
             using var json = JsonDocument.Parse(claim.Value);
             identity.RemoveClaim(claim);
@@ -26,6 +31,29 @@ public static class AdminAuthentication
                     identity.AddClaim(new Claim(claim.Type, value.GetString()!));
                 }
             }
+        }
+        CopyClaims(identity, options.RoleClaim, "roles");
+        CopyClaims(identity, options.DepartmentClaim, "departmentCodes");
+        var groups = identity.FindAll(options.GroupClaim).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (role, mapped) in options.RoleGroups)
+        {
+            if (!identity.HasClaim("roles", role) &&
+                mapped.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(groups.Contains))
+            {
+                identity.AddClaim(new Claim("roles", role));
+            }
+        }
+    }
+
+    private static void CopyClaims(ClaimsIdentity identity, string from, string to)
+    {
+        if (string.Equals(from, to, StringComparison.Ordinal))
+        {
+            return;
+        }
+        foreach (var claim in identity.FindAll(from).ToArray())
+        {
+            identity.AddClaim(new Claim(to, claim.Value));
         }
     }
 
@@ -96,4 +124,19 @@ public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
         }
         await next(http);
     }
+}
+
+/// <summary>
+/// Bound from the <c>Oidc</c> configuration section. Defaults match the bundled Keycloak realm; other
+/// identity providers (Keycloak with different mappers, AD FS, Entra ID) can remap claims or map groups to roles.
+/// </summary>
+public sealed class OidcClaimOptions
+{
+    public string RoleClaim { get; set; } = "roles";
+    public string DepartmentClaim { get; set; } = "departmentCodes";
+    public string GroupClaim { get; set; } = "groups";
+    /// <summary>Role name (gateway-admin, department-admin, viewer) to the group names that grant it, separated by ';'.</summary>
+    public Dictionary<string, string> RoleGroups { get; set; } = [];
+    /// <summary>Extra scopes to request, for example "groups".</summary>
+    public string[] ExtraScopes { get; set; } = [];
 }

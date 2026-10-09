@@ -65,12 +65,13 @@ There is no separate "test" configuration; the mode decides the environment:
 
 | Environment | How | Identity | Data |
 |---|---|---|---|
-| Development | `aspire start` / `Start-Dev.ps1` (run mode, `Development`) | Keycloak test realm, FakeLlm, optional Ollama | Demo or empty, see above |
+| Development | `aspire start` / `Start-Dev.ps1` (run mode, `Development`) | Keycloak test realm (optional: set `Oidc:Authority` in AppHost user secrets to use an existing provider), FakeLlm, optional Ollama | Demo or empty, see above |
 | Test (production-shaped) | `.\deploy\Test-Deployment.ps1` (isolated, throw-away) | Test-only secrets | Empty, never seeded |
-| Production | `aspire publish` + `deploy\compose.hardening.yaml` (`ASPNETCORE_ENVIRONMENT=Production`) | External HTTPS OIDC | Never seeded (`Seed__Enabled=false`); no Keycloak or FakeLlm |
+| Production | `deploy/compose.prod.yaml` after `deploy/init-deployment.sh` (`ASPNETCORE_ENVIRONMENT=Production`) | External HTTPS OIDC | Never seeded (`Seed__Enabled=false`); no Keycloak or FakeLlm |
 
-Production inputs (OIDC authority/client, certificates, secrets, provider endpoints) are supplied
-by the operator as described in [the runbook](docs/runbook.md). Other settings can be overridden
+Production inputs (OIDC authority/client, certificates, secrets, provider endpoints) are
+generated or prompted for by `deploy/init-deployment.sh` (see *Quick production setup* below) and
+described in [the runbook](docs/runbook.md). Other settings can be overridden
 with `Section__Key` environment variables (for example `Ollama__Enabled=true`, development only).
 
 ### Admin UI
@@ -125,10 +126,15 @@ aspire stop --apphost src\Ume.LlmGateway.AppHost\Ume.LlmGateway.AppHost.csproj -
 dotnet build UmeLlmGateway.slnx -v q -nologo
 dotnet test --solution UmeLlmGateway.slnx
 Set-Location src\admin-ui
-npm run lint -- --max-warnings 0
+npm run lint
 npm run typecheck
 npm test
 ```
+
+`npm run lint` fails on warnings, exactly like CI (`npm run lint:fix` fixes most). To catch it before
+pushing, enable the pre-commit hook once per clone: `git config core.hooksPath .githooks`.
+Debug builds of the admin API (Visual Studio, F5) also run the lint and show problems as a build warning
+(skipped when `node_modules` is missing or `CI=true`).
 
 Browser tests (`tests\e2e`, Playwright) need a running stack. Use the separate test database so your
 development data is never touched:
@@ -238,7 +244,37 @@ changes the (disposable) test database only.
 
 ## Deployment and documentation
 
-Generate Compose with
+### Quick production setup
+
+On a Linux Docker host (Docker 28+, Compose v2.24+), with the three images built and pushed
+(runbook, *Build and publish*) and an OIDC client for the admin UI:
+
+```bash
+./deploy/init-deployment.sh        # asks for the OIDC authority and public hostnames
+docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
+```
+
+`init-deployment.sh` creates an internal CA, service certificates, the Data Protection
+certificate, all database/Redis passwords, the key pepper and `deploy/.env`
+(non-secret settings, `GATEWAY_IMAGE`/`ADMINAPI_IMAGE`/`MIGRATIONS_IMAGE` overrides).
+It is safe to re-run: existing secrets are never overwritten. All options are available
+non-interactively (`--help`); `--renew-certs` re-issues the service certificates. Back up
+`deploy/secrets/.pepper` and `deploy/certs/data-protection.pfx` separately from database dumps.
+
+Behind **Nginx Proxy Manager, nginx or an F5** that terminates TLS: add `--proxy` (two hostnames,
+an nginx config is generated). With certificates from your **PKI**: pass `--gateway-cert`,
+`--gateway-key`, `--admin-cert`, `--admin-key` (and `--ca-file`). Details and the Nginx Proxy
+Manager settings are in the runbook, *Reverse proxy and PKI*.
+
+Production never uses the bundled Keycloak: point `UME_OIDC_AUTHORITY` at your existing Keycloak, AD FS or Entra ID.
+Roles, department codes and AD groups are mapped by claims; see the runbook, *Identity provider*.
+
+`deploy/compose.prod.yaml` is the recommended, self-contained production file (hardened,
+read-only, non-root, internal data network). The older route, `aspire publish -o deploy\generated`
+plus `compose.hardening.yaml`, is what `.\deploy\Test-Deployment.ps1` verifies; it is kept in sync
+with the new file.
+
+The Aspire-generated alternative: generate Compose with
 `aspire publish -o deploy\generated --non-interactive`.
 **Never deploy the generated base alone**: use the mandatory hardening override and
 operator-mounted secrets/certificates in [the runbook](docs/runbook.md).
