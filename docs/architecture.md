@@ -37,6 +37,11 @@ Fallback occurs for retryable/provider-configuration failures, never after strea
 has sent bytes. Unknown JSON fields pass through; model parameter rewrites are explicit.
 Anthropic/OpenAI translation covers the implemented text/tool/streaming paths.
 
+With warm caches the request path makes no Postgres calls and two Redis round trips before the first byte (rate limit
+pipelined with circuit state; one atomic budget reservation), plus one pipelined round trip for reconciliation after the
+response. Key and catalogue caches are refreshed in the background when they expire and dropped immediately on an admin
+invalidation. Details and benchmarks: [performance.md](performance.md).
+
 ### Routing rules
 
 Optional administrator-defined rules (see [routing-rules.md](routing-rules.md)) run after the PII policy and before candidate selection. A rule matches on the request

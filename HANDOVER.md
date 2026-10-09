@@ -13,6 +13,7 @@ Everything in the original POC scope and the routing rules feature is implemente
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
+| Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
 | Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass |
 
 The POC is not a production approval, legal attestation or WCAG certification (see the release gates in
@@ -30,6 +31,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 4. **Fix:** `SettingsView` says theme options are in the top bar, but the theme control is in the sidebar and only visible from 1024 px.
 5. **Test gap:** model discovery (`AdminApi/ModelDiscovery.cs`, `DiscoverModelsDialog.vue`) has no automated tests (needs a fake `HttpMessageHandler`).
 6. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
+7. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
+   (about 1.8 MB per 300-chunk stream); rewriting `AnthropicStreamTranslator` with `Utf8JsonWriter` would remove most of it. See [docs/performance.md](docs/performance.md).
 
 ## Conventions and gotchas
 
@@ -38,6 +41,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   `rsync -a --delete --exclude node_modules --exclude dist <repo>/src/admin-ui/ <scratch>/ui/` before each run. Never run `npm ci` in the repo copy. Gate: `npm run lint -- --max-warnings 0`, `npm run typecheck`, `npm test`, `npm run build`.
 - **Tests:** `dotnet test --solution UmeLlmGateway.slnx` (Microsoft Testing Platform, set in `global.json`); xUnit v3 + Shouldly. Do not assert on the whole content of a shared table or list in
   AdminApi/Gateway tests; assert on your own rows (the AdminApi tests run serially because they share one database).
+- **Hot path:** the request handler, adapters, stores and caches are performance-critical. Run the benchmarks (`-- --filter *Pipeline*`, `*Provider*`) and the `audit` before and after changing them,
+  and keep "no Postgres on the request path" and the Redis round-trip budget in [docs/performance.md](docs/performance.md) true.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.
 - **AppHost:** `src/Ume.LlmGateway.AppHost`. Stop the exact AppHost (`aspire stop --apphost ...`) before backend builds. File-based AppHosts cannot use `DistributedApplicationTestingBuilder`, hence Testcontainers in the integration tests.
   Never use `dotnet run` for the AppHost. Project-local skills are in `.agents/skills`.

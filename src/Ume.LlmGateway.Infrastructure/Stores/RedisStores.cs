@@ -54,8 +54,9 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
         var (minute, _) = InMemoryRateLimiter.Window(time.GetUtcNow());
         var key = $"ume:rl:tok:{keyId:N}:{minute}";
         var db = redis.GetDatabase();
-        await db.StringIncrementAsync(key, tokens);
-        await db.KeyExpireAsync(key, TimeSpan.FromSeconds(120));
+        var increment = db.StringIncrementAsync(key, tokens);
+        _ = db.KeyExpireAsync(key, TimeSpan.FromSeconds(120), CommandFlags.FireAndForget); // pipelined after the INCRBY
+        await increment;
     }
 
     public async Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken)
@@ -73,18 +74,28 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
+    // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.
     private const string ReserveScript = """
         local amount = tonumber(ARGV[1])
+        local values = redis.call('MGET', unpack(KEYS))
+        local missing = {}
         for i = 1, #KEYS do
-          local v = tonumber(redis.call('GET', KEYS[i]) or '0')
-          local limit = tonumber(ARGV[i * 2])
-          if v >= limit or amount > limit - v then return i - 1 end
+          if not values[i] then
+            if ARGV[2] == '1' then values[i] = 0 else missing[#missing + 1] = i - 1 end
+          else
+            values[i] = tonumber(values[i])
+          end
+        end
+        if #missing > 0 then return {-2, missing} end
+        for i = 1, #KEYS do
+          local limit = tonumber(ARGV[i * 2 + 1])
+          if values[i] >= limit or amount > limit - values[i] then return {i - 1, values} end
         end
         for i = 1, #KEYS do
           redis.call('INCRBY', KEYS[i], amount)
-          redis.call('EXPIRE', KEYS[i], ARGV[i * 2 + 1])
+          redis.call('EXPIRE', KEYS[i], ARGV[i * 2 + 2])
         end
-        return -1
+        return {-1, values}
         """;
 
     public async Task<IReadOnlyList<long?>> GetAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken)
@@ -101,34 +112,38 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
     public Task InitializeAsync(string key, long valueMicroSek, TimeSpan timeToLive, CancellationToken cancellationToken) =>
         redis.GetDatabase().StringSetAsync(key, valueMicroSek, timeToLive, When.NotExists);
 
-    public async Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken)
+    public async Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken) =>
+        (await ReserveAsync(counters, amountMicroSek, missingAsZero: true, cancellationToken)).ExhaustedIndex;
+
+    public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken)
     {
         if (counters.Count == 0)
         {
-            return -1;
+            return new SpendReservation(-1, [], []);
         }
 
-        var args = new List<RedisValue> { amountMicroSek };
-        foreach (var c in counters)
+        var args = new RedisValue[2 + (counters.Count * 2)];
+        args[0] = amountMicroSek;
+        args[1] = missingAsZero ? 1 : 0;
+        for (var i = 0; i < counters.Count; i++)
         {
-            args.Add(c.LimitMicroSek);
-            args.Add((long)Math.Max(60, c.TimeToLive.TotalSeconds));
+            args[2 + (i * 2)] = counters[i].LimitMicroSek;
+            args[3 + (i * 2)] = (long)Math.Max(60, counters[i].TimeToLive.TotalSeconds);
         }
 
-        var result = await redis.GetDatabase().ScriptEvaluateAsync(ReserveScript, [.. counters.Select(c => (RedisKey)c.Key)], [.. args]);
-        return (int)result;
+        var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(ReserveScript, [.. counters.Select(c => (RedisKey)c.Key)], args))!;
+        var status = (int)result[0];
+        var items = (RedisResult[])result[1]!;
+        return status == -2
+            ? new SpendReservation(-1, [], [.. items.Select(r => (int)r)])
+            : new SpendReservation(status, [.. items.Select(r => (long)r)], []);
     }
 
     public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroSek, CancellationToken cancellationToken)
     {
+        // Issued together so they are pipelined: one round trip however many budgets apply.
         var db = redis.GetDatabase();
-        var results = new List<long>(counters.Count);
-        foreach (var c in counters)
-        {
-            results.Add(await db.StringIncrementAsync(c.Key, deltaMicroSek));
-        }
-
-        return results;
+        return await Task.WhenAll(counters.Select(c => db.StringIncrementAsync(c.Key, deltaMicroSek)));
     }
 }
 
@@ -200,8 +215,9 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
             [(long)o.SamplingWindow.TotalSeconds, o.FailureThreshold, (long)o.BreakDuration.TotalSeconds]);
     }
 
+    /// <summary>Fire-and-forget: called on every successful provider call, before the response starts.</summary>
     public Task RecordSuccessAsync(Guid providerId, CancellationToken cancellationToken) =>
-        redis.GetDatabase().KeyDeleteAsync(FailKey(providerId));
+        redis.GetDatabase().KeyDeleteAsync(FailKey(providerId), CommandFlags.FireAndForget);
 
     public async Task SetStateAsync(Guid providerId, CircuitState state, TimeSpan? openFor, CancellationToken cancellationToken)
     {

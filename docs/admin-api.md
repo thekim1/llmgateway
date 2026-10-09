@@ -62,6 +62,7 @@ Roles (OIDC `roles` claim):
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
 (empty `allowedModels` / `allowedResidencies` = all allowed)
+(`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`

@@ -29,6 +29,15 @@ public sealed record SpendCounter(string Key, long LimitMicroSek, TimeSpan TimeT
 }
 
 /// <summary>
+/// Outcome of <see cref="ISpendLedger.ReserveAsync"/>. <c>ExhaustedIndex</c> is -1 when the amount was reserved.
+/// <c>ValuesBefore</c> holds every counter's value before this reservation (empty when counters are missing).
+/// </summary>
+public sealed record SpendReservation(int ExhaustedIndex, IReadOnlyList<long> ValuesBefore, IReadOnlyList<int> Missing)
+{
+    public bool Reserved => ExhaustedIndex < 0 && Missing.Count == 0;
+}
+
+/// <summary>
 /// Shared spend counters used for budget enforcement. Counters include in-flight reservations;
 /// reservations are reconciled to actual cost after the provider call.
 /// </summary>
@@ -42,6 +51,13 @@ public interface ISpendLedger
 
     /// <summary>Atomically checks all counters are below their limit and adds the amount. Returns -1 on success, else the index of the exhausted counter.</summary>
     Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="TryReserveAsync"/>, in one round trip, but also returns each counter's value before the
+    /// reservation. Unless <paramref name="missingAsZero"/> is set, nothing is reserved when a counter is missing: the
+    /// result lists the missing counters so the caller can seed them and try again.
+    /// </summary>
+    Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken);
 
     /// <summary>Adds (possibly negative) delta to all counters; returns the new values.</summary>
     Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroSek, CancellationToken cancellationToken);
@@ -161,25 +177,34 @@ public sealed class InMemorySpendLedger : ISpendLedger
         return Task.CompletedTask;
     }
 
-    public Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken)
+    public async Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken) =>
+        (await ReserveAsync(counters, amountMicroSek, missingAsZero: true, cancellationToken)).ExhaustedIndex;
+
+    public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken)
     {
         lock (_lock)
         {
+            List<int> missing = missingAsZero ? [] : [.. counters.Select((c, i) => (c, i)).Where(x => !_values.ContainsKey(x.c.Key)).Select(x => x.i)];
+            if (missing.Count > 0)
+            {
+                return Task.FromResult(new SpendReservation(-1, [], missing));
+            }
+
+            var before = counters.Select(c => _values.GetValueOrDefault(c.Key)).ToArray();
             for (var i = 0; i < counters.Count; i++)
             {
-                var spent = _values.GetValueOrDefault(counters[i].Key);
-                if (spent >= counters[i].LimitMicroSek || amountMicroSek > counters[i].LimitMicroSek - spent)
+                if (before[i] >= counters[i].LimitMicroSek || amountMicroSek > counters[i].LimitMicroSek - before[i])
                 {
-                    return Task.FromResult(i);
+                    return Task.FromResult(new SpendReservation(i, before, []));
                 }
             }
 
-            foreach (var c in counters)
+            for (var i = 0; i < counters.Count; i++)
             {
-                _values[c.Key] = _values.GetValueOrDefault(c.Key) + amountMicroSek;
+                _values[counters[i].Key] = before[i] + amountMicroSek;
             }
 
-            return Task.FromResult(-1);
+            return Task.FromResult(new SpendReservation(-1, before, []));
         }
     }
 

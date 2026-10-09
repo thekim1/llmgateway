@@ -6,10 +6,25 @@ public static class KeyRotation
 {
     public static readonly TimeSpan GracePeriod = TimeSpan.FromHours(24);
 
-    public static IReadOnlySet<Guid> Ancestors(Guid keyId, IReadOnlyDictionary<Guid, Guid> replacements)
+    public static IReadOnlySet<Guid> Ancestors(Guid keyId, IReadOnlyDictionary<Guid, Guid> replacements) =>
+        Ancestors(keyId, PreviousKeys(replacements));
+
+    /// <summary>Reverse of the replacement map (new key → keys it replaced), for repeated <see cref="Ancestors(Guid, ILookup{Guid, Guid})"/> calls.</summary>
+    public static ILookup<Guid, Guid> PreviousKeys(IReadOnlyDictionary<Guid, Guid> replacements)
     {
+        ArgumentNullException.ThrowIfNull(replacements);
+        return replacements.ToLookup(pair => pair.Value, pair => pair.Key);
+    }
+
+    public static IReadOnlySet<Guid> Ancestors(Guid keyId, ILookup<Guid, Guid> previousByReplacement)
+    {
+        ArgumentNullException.ThrowIfNull(previousByReplacement);
         var ids = new HashSet<Guid> { keyId };
-        var previousByReplacement = replacements.ToLookup(pair => pair.Value, pair => pair.Key);
+        if (!previousByReplacement.Contains(keyId))
+        {
+            return ids;
+        }
+
         var pending = new Queue<Guid>();
         pending.Enqueue(keyId);
         while (pending.TryDequeue(out var current))

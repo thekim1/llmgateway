@@ -47,23 +47,21 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
             using (timeout)
             using (response)
             {
-                JsonNode? json;
-                try
+                var result = await ReadJsonResultAsync(response!, timeout.Token, cancellationToken);
+                if (!translate || result is not ProviderJsonResult raw)
                 {
-                    json = await ReadJsonAsync(response!, timeout.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    return new ProviderFailure(504, true, "timeout");
-                }
-                catch (JsonException)
-                {
-                    return new ProviderFailure(502, true, "invalid_json");
+                    return result; // /v1/messages: passed through as received
                 }
 
-                UsageParser.TryRead(json?["usage"], out var usage);
-                var output = translate && json is JsonObject msg ? AnthropicTranslator.ToChatCompletion(msg, created) : json ?? new JsonObject();
-                return new ProviderJsonResult((int)response!.StatusCode, output, usage);
+                using (raw)
+                {
+                    if (JsonNode.Parse(raw.Body.Span) is not JsonObject msg)
+                    {
+                        return new ProviderJsonResult(raw.StatusCode, raw.Body.ToArray(), raw.Usage);
+                    }
+
+                    return new ProviderJsonResult(raw.StatusCode, JsonSerializer.SerializeToUtf8Bytes(AnthropicTranslator.ToChatCompletion(msg, created), Compact), raw.Usage);
+                }
             }
         }
 
@@ -85,6 +83,16 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
 
     internal static IEnumerable<SseEvent> Passthrough(SseEvent evt, UsageAccumulator acc)
     {
+        // Fast paths by SSE event name (Anthropic always sends it, equal to the data's "type").
+        switch (evt.EventName)
+        {
+            case "content_block_delta":
+                acc.OutputCharacters += ProviderJson.AnthropicTextLength(evt.Data);
+                return [evt];
+            case "ping" or "content_block_start" or "content_block_stop" or "message_stop":
+                return [evt];
+        }
+
         try
         {
             if (JsonNode.Parse(evt.Data) is JsonObject data)

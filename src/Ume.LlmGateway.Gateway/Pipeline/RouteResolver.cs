@@ -21,6 +21,9 @@ public sealed record RoutePlan(IReadOnlyList<ResolvedModel> Models, RouteRejecti
 /// <summary>Outcome of candidate selection: the ordered attempt list, or a rejection when none is eligible.</summary>
 public sealed record CandidateSelection(IReadOnlyList<RouteTarget> Candidates, RouteRejection? Rejection);
 
+/// <summary>A circuit-state lookup started early (see <see cref="IRouteResolver.PrefetchCircuits"/>) for these providers.</summary>
+public sealed record CircuitPrefetch(IReadOnlySet<Guid> ProviderIds, Task<IReadOnlySet<Guid>> Open);
+
 /// <summary>
 /// Decides where a request may go, in three steps: resolve the requested model name and check the key's allow-lists
 /// and endpoint compatibility; turn a routing-rule decision (if any) into the models to use; order the eligible
@@ -33,7 +36,13 @@ public interface IRouteResolver
 
     RoutePlan Plan(CatalogSnapshot snapshot, VirtualKey key, GatewayEndpoint endpoint, string requestedModel, ResolvedModel? requested, RoutingDecision decision);
 
-    Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct);
+    /// <summary>
+    /// Starts looking up which of the model's providers have an open circuit, so the round trip overlaps the rest of
+    /// the pipeline. <see cref="SelectCandidatesAsync"/> uses it when it covers the providers finally considered.
+    /// </summary>
+    CircuitPrefetch PrefetchCircuits(ResolvedModel model, CancellationToken ct);
+
+    Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct, CircuitPrefetch? prefetch = null);
 }
 
 public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolver
@@ -110,14 +119,26 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             : Rejected(503, GatewayErrorCodes.NoEligibleProvider, $"Routingregeln för '{requestedModel}' pekar på modeller som inte finns eller inte kan användas med denna endpoint.");
     }
 
-    public async Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct)
+    public CircuitPrefetch PrefetchCircuits(ResolvedModel model, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var ids = ProviderIds([model]);
+        var open = circuits.GetOpenAsync(ids, ct);
+        // The request may be rejected before the result is needed; never leave a failure unobserved.
+        _ = open.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        return new CircuitPrefetch(ids, open);
+    }
+
+    public async Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct, CircuitPrefetch? prefetch = null)
     {
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(key);
 
         var residencies = RouteSelector.EffectiveResidencies(key.AllowedResidencies, restrictTo);
-        var providerIds = models.SelectMany(m => m.Targets).Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId).Distinct().ToList();
-        var open = await circuits.GetOpenAsync(providerIds, ct);
+        var providerIds = ProviderIds(models);
+        var open = prefetch is not null && prefetch.ProviderIds.IsSupersetOf(providerIds)
+            ? await prefetch.Open.WaitAsync(ct)
+            : await circuits.GetOpenAsync(providerIds, ct);
         var constraints = new RoutingConstraints(endpoint, residencies, null, key.AllowedProviders);
 
         // Each model keeps its own priority/weight order; models follow each other in the order the rules gave.
@@ -149,6 +170,9 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             : "Ingen tillgänglig leverantör kan hantera förfrågan för detta alias med nyckelns begränsningar.";
         return new CandidateSelection(candidates, new RouteRejection(503, GatewayErrorCodes.NoEligibleProvider, reason));
     }
+
+    private static HashSet<Guid> ProviderIds(IEnumerable<ResolvedModel> models) =>
+        [.. models.SelectMany(m => m.Targets).Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId)];
 
     /// <summary>The value of the <c>endpoint</c> variable in routing conditions.</summary>
     public static string EndpointName(GatewayEndpoint endpoint) => endpoint switch

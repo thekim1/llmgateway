@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -71,20 +72,36 @@ public sealed partial class GatewayRequestHandler(
                 throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
             }
 
-            using var buffer = new MemoryStream();
-            var chunk = new byte[8192];
-            int read;
-            while ((read = await http.Request.Body.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, maxBodyBytes - buffer.Length + 1)), ct)) > 0)
+            // Read into one pooled buffer sized from Content-Length; the parsed tree does not reference it afterwards.
+            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(http.Request.ContentLength ?? 16 * 1024, 1, maxBodyBytes) + 1);
+            var length = 0;
+            try
             {
-                if (buffer.Length + read > maxBodyBytes)
+                int read;
+                while ((read = await http.Request.Body.ReadAsync(buffer.AsMemory(length), ct)) > 0)
                 {
-                    throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
+                    length += read;
+                    if (length > maxBodyBytes)
+                    {
+                        throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
+                    }
+
+                    if (length == buffer.Length)
+                    {
+                        var larger = ArrayPool<byte>.Shared.Rent((int)Math.Min(buffer.Length * 2L, maxBodyBytes + 1));
+                        buffer.AsSpan(0, length).CopyTo(larger);
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        buffer = larger;
+                    }
                 }
 
-                buffer.Write(chunk, 0, read);
+                bodyLength = length;
+                body = JsonNode.Parse(buffer.AsSpan(0, length), documentOptions: JsonOptions) as JsonObject;
             }
-            bodyLength = buffer.Length;
-            body = JsonNode.Parse(buffer.GetBuffer().AsSpan(0, (int)buffer.Length), documentOptions: JsonOptions) as JsonObject;
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
         catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {
@@ -115,6 +132,8 @@ public sealed partial class GatewayRequestHandler(
         }
 
         var requested = resolution.Model;
+        // Issued now so it is pipelined with the rate-limit call below instead of costing its own round trip.
+        var circuitPrefetch = requested is null ? null : router.PrefetchCircuits(requested, ct);
 
         // 4. Rate limits (requests and tokens per minute).
         var estimatedInputTokens = CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, bodyLength));
@@ -199,7 +218,7 @@ public sealed partial class GatewayRequestHandler(
         // 7. Candidate providers in attempt order.
         var stream = endpoint != GatewayEndpoint.Embeddings && RequestRewriter.IsStreaming(body);
         state.Streamed = stream;
-        var selection = await router.SelectCandidatesAsync(plan.Models, key, endpoint, restrictTo, stream, ct);
+        var selection = await router.SelectCandidatesAsync(plan.Models, key, endpoint, restrictTo, stream, ct, circuitPrefetch);
         if (selection.Rejection is { } selectionRejection)
         {
             await RejectAsync(http, state, selectionRejection.StatusCode, selectionRejection.Code, selectionRejection.Message, RequestOutcome.Rejected);
@@ -255,7 +274,8 @@ public sealed partial class GatewayRequestHandler(
                 continue;
             }
 
-            var attemptBody = (JsonObject)body.DeepClone();
+            // The rewrite mutates the body; only keep a pristine copy when a fallback attempt may still need it.
+            var attemptBody = i == candidates.Count - 1 ? body : (JsonObject)body.DeepClone();
             RequestRewriter.Apply(attemptBody, endpoint, deployment.UpstreamModel, deployment.ParameterProfile, stream);
 
             ProviderResult result;
@@ -292,19 +312,27 @@ public sealed partial class GatewayRequestHandler(
                     return;
 
                 case ProviderJsonResult json:
-                    await circuits.RecordSuccessAsync(provider.Id, CancellationToken.None);
-                    var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
-                    SetRoutingHeaders(http, deployment, i);
-                    http.Response.Headers["x-ume-cost-sek"] = cost.Sek.ToString("0.000000", CultureInfo.InvariantCulture);
-                    if (reservation.RemainingSek is { } rem)
+                    using (json)
+                    using (usageWriter.TrackPending())
                     {
-                        http.Response.Headers["x-ume-budget-remaining-sek"] = FormatSek(Math.Max(0, rem - cost.Sek));
+                        await circuits.RecordSuccessAsync(provider.Id, CancellationToken.None);
+                        var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
+                        SetRoutingHeaders(http, deployment, i);
+                        http.Response.Headers["x-ume-cost-sek"] = cost.Sek.ToString("0.000000", CultureInfo.InvariantCulture);
+                        if (reservation.RemainingSek is { } rem)
+                        {
+                            http.Response.Headers["x-ume-budget-remaining-sek"] = FormatSek(Math.Max(0, rem - cost.Sek));
+                        }
+
+                        // The answer goes out first (complete, thanks to Content-Length); accounting then runs off the
+                        // client's critical path. TrackPending keeps UsageWriter.FlushAsync waiting for it.
+                        http.Response.StatusCode = json.StatusCode;
+                        http.Response.ContentType = "application/json";
+                        http.Response.ContentLength = json.Body.Length;
+                        await http.Response.Body.WriteAsync(json.Body, CancellationToken.None);
+                        await AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
                     }
 
-                    http.Response.StatusCode = json.StatusCode;
-                    http.Response.ContentType = "application/json";
-                    await AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
-                    await http.Response.WriteAsync(json.Body.ToJsonString(), CancellationToken.None);
                     return;
 
                 case ProviderStreamResult streamResult:
@@ -436,10 +464,12 @@ public sealed partial class GatewayRequestHandler(
         try
         {
             await http.Response.StartAsync(ct);
+            var writer = http.Response.BodyWriter;
             await foreach (var evt in result.Events.WithCancellation(ct))
             {
-                await http.Response.WriteAsync(evt.Format(), ct);
-                await http.Response.Body.FlushAsync(ct);
+                // Encoded straight into the response pipe; one flush per event keeps tokens flowing immediately.
+                evt.WriteTo(writer);
+                await writer.FlushAsync(ct);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -479,15 +509,11 @@ public sealed partial class GatewayRequestHandler(
         IReadOnlyList<AlertCandidate> alerts = [];
         try
         {
-            if (state.Reservation is { } reservation)
-            {
-                alerts = await budgets.CommitAsync(reservation, cost.Sek, cts.Token);
-            }
-
-            if (usage.Total > 0)
-            {
-                await rateLimiter.RecordTokensAsync(key.Id, usage.Total, cts.Token);
-            }
+            // Issued together so a shared store pipelines them into a single round trip.
+            var commit = state.Reservation is { } reservation ? budgets.CommitAsync(reservation, cost.Sek, cts.Token) : Task.FromResult(alerts);
+            var tokens = usage.Total > 0 ? rateLimiter.RecordTokensAsync(key.Id, usage.Total, cts.Token) : Task.CompletedTask;
+            await Task.WhenAll(commit, tokens);
+            alerts = await commit;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -594,7 +620,7 @@ public sealed partial class GatewayRequestHandler(
             Headers = headers,
             Params = parameters,
             KeyId = key.Id,
-            KeyLineage = KeyRotation.Ancestors(key.Id, snapshot.KeyReplacements),
+            KeyLineage = snapshot.KeyLineage(key.Id),
             KeyName = key.Name,
             TeamId = key.TeamId,
             TeamName = key.Team?.Name,

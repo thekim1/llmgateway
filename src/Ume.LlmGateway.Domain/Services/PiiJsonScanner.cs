@@ -62,7 +62,8 @@ public static class PiiJsonScanner
         switch (node)
         {
             case JsonObject obj:
-                foreach (var (key, child) in obj.ToList())
+                // Redaction replaces values while walking, so it needs a snapshot of the properties; detection does not.
+                foreach (var (key, child) in redact ? obj.ToList() : (IEnumerable<KeyValuePair<string, JsonNode?>>)obj)
                 {
                     if (SkippedProperties.Contains(key) && child is not JsonObject and not JsonArray)
                     {

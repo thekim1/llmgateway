@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -41,6 +42,9 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
 {
     public const long MicroPerSek = 1_000_000;
 
+    /// <summary>Seeding in progress per counter key, so a cold counter is summed from Postgres once, not once per concurrent request.</summary>
+    private readonly ConcurrentDictionary<string, Lazy<Task>> _seeding = new(StringComparer.Ordinal);
+
     public static IReadOnlyList<Budget> ApplicableBudgets(CatalogSnapshot catalog, VirtualKey key)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -48,12 +52,16 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         var departmentId = key.Team?.DepartmentId ?? Guid.Empty;
         return
         [
-            .. KeyRotation.Ancestors(key.Id, catalog.KeyReplacements).SelectMany(id => catalog.Budgets[(BudgetScope.VirtualKey, id)]),
+            .. catalog.KeyLineage(key.Id).SelectMany(id => catalog.Budgets[(BudgetScope.VirtualKey, id)]),
             .. catalog.Budgets[(BudgetScope.Team, key.TeamId)],
             .. catalog.Budgets[(BudgetScope.Department, departmentId)],
         ];
     }
 
+    /// <summary>
+    /// Reserves the estimate against every applicable budget in one ledger round trip. Counters missing from the
+    /// shared store (cold start, new period) are seeded from the usage table and the reservation is retried.
+    /// </summary>
     public async Task<BudgetReservation> ReserveAsync(IReadOnlyList<Budget> budgets, decimal estimatedSek, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(budgets);
@@ -63,14 +71,19 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         }
 
         var checks = BuildChecks(budgets);
-        await SeedMissingCountersAsync(checks, cancellationToken);
-
+        SpendCounter[] counters = [.. checks.Select(c => c.Counter)];
         var amount = Math.Max(0, ToMicro(estimatedSek));
-        var index = await ledger.TryReserveAsync([.. checks.Select(c => c.Counter)], amount, cancellationToken);
-        var current = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
-        var remaining = checks.Select((c, i) => (c.Counter.LimitMicroSek - (current[i] ?? 0) + (index < 0 ? amount : 0)) / (decimal)MicroPerSek).Min();
-        return index >= 0
-            ? new BudgetReservation(checks, 0, checks[index], Math.Max(0, remaining))
+        var result = await ledger.ReserveAsync(counters, amount, missingAsZero: false, cancellationToken);
+        if (result.Missing.Count > 0)
+        {
+            await SeedAsync([.. result.Missing.Select(i => checks[i])], cancellationToken);
+            // A counter can only vanish again if it expired in between; count it from zero rather than loop.
+            result = await ledger.ReserveAsync(counters, amount, missingAsZero: true, cancellationToken);
+        }
+
+        var remaining = checks.Select((c, i) => (c.Counter.LimitMicroSek - result.ValuesBefore[i]) / (decimal)MicroPerSek).Min();
+        return result.ExhaustedIndex >= 0
+            ? new BudgetReservation(checks, 0, checks[result.ExhaustedIndex], Math.Max(0, remaining))
             : new BudgetReservation(checks, amount, null, Math.Max(0, remaining));
     }
 
@@ -133,13 +146,28 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
     private async Task SeedMissingCountersAsync(List<BudgetCheck> checks, CancellationToken cancellationToken)
     {
         var values = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
-        for (var i = 0; i < checks.Count; i++)
+        await SeedAsync([.. checks.Where((_, i) => values[i] is null)], cancellationToken);
+    }
+
+    private async Task SeedAsync(IReadOnlyList<BudgetCheck> missing, CancellationToken cancellationToken)
+    {
+        foreach (var check in missing)
         {
-            if (values[i] is null)
+            var key = check.Counter.Key;
+            var seeding = _seeding.GetOrAdd(key, k => new Lazy<Task>(async () =>
             {
-                var spent = await SpentFromDatabaseAsync(checks[i].Budget, checks[i].Window, cancellationToken);
-                await ledger.InitializeAsync(checks[i].Counter.Key, ToMicro(spent), checks[i].Counter.TimeToLive, cancellationToken);
-            }
+                try
+                {
+                    // Not tied to one request: concurrent requests for the same counter share this work.
+                    var spent = await SpentFromDatabaseAsync(check.Budget, check.Window, CancellationToken.None);
+                    await ledger.InitializeAsync(key, ToMicro(spent), check.Counter.TimeToLive, CancellationToken.None);
+                }
+                finally
+                {
+                    _seeding.TryRemove(key, out _);
+                }
+            }));
+            await seeding.Value.WaitAsync(cancellationToken);
         }
     }
 

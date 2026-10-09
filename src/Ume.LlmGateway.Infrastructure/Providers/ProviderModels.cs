@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -31,11 +32,25 @@ public sealed class ProviderFailure(int statusCode, bool retryable, string reaso
     public static bool IsRetryableStatus(int status) => status is 408 or 409 or 429 or >= 500;
 }
 
-public sealed class ProviderJsonResult(int statusCode, JsonNode body, TokenUsage usage) : ProviderResult
+/// <summary>
+/// A complete JSON answer, held as the UTF-8 bytes to send to the client so it is never re-serialised. When
+/// <c>pooled</c> is given, <see cref="Body"/> lives in that rented array and <see cref="Dispose"/> returns it.
+/// </summary>
+public sealed class ProviderJsonResult(int statusCode, ReadOnlyMemory<byte> body, TokenUsage usage, byte[]? pooled = null) : ProviderResult, IDisposable
 {
+    private byte[]? _pooled = pooled;
+
     public int StatusCode { get; } = statusCode;
-    public JsonNode Body { get; } = body;
+    public ReadOnlyMemory<byte> Body { get; } = body;
     public TokenUsage Usage { get; } = usage;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _pooled, null) is { } buffer)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
 }
 
 /// <summary>Streaming response. Usage is populated while <see cref="Events"/> is enumerated.</summary>
@@ -53,18 +68,38 @@ public readonly record struct SseEvent(string? EventName, string Data)
 
     public string Format()
     {
-        var sb = new StringBuilder();
+        var buffer = new ArrayBufferWriter<byte>();
+        WriteTo(buffer);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    /// <summary>Writes the event in SSE wire format as UTF-8 straight into <paramref name="writer"/> (no intermediate string).</summary>
+    public void WriteTo(IBufferWriter<byte> writer)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
         if (EventName is not null)
         {
-            sb.Append("event: ").Append(EventName).Append('\n');
+            writer.Write("event: "u8);
+            Encoding.UTF8.GetBytes(EventName, writer);
+            writer.Write("\n"u8);
         }
 
-        foreach (var line in Data.Split('\n'))
+        var data = Data.AsSpan();
+        while (true)
         {
-            sb.Append("data: ").Append(line).Append('\n');
+            var newline = data.IndexOf('\n');
+            writer.Write("data: "u8);
+            Encoding.UTF8.GetBytes(newline < 0 ? data : data[..newline], writer);
+            writer.Write("\n"u8);
+            if (newline < 0)
+            {
+                break;
+            }
+
+            data = data[(newline + 1)..];
         }
 
-        return sb.Append('\n').ToString();
+        writer.Write("\n"u8);
     }
 }
 
@@ -95,56 +130,63 @@ public static class SseReader
     {
         using var reader = new StreamReader(stream, Encoding.UTF8);
         string? eventName = null;
-        var data = new StringBuilder();
-        var hasData = false;
+        // Almost every event has a single data line: keep it as one substring and only use the builder for more.
+        string? data = null;
+        StringBuilder? multiline = null;
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             if (line.Length == 0)
             {
-                if (hasData)
+                if (data is not null)
                 {
-                    yield return new SseEvent(eventName, data.ToString());
+                    yield return new SseEvent(eventName, multiline is { Length: > 0 } ? multiline.ToString() : data);
                 }
 
                 eventName = null;
-                data.Clear();
-                hasData = false;
+                data = null;
+                multiline?.Clear();
                 continue;
             }
 
-            if (line.StartsWith(':'))
+            if (line[0] == ':')
             {
                 continue;
             }
 
             var colon = line.IndexOf(':', StringComparison.Ordinal);
-            var field = colon < 0 ? line : line[..colon];
-            var value = colon < 0 ? string.Empty : line[(colon + 1)..];
-            if (value.StartsWith(' '))
+            var field = colon < 0 ? line.AsSpan() : line.AsSpan(0, colon);
+            var valueStart = colon < 0 ? line.Length : colon + 1;
+            if (valueStart < line.Length && line[valueStart] == ' ')
             {
-                value = value[1..];
+                valueStart++;
             }
 
-            switch (field)
+            if (field.SequenceEqual("data"))
             {
-                case "event":
-                    eventName = value;
-                    break;
-                case "data":
-                    if (hasData)
+                if (data is null)
+                {
+                    data = line[valueStart..];
+                }
+                else
+                {
+                    multiline ??= new StringBuilder();
+                    if (multiline.Length == 0)
                     {
-                        data.Append('\n');
+                        multiline.Append(data);
                     }
 
-                    data.Append(value);
-                    hasData = true;
-                    break;
+                    multiline.Append('\n').Append(line, valueStart, line.Length - valueStart);
+                }
+            }
+            else if (field.SequenceEqual("event"))
+            {
+                eventName = line[valueStart..];
             }
         }
 
-        if (hasData)
+        if (data is not null)
         {
-            yield return new SseEvent(eventName, data.ToString());
+            yield return new SseEvent(eventName, multiline is { Length: > 0 } ? multiline.ToString() : data);
         }
     }
 }

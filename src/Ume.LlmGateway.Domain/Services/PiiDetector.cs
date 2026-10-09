@@ -32,36 +32,54 @@ public static partial class PiiDetector
             return [];
         }
 
+        // Personnummer, IBAN and phone numbers all need an ASCII digit and an e-mail address needs '@': one vectorised
+        // scan lets most prose skip the regexes entirely. The result is identical.
+        var hasDigit = text.AsSpan().IndexOfAnyInRange('0', '9') >= 0;
+        var hasAt = text.Contains('@', StringComparison.Ordinal);
+        if (!hasDigit && !hasAt)
+        {
+            return [];
+        }
+
         var matches = new List<PiiMatch>();
         try
         {
-            foreach (Match m in PersonnummerRegex().Matches(text))
+            if (hasDigit)
             {
-                if (TryClassifyPersonnummer(m) is { } category)
+                foreach (Match m in PersonnummerRegex().Matches(text))
                 {
-                    Add(matches, new PiiMatch(category, m.Index, m.Length));
+                    if (TryClassifyPersonnummer(m) is { } category)
+                    {
+                        Add(matches, new PiiMatch(category, m.Index, m.Length));
+                    }
+                }
+
+                foreach (Match m in IbanRegex().Matches(text))
+                {
+                    if (IsValidIban(m.Value))
+                    {
+                        Add(matches, new PiiMatch(PiiCategory.Iban, m.Index, m.Length));
+                    }
                 }
             }
 
-            foreach (Match m in IbanRegex().Matches(text))
+            if (hasAt)
             {
-                if (IsValidIban(m.Value))
+                foreach (Match m in EmailRegex().Matches(text))
                 {
-                    Add(matches, new PiiMatch(PiiCategory.Iban, m.Index, m.Length));
+                    Add(matches, new PiiMatch(PiiCategory.Email, m.Index, m.Length));
                 }
             }
 
-            foreach (Match m in EmailRegex().Matches(text))
+            if (hasDigit)
             {
-                Add(matches, new PiiMatch(PiiCategory.Email, m.Index, m.Length));
-            }
-
-            foreach (Match m in PhoneRegex().Matches(text))
-            {
-                var digits = m.Value.Count(char.IsAsciiDigit);
-                if (digits is >= 8 and <= 13)
+                foreach (Match m in PhoneRegex().Matches(text))
                 {
-                    Add(matches, new PiiMatch(PiiCategory.Phone, m.Index, m.Length));
+                    var digits = m.Value.Count(char.IsAsciiDigit);
+                    if (digits is >= 8 and <= 13)
+                    {
+                        Add(matches, new PiiMatch(PiiCategory.Phone, m.Index, m.Length));
+                    }
                 }
             }
         }

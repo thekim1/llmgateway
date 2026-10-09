@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Ume.LlmGateway.Gateway.Tests" />
+    <InternalsVisibleTo Include="Ume.LlmGateway.Benchmarks" />
   </ItemGroup>
 </Project>

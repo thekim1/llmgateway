@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 
@@ -28,6 +29,7 @@ public sealed class CatalogSnapshot
         SekPerUsd = sekPerUsd;
         LoadedAt = loadedAt;
         KeyReplacements = keyReplacements ?? new Dictionary<Guid, Guid>();
+        _previousKeys = KeyRotation.PreviousKeys(KeyReplacements);
         Rules = rules ?? RoutingRuleSet.Empty;
         RuleErrors = ruleErrors ?? [];
     }
@@ -39,6 +41,11 @@ public sealed class CatalogSnapshot
     public decimal SekPerUsd { get; }
     public DateTimeOffset LoadedAt { get; }
     public IReadOnlyDictionary<Guid, Guid> KeyReplacements { get; }
+
+    private readonly ILookup<Guid, Guid> _previousKeys;
+
+    /// <summary>The key and every key it replaced through rotation. The reverse map is built once per snapshot, not per request.</summary>
+    public IReadOnlySet<Guid> KeyLineage(Guid keyId) => KeyRotation.Ancestors(keyId, _previousKeys);
 
     /// <summary>Compiled routing rules. Rules that failed validation are left out and listed in <see cref="RuleErrors"/>.</summary>
     public RoutingRuleSet Rules { get; }
@@ -65,8 +72,12 @@ public sealed class CatalogSnapshot
 
 public sealed record ResolvedModel(string Name, ModelKind Kind, IReadOnlyList<RouteTarget> Targets);
 
-/// <summary>Loads and caches the routing catalogue; invalidated by admin changes via <see cref="IInvalidationBus"/>.</summary>
-public sealed class GatewayCatalog : IDisposable
+/// <summary>
+/// Loads and caches the routing catalogue. An admin change (via <see cref="IInvalidationBus"/>) drops the snapshot, so
+/// the next request loads a fresh one. When the snapshot merely ages past the TTL it keeps being served while one
+/// background refresh replaces it, so requests never wait on the catalogue queries for routine expiry.
+/// </summary>
+public sealed partial class GatewayCatalog : IDisposable
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<GatewayOptions> _options;
@@ -75,6 +86,8 @@ public sealed class GatewayCatalog : IDisposable
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly IDisposable _subscription;
     private volatile CatalogSnapshot? _snapshot;
+    private int _generation;
+    private int _refreshing;
 
     public GatewayCatalog(IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, TimeProvider time, IInvalidationBus bus, ILogger<GatewayCatalog> logger)
     {
@@ -87,12 +100,17 @@ public sealed class GatewayCatalog : IDisposable
         {
             if (kind == InvalidationKind.Config)
             {
-                _snapshot = null;
+                Invalidate();
             }
         });
     }
 
-    public void Invalidate() => _snapshot = null;
+    /// <summary>Drops the snapshot. A load that started before this call is not cached, since it may predate the change.</summary>
+    public void Invalidate()
+    {
+        Interlocked.Increment(ref _generation);
+        _snapshot = null;
+    }
 
     public async Task<CatalogSnapshot> GetAsync(CancellationToken cancellationToken)
     {
@@ -100,6 +118,12 @@ public sealed class GatewayCatalog : IDisposable
         var ttl = TimeSpan.FromSeconds(_options.CurrentValue.CatalogCacheSeconds);
         if (current is not null && _time.GetUtcNow() - current.LoadedAt < ttl)
         {
+            return current;
+        }
+
+        if (current is not null && ttl > TimeSpan.Zero)
+        {
+            RefreshInBackground(ttl);
             return current;
         }
 
@@ -112,15 +136,64 @@ public sealed class GatewayCatalog : IDisposable
                 return current;
             }
 
-            current = await LoadAsync(cancellationToken);
-            _snapshot = current;
-            return current;
+            return await LoadAndCacheAsync(cancellationToken);
         }
         finally
         {
             _lock.Release();
         }
     }
+
+    private async Task<CatalogSnapshot> LoadAndCacheAsync(CancellationToken cancellationToken)
+    {
+        var generation = Volatile.Read(ref _generation);
+        var loaded = await LoadAsync(cancellationToken);
+        if (generation == Volatile.Read(ref _generation))
+        {
+            _snapshot = loaded;
+        }
+
+        return loaded;
+    }
+
+    private void RefreshInBackground(TimeSpan ttl)
+    {
+        if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _lock.WaitAsync();
+                try
+                {
+                    if (_snapshot is { } current && _time.GetUtcNow() - current.LoadedAt >= ttl)
+                    {
+                        await LoadAndCacheAsync(CancellationToken.None);
+                    }
+                }
+                finally
+                {
+                    _lock.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Keep serving the previous snapshot; the next request after the TTL tries again.
+                LogRefreshFailed(_logger, ex);
+            }
+            finally
+            {
+                Volatile.Write(ref _refreshing, 0);
+            }
+        });
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Background catalogue refresh failed; serving the previous snapshot")]
+    private static partial void LogRefreshFailed(ILogger logger, Exception ex);
 
     private async Task<CatalogSnapshot> LoadAsync(CancellationToken cancellationToken)
     {

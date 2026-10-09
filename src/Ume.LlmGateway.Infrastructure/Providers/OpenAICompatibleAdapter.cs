@@ -143,11 +143,34 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         }
     }
 
-    protected static async Task<JsonNode?> ReadJsonAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    /// <summary>
+    /// Reads a complete JSON answer and its token usage without building a document tree: the bytes are passed to
+    /// the client as received. Returns a failure for timeouts and invalid JSON.
+    /// </summary>
+    protected static async Task<ProviderResult> ReadJsonResultAsync(HttpResponseMessage response, CancellationToken timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(response);
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        return await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken);
+        byte[] buffer;
+        int length;
+        try
+        {
+            (buffer, length) = await ProviderJson.ReadBodyAsync(response.Content, timeout);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new ProviderFailure(504, true, "timeout");
+        }
+
+        try
+        {
+            var usage = ProviderJson.ReadUsage(buffer.AsSpan(0, length));
+            return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer);
+        }
+        catch (JsonException)
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+            return new ProviderFailure(502, true, "invalid_json");
+        }
     }
 
     protected static CancellationTokenSource CreateTimeout(ProviderCall call, CancellationToken cancellationToken)
@@ -205,22 +228,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             using (timeout)
             using (response)
             {
-                JsonNode? json;
-                try
-                {
-                    json = await ReadJsonAsync(response!, timeout.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    return new ProviderFailure(504, true, "timeout");
-                }
-                catch (JsonException)
-                {
-                    return new ProviderFailure(502, true, "invalid_json");
-                }
-
-                UsageParser.TryRead(json?["usage"], out var usage);
-                return new ProviderJsonResult((int)response!.StatusCode, json ?? new JsonObject(), usage);
+                return await ReadJsonResultAsync(response!, timeout.Token, cancellationToken);
             }
         }
 
@@ -235,6 +243,14 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
     {
         if (evt.Data == SseEvent.Done)
         {
+            yield return evt;
+            yield break;
+        }
+
+        // Fast path for the content chunks that make up nearly the whole stream: only the text length is needed.
+        if (!evt.Data.Contains("\"usage\"", StringComparison.Ordinal))
+        {
+            acc.OutputCharacters += ProviderJson.OpenAIContentLength(evt.Data);
             yield return evt;
             yield break;
         }

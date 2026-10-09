@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <InternalsVisibleTo Include="Ume.LlmGateway.Domain.Tests" />
+    <InternalsVisibleTo Include="Ume.LlmGateway.Benchmarks" />
   </ItemGroup>
 </Project>

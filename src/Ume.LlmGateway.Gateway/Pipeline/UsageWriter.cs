@@ -54,16 +54,36 @@ public sealed partial class UsageWriter : BackgroundService
     public ValueTask EnqueueAsync(UsageWork work, CancellationToken cancellationToken) =>
         _channel.Writer.WriteAsync(work, cancellationToken);
 
+    /// <summary>
+    /// Marks a request whose response has been sent but whose usage is not queued yet, so <see cref="FlushAsync"/>
+    /// also waits for it. Dispose once the record is queued.
+    /// </summary>
+    public PendingUsage TrackPending()
+    {
+        Interlocked.Increment(ref _pending);
+        return new PendingUsage(this);
+    }
+
     /// <summary>Waits until everything queued so far has been written (used by tests and graceful shutdown).</summary>
     public async Task FlushAsync(CancellationToken cancellationToken)
     {
-        while (_channel.Reader.Count > 0 || Interlocked.CompareExchange(ref _inFlight, 0, 0) > 0)
+        while (Volatile.Read(ref _pending) > 0 || _channel.Reader.Count > 0 || Interlocked.CompareExchange(ref _inFlight, 0, 0) > 0)
         {
             await Task.Delay(20, cancellationToken);
         }
     }
 
     private int _inFlight;
+    private int _pending;
+
+    public readonly struct PendingUsage(UsageWriter writer) : IDisposable
+    {
+        public void Dispose() => Interlocked.Decrement(ref writer._pending);
+    }
+
+    /// <summary>When this instance last wrote each key's LastUsedAt; the column is kept to the minute, not per request.</summary>
+    private readonly Dictionary<Guid, DateTimeOffset> _lastUsedWritten = [];
+    private static readonly TimeSpan LastUsedResolution = TimeSpan.FromMinutes(1);
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -94,11 +114,11 @@ public sealed partial class UsageWriter : BackgroundService
                 }
 
                 Volatile.Write(ref _inFlightRecords, batch.Count);
-                while (true)
+                for (var attempt = 0; ; attempt++)
                 {
                     try
                     {
-                        await WriteBatchAsync(batch, stoppingToken);
+                        await WriteBatchAsync(batch, retry: attempt > 0, stoppingToken);
                         Interlocked.Exchange(ref _lastWriteTicks, _time.GetUtcNow().UtcTicks);
                         Volatile.Write(ref _consecutiveFailures, 0);
                         break;
@@ -120,7 +140,7 @@ public sealed partial class UsageWriter : BackgroundService
         }
     }
 
-    private async Task WriteBatchAsync(List<UsageWork> batch, CancellationToken cancellationToken)
+    private async Task WriteBatchAsync(List<UsageWork> batch, bool retry, CancellationToken cancellationToken)
     {
         if (batch.Count == 0)
         {
@@ -129,8 +149,15 @@ public sealed partial class UsageWriter : BackgroundService
 
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        var ids = batch.Select(b => b.Record.Id).ToArray();
-        var persisted = (await db.UsageRecords.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken)).ToHashSet();
+        db.ChangeTracker.AutoDetectChangesEnabled = false;
+        HashSet<long> persisted = [];
+        if (retry)
+        {
+            // Only a retried batch can be partly written already (e.g. the insert committed, a later step failed).
+            var ids = batch.Select(b => b.Record.Id).ToArray();
+            persisted = [.. await db.UsageRecords.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken)];
+        }
+
         db.UsageRecords.AddRange(batch.Select(b => b.Record).Where(r => !persisted.Contains(r.Id)));
 
         // Alerts: unique per (budget, period, threshold) – skip ones already raised.
@@ -160,12 +187,18 @@ public sealed partial class UsageWriter : BackgroundService
         db.AlertEvents.AddRange(newAlerts);
         await db.SaveChangesAsync(cancellationToken);
 
-        // Last-used timestamps (one statement per key in the batch).
+        // Last-used timestamps: at most one statement per key and minute, instead of one per batch.
         foreach (var keyGroup in batch.GroupBy(b => b.Record.VirtualKeyId))
         {
             var last = keyGroup.Max(b => b.Record.Timestamp);
+            if (_lastUsedWritten.TryGetValue(keyGroup.Key, out var written) && last - written < LastUsedResolution)
+            {
+                continue;
+            }
+
             await db.VirtualKeys.Where(k => k.Id == keyGroup.Key && (k.LastUsedAt == null || k.LastUsedAt < last))
                 .ExecuteUpdateAsync(s => s.SetProperty(k => k.LastUsedAt, last), cancellationToken);
+            _lastUsedWritten[keyGroup.Key] = last;
         }
 
         foreach (var alert in newAlerts)

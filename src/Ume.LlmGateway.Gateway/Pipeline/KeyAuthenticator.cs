@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -12,22 +13,29 @@ namespace Ume.LlmGateway.Gateway.Pipeline;
 /// <summary>
 /// Resolves a presented virtual key. Only the HMAC hash is used for lookup; the plaintext key is never logged,
 /// cached or stored. Entries are cached briefly and dropped instantly when the admin API publishes a revocation.
+/// An entry older than the TTL is still served while one background lookup refreshes it, and concurrent misses for
+/// the same key share a single database query.
 /// </summary>
 public sealed class KeyAuthenticator : IDisposable
 {
     private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = 100_000 });
+    private readonly ConcurrentDictionary<string, Task<VirtualKey?>> _loading = new(StringComparer.Ordinal);
     private readonly VirtualKeyHasher _hasher;
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<GatewayOptions> _options;
+    private readonly TimeProvider _time;
     private readonly IDisposable _subscription;
     private CancellationTokenSource _generation = new();
 
-    public KeyAuthenticator(VirtualKeyHasher hasher, IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, IInvalidationBus bus)
+    private sealed record CachedKey(VirtualKey Key, DateTimeOffset LoadedAt);
+
+    public KeyAuthenticator(VirtualKeyHasher hasher, IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, IInvalidationBus bus, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(bus);
         _hasher = hasher;
         _scopes = scopes;
         _options = options;
+        _time = time;
         _subscription = bus.Subscribe(kind =>
         {
             if (kind == InvalidationKind.Keys)
@@ -66,29 +74,85 @@ public sealed class KeyAuthenticator : IDisposable
         }
 
         var hash = _hasher.Hash(presentedKey!);
-        if (_cache.TryGetValue(hash, out VirtualKey? cached))
+        var ttl = TimeSpan.FromSeconds(_options.CurrentValue.KeyCacheSeconds);
+        if (_cache.TryGetValue(hash, out CachedKey? cached) && cached is not null)
         {
-            return cached;
+            if (_time.GetUtcNow() - cached.LoadedAt >= ttl)
+            {
+                // Refresh in the background; a failure keeps the cached entry and surfaces on the next miss.
+                _ = LoadSharedAsync(hash, ttl).ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            }
+
+            return cached.Key;
+        }
+
+        return await LoadSharedAsync(hash, ttl).WaitAsync(cancellationToken);
+    }
+
+    /// <summary>One database lookup per key hash at a time, not tied to any single request's cancellation.</summary>
+    private Task<VirtualKey?> LoadSharedAsync(string hash, TimeSpan ttl)
+    {
+        if (_loading.TryGetValue(hash, out var running))
+        {
+            return running;
+        }
+
+        var load = new TaskCompletionSource<VirtualKey?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_loading.TryAdd(hash, load.Task))
+        {
+            return _loading.TryGetValue(hash, out running) ? running : LoadSharedAsync(hash, ttl);
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                load.SetResult(await LoadAsync(hash, ttl));
+            }
+            catch (Exception ex)
+            {
+                load.SetException(ex);
+            }
+            finally
+            {
+                _loading.TryRemove(hash, out _);
+            }
+        });
+        return load.Task;
+    }
+
+    private async Task<VirtualKey?> LoadAsync(string hash, TimeSpan ttl)
+    {
+        // Captured before the query: if a revocation lands while it runs, the result must not be cached.
+        CancellationToken generation;
+        try
+        {
+            generation = Volatile.Read(ref _generation).Token;
+        }
+        catch (ObjectDisposedException)
+        {
+            generation = new CancellationToken(canceled: true); // invalidated this instant: don't cache
         }
 
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
         var key = await db.VirtualKeys.AsNoTracking()
             .Include(k => k.Team).ThenInclude(t => t!.Department)
-            .FirstOrDefaultAsync(k => k.KeyHash == hash, cancellationToken);
+            .FirstOrDefaultAsync(k => k.KeyHash == hash, CancellationToken.None);
         if (key is null)
         {
+            _cache.Remove(hash);
             return null;
         }
 
-        var seconds = _options.CurrentValue.KeyCacheSeconds;
-        if (seconds > 0)
+        if (ttl > TimeSpan.Zero && !generation.IsCancellationRequested)
         {
             using var entry = _cache.CreateEntry(hash);
-            entry.Value = key;
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(seconds);
+            entry.Value = new CachedKey(key, _time.GetUtcNow());
+            // Kept past the TTL so a busy key is refreshed in the background instead of missing; idle keys drop out.
+            entry.AbsoluteExpirationRelativeToNow = ttl * 2;
             entry.Size = 1;
-            entry.AddExpirationToken(new CancellationChangeToken(_generation.Token));
+            entry.AddExpirationToken(new CancellationChangeToken(generation));
         }
 
         return key;

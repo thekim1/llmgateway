@@ -157,6 +157,18 @@ requests) and accessibility (axe at WCAG 2.2 AA in the three themes, drawers and
 forced colours, target size). They do not save screenshots, videos, traces or storage state.
 Open follow-ups (the manual screen reader pass) are listed in [HANDOVER.md](HANDOVER.md).
 
+### Benchmarks
+
+The gateway's data plane is benchmarked in `benchmarks/Ume.LlmGateway.Benchmarks` (needs Docker; always Release):
+
+```powershell
+dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- --filter *   # BenchmarkDotNet, ~20 min
+dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- audit        # DB/Redis calls per request + load test
+```
+
+Run them before and after changes to the request pipeline. What they measure and the current results are in
+[Performance](docs/performance.md).
+
 ## Routing examples
 
 Both examples are global rules created under **Routing > Routing rules** (gateway-admin) with the demo data. Your applications keep
@@ -298,6 +310,7 @@ development data is reused. These optional overrides apply only in local run mod
 | [Admin API](docs/admin-api.md) | UI/API contract |
 | [Routing rules](docs/routing-rules.md) | Rule model, condition language, evaluation order, examples (see also *Routing examples* above) |
 | [Architecture](docs/architecture.md) | Scope and decisions, components, trust boundaries, tradeoffs |
+| [Performance](docs/performance.md) | Per-request cost (Postgres/Redis round trips, caching), benchmarks and how to run them |
 | [Security and compliance](docs/security-and-compliance.md) | Controls, DPIA and processing-record inputs, release gates |
 | [Accessibility statement](docs/accessibility-statement.md) | Automated evidence and outstanding manual checks |
 | [Runbook](docs/runbook.md) | Deployment, credentials, backups, incidents |

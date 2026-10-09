@@ -3,6 +3,9 @@
     <Project Path="src/Ume.LlmGateway.AppHost/Ume.LlmGateway.AppHost.csproj" />
     <Project Path="src/Ume.LlmGateway.ServiceDefaults/Ume.LlmGateway.ServiceDefaults.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Ume.LlmGateway.Benchmarks/Ume.LlmGateway.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Ume.LlmGateway.AdminApi/Ume.LlmGateway.AdminApi.csproj" />
     <Project Path="src/Ume.LlmGateway.Domain/Ume.LlmGateway.Domain.csproj" />
