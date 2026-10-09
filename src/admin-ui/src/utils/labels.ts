@@ -9,6 +9,7 @@ import type {
   PiiPolicy,
   ProviderCapability,
   RequestOutcome,
+  RoutingScope,
 } from '@/api/types'
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'neutral' | 'accent'
@@ -55,6 +56,19 @@ export const PII_HINT: Record<PiiPolicy, string> = {
 }
 
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
+export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }
+export const ROUTING_SCOPE_HEADING: Record<RoutingScope, string> = {
+  VirtualKey: 'Key rules',
+  Team: 'Team rules',
+  Department: 'Department rules',
+  Global: 'Global rules',
+}
+export const ROUTING_SCOPE_HINT: Record<RoutingScope, string> = {
+  VirtualKey: 'Apply to one key (and the keys that replace it when it is rotated).',
+  Team: 'Apply to every key in one team.',
+  Department: 'Apply to every key in one department.',
+  Global: 'Apply to every request.',
+}
 export const PERIOD_LABEL: Record<BudgetPeriod, string> = {
   Hourly: 'Hourly',
   Daily: 'Daily',

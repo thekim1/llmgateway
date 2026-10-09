@@ -28,6 +28,7 @@ builder.Services.AddOptions<GatewayOptions>()
 
 builder.Services.AddSingleton<KeyAuthenticator>();
 builder.Services.AddSingleton<GatewayCatalog>();
+builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
 builder.Services.AddSingleton<BudgetService>();
 builder.Services.AddSingleton<GatewayMetrics>();
 builder.Services.AddSingleton<UsageWriter>();

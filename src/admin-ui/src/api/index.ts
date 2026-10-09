@@ -9,6 +9,7 @@ import type {
   BudgetRequest,
   Catalog,
   CircuitState,
+  ConditionCheck,
   ConfigDocument,
   ConfigImportResult,
   CreateDepartmentRequest,
@@ -31,6 +32,14 @@ import type {
   RotateKeyResponse,
   Route,
   RouteRequest,
+  RoutingRule,
+  RoutingRuleFilter,
+  RoutingRuleReassignRequest,
+  RoutingRuleReorderRequest,
+  RoutingRuleRequest,
+  RoutingRuleTestRequest,
+  RoutingRuleTestResult,
+  RoutingRulesChoice,
   Team,
   UpdateDepartmentRequest,
   UpdateKeyRequest,
@@ -57,13 +66,16 @@ export const api = {
     create: (body: CreateDepartmentRequest) => http.post<Department>('/api/departments', body),
     update: (deptId: string, body: UpdateDepartmentRequest) =>
       http.put<Department>(`/api/departments/${id(deptId)}`, body),
-    remove: (deptId: string) => http.del(`/api/departments/${id(deptId)}`),
+    /** `routingRules` is required when the department has routing rules (the API answers 409 with the list otherwise). */
+    remove: (deptId: string, routingRules?: RoutingRulesChoice) =>
+      http.del(buildUrl(`/api/departments/${id(deptId)}`, { routingRules })),
   },
   teams: {
     list: (departmentId?: string) => http.get<Team[]>('/api/teams', { departmentId }),
     create: (body: CreateTeamRequest) => http.post<Team>('/api/teams', body),
     update: (teamId: string, body: UpdateTeamRequest) => http.put<Team>(`/api/teams/${id(teamId)}`, body),
-    remove: (teamId: string) => http.del(`/api/teams/${id(teamId)}`),
+    /** `routingRules` is required when the team has routing rules (the API answers 409 with the list otherwise). */
+    remove: (teamId: string, routingRules?: RoutingRulesChoice) => http.del(buildUrl(`/api/teams/${id(teamId)}`, { routingRules })),
   },
   keys: {
     list: (filter: KeyFilter = {}) => http.get<VirtualKey[]>('/api/keys', { ...filter }),
@@ -100,6 +112,21 @@ export const api = {
     create: (body: RouteRequest) => http.post<Route>('/api/routes', body),
     update: (routeId: string, body: RouteRequest) => http.put<Route>(`/api/routes/${id(routeId)}`, body),
     remove: (routeId: string) => http.del(`/api/routes/${id(routeId)}`),
+  },
+  routingRules: {
+    list: (filter: RoutingRuleFilter = {}) => http.get<RoutingRule[]>('/api/routing-rules', { ...filter }),
+    get: (ruleId: string) => http.get<RoutingRule>(`/api/routing-rules/${id(ruleId)}`),
+    create: (body: RoutingRuleRequest) => http.post<RoutingRule>('/api/routing-rules', body),
+    update: (ruleId: string, body: RoutingRuleRequest) => http.put<RoutingRule>(`/api/routing-rules/${id(ruleId)}`, body),
+    remove: (ruleId: string) => http.del(`/api/routing-rules/${id(ruleId)}`),
+    /** Attach a rule (for example one deactivated when its team was deleted) to a new owner. */
+    reassign: (ruleId: string, body: RoutingRuleReassignRequest) => http.post<RoutingRule>(`/api/routing-rules/${id(ruleId)}/reassign`, body),
+    /** Sets the checking order within one scope and owner; returns the reordered rules. */
+    reorder: (body: RoutingRuleReorderRequest) => http.post<RoutingRule[]>('/api/routing-rules/reorder', body),
+    /** Live validation of a condition while it is typed. */
+    validate: (condition: string) => http.post<ConditionCheck>('/api/routing-rules/validate', { condition }),
+    /** Dry run against the stored, enabled rules. */
+    test: (body: RoutingRuleTestRequest) => http.post<RoutingRuleTestResult>('/api/routing-rules/test', body),
   },
   budgets: {
     list: (filter: BudgetFilter = {}) => http.get<Budget[]>('/api/budgets', { ...filter }),

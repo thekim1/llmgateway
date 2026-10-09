@@ -1,4 +1,5 @@
 import { isApiError } from '@/api/client'
+import type { ScopedRulesProblem } from '@/api/types'
 
 /** Server-provided messages (409 conflicts, validation) arrive in Swedish; local fallbacks are English. */
 export function problemLang(error: unknown): 'sv' | undefined {
@@ -32,7 +33,8 @@ export function mapFieldErrors(error: unknown, fields: readonly string[]): Recor
   const result: Record<string, string> = {}
   if (!isApiError(error)) return result
   for (const [key, messages] of Object.entries(error.fieldErrors)) {
-    const match = fields.find((f) => f.toLowerCase() === key.toLowerCase().replace(/^\$\./, ''))
+    // `Targets[0].weight` and `targets[1]` both belong to the `targets` field.
+    const match = fields.find((f) => f.toLowerCase() === key.toLowerCase().replace(/^\$\./, '').replace(/\[\d+\].*$/, ''))
     const message = messages[0]
     if (match && message) result[match] = message
   }
@@ -44,4 +46,15 @@ export function retryAfterSeconds(error: unknown): number | null {
   if (!isApiError(error) || error.status !== 429) return null
   const value = error.problem?.retryAfter
   return typeof value === 'number' ? value : null
+}
+
+/**
+ * The 409 returned when deleting a team or department that still has routing rules: the caller must ask the user whether
+ * to delete the rules or deactivate them, then repeat the delete with that choice. Null for any other error.
+ */
+export function scopedRulesProblem(error: unknown): ScopedRulesProblem | null {
+  if (!isApiError(error) || error.status !== 409) return null
+  const problem = error.problem
+  if (problem?.code !== 'routing_rules_scoped' || !Array.isArray(problem.rules)) return null
+  return problem as ScopedRulesProblem
 }

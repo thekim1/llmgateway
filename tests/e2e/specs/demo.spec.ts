@@ -38,16 +38,17 @@ test('final synthetic demo: fallback, PII on-prem, budget block, live writer and
     })
     expect(budget.status()).toBe(201)
     expect((await call('ume/chat-standard', 'Synthetic budget check')).status()).toBe(402)
-    await ready(page, '/drift')
+    await ready(page, '/operations')
     await expect.poll(async () => {
       const health = await (await page.request.get('/api/ops/health')).json()
       return health.usageWriter?.queueDepth === 0 && health.usageWriter?.inFlightRecords === 0 && health.usageWriter?.lastWriteAt !== null
     }).toBe(true)
-    await ready(page, '/installningar')
-    await page.locator('#settings-theme').selectOption('umea-dark')
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'umea-dark')
-    await page.locator('#settings-theme').selectOption('hc-light')
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'hc-light')
+    await ready(page, '/')
+    const themeGroup = page.getByRole('radiogroup', { name: 'Theme' })
+    for (const [label, theme] of [['Dark', 'dark'], ['Lumen', 'lumen'], ['Light', 'light']]) {
+      await themeGroup.getByRole('radio', { name: label }).click()
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    }
   } finally {
     await mutate(page, `/api/keys/${key.key.id}/revoke`)
     key.secret = ''

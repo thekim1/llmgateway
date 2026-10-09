@@ -424,6 +424,84 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("RouteTargets");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.RoutingRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Chain")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Condition")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.PrimitiveCollection<List<string>>("Fallbacks")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("ScopeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "ScopeId", "Priority");
+
+                    b.ToTable("RoutingRules");
+                });
+
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.RoutingRuleTarget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("RoutingRuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Weight")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoutingRuleId");
+
+                    b.ToTable("RoutingRuleTargets");
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Team", b =>
                 {
                     b.Property<Guid>("Id")
@@ -529,6 +607,13 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("RequestedModel")
                         .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("RoutingRuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RoutingRuleName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
@@ -695,6 +780,15 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Navigation("ModelDeployment");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.RoutingRuleTarget", b =>
+                {
+                    b.HasOne("Ume.LlmGateway.Domain.Entities.RoutingRule", null)
+                        .WithMany("Targets")
+                        .HasForeignKey("RoutingRuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Team", b =>
                 {
                     b.HasOne("Ume.LlmGateway.Domain.Entities.Department", "Department")
@@ -733,6 +827,11 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.RouteAlias", b =>
+                {
+                    b.Navigation("Targets");
+                });
+
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.RoutingRule", b =>
                 {
                     b.Navigation("Targets");
                 });

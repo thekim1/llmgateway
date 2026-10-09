@@ -116,6 +116,8 @@ does not deploy/expose a public Aspire dashboard.
 | 402 budget_exceeded | Inspect every department/team/key budget and rotation lineage; rotation does not reset spend |
 | 429 | RPM/TPM or admin quota; respect Retry-After, do not remove limits to fix a test |
 | Queue grows / DB outage | Restore DB connectivity; consider draining gateway traffic; bounded queue back-pressures callers |
+| Requests go to an unexpected model | Check the `x-ume-rule` response header and the usage record's `RoutingRuleName`; use the routing rule dry run (`POST /api/routing-rules/test`) with the same headers, key and budget values; look for gateway warnings about ignored rules |
+| Rules not applying after a reorganisation | A rule whose team/department was removed is *orphaned* and disabled until it is reassigned (`GET /api/routing-rules?orphaned=true`) |
 | No providers | Residency/capability/enable/drain/circuit settings; inspect request_id metadata, not content |
 
 ## Backup and restore
@@ -147,6 +149,10 @@ and rotate related credentials if needed. For unsafe provider routing drain/disa
 and restrict keys to approved on-prem targets. Preserve access/audit evidence under the
 records policy; do not capture conversations to investigate. Coordinate municipal
 cybersecurity reporting and GDPR breach assessment with the incident owner/DPO.
+
+A routing rule that misroutes traffic: disable it (Routing > Routing rules > Disable, or `PUT /api/routing-rules/{id}` with `isEnabled: false`).
+The change is audited and published to all gateway instances at once (the 30 s catalogue cache is only the fallback), and requests then go to the model they asked for.
+Find the affected requests by `RoutingRuleName` in the usage records or the `x-ume-rule` response header; do not capture conversations. Rules that are disabled or have no owner are never applied.
 
 Stop accepting traffic, allow usage to drain and stop the **exact** deployment without
 `--volumes` for normal shutdown. Never use production `down --volumes`, `aspire destroy`

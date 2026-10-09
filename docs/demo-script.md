@@ -20,18 +20,24 @@ For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -
    counts in usage contain no matched value. Explain false positives/negatives.
 5. Set a zero budget and verify 402 `budget_exceeded`. Immediately rotate the key and
    verify the replacement is still blocked: rotation does not reset the budget.
-6. With a separate unrestricted synthetic key, rotate with 24h grace. Both keys work;
+6. Routing rules: in **Routing > Routing rules** open *Premium via header* (demo data). Send a synthetic request to
+   `ume/chat-standard` with the header `x-ume-tier: premium` and inspect only `x-ume-rule` and `x-ume-provider`; without the header
+   no rule applies. Use **Test a request** with the same header to show why, and with a missing header to show "could not be
+   evaluated". Create a team with a rule, then delete the team and show the question: deactivate the rule, find it under
+   *Needs owner* and assign it to another team.
+7. With a separate unrestricted synthetic key, rotate with 24h grace. Both keys work;
    revoke the predecessor and verify only the replacement remains usable.
-7. Show the three themes (light, dark, Lumen), keyboard focus, the mobile layout and data tables.
+8. Show the three themes (light, dark, Lumen), keyboard focus, the mobile layout and data tables.
    Explain automatic checks and remaining manual assessment; do not claim AAA certification.
-8. Show Drift/Hälsa: component status, actual gateway version, live usage queue, schema,
+9. Show Drift/Hälsa: component status, actual gateway version, live usage queue, schema,
    provider statistics. Demonstrate audited drain/circuit/cache action with confirmation.
-9. Sign in as viewer/department-admin to show read-only and department isolation. Explicitly
+10. Sign in as viewer/department-admin to show read-only and department isolation. Explicitly
    renew the BFF session, then logout through the IdP confirmation/callback.
-10. Revoke synthetic demo keys, inspect masked audit and stop the exact AppHost cleanly.
+11. Revoke synthetic demo keys, inspect masked audit and stop the exact AppHost cleanly.
     Retain/delete metadata only under the approved POC records policy; do not wipe the volume.
 
-Repeatable automated demo evidence is in `tests\e2e` (five user journeys, a final synthetic
-demo and six accessibility tests) and six real-container integration tests (fallback, PII on-prem, budgets, rotation,
+Automated browser evidence is in `tests\e2e` (run on the separate test database, see the README): five user
+journeys, the final synthetic demo, routing rules checks (journeys, UI details, permissions, focus) and nine accessibility checks. On 2026-10-09,
+all 34 passed. There are also six real-container integration tests (fallback, PII on-prem, budgets, rotation,
 accounting, rate limits and invalidation). Production-shaped TLS/ACL/roles/SPA verification
 is `deploy\Test-Deployment.ps1`; it does not claim production IdP/provider approval.

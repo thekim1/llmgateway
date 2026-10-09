@@ -428,6 +428,15 @@ data processing or certify WCAG AAA/production compliance. Read the release gate
   still works. Earlier full-suite counts above are prior POC evidence, not reruns here.
 - The exact new AppHost was stopped successfully after verification. No commits created.
 
+## Routing rules (2026-10-09, latest)
+
+Routing rules (Bifrost-style, in-house CEL-subset conditions) are implemented end to end: engine (`Domain/Routing`), gateway (`RouteResolver`, `x-ume-rule`), storage (migrations `RoutingRules`,
+`RoutingRuleOnUsage`), admin API (`/api/routing-rules`), admin UI (Routing > Routing rules) and docs. Read `docs/routing-rules.md` (concepts, language, API/UI), `docs/routing-rules-plan.md`
+(delivery checklist and design decisions) and ADR 013-014. Test counts when finished: domain 215, gateway 96, admin API 62, integration 7, UI 121.
+
+**Open work, with a checklist and a findings log: `docs/handover-ui-verification.md`** (full-stack check incl. production-shaped DB roles, manual screen reader pass, rewrite of the stale Playwright e2e tests).
+The Status table above predates this: the Playwright row ("12 passing") is out of date, and the admin UI row says Tailwind 3 (it is Tailwind v4).
+
 ## Frontend rebuild and model discovery — 2026-10-08 (latest)
 
 - **Frontend** rebuilt from the design prototype; see README "Admin UI". Known gaps: route form lost its up/down reorder buttons, Ops page has no provider drain/resume action, e2e specs outdated, unit/component specs to rewrite, themes/mobile need a browser check.

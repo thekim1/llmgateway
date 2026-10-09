@@ -459,6 +459,9 @@ export interface UsageRequest {
   piiActionApplied: string | null
   piiCategories: string[] | string | null
   errorCode: string | null
+  /** The routing rule that decided where the request went (the last one when rules were chained); null when none applied. */
+  routingRuleId: string | null
+  routingRuleName: string | null
 }
 
 export interface Paged<T> {
@@ -549,6 +552,149 @@ export interface AuditQuery {
   page?: number
   pageSize?: number
   entityType?: string
+}
+
+// ---------- Routing rules ----------
+/** In evaluation order: the most specific scope is checked first. */
+export const ROUTING_SCOPES = ['VirtualKey', 'Team', 'Department', 'Global'] as const
+export type RoutingScope = (typeof ROUTING_SCOPES)[number]
+
+/** What to do with a team's or department's routing rules when it is deleted. */
+export const ROUTING_RULES_CHOICES = ['delete', 'deactivate'] as const
+export type RoutingRulesChoice = (typeof ROUTING_RULES_CHOICES)[number]
+
+export interface RuleTarget {
+  /** A route alias or model name. */
+  model: string
+  weight: number
+}
+
+/** Why the gateway ignores an enabled rule (position/length are set for condition errors). */
+export interface RuleProblem {
+  message: string
+  position: number | null
+  length: number | null
+}
+
+export interface RoutingRule {
+  id: string
+  name: string
+  description: string | null
+  isEnabled: boolean
+  /** Lower is checked first within a scope and owner. */
+  priority: number
+  scope: RoutingScope
+  scopeId: string | null
+  scopeName: string | null
+  /** The key/team/department the rule belongs to no longer exists: the rule never applies until it is reassigned. */
+  isOrphaned: boolean
+  condition: string
+  chain: boolean
+  targets: RuleTarget[]
+  fallbacks: string[]
+  validationErrors: RuleProblem[]
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+}
+
+export interface RoutingRuleRequest {
+  name: string
+  description?: string | null
+  scope: RoutingScope
+  scopeId?: string | null
+  isEnabled: boolean
+  priority: number
+  condition?: string | null
+  chain: boolean
+  targets: RuleTarget[]
+  fallbacks: string[]
+}
+
+export interface RoutingRuleFilter {
+  scope?: RoutingScope
+  scopeId?: string
+  orphaned?: boolean
+}
+
+export interface RoutingRuleReassignRequest {
+  scope: RoutingScope
+  scopeId?: string | null
+  /** Enable the rule again (default). */
+  enable: boolean
+}
+
+export interface RoutingRuleReorderRequest {
+  scope: RoutingScope
+  scopeId?: string | null
+  /** Rule ids in the order they should be checked. */
+  ruleIds: string[]
+}
+
+export interface ConditionError {
+  position: number
+  length: number
+  message: string
+}
+
+export interface ConditionCheck {
+  valid: boolean
+  errors: ConditionError[]
+  /** Variables the condition uses. */
+  variables: string[]
+  /** Every variable a condition may use. */
+  available: { name: string; type: string }[]
+}
+
+export interface RoutingRuleTestRequest {
+  model: string
+  endpoint?: string
+  headers?: Record<string, string>
+  params?: Record<string, string | number | boolean>
+  keyId?: string
+  teamId?: string
+  departmentId?: string
+  budgetUsed?: number
+  tokensUsed?: number
+  piiDetected?: boolean
+  promptTokens?: number
+}
+
+export type RuleOutcome = 'Matched' | 'NotMatched' | 'Skipped'
+
+export interface RuleTraceEntry {
+  text: string
+  leftValue: string | null
+  /** null = the comparison could not be evaluated (for example a header that was not sent). */
+  result: boolean | null
+}
+
+export interface RuleEvaluation {
+  ruleId: string
+  name: string
+  scope: RoutingScope
+  priority: number
+  chainStep: number
+  model: string
+  outcome: RuleOutcome
+  trace: RuleTraceEntry[]
+}
+
+export interface RoutingRuleTestResult {
+  matched: boolean
+  primaryModel: string | null
+  models: { name: string; exists: boolean; type: 'alias' | 'deployment' | 'unknown'; kind: ModelKind | null; enabled: boolean }[]
+  applied: { ruleId: string; name: string; fromModel: string; toModel: string }[]
+  chainLimitReached: boolean
+  evaluation: RuleEvaluation[]
+  ignoredRules: { ruleId: string; ruleName: string; message: string; position: number | null; length: number | null }[]
+  note: string
+}
+
+/** The 409 problem returned when deleting a team/department that still has routing rules and no choice was given. */
+export interface ScopedRulesProblem extends ProblemDetails {
+  code: 'routing_rules_scoped'
+  choices: RoutingRulesChoice[]
+  rules: { id: string; name: string; isEnabled: boolean }[]
 }
 
 // ---------- Gateway (data plane) error codes, for the developer portal ----------

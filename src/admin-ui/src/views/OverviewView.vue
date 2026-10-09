@@ -149,7 +149,7 @@ const providerStatus = (circuit: 'Open' | 'Closed', errorRate24h: number) =>
       </div>
     </section>
 
-    <div class="mb-8 grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+    <div class="mb-8 grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr))]">
       <UiCard title="Daily spend" meta="Last 30 days" heading-id="daily-h">
         <DailySpendChart :points="points" />
       </UiCard>

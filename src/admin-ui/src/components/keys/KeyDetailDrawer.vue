@@ -79,7 +79,7 @@ const reason = computed(() => {
     <template #badge><KeyStatusBadge v-if="keyData" :status="keyData.status" /></template>
     <template v-if="keyData">
       <p v-if="keyData.description" class="mb-6 text-fg-2">{{ keyData.description }}</p>
-      <DetailSection v-if="showSecretSection" title="Secret key">
+      <DetailSection v-if="showSecretSection" title="Secret key" :list="false">
         <template v-if="keyData.canReveal">
           <code class="block break-all rounded-control bg-sunken p-3 font-mono text-small" data-testid="key-secret">{{ revealed ?? masked }}</code>
           <div class="mt-3 flex flex-wrap gap-2">
@@ -119,7 +119,7 @@ const reason = computed(() => {
         <DetailRow label="Tokens per minute"><span class="tabular">{{ keyData.tokensPerMinute === null ? 'No limit' : formatNumber(keyData.tokensPerMinute) }}</span></DetailRow>
         <DetailRow label="Expires">{{ keyData.expiresAt ? formatDateTime(keyData.expiresAt) : 'Never' }}</DetailRow>
       </DetailSection>
-      <DetailSection title="Budgets">
+      <DetailSection title="Budgets" :list="false">
         <KeyBudgets :key-id="keyData.id" :editable="auth.canManage && keyData.status !== 'Revoked'" />
       </DetailSection>
       <DetailSection title="Lifecycle">

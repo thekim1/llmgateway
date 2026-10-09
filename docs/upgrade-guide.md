@@ -22,6 +22,11 @@ See [runbook](runbook.md) for the actual deployment procedure.
 6. Observe error/fallback rates and spend reconciliation. Record release, digests, schema,
    test evidence and approval in change management.
 
+Routing rules add the migrations `RoutingRules` (tables `RoutingRules`, `RoutingRuleTargets`) and
+`RoutingRuleOnUsage` (two nullable columns on `UsageRecords`). Both are additive, so the previous gateway image keeps
+working against the new schema. `deploy/postgres/app-roles.sql` now also grants the admin role write access to the
+new tables; re-run the role-grant job with the migration.
+
 Schema-breaking changes require an explicit downtime/rollback plan. Image rollback is safe
 only if the previous app supports the new schema. Do not automatically run destructive
 down-migrations; restore an approved backup in isolation first. Redis counters reconstructed

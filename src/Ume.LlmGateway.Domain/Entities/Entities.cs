@@ -201,6 +201,53 @@ public sealed class RouteTarget
     public int Weight { get; set; } = 1;
 }
 
+/// <summary>
+/// An administrator-defined routing rule: when <see cref="Condition"/> matches a request, it is sent to
+/// <see cref="Targets"/> (weighted) with <see cref="Fallbacks"/> instead of the alias it asked for. Evaluated by
+/// <see cref="Routing.RoutingRuleSet"/>. <see cref="ScopeId"/> refers to a key, team or department (no foreign key:
+/// a rule whose scope no longer exists simply never matches).
+/// </summary>
+public sealed class RoutingRule
+{
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+    public bool IsEnabled { get; set; } = true;
+
+    /// <summary>Lower is checked first within a scope.</summary>
+    public int Priority { get; set; }
+
+    public Routing.RoutingScope Scope { get; set; } = Routing.RoutingScope.Global;
+    public Guid? ScopeId { get; set; }
+
+    /// <summary>Condition in the routing expression language; empty always matches.</summary>
+    public string Condition { get; set; } = "";
+
+    /// <summary>When true the rewritten model is routed through the rules again.</summary>
+    public bool Chain { get; set; }
+
+    public List<RoutingRuleTarget> Targets { get; set; } = [];
+
+    /// <summary>Models (alias or deployment names) tried in order after all targets.</summary>
+    public List<string> Fallbacks { get; set; } = [];
+
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public Routing.RoutingRuleDefinition ToDefinition() => new(
+        Id, Name, IsEnabled, Priority, Scope, ScopeId, Condition, Chain,
+        [.. Targets.Select(t => new Routing.RuleTarget(t.Model, t.Weight))], [.. Fallbacks]);
+}
+
+/// <summary>A weighted destination of a <see cref="RoutingRule"/>: a route alias or deployment name.</summary>
+public sealed class RoutingRuleTarget
+{
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+    public Guid RoutingRuleId { get; set; }
+    public required string Model { get; set; }
+    public int Weight { get; set; } = 1;
+}
+
 public sealed class Budget
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -258,6 +305,12 @@ public sealed class UsageRecord
     public string? PiiCategories { get; set; }
 
     public string? ErrorCode { get; set; }
+
+    /// <summary>The routing rule that decided where the request went (last one when rules were chained). No foreign key: the rule may be deleted later.</summary>
+    public Guid? RoutingRuleId { get; set; }
+
+    /// <summary>Name of that rule at the time of the request, so reports stay readable after it is renamed or deleted.</summary>
+    public string? RoutingRuleName { get; set; }
 }
 
 public sealed class AuditLogEntry

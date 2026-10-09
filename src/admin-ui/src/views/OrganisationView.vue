@@ -2,10 +2,11 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
-import type { Budget, Department, Team } from '@/api/types'
+import type { Budget, Department, RoutingRulesChoice, ScopedRulesProblem, Team } from '@/api/types'
 import DepartmentDetail from '@/components/org/DepartmentDetail.vue'
 import DepartmentFormDrawer from '@/components/org/DepartmentFormDrawer.vue'
 import DepartmentList from '@/components/org/DepartmentList.vue'
+import ScopedRulesDialog from '@/components/rules/ScopedRulesDialog.vue'
 import TeamFormDrawer from '@/components/org/TeamFormDrawer.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -15,6 +16,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useDepartmentsStore } from '@/stores/departments'
 import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
+import { plural } from '@/utils/labels'
+import { scopedRulesProblem } from '@/utils/problem'
 
 const auth = useAuthStore()
 const departments = useDepartmentsStore()
@@ -32,6 +35,8 @@ const teamDrawer = ref(false)
 const editingTeam = ref<Team | null>(null)
 const deletingDepartment = ref(false)
 const deletingTeam = ref<Team | null>(null)
+/** Set when a delete was refused because routing rules belong to the team/department: the user decides what happens to them. */
+const scopedRules = ref<{ kind: 'team' | 'department'; id: string; name: string; rules: ScopedRulesProblem['rules'] } | null>(null)
 
 const selected = computed(() => departments.items.find((d) => d.id === selectedId.value) ?? null)
 const selectedTeams = computed(() => teams.items.filter((t) => t.departmentId === selectedId.value))
@@ -92,15 +97,46 @@ async function teamSaved(): Promise<void> {
 
 async function deleteDepartment(): Promise<void> {
   if (!selected.value) return
-  await departments.remove(selected.value.id)
+  const department = selected.value
+  try {
+    await departments.remove(department.id)
+  } catch (e) {
+    const problem = scopedRulesProblem(e)
+    if (!problem) throw e
+    scopedRules.value = { kind: 'department', id: department.id, name: department.name, rules: problem.rules }
+    return // this dialog closes; the next one asks what to do with the rules
+  }
   ui.notify('Department deleted')
 }
 
 async function deleteTeam(): Promise<void> {
   if (!deletingTeam.value) return
-  await teams.remove(deletingTeam.value.id)
+  const team = deletingTeam.value
+  try {
+    await teams.remove(team.id)
+  } catch (e) {
+    const problem = scopedRulesProblem(e)
+    if (!problem) throw e
+    scopedRules.value = { kind: 'team', id: team.id, name: team.name, rules: problem.rules }
+    return
+  }
   ui.notify('Team deleted')
   void departments.load()
+}
+
+/** The second step: repeat the delete with the user's answer about the routing rules. */
+async function deleteWithRules(choice: RoutingRulesChoice): Promise<void> {
+  const pending = scopedRules.value
+  if (!pending) return
+  const count = plural(pending.rules.length, 'routing rule')
+  if (pending.kind === 'team') {
+    await teams.remove(pending.id, choice)
+    void departments.load()
+  } else {
+    await departments.remove(pending.id, choice)
+  }
+  const what = pending.kind === 'team' ? 'Team' : 'Department'
+  ui.notify(choice === 'deactivate' ? `${what} deleted. ${count} deactivated: assign a new owner under Routing rules.` : `${what} deleted. ${count} deleted.`)
 }
 
 onMounted(async () => {
@@ -151,6 +187,15 @@ onMounted(async () => {
     @saved="teamSaved"
   />
 
+  <ScopedRulesDialog
+    v-if="scopedRules"
+    :open="!!scopedRules"
+    :kind="scopedRules.kind"
+    :name="scopedRules.name"
+    :rules="scopedRules.rules"
+    :action="deleteWithRules"
+    @update:open="!$event && (scopedRules = null)"
+  />
   <ConfirmDialog v-model:open="deletingDepartment" title="Delete department?" confirm-label="Delete department" danger :action="deleteDepartment">
     <span lang="sv" class="font-medium">{{ selected?.name }}</span> is removed for good.
   </ConfirmDialog>

@@ -57,6 +57,18 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
         await db.StringIncrementAsync(key, tokens);
         await db.KeyExpireAsync(key, TimeSpan.FromSeconds(120));
     }
+
+    public async Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken)
+    {
+        if (tokensPerMinute is not > 0)
+        {
+            return null;
+        }
+
+        var (minute, _) = InMemoryRateLimiter.Window(time.GetUtcNow());
+        var used = await redis.GetDatabase().StringGetAsync($"ume:rl:tok:{keyId:N}:{minute}");
+        return InMemoryRateLimiter.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
+    }
 }
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger

@@ -42,6 +42,7 @@ export const navGroups: NavGroup[] = [
     label: 'Routing',
     items: [
       { name: 'routes', label: 'Routes', icon: 'alt_route', roles: GATEWAY_ADMIN },
+      { name: 'routing-rules', label: 'Routing rules', icon: 'rule', roles: GATEWAY_ADMIN },
       { name: 'providers', label: 'Providers & models', icon: 'dns', roles: GATEWAY_ADMIN },
     ],
   },

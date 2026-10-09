@@ -197,6 +197,41 @@ public sealed partial class DevSeeder(
                 Targets = [T(embedSmall, 0), T(fakeEmbed, 1)],
             });
 
+        // --- Routing rules (conditions rewrite the requested model; see docs/routing-rules.md) ------
+        db.AddRange(
+            new RoutingRule
+            {
+                Name = "Äldre alias gpt-4",
+                Description = "Kedjad regel: skriver om det gamla namnet 'gpt-4' till standardmodellen innan övriga regler prövas.",
+                Priority = 0,
+                Condition = "model == \"gpt-4\"",
+                Chain = true,
+                Targets = [new RoutingRuleTarget { Model = "ume/chat-standard" }],
+                CreatedAt = now,
+                UpdatedAt = now,
+            },
+            new RoutingRule
+            {
+                Name = "Premium via header",
+                Description = "Anrop med headern x-ume-tier: premium går till den mest kapabla modellen.",
+                Priority = 10,
+                Condition = "headers[\"x-ume-tier\"] == \"premium\" && model == \"ume/chat-standard\"",
+                Targets = [new RoutingRuleTarget { Model = "ume/chat-advanced" }],
+                Fallbacks = ["ume/chat-standard"],
+                CreatedAt = now,
+                UpdatedAt = now,
+            },
+            new RoutingRule
+            {
+                Name = "Budgeten nästan slut",
+                Description = "När mer än 90 % av budgeten är förbrukad styrs standardtrafik till on-prem.",
+                Priority = 20,
+                Condition = "budget_used > 90 && model == \"ume/chat-standard\"",
+                Targets = [new RoutingRuleTarget { Model = "ume/chat-onprem" }],
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+
         db.Add(new ExchangeRate { Currency = "USD", SekPerUnit = 9.50m, EffectiveFrom = priceDate });
 
         db.AddRange(
@@ -250,7 +285,13 @@ public sealed partial class DevSeeder(
             return;
         }
 
-        var team = await db.Teams.OrderBy(t => t.Name).FirstAsync(t => t.Name == "Digitalisering & AI", cancellationToken);
+        // A database that was not seeded by this seeder may not have the demo team; the dev key is then skipped.
+        var team = await db.Teams.OrderBy(t => t.Name).FirstOrDefaultAsync(t => t.Name == "Digitalisering & AI", cancellationToken);
+        if (team is null)
+        {
+            return;
+        }
+
         var key = new VirtualKey
         {
             TeamId = team.Id,

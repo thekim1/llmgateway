@@ -31,7 +31,7 @@ const classes = computed(() => [
     secondary: 'bg-surface text-fg shadow-inset-strong hover:bg-surface-2',
     quiet: 'bg-transparent text-fg hover:bg-hover',
     danger: 'bg-transparent text-danger hover:bg-danger-soft',
-    'danger-solid': 'bg-danger text-white hover:opacity-90',
+    'danger-solid': 'bg-danger text-danger-fg hover:opacity-90',
   }[props.variant],
   { sm: 'h-ctl-sm', md: 'h-ctl', lg: 'h-ctl-lg', xl: 'h-ctl-xl text-body-lg' }[props.size],
   props.iconOnly ? 'w-8 !px-0' : '',

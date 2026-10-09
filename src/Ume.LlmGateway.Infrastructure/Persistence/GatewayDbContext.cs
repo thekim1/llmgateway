@@ -15,6 +15,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<ModelPrice> ModelPrices => Set<ModelPrice>();
     public DbSet<RouteAlias> RouteAliases => Set<RouteAlias>();
     public DbSet<RouteTarget> RouteTargets => Set<RouteTarget>();
+    public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
+    public DbSet<RoutingRuleTarget> RoutingRuleTargets => Set<RoutingRuleTarget>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
@@ -104,6 +106,18 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
         modelBuilder.Entity<RouteTarget>(e =>
             e.HasOne(x => x.ModelDeployment).WithMany().HasForeignKey(x => x.ModelDeploymentId).OnDelete(DeleteBehavior.Restrict));
 
+        modelBuilder.Entity<RoutingRule>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.Condition).HasMaxLength(2000);
+            e.Property(x => x.Scope).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => new { x.Scope, x.ScopeId, x.Priority });
+            e.HasMany(x => x.Targets).WithOne().HasForeignKey(x => x.RoutingRuleId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RoutingRuleTarget>(e => e.Property(x => x.Model).HasMaxLength(200));
+
         modelBuilder.Entity<Budget>(e =>
         {
             e.Property(x => x.LimitSek).HasPrecision(18, 2);
@@ -132,6 +146,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.PiiActionApplied).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.PiiCategories).HasMaxLength(200);
             e.Property(x => x.ErrorCode).HasMaxLength(50);
+            e.Property(x => x.RoutingRuleName).HasMaxLength(200);
             e.HasIndex(x => x.RequestId);
             e.HasIndex(x => x.Timestamp);
             e.HasIndex(x => new { x.VirtualKeyId, x.Timestamp });

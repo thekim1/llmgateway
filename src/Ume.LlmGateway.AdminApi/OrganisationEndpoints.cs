@@ -42,10 +42,11 @@ public static class OrganisationEndpoints
             await ctx.SaveAsync(user, "invalidate", "Keys", id, null, null, InvalidationKind.Keys, ct);
             return Results.Ok(DepartmentDto(d));
         }).RequireAuthorization("admin");
-        api.MapDelete("/departments/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        api.MapDelete("/departments/{id:guid}", async (Guid id, string? routingRules, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var d = await ctx.Db.Departments.SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw new AdminFaultException(404, "Förvaltningen finns inte.");
             if (await ctx.Db.Teams.AnyAsync(t => t.DepartmentId == id, ct)) { throw new AdminFaultException(409, "Förvaltningen har team och kan inte tas bort."); }
+            await RoutingRuleEndpoints.ApplyScopeRemovalAsync(ctx, user, Ume.LlmGateway.Domain.Routing.RoutingScope.Department, id, routingRules, "Förvaltningen", ct);
             ctx.Db.Departments.Remove(d);
             await ctx.SaveAsync(user, "delete", "Department", id, DepartmentDto(d), null, InvalidationKind.Config, ct);
             return Results.NoContent();
@@ -72,10 +73,11 @@ public static class OrganisationEndpoints
             await ctx.SaveAsync(user, "update", "Team", id, before, TeamDto(t), InvalidationKind.Keys, ct);
             return Results.Ok(TeamDto(t));
         }).RequireAuthorization("manage");
-        api.MapDelete("/teams/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        api.MapDelete("/teams/{id:guid}", async (Guid id, string? routingRules, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var t = await ctx.Teams(user).SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new AdminFaultException(404, "Teamet finns inte.");
             if (await ctx.Db.VirtualKeys.AnyAsync(k => k.TeamId == id, ct)) { throw new AdminFaultException(409, "Teamet har nycklar och kan inte tas bort."); }
+            await RoutingRuleEndpoints.ApplyScopeRemovalAsync(ctx, user, Ume.LlmGateway.Domain.Routing.RoutingScope.Team, id, routingRules, "Teamet", ct);
             ctx.Db.Teams.Remove(t);
             await ctx.SaveAsync(user, "delete", "Team", id, TeamDto(t), null, InvalidationKind.Config, ct);
             return Results.NoContent();

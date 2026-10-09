@@ -22,11 +22,23 @@ public sealed record ConfigRoute(
     [property: EnumDataType(typeof(ModelKind))] ModelKind Kind,
     [property: Required, MinLength(1), MaxLength(100)] ConfigTarget[] Targets,
     [property: StringLength(1000)] string? Description = null, bool IsEnabled = true) : AdminRequest;
+public sealed record ConfigRuleTarget([property: Required, StringLength(200)] string Model, [property: Range(1, 1000000)] int Weight = 1) : AdminRequest;
+/// <summary>A global routing rule. Rules scoped to a key, team or department are not transferred: their ids differ between environments.</summary>
+public sealed record ConfigRoutingRule(
+    [property: Required, StringLength(200)] string Name,
+    [property: Required, MinLength(1), MaxLength(20)] ConfigRuleTarget[] Targets,
+    [property: StringLength(1000)] string? Description = null,
+    bool IsEnabled = true,
+    [property: Range(-1_000_000, 1_000_000)] int Priority = 0,
+    [property: StringLength(2000)] string? Condition = null,
+    bool Chain = false,
+    [property: MaxLength(20)] string[]? Fallbacks = null) : AdminRequest;
 public sealed record ConfigDocument(
     [property: Required, MaxLength(1000)] ConfigProvider[] Providers,
     [property: Required, MaxLength(10000)] ConfigModel[] Models,
     [property: Required, MaxLength(10000)] ConfigRoute[] Routes,
-    [property: Range(1, 1)] int SchemaVersion = 1) : AdminRequest;
+    [property: Range(1, 1)] int SchemaVersion = 1,
+    [property: MaxLength(10000)] ConfigRoutingRule[]? RoutingRules = null) : AdminRequest;
 
 public static class ConfigTransfer
 {
@@ -34,12 +46,14 @@ public static class ConfigTransfer
     {
         var providers = await ctx.Db.ProviderAccounts.Include(p => p.Deployments).ThenInclude(m => m.Prices).ToListAsync(ct);
         var routes = await ConfigurationEndpoints.Routes(ctx).ToListAsync(ct);
+        var rules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == Domain.Routing.RoutingScope.Global).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
         return Results.Ok(new ConfigDocument(
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ConfigurationEndpoints.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom))])))],
-            [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(t.ModelDeployment!.Name, t.Priority, t.Weight))], r.Description, r.IsEnabled))]));
+            [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(t.ModelDeployment!.Name, t.Priority, t.Weight))], r.Description, r.IsEnabled))],
+            RoutingRules: [.. rules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new ConfigRuleTarget(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]));
     }
 
     public static async Task<IResult> ImportAsync(ConfigDocument input, AdminContext ctx, ClaimsPrincipal user, CredentialProtector protector, CancellationToken ct)
@@ -50,7 +64,8 @@ public static class ConfigTransfer
         }
         if (input.Providers.Select(p => p.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Providers.Length ||
             input.Models.Select(m => m.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Models.Length ||
-            input.Routes.Select(r => r.Name).Distinct(StringComparer.Ordinal).Count() != input.Routes.Length)
+            input.Routes.Select(r => r.Name).Distinct(StringComparer.Ordinal).Count() != input.Routes.Length ||
+            (input.RoutingRules ?? []).Select(r => r.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != (input.RoutingRules ?? []).Length)
         {
             throw new AdminFaultException(400, "Konfigurationen har dubbletter.");
         }
@@ -124,6 +139,9 @@ public static class ConfigTransfer
                 await ConfigurationEndpoints.ApplyRouteAsync(r, new RouteRequest(item.Name, item.Kind,
                     [.. item.Targets.Select(t => new TargetRequest(models[t.ModelName].Id, t.Priority, t.Weight))], item.Description, item.IsEnabled), ctx, ct);
             }
+            var (rulesCreated, rulesUpdated) = await RoutingRuleEndpoints.ImportGlobalAsync(ctx, input.RoutingRules ?? [],
+                [.. input.Routes.Select(r => r.Name), .. input.Models.Select(m => m.Configuration.Name)], ct);
+            created += rulesCreated; updated += rulesUpdated;
             ctx.Db.AuditLog.Add(new AuditLogEntry
             {
                 Timestamp = ctx.Now, Actor = user.FindFirstValue("sub") ?? "unknown", Action = "import", EntityType = "Config",

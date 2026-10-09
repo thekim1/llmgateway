@@ -112,6 +112,24 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         (await ledger.GetAsync([counter.Key], Cancellation))[0].ShouldBe(1000);
     }
 
+    [Fact]
+    public async Task Redis_reports_token_usage_without_consuming_request_quota()
+    {
+        var limiter = fixture.GatewayServices.GetRequiredService<IRateLimiter>();
+        limiter.ShouldBeOfType<RedisRateLimiter>();
+        var key = Guid.NewGuid();
+        (await limiter.PeekTokensUsedPercentAsync(key, null, Cancellation)).ShouldBeNull();
+        (await limiter.PeekTokensUsedPercentAsync(key, 1000, Cancellation)).ShouldBe(0);
+        await limiter.RecordTokensAsync(key, 300, Cancellation);
+        (await limiter.PeekTokensUsedPercentAsync(key, 1000, Cancellation)).ShouldBe(30);
+        await limiter.RecordTokensAsync(key, 5000, Cancellation);
+        (await limiter.PeekTokensUsedPercentAsync(key, 1000, Cancellation)).ShouldBe(100);
+
+        var other = Guid.NewGuid();
+        await limiter.PeekTokensUsedPercentAsync(other, 1000, Cancellation);
+        (await limiter.AcquireAsync(other, 1, null, Cancellation)).Allowed.ShouldBeTrue();
+    }
+
     private static Task<HttpResponseMessage> CallAsync(HttpClient client, string model = "ume/chat-standard", string content = "Synthetic test request") =>
         client.PostAsJsonAsync("/v1/chat/completions", new { model, messages = new[] { new { role = "user", content } }, max_tokens = 32 }, Cancellation);
 

@@ -248,6 +248,7 @@ onMounted(() => {
       </DetailSection>
       <DetailSection title="Routing">
         <DetailRow label="Requested model"><span class="font-mono">{{ selected.requestedModel }}</span></DetailRow>
+        <DetailRow v-if="selected.routingRuleName" label="Routing rule">{{ selected.routingRuleName }}</DetailRow>
         <DetailRow label="Provider">{{ selected.providerName ?? '—' }}</DetailRow>
         <DetailRow label="Upstream model"><span class="font-mono">{{ selected.upstreamModel ?? '—' }}</span></DetailRow>
         <DetailRow label="Fallbacks">{{ formatNumber(selected.fallbackCount) }}</DetailRow>

@@ -9,7 +9,7 @@ import Pagination from '@/components/ui/Pagination.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 
 const PAGE_SIZE = 50
-const ENTITY_TYPES = ['Department', 'Team', 'VirtualKey', 'Provider', 'Model', 'Route', 'Budget', 'Config']
+const ENTITY_TYPES = ['Department', 'Team', 'VirtualKey', 'Provider', 'Model', 'Route', 'RoutingRule', 'Budget', 'Config']
 const entityOptions = [{ value: '', label: 'All entities' }, ...ENTITY_TYPES.map((t) => ({ value: t, label: t }))]
 
 const columns: Column[] = [

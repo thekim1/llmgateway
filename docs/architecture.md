@@ -31,11 +31,20 @@ isolating Redis to the gateway alone would break these control-plane functions.
 ## Request and accounting flow
 
 Bounded JSON request -> HMAC authentication -> model/endpoint authorization -> Redis
-rate limit -> optional PII policy -> residency/capability route filter -> hierarchical
+rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
 budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
 Fallback occurs for retryable/provider-configuration failures, never after streaming
 has sent bytes. Unknown JSON fields pass through; model parameter rewrites are explicit.
 Anthropic/OpenAI translation covers the implemented text/tool/streaming paths.
+
+### Routing rules
+
+Optional administrator-defined rules (see [routing-rules.md](routing-rules.md)) run after the PII policy and before candidate selection. A rule matches on the request
+(model name, headers, selected body parameters, key/team/department, budget and token-limit use, PII found, prompt size) and rewrites where it goes: weighted targets,
+ordered fallbacks and optional chaining. Rules are stored in Postgres (`RoutingRules`, `RoutingRuleTargets`), compiled once per catalogue snapshot (invalid rules are skipped
+and logged), and invalidated like other configuration over the Redis bus (30 s cache as fallback). `IRouteResolver` turns a decision into an attempt list and applies every hard
+constraint afterwards, so a rule can never widen a key's access. The matched rule id is returned in `x-ume-rule` and stored on the usage record; credentials and prompt content are never
+visible to conditions. The admin API (`/api/routing-rules`) audits every change and offers validation and a dry run.
 
 Budgets are calendar-aligned in Europe/Stockholm; persisted timestamps are UTC.
 Reservations atomically check every budget. Rotation shares predecessor budgets and
@@ -51,7 +60,7 @@ availability objectives; this POC must not be presented as exact invoicing.
 ## Stored and transient data
 
 Postgres stores organization, key HMACs/prefixes, encrypted provider credentials,
-certificate-protected Data Protection keys, routes/prices/budgets, metadata-only usage,
+certificate-protected Data Protection keys, routes/routing rules/prices/budgets, metadata-only usage,
 alerts and masked append-only audit entries. Redis stores namespaced numerical counters,
 circuit state and invalidation signals. Neither stores conversation content.
 Bodies are processed transiently in memory and sent to authorized providers; provider

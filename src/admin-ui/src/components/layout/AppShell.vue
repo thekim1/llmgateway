@@ -111,7 +111,7 @@ async function signOut(): Promise<void> {
             <span class="hidden flex-1 truncate lg:inline">{{ item.label }}</span>
             <span
               v-if="badgeCount(item) > 0"
-              class="tabular hidden h-badge min-w-[22px] items-center justify-center rounded-chip bg-danger px-1.5 text-caption font-semibold text-white lg:flex"
+              class="tabular hidden h-badge min-w-[22px] items-center justify-center rounded-chip bg-danger px-1.5 text-caption font-semibold text-danger-fg lg:flex"
             >
               {{ badgeCount(item) }}<span class="sr-only"> need attention</span>
             </span>

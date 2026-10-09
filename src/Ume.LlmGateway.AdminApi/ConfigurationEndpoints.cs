@@ -163,6 +163,7 @@ public static class ConfigurationEndpoints
         {
             var m = await ModelAsync(ctx, id, ct);
             if (m.Kind != input.Kind && await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new AdminFaultException(409, "Modelltypen kan inte ändras när modellen används i en rutt."); }
+            if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, m.Name, "byta namn", ct); }
             var before = ModelDto(m, ctx.Now); Apply(m, input);
             await ctx.SaveAsync(user, "update", "Model", id, before, ModelDto(m, ctx.Now), InvalidationKind.Config, ct);
             return Results.Ok(ModelDto(m, ctx.Now));
@@ -171,6 +172,7 @@ public static class ConfigurationEndpoints
         {
             var m = await ModelAsync(ctx, id, ct);
             if (await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new AdminFaultException(409, "Modellen används i en rutt."); }
+            await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, m.Name, "tas bort", ct);
             ctx.Db.ModelDeployments.Remove(m);
             await ctx.SaveAsync(user, "delete", "Model", id, ModelDto(m, ctx.Now), null, InvalidationKind.Config, ct);
             return Results.NoContent();
@@ -199,6 +201,7 @@ public static class ConfigurationEndpoints
         routes.MapPut("/{id:guid}", async (Guid id, RouteRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var r = await Routes(ctx).SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new AdminFaultException(404, "Rutten finns inte.");
+            if (!string.Equals(r.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, r.Name, "byta namn", ct); }
             var before = RouteDto(r); ctx.Db.RouteTargets.RemoveRange(r.Targets); r.Targets.Clear();
             await ApplyRouteAsync(r, input, ctx, ct);
             await ctx.SaveAsync(user, "update", "Route", id, before, RouteDto(r), InvalidationKind.Config, ct);
@@ -207,6 +210,7 @@ public static class ConfigurationEndpoints
         routes.MapDelete("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var r = await Routes(ctx).SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new AdminFaultException(404, "Rutten finns inte.");
+            await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, r.Name, "tas bort", ct);
             ctx.Db.RouteAliases.Remove(r);
             await ctx.SaveAsync(user, "delete", "Route", id, RouteDto(r), null, InvalidationKind.Config, ct);
             return Results.NoContent();

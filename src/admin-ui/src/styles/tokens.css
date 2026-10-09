@@ -30,6 +30,7 @@
   --warn-soft: #FBEED6;
   --danger: #B8261A;
   --danger-soft: #FBE5E2;
+  --danger-fg: #FFFFFF;
   --res-onprem: #0F6E6A;
   --res-eu: #2F4FC9;
   --res-ext: #9A4A00;
@@ -70,6 +71,7 @@
   --warn-soft: #2E2312;
   --danger: #FF7D71;
   --danger-soft: #35171A;
+  --danger-fg: #2A0A0D;
   --res-onprem: #4FD1C5;
   --res-eu: #8FA6FF;
   --res-ext: #F5A661;
@@ -116,6 +118,7 @@
   --warn-soft: rgba(196, 128, 0, 0.14);
   --danger: #B11F2E;
   --danger-soft: rgba(177, 31, 46, 0.1);
+  --danger-fg: #FFFFFF;
   --res-onprem: #0B6B66;
   --res-eu: #3B43D6;
   --res-ext: #964600;

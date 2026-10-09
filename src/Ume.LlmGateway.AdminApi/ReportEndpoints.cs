@@ -125,7 +125,7 @@ public static class ReportEndpoints
         return new { u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName,
             endpoint = u.Endpoint switch { GatewayEndpoint.ChatCompletions => "/v1/chat/completions", GatewayEndpoint.Embeddings => "/v1/embeddings", GatewayEndpoint.Responses => "/v1/responses", _ => "/v1/messages" },
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
-            u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode };
+            u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName };
     }
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)
     {

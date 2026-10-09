@@ -223,6 +223,7 @@ public sealed class GatewayMetrics
     private readonly Counter<long> _tokens;
     private readonly Counter<double> _costSek;
     private readonly Counter<long> _fallbacks;
+    private readonly Counter<long> _ruleRouted;
     private readonly Histogram<double> _latency;
     private readonly Meter _meter;
 
@@ -234,6 +235,7 @@ public sealed class GatewayMetrics
         _tokens = _meter.CreateCounter<long>("ume.gateway.tokens", description: "Tokens processed");
         _costSek = _meter.CreateCounter<double>("ume.gateway.cost", unit: "SEK", description: "Cost in SEK");
         _fallbacks = _meter.CreateCounter<long>("ume.gateway.fallbacks", description: "Fallback attempts");
+        _ruleRouted = _meter.CreateCounter<long>("ume.gateway.routing.rule_routed", description: "Requests routed by a routing rule (no per-rule label: rule names are unbounded)");
         _latency = _meter.CreateHistogram<double>("ume.gateway.request.duration", unit: "ms", description: "End-to-end latency");
     }
 
@@ -254,6 +256,11 @@ public sealed class GatewayMetrics
         _tokens.Add(record.InputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "input" } });
         _tokens.Add(record.OutputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "output" } });
         _costSek.Add((double)record.CostSek, new TagList { { "provider", record.ProviderName ?? "none" } });
+        if (record.RoutingRuleId is not null)
+        {
+            _ruleRouted.Add(1, new TagList { { "endpoint", record.Endpoint.ToString() } });
+        }
+
         if (record.FallbackCount > 0)
         {
             _fallbacks.Add(record.FallbackCount, new TagList { { "endpoint", record.Endpoint.ToString() } });

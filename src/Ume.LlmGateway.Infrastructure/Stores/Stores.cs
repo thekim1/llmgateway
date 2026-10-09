@@ -13,6 +13,12 @@ public interface IRateLimiter
 {
     Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken);
     Task RecordTokensAsync(Guid keyId, long tokens, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read-only: percent (0-100) of the key's tokens-per-minute limit used in the current minute, or null when the key
+    /// has no token limit. Does not count as a request.
+    /// </summary>
+    Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken);
 }
 
 /// <summary>A spend counter for one budget scope and period window, in micro-SEK (1 SEK = 1 000 000).</summary>
@@ -110,6 +116,19 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
         _counters.AddOrUpdate($"tok:{keyId}:{minute}", tokens, (_, v) => v + tokens);
         return Task.CompletedTask;
     }
+
+    public Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken)
+    {
+        if (tokensPerMinute is not > 0)
+        {
+            return Task.FromResult<double?>(null);
+        }
+
+        var (minute, _) = Window(time.GetUtcNow());
+        return Task.FromResult<double?>(TokenPercent(_counters.GetValueOrDefault($"tok:{keyId}:{minute}"), tokensPerMinute.Value));
+    }
+
+    internal static double TokenPercent(long used, int limit) => Math.Clamp(used * 100d / limit, 0d, 100d);
 
     internal static (long Minute, TimeSpan RetryAfter) Window(DateTimeOffset now)
     {

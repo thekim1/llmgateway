@@ -92,6 +92,38 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 - `Route = { id, name, description, kind, isEnabled, targets: [{ modelId, modelName, providerName, residency, priority, weight }] }`
 - `GET /api/routes` · `POST /api/routes` · `PUT /api/routes/{id}` body `{ name, description?, kind, isEnabled, targets: [{ modelId, priority, weight }] }` · `DELETE /api/routes/{id}`
 
+## Routing rules
+Concepts, condition language and evaluation order: [routing rules](routing-rules.md). All endpoints require
+`gateway-admin`. Mutations are audited (`RoutingRule`: `create`, `update`, `delete`, `reassign`, `reorder`, `deactivate`)
+and invalidate the gateway catalogue.
+- `RoutingRule = { id, name, description, isEnabled, priority, scope: "Global"|"Department"|"Team"|"VirtualKey", scopeId|null,
+  scopeName|null, isOrphaned, condition, chain, targets: [{ model, weight }], fallbacks: string[],
+  validationErrors: [{ message, position|null, length|null }], createdAt, updatedAt }`
+  - `isOrphaned`: the key/team/department the rule is scoped to no longer exists. Such a rule never applies and cannot be enabled until reassigned.
+  - `validationErrors`: why the gateway ignores an enabled rule (empty when valid).
+- `GET /api/routing-rules?scope=&scopeId=&orphaned=` (ordered by scope, then priority) · `GET /api/routing-rules/{id}`
+- `POST /api/routing-rules` · `PUT /api/routing-rules/{id}` body
+  `{ name, description?, scope, scopeId?, isEnabled, priority, condition?, chain, targets: [{ model, weight (1..1000000) }] (1..20), fallbacks?: string[] }`
+  → `RoutingRule`. `model` is a route alias or model name. Validation → 400 with field errors (`condition` messages include the character position,
+  `targets`, `fallbacks`, `scopeId`); a non-chained rule may only target existing names, fallbacks must always exist; name unique per scope (409, case-insensitive);
+  the scope owner must exist (an already disabled orphaned rule may still be edited while it stays disabled).
+- `DELETE /api/routing-rules/{id}` → 204
+- `POST /api/routing-rules/{id}/reassign` `{ scope, scopeId?, enable = true }` → `RoutingRule`. Attaches the rule to a new team, department or key (or makes it global) and, by default, enables it.
+- `POST /api/routing-rules/reorder` `{ scope, scopeId?, ruleIds: Guid[] }` → `RoutingRule[]`. Sets priorities 0, 10, 20, … in the given order; every id must belong to that scope.
+- `POST /api/routing-rules/validate` `{ condition }` → `{ valid, errors: [{ position, length, message }], variables: string[], available: [{ name, type }] }` (live validation while typing).
+- `POST /api/routing-rules/test` (dry run) `{ model, endpoint?, headers?, params?, keyId?, teamId?, departmentId?, budgetUsed?, tokensUsed?, piiDetected?, promptTokens?, seed? }`
+  → `{ matched, primaryModel, models: [{ name, exists, type, kind, enabled }], applied: [{ ruleId, name, fromModel, toModel }], chainLimitReached,
+  evaluation: [{ ruleId, name, scope, priority, chainStep, model, outcome: "Matched"|"NotMatched"|"Skipped", trace: [{ text, leftValue, result|null }] }],
+  ignoredRules, note }`. Evaluates the **stored, enabled** rules. `keyId` fills in team, department and key name (and the key's rotation lineage);
+  usage values that are not supplied are unknown, so conditions using them do not match. `seed` makes weighted choices repeatable.
+- **Deleting a team or department that has rules.** `DELETE /api/teams/{id}` and `DELETE /api/departments/{id}` take an optional query parameter
+  `routingRules=delete|deactivate`. If rules are scoped to the team/department and the parameter is missing, the call fails with **409** and
+  `{ code: "routing_rules_scoped", choices: ["delete","deactivate"], rules: [{ id, name, isEnabled }], detail }` so the client can ask the user.
+  `delete` removes the rules; `deactivate` disables them and keeps everything else, so they can be attached to a new team/department with
+  `reassign`. The choice and the delete are saved in one transaction and audited per rule. Any other value → 400.
+- **Names in use.** A route alias or model that a rule uses as target or fallback cannot be deleted or renamed (409 naming the rule). Conditions that compare `model` with a name are not checked.
+- Key rotation: a rule scoped to a key keeps applying to the key that replaced it, like budgets.
+
 ## Budgets & alerts
 - `Budget = { id, scope, scopeId, scopeName, limitSek, period, alertThresholds: number[], isActive, periodStart, periodEnd, spentSek, percentUsed }`
 - `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitSek, period, alertThresholds, isActive }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
@@ -103,7 +135,7 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
   → `{ from, to, totalCostSek, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costSek, errors, fallbacks }] }`
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
-  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode }`
+  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
 - `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad SEK
 
@@ -123,12 +155,15 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
   queue persistence across process/host loss is not guaranteed.
 - `POST /api/ops/providers/{id}/circuit` `{ state: "Open" | "Closed" }` → 204 (force open = take out of rotation for 15 min)
 - `POST /api/ops/cache/invalidate-keys` → 204
-- `GET /api/ops/config/export` → JSON document (providers without credentials, models, prices, routes)
+- `GET /api/ops/config/export` → JSON document (providers without credentials, models, prices, routes, global routing rules)
 - `POST /api/ops/config/import` (same JSON) → `{ created, updated, skipped }`
 - Config schema: `{ schemaVersion: 1, providers: [{ configuration: ProviderRequest (without credential),
   credentialEnvironment?: "UME_PROVIDER_..." }], models: [{ providerName, configuration: ModelRequest,
   prices: Price[] }], routes: [{ name, description, kind, isEnabled,
-  targets: [{ modelName, priority, weight }] }] }`.
+  targets: [{ modelName, priority, weight }] }], routingRules?: [{ name, description?, isEnabled, priority, condition?, chain,
+  targets: [{ model, weight }], fallbacks?: string[] }] }`. Only **global** routing rules are transferred (key/team/department ids differ between
+  environments); rules are matched by name, created or updated, never deleted by import, and each is validated like one saved through the API (an invalid rule fails the whole import).
+  Documents without `routingRules` (older exports) still import.
   References use stable names; database IDs in model configuration are ignored on import.
   Import is transactional, rejects plaintext credentials, preserves existing encrypted credentials when
   a reference is omitted, and never overwrites price history. Environment references must already exist
@@ -139,7 +174,8 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
 - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `POST /v1/responses`, `POST /v1/messages` (Anthropic format).
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
-  `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`.
+  `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
+  `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.

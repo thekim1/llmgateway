@@ -9,9 +9,12 @@ using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
 
-public sealed class AdminFaultException(int status, string message) : Exception(message)
+public sealed class AdminFaultException(int status, string message, IDictionary<string, object?>? extensions = null) : Exception(message)
 {
     public int Status { get; } = status;
+
+    /// <summary>Extra machine-readable members for the problem response (e.g. the choices a client can offer the user).</summary>
+    public IDictionary<string, object?>? Extensions { get; } = extensions;
 }
 
 public sealed class AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time)
@@ -49,6 +52,15 @@ public sealed class AdminContext(GatewayDbContext db, IInvalidationBus bus, Time
         });
         await Db.SaveChangesAsync(ct);
     }
+
+    /// <summary>Adds an audit entry to the current unit of work without saving; the next <see cref="SaveAsync"/> commits it together with the change.</summary>
+    public void StageAudit(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after) =>
+        Db.AuditLog.Add(new AuditLogEntry
+        {
+            Timestamp = Now, Actor = user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown",
+            Action = action, EntityType = entityType, EntityId = id.ToString(),
+            Details = JsonSerializer.Serialize(new { before, after }),
+        });
 
     public async Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct)
     {

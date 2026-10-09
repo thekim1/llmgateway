@@ -72,6 +72,7 @@ onMounted(async () => {
           <DetailRow label="Key">A secret that identifies an application and controls its access, limits and budget.</DetailRow>
           <DetailRow label="Fallback">The next provider tried when a call fails before the response starts.</DetailRow>
           <DetailRow label="Budget">The most an owner may spend during a calendar period.</DetailRow>
+          <DetailRow label="Routing rule">A condition on the request, such as a header or how much of the budget is left, that sends it to a different model than the one it asked for. The <span class="font-mono">x-ume-rule</span> response header shows which rule applied.</DetailRow>
         </DetailSection>
       </div>
     </section>

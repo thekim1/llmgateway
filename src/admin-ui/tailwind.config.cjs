@@ -23,7 +23,7 @@ module.exports = {
       accent: { DEFAULT: v('accent'), hover: v('accent-hover'), fg: v('accent-fg'), soft: v('accent-soft'), ink: v('accent-ink') },
       ok: { DEFAULT: v('ok'), soft: v('ok-soft') },
       warn: { DEFAULT: v('warn'), soft: v('warn-soft') },
-      danger: { DEFAULT: v('danger'), soft: v('danger-soft') },
+      danger: { DEFAULT: v('danger'), soft: v('danger-soft'), fg: v('danger-fg') },
       res: { onprem: v('res-onprem'), eu: v('res-eu'), ext: v('res-ext') },
       chart: { DEFAULT: v('chart'), muted: v('chart-muted') },
       focus: v('focus'),

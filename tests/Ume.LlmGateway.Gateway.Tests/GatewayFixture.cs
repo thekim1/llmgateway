@@ -171,7 +171,7 @@ public sealed class GatewayFixture : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
-    public Task<HttpResponseMessage> SendAsync(TestKey? key, string model = "eu/ok", string endpoint = "/v1/chat/completions", string prompt = "Test prompt", bool stream = false, bool includeUsage = false)
+    public Task<HttpResponseMessage> SendAsync(TestKey? key, string model = "eu/ok", string endpoint = "/v1/chat/completions", string prompt = "Test prompt", bool stream = false, bool includeUsage = false, IDictionary<string, string>? headers = null)
     {
         var body = new JsonObject
         {
@@ -183,12 +183,17 @@ public sealed class GatewayFixture : IAsyncLifetime
         {
             body["stream_options"] = new JsonObject { ["include_usage"] = true };
         }
-        return SendRawAsync(key, endpoint, body.ToJsonString());
+        return SendRawAsync(key, endpoint, body.ToJsonString(), headers: headers);
     }
 
-    public async Task<HttpResponseMessage> SendRawAsync(TestKey? key, string endpoint, string body, string contentType = "application/json")
+    public async Task<HttpResponseMessage> SendRawAsync(TestKey? key, string endpoint, string body, string contentType = "application/json", IDictionary<string, string>? headers = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new StringContent(body, Encoding.UTF8, contentType) };
+        foreach (var (name, value) in headers ?? new Dictionary<string, string>())
+        {
+            request.Headers.Add(name, value);
+        }
+
         if (key is not null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);

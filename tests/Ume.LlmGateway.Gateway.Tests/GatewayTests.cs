@@ -289,8 +289,11 @@ public sealed class GatewayTests(GatewayFixture fixture)
         using var response = await fixture.Client.SendAsync(request, TestContext.Current.CancellationToken);
         var ids = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["data"]!.AsArray()
             .Select(n => n!["id"]!.GetValue<string>()).ToList();
-        ids.ShouldNotBeEmpty();
-        ids.ShouldAllBe(id => id.StartsWith("onprem/", StringComparison.Ordinal));
+        // Other tests add route aliases ("test/...") that may point at this provider, so only the models of the other
+        // providers are checked, not the whole list.
+        ids.ShouldContain("onprem/ok");
+        string[] otherProviders = ["eu/", "external/", "anthropic/", "slow/"];
+        ids.ShouldNotContain(id => otherProviders.Any(prefix => id.StartsWith(prefix, StringComparison.Ordinal)));
     }
 
     [Fact]

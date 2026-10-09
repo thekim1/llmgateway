@@ -62,24 +62,8 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
             return BudgetReservation.None;
         }
 
-        var now = time.GetUtcNow();
-        var checks = budgets.Select(b =>
-        {
-            var window = BudgetPeriods.GetWindow(b.Period, now);
-            var key = SpendCounter.KeyFor(b.Scope, b.ScopeId, b.Period, window.Start);
-            return new BudgetCheck(b, window, new SpendCounter(key, ToMicro(b.LimitSek), window.End - now + TimeSpan.FromDays(1)));
-        }).ToList();
-
-        // Seed counters missing from the shared store (cold start / new period) from the usage table.
-        var values = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
-        for (var i = 0; i < checks.Count; i++)
-        {
-            if (values[i] is null)
-            {
-                var spent = await SpentFromDatabaseAsync(checks[i].Budget, checks[i].Window, cancellationToken);
-                await ledger.InitializeAsync(checks[i].Counter.Key, ToMicro(spent), checks[i].Counter.TimeToLive, cancellationToken);
-            }
-        }
+        var checks = BuildChecks(budgets);
+        await SeedMissingCountersAsync(checks, cancellationToken);
 
         var amount = Math.Max(0, ToMicro(estimatedSek));
         var index = await ledger.TryReserveAsync([.. checks.Select(c => c.Counter)], amount, cancellationToken);
@@ -88,6 +72,24 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         return index >= 0
             ? new BudgetReservation(checks, 0, checks[index], Math.Max(0, remaining))
             : new BudgetReservation(checks, amount, null, Math.Max(0, remaining));
+    }
+
+    /// <summary>
+    /// Read-only: how full the applicable budgets are, as the highest utilisation (0-100) over all of them, i.e. the
+    /// budget closest to rejecting requests. Null when no budget applies. Reserves and changes nothing.
+    /// </summary>
+    public async Task<double?> PeekUsedPercentAsync(IReadOnlyList<Budget> budgets, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(budgets);
+        if (budgets.Count == 0)
+        {
+            return null;
+        }
+
+        var checks = BuildChecks(budgets);
+        await SeedMissingCountersAsync(checks, cancellationToken);
+        var values = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
+        return checks.Select((c, i) => BudgetEvaluator.UtilisationPercent((values[i] ?? 0) / (decimal)MicroPerSek, c.Budget.LimitSek)).Max();
     }
 
     /// <summary>Replaces the reservation with the actual cost. Returns alert thresholds crossed by this request.</summary>
@@ -114,6 +116,31 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         }
 
         return alerts;
+    }
+
+    private List<BudgetCheck> BuildChecks(IReadOnlyList<Budget> budgets)
+    {
+        var now = time.GetUtcNow();
+        return [.. budgets.Select(b =>
+        {
+            var window = BudgetPeriods.GetWindow(b.Period, now);
+            var key = SpendCounter.KeyFor(b.Scope, b.ScopeId, b.Period, window.Start);
+            return new BudgetCheck(b, window, new SpendCounter(key, ToMicro(b.LimitSek), window.End - now + TimeSpan.FromDays(1)));
+        })];
+    }
+
+    /// <summary>Seeds counters missing from the shared store (cold start / new period) from the usage table.</summary>
+    private async Task SeedMissingCountersAsync(List<BudgetCheck> checks, CancellationToken cancellationToken)
+    {
+        var values = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
+        for (var i = 0; i < checks.Count; i++)
+        {
+            if (values[i] is null)
+            {
+                var spent = await SpentFromDatabaseAsync(checks[i].Budget, checks[i].Window, cancellationToken);
+                await ledger.InitializeAsync(checks[i].Counter.Key, ToMicro(spent), checks[i].Counter.TimeToLive, cancellationToken);
+            }
+        }
     }
 
     private async Task<decimal> SpentFromDatabaseAsync(Budget budget, PeriodWindow window, CancellationToken cancellationToken)

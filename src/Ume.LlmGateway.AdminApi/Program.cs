@@ -82,6 +82,17 @@ builder.Services.AddAuthentication(o =>
         AdminAuthentication.ExpandArrayClaims(ctx.Principal);
         return Task.CompletedTask;
     };
+    // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the
+    // identity provider would be followed by fetch and fail on CORS. Only /bff/login starts a real sign-in.
+    o.Events.OnRedirectToIdentityProvider = ctx =>
+    {
+        if (ctx.Request.Path.StartsWithSegments("/api"))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            ctx.HandleResponse();
+        }
+        return Task.CompletedTask;
+    };
     o.Events.OnRedirectToIdentityProviderForSignOut = async ctx =>
     {
         ctx.ProtocolMessage.ClientId = ctx.Options.ClientId;
@@ -113,7 +124,8 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async http =>
         http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AdminApi")
             .LogError("Admin request failed ({ExceptionType})", exception.GetType().Name);
     }
-    await Results.Problem(statusCode: status, title: "Åtgärden kunde inte utföras", detail: detail).ExecuteAsync(http);
+    await Results.Problem(statusCode: status, title: "Åtgärden kunde inte utföras", detail: detail,
+        extensions: (exception as AdminFaultException)?.Extensions).ExecuteAsync(http);
 }));
 app.Use(async (http, next) =>
 {
@@ -145,6 +157,7 @@ var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("admin
 api.MapOrganisation();
 api.MapKeys();
 api.MapConfiguration();
+api.MapRoutingRules();
 api.MapReports();
 api.MapOperations();
 app.MapOpenApi().RequireAuthorization("admin");

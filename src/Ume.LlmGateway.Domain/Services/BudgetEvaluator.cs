@@ -49,4 +49,11 @@ public static class BudgetEvaluator
 
     public static decimal PercentUsed(decimal spent, decimal limit) =>
         limit <= 0 ? 0 : Math.Round(spent / limit * 100m, 1, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// How full a counter is, as a percentage clamped to 0-100 (not rounded). A limit of zero or less is always
+    /// full, matching enforcement, which rejects when spend has reached the limit.
+    /// </summary>
+    public static double UtilisationPercent(decimal spent, decimal limit) =>
+        limit <= 0 ? 100 : (double)Math.Clamp(spent / limit * 100m, 0m, 100m);
 }

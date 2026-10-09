@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/api'
-import type { CreateDepartmentRequest, Department, UpdateDepartmentRequest } from '@/api/types'
+import type { CreateDepartmentRequest, Department, RoutingRulesChoice, UpdateDepartmentRequest } from '@/api/types'
 import { removeById, replaceById, useLoadable } from './loadable'
 
 export const useDepartmentsStore = defineStore('departments', () => {
@@ -20,8 +20,8 @@ export const useDepartmentsStore = defineStore('departments', () => {
     return updated
   }
 
-  async function remove(id: string): Promise<void> {
-    await api.departments.remove(id)
+  async function remove(id: string, routingRules?: RoutingRulesChoice): Promise<void> {
+    await api.departments.remove(id, routingRules)
     items.value = removeById(items.value, id)
   }
 

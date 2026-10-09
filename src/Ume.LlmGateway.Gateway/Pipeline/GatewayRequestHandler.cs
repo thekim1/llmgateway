@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure;
 using Ume.LlmGateway.Infrastructure.Providers;
@@ -22,6 +23,7 @@ namespace Ume.LlmGateway.Gateway.Pipeline;
 public sealed partial class GatewayRequestHandler(
     KeyAuthenticator keys,
     GatewayCatalog catalog,
+    IRouteResolver router,
     IRateLimiter rateLimiter,
     BudgetService budgets,
     ICircuitBreakerStore circuits,
@@ -105,32 +107,14 @@ public sealed partial class GatewayRequestHandler(
 
         // 3. Resolve model alias and check the key's allow-list and endpoint compatibility.
         var snapshot = await catalog.GetAsync(ct);
-        var resolved = snapshot.Resolve(model);
-        if (resolved is null)
+        var resolution = router.ResolveModel(snapshot, key, endpoint, model);
+        if (resolution.Rejection is { } modelRejection)
         {
-            await RejectAsync(http, state, 404, GatewayErrorCodes.ModelNotFound, $"Modellen '{state.RequestedModel}' finns inte. Se GET /v1/models för tillgängliga modeller.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, modelRejection.StatusCode, modelRejection.Code, modelRejection.Message, RequestOutcome.Rejected);
             return;
         }
 
-        if (key.AllowedModels.Count > 0 && !key.AllowedModels.Contains(resolved.Name, StringComparer.OrdinalIgnoreCase))
-        {
-            await RejectAsync(http, state, 403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda modellen '{resolved.Name}'.", RequestOutcome.Rejected);
-            return;
-        }
-
-        if (key.AllowedProviders.Count > 0
-            && !resolved.Targets.Any(t => t.ModelDeployment?.ProviderAccount is { } p && RouteSelector.IsProviderAllowed(p, key.AllowedProviders)))
-        {
-            await RejectAsync(http, state, 403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda någon leverantör som tillhandahåller '{resolved.Name}'.", RequestOutcome.Rejected);
-            return;
-        }
-
-        var expectedKind = endpoint == GatewayEndpoint.Embeddings ? ModelKind.Embedding : ModelKind.Chat;
-        if (resolved.Kind != expectedKind)
-        {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, $"Modellen '{resolved.Name}' kan inte användas med denna endpoint.", RequestOutcome.Rejected);
-            return;
-        }
+        var requested = resolution.Model;
 
         // 4. Rate limits (requests and tokens per minute).
         var estimatedInputTokens = CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, bodyLength));
@@ -153,11 +137,13 @@ public sealed partial class GatewayRequestHandler(
 
         // 5. PII guard (optional per key).
         DataResidency? restrictTo = null;
+        bool? piiDetected = null;
         if (key.PiiPolicy != PiiPolicy.Off)
         {
             var scan = PiiJsonScanner.Scan(body, redact: key.PiiPolicy == PiiPolicy.Redact);
             var decision = PiiJsonScanner.Decide(key.PiiPolicy, scan);
             state.PiiCategories = scan.Summary;
+            piiDetected = scan.HasPii;
             if (scan.HasPii)
             {
                 state.PiiAction = key.PiiPolicy;
@@ -184,25 +170,45 @@ public sealed partial class GatewayRequestHandler(
             }
         }
 
-        // 6. Candidate providers in attempt order.
-        var stream = endpoint != GatewayEndpoint.Embeddings && RequestRewriter.IsStreaming(body);
-        state.Streamed = stream;
-        var residencies = RouteSelector.EffectiveResidencies(key.AllowedResidencies, restrictTo);
-        var providerIds = resolved.Targets.Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId).Distinct().ToList();
-        var open = await circuits.GetOpenAsync(providerIds, ct);
-        var candidates = RouteSelector.Order(resolved.Targets, new RoutingConstraints(endpoint, residencies, id => !open.Contains(id), key.AllowedProviders), Random.Shared)
-            .Where(t => !stream || t.ModelDeployment!.ProviderAccount!.Capabilities.HasFlag(ProviderCapabilities.Streaming))
-            .ToList();
-        if (candidates.Count == 0)
+        // 6. Routing rules (optional): conditions on the request may rewrite where it goes. Everything below
+        //    (provider allow-list, residency, PII restriction, health) still applies to the models the rules chose.
+        var routing = new RoutingDecision([], [], false);
+        if (snapshot.Rules.Count > 0)
         {
-            var reason = restrictTo == DataResidency.OnPrem
-                ? "Förfrågan innehåller personuppgifter och får bara skickas till en lokal (on-prem) modell, men ingen sådan finns för detta alias."
-                : "Ingen tillgänglig leverantör kan hantera förfrågan för detta alias med nyckelns begränsningar.";
-            await RejectAsync(http, state, 503, GatewayErrorCodes.NoEligibleProvider, reason, RequestOutcome.Rejected);
+            if (piiDetected is null && snapshot.Rules.References("pii_detected"))
+            {
+                piiDetected = PiiJsonScanner.Scan(body, redact: false).HasPii; // signal only: no policy action is taken
+            }
+
+            routing = snapshot.Rules.Evaluate(await BuildRoutingContextAsync(http, snapshot, key, endpoint, model, body, estimatedInputTokens, piiDetected, ct), Random.Shared);
+        }
+
+        if (routing.Applied.Count > 0)
+        {
+            state.Rule = routing.Applied[^1];
+            http.Response.Headers["x-ume-rule"] = string.Join(',', routing.Applied.Select(a => a.RuleId.ToString("D")));
+        }
+
+        var plan = router.Plan(snapshot, key, endpoint, model, requested, routing);
+        if (plan.Rejection is { } planRejection)
+        {
+            await RejectAsync(http, state, planRejection.StatusCode, planRejection.Code, planRejection.Message, RequestOutcome.Rejected);
             return;
         }
 
-        // 7. Budget reservation across key, team and förvaltning.
+        // 7. Candidate providers in attempt order.
+        var stream = endpoint != GatewayEndpoint.Embeddings && RequestRewriter.IsStreaming(body);
+        state.Streamed = stream;
+        var selection = await router.SelectCandidatesAsync(plan.Models, key, endpoint, restrictTo, stream, ct);
+        if (selection.Rejection is { } selectionRejection)
+        {
+            await RejectAsync(http, state, selectionRejection.StatusCode, selectionRejection.Code, selectionRejection.Message, RequestOutcome.Rejected);
+            return;
+        }
+
+        var candidates = selection.Candidates;
+
+        // 8. Budget reservation across key, team and förvaltning.
         long maxOutput = endpoint == GatewayEndpoint.Embeddings ? 0 : RequestRewriter.RequestedMaxOutputTokens(body) ?? options.CurrentValue.DefaultOutputTokenEstimate;
         var estimate = candidates.Max(t => CostCalculator.Calculate(new TokenUsage(estimatedInputTokens, 0, maxOutput), t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
         var reservation = await budgets.ReserveAsync(BudgetService.ApplicableBudgets(snapshot, key), estimate, ct);
@@ -229,7 +235,7 @@ public sealed partial class GatewayRequestHandler(
 
         var clientWantsStreamUsage = (body["stream_options"] as JsonObject)?["include_usage"] is JsonValue iu && iu.TryGetValue<bool>(out var wants) && wants;
 
-        // 8. Attempt candidates in order; fall back on retryable failures before the first byte is sent.
+        // 9. Attempt candidates in order; fall back on retryable failures before the first byte is sent.
         ProviderFailure? lastFailure = null;
         for (var i = 0; i < candidates.Count; i++)
         {
@@ -312,12 +318,12 @@ public sealed partial class GatewayRequestHandler(
             }
         }
 
-        // 9. Every candidate failed.
+        // 10. Every candidate failed.
         state.Fallbacks = Math.Max(0, candidates.Count - 1);
         http.Response.Headers["x-ume-fallbacks"] = state.Fallbacks.ToString(CultureInfo.InvariantCulture);
         var status = lastFailure?.StatusCode == 504 ? 504 : 502;
         await RejectAsync(http, state, status, GatewayErrorCodes.AllProvidersFailed,
-            $"Alla {candidates.Count} leverantörer för '{resolved.Name}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.",
+            $"Alla {candidates.Count} leverantörer för '{plan.Models[0].Name}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.",
             RequestOutcome.ProviderError);
     }
 
@@ -514,6 +520,8 @@ public sealed partial class GatewayRequestHandler(
             PiiActionApplied = state.PiiAction,
             PiiCategories = state.PiiCategories,
             ErrorCode = errorCode,
+            RoutingRuleId = state.Rule?.RuleId,
+            RoutingRuleName = state.Rule?.Name is { Length: > 200 } ruleName ? ruleName[..200] : state.Rule?.Name,
         };
 
         metrics.Record(record);
@@ -526,6 +534,77 @@ public sealed partial class GatewayRequestHandler(
         {
             LogUsageDropped(logger, state.RequestId);
         }
+    }
+
+    private static readonly HashSet<string> HiddenHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "authorization", "proxy-authorization", "x-api-key", "api-key", "cookie", "set-cookie",
+    };
+
+    /// <summary>Request fields that carry prompt content; never exposed to routing conditions.</summary>
+    private static readonly HashSet<string> ContentFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "messages", "input", "prompt", "system", "instructions", "tools", "contents",
+    };
+
+    /// <summary>
+    /// What routing conditions may see. Credentials and prompt content are never included, and the budget and token
+    /// lookups only happen when an enabled rule mentions them.
+    /// </summary>
+    private async Task<RoutingContext> BuildRoutingContextAsync(HttpContext http, CatalogSnapshot snapshot, VirtualKey key, GatewayEndpoint endpoint, string model, JsonObject body, long promptTokens, bool? piiDetected, CancellationToken ct)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in http.Request.Headers)
+        {
+            if (!HiddenHeaders.Contains(name))
+            {
+                var text = value.ToString();
+                headers[name] = text.Length > 512 ? text[..512] : text;
+            }
+        }
+
+        var parameters = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, node) in body)
+        {
+            if (node is JsonValue scalar && !ContentFields.Contains(name))
+            {
+                parameters[name] = scalar.TryGetValue<bool>(out var flag) ? flag
+                    : scalar.TryGetValue<double>(out var number) ? number
+                    : scalar.TryGetValue<string>(out var text) ? (text.Length > 512 ? text[..512] : text)
+                    : null;
+            }
+        }
+
+        double? budgetUsed = null;
+        if (snapshot.Rules.References("budget_used"))
+        {
+            budgetUsed = await budgets.PeekUsedPercentAsync(BudgetService.ApplicableBudgets(snapshot, key), ct);
+        }
+
+        double? tokensUsed = null;
+        if (snapshot.Rules.References("tokens_used"))
+        {
+            tokensUsed = await rateLimiter.PeekTokensUsedPercentAsync(key.Id, key.TokensPerMinute, ct);
+        }
+
+        return new RoutingContext
+        {
+            Model = model,
+            Endpoint = RouteResolver.EndpointName(endpoint),
+            Headers = headers,
+            Params = parameters,
+            KeyId = key.Id,
+            KeyLineage = KeyRotation.Ancestors(key.Id, snapshot.KeyReplacements),
+            KeyName = key.Name,
+            TeamId = key.TeamId,
+            TeamName = key.Team?.Name,
+            DepartmentId = key.Team?.DepartmentId,
+            DepartmentName = key.Team?.Department?.Name,
+            BudgetUsed = budgetUsed,
+            TokensUsed = tokensUsed,
+            PiiDetected = piiDetected,
+            PromptTokens = promptTokens,
+        };
     }
 
     private static void SetRoutingHeaders(HttpContext http, ModelDeployment deployment, int fallbacks)
@@ -564,6 +643,7 @@ public sealed partial class GatewayRequestHandler(
         public PiiPolicy? PiiAction { get; set; }
         public string? PiiCategories { get; set; }
         public BudgetReservation? Reservation { get; set; }
+        public AppliedRule? Rule { get; set; }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Request {RequestId} key {KeyPrefix} model {Model} provider {Provider} status {Status} in {LatencyMs} ms (fallbacks {Fallbacks})")]

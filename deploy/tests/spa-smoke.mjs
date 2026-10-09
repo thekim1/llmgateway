@@ -17,7 +17,7 @@ try {
     document.addEventListener('securitypolicyviolation', event => window.__cspViolations.push(event.violatedDirective))
   })
   await page.goto('https://localhost:19443/settings')
-  await page.getByRole('link', { name: 'Logga in', exact: true }).waitFor()
+  await page.getByRole('link', { name: 'Sign in', exact: true }).waitFor()
   await page.evaluate(() => document.fonts.ready)
   assert.deepEqual(errors, [])
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), [])

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 
@@ -16,7 +17,9 @@ public sealed class CatalogSnapshot
         IReadOnlyList<Budget> budgets,
         decimal sekPerUsd,
         DateTimeOffset loadedAt,
-        IReadOnlyDictionary<Guid, Guid>? keyReplacements = null)
+        IReadOnlyDictionary<Guid, Guid>? keyReplacements = null,
+        RoutingRuleSet? rules = null,
+        IReadOnlyList<RuleBuildError>? ruleErrors = null)
     {
         Providers = providers;
         Routes = routes.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
@@ -25,6 +28,8 @@ public sealed class CatalogSnapshot
         SekPerUsd = sekPerUsd;
         LoadedAt = loadedAt;
         KeyReplacements = keyReplacements ?? new Dictionary<Guid, Guid>();
+        Rules = rules ?? RoutingRuleSet.Empty;
+        RuleErrors = ruleErrors ?? [];
     }
 
     public IReadOnlyList<ProviderAccount> Providers { get; }
@@ -34,6 +39,11 @@ public sealed class CatalogSnapshot
     public decimal SekPerUsd { get; }
     public DateTimeOffset LoadedAt { get; }
     public IReadOnlyDictionary<Guid, Guid> KeyReplacements { get; }
+
+    /// <summary>Compiled routing rules. Rules that failed validation are left out and listed in <see cref="RuleErrors"/>.</summary>
+    public RoutingRuleSet Rules { get; }
+
+    public IReadOnlyList<RuleBuildError> RuleErrors { get; }
 
     /// <summary>Resolves a requested model name to candidate targets: a route alias, or a concrete deployment.</summary>
     public ResolvedModel? Resolve(string model)
@@ -61,14 +71,16 @@ public sealed class GatewayCatalog : IDisposable
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<GatewayOptions> _options;
     private readonly TimeProvider _time;
+    private readonly ILogger<GatewayCatalog> _logger;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly IDisposable _subscription;
     private volatile CatalogSnapshot? _snapshot;
 
-    public GatewayCatalog(IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, TimeProvider time, IInvalidationBus bus)
+    public GatewayCatalog(IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, TimeProvider time, IInvalidationBus bus, ILogger<GatewayCatalog> logger)
     {
         ArgumentNullException.ThrowIfNull(bus);
         _scopes = scopes;
+        _logger = logger;
         _options = options;
         _time = time;
         _subscription = bus.Subscribe(kind =>
@@ -120,6 +132,7 @@ public sealed class GatewayCatalog : IDisposable
             .ToListAsync(cancellationToken);
         var routes = await db.RouteAliases.AsNoTracking().Include(r => r.Targets).ToListAsync(cancellationToken);
         var budgets = await db.Budgets.AsNoTracking().Where(b => b.IsActive).ToListAsync(cancellationToken);
+        var ruleEntities = await db.RoutingRules.AsNoTracking().Include(r => r.Targets).ToListAsync(cancellationToken);
         var replacements = await db.VirtualKeys.AsNoTracking().Where(k => k.RotatedToKeyId != null)
             .ToDictionaryAsync(k => k.Id, k => k.RotatedToKeyId!.Value, cancellationToken);
         var now = _time.GetUtcNow();
@@ -150,7 +163,14 @@ public sealed class GatewayCatalog : IDisposable
             route.Targets.RemoveAll(t => t.ModelDeployment is null);
         }
 
-        return new CatalogSnapshot(providers, routes, budgets, rate, now, replacements);
+        // Compile rules once per snapshot. An invalid rule is skipped (and reported) rather than failing the catalogue.
+        var (rules, ruleErrors) = RoutingRuleSet.Build(ruleEntities.Select(r => r.ToDefinition()));
+        foreach (var error in ruleErrors)
+        {
+            _logger.LogWarning("Routing rule '{Rule}' ({RuleId}) is ignored: {Error}", error.RuleName, error.RuleId, error.Message);
+        }
+
+        return new CatalogSnapshot(providers, routes, budgets, rate, now, replacements, rules, ruleErrors);
     }
 
     public void Dispose()

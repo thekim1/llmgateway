@@ -7,6 +7,11 @@ legal compliance attestation or WCAG AAA certification**.
 The gateway provides virtual keys, department/team/key budgets in SEK, provider fallback,
 residency restrictions and optional PII policy. It stores usage metadata, never prompt or
 response content. Providers/models are configuration, not hardcoded model-family lists.
+Routing rules (conditions on headers, team, budget use and PII that rewrite where a request goes,
+with weights, fallbacks and chaining) are applied to live requests and described in
+[Routing rules](docs/routing-rules.md). The `x-ume-rule` response header shows which rule applied. Administrators manage rules through the admin API
+(create, validate, dry-run, reorder, reassign); deleting a team or department that has rules asks whether to delete
+the rules or deactivate them until a new team or department is assigned.
 
 ## Local development
 
@@ -28,7 +33,7 @@ The script wraps `aspire start` + `aspire wait admin-ui`; you can still run thos
 
 Seeding (`Seed:Enabled`) runs in the migration service and **only when the database has no
 departments**. Demo data is fictional förvaltningar, teams, providers, models, prices, routes and
-a dev key. In the empty variant you sign in with a Keycloak test user (`gateway-admin`) and create
+a dev key and three example routing rules (see [Routing rules](docs/routing-rules.md)). In the empty variant you sign in with a Keycloak test user (`gateway-admin`) and create
 everything yourself. To switch an existing local environment, stop the stack, delete the
 AppHost's Postgres Docker volume (`docker volume ls`, then `docker volume rm <name>`; or the
 volume named in `DevelopmentVolumes:Postgres`) and start again.
@@ -70,13 +75,23 @@ with `Section__Key` environment variables (for example `Ollama__Enabled=true`, d
 
 ### Admin UI
 
-`src/admin-ui` is Vue 3 + Pinia + Tailwind CSS 3, built from the design prototype in
+`src/admin-ui` is Vue 3 + Pinia + Vue Router with Reka UI primitives and Tailwind CSS v4, built from the design prototype in
 `Design prototype/` (tokens in `src/admin-ui/src/styles/tokens.css`, Tailwind config in
 `tailwind.config.cjs`). The UI is English only, with light, dark and Lumen themes
 (`data-theme`, remembered in `localStorage`). Reusable building blocks live in
 `src/components/ui` (buttons, tables, drawers, dialogs, form fields, meters), the page shell in
 `src/components/layout`, and pages in `src/views`. Icons are a subset of Material Symbols; after
-adding an icon name run `python src/admin-ui/scripts/subset-icons.py`.
+adding an icon name run `python src/admin-ui/scripts/subset-icons.py` (it needs the Python package `fonttools[woff]`).
+
+#### Routing rules page
+
+**Routing > Routing rules** (gateway-admin) manages [routing rules](docs/routing-rules.md): rules are listed by
+scope in the order the gateway checks them, with the selected rule's condition, weighted targets and fallbacks on the
+right. From there you can create and edit rules (the condition is validated as you type), switch a rule off, move it
+earlier or later, change its owner and delete it. **Test a request** runs a sample request against the stored rules and
+shows which rule applies and why. When you delete a team or department in **Organisation** that has routing rules, the UI asks
+whether to delete the rules or deactivate them until a new team or department is assigned; deactivated rules show up under
+**Needs owner**. Usage shows which rule routed a request.
 
 #### Discovering provider models
 
@@ -115,9 +130,26 @@ npm run typecheck
 npm test
 ```
 
-Browser tests require the running Aspire stack:
-`Set-Location tests\e2e; npx tsc --noEmit; npx playwright test --max-failures 1`.
-They do not save screenshots, videos, traces or storage state.
+Browser tests (`tests\e2e`, Playwright) need a running stack. Use the separate test database so your
+development data is never touched:
+
+```powershell
+.\scripts\Start-E2E.ps1          # own Docker volume (ume-e2e-postgres), reset on every start, demo data, fake LLM on
+Set-Location tests\e2e
+npm ci
+npx playwright install chromium
+npx tsc --noEmit
+npx playwright test
+Set-Location ..\..
+.\scripts\Start-E2E.ps1 -Stop    # stops the stack and removes the test database
+```
+
+The test stack uses the same ports as the dev stack, so stop the dev stack first. The tests cover sign-in, keys
+(show-once secret, rotation, revocation), organisation, usage, audit, budgets, the demo scenario, routing
+rules (create, validate, test, reorder, disable, delete, team and department deletion and reassignment, key rotation, `budget_used`/`tokens_used`, with real gateway
+requests) and accessibility (axe at WCAG 2.2 AA in the three themes, drawers and dialogs, reflow, keyboard,
+forced colours, target size). They do not save screenshots, videos, traces or storage state.
+Results and findings are in the log of `docs/handover-ui-verification.md`.
 
 ## Deployment and documentation
 
@@ -140,6 +172,8 @@ development data is reused. These optional overrides apply only in local run mod
 |---|---|
 | [Implementation plan](docs/implementation-plan.md) | Approved scope |
 | [Admin API](docs/admin-api.md) | UI/API contract |
+| [Routing rules](docs/routing-rules.md) | Rule model, condition language, evaluation order, examples |
+| [Routing rules plan](docs/routing-rules-plan.md) | Delivery steps and checklist for routing rules |
 | [Architecture](docs/architecture.md) | Components, trust boundaries, tradeoffs |
 | [Security and compliance](docs/security-and-compliance.md) | Controls, DPIA and processing-record inputs, release gates |
 | [Accessibility statement](docs/accessibility-statement.md) | Automated evidence and outstanding manual checks |
