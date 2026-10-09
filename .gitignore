@@ -25,6 +25,7 @@ aspire-output/
 *.key
 TestResults/
 BenchmarkDotNet.Artifacts/
+benchmarks/compare/results/
 deploy/generated/.env*
 deploy/secrets/
 deploy/certs/

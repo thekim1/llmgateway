@@ -17,6 +17,11 @@ public static class BenchmarkProgram
             return 0;
         }
 
+        if (args is ["compare-seed", var connectionString, var pepper, var upstream])
+        {
+            return await CompareSeed.RunAsync(connectionString, pepper, upstream);
+        }
+
         BenchmarkSwitcher.FromAssembly(typeof(BenchmarkProgram).Assembly).Run(args);
         return 0;
     }

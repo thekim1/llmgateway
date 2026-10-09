@@ -31,7 +31,10 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 4. **Fix:** `SettingsView` says theme options are in the top bar, but the theme control is in the sidebar and only visible from 1024 px.
 5. **Test gap:** model discovery (`AdminApi/ModelDiscovery.cs`, `DiscoverModelsDialog.vue`) has no automated tests (needs a fake `HttpMessageHandler`).
 6. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
-7. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
+7. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Usage writer ceiling.** One gateway instance tops out at about 11 000 messages/s because the single
+   usage writer (batched EF inserts) cannot write faster; its queue fills and back-pressure slows requests. Postgres `COPY`
+   for batches or parallel writers would raise it (see *Scaling* in [docs/performance.md](docs/performance.md)).
+8. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
    (about 1.8 MB per 300-chunk stream); rewriting `AnthropicStreamTranslator` with `Utf8JsonWriter` would remove most of it. See [docs/performance.md](docs/performance.md).
 
 ## Conventions and gotchas

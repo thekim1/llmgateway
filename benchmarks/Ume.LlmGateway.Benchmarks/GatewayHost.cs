@@ -86,14 +86,23 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
             await db.Database.MigrateAsync();
-            Key = await SeedAsync(db, scope.ServiceProvider.GetRequiredService<CredentialProtector>(), scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>());
+            var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();
+            Key = await SeedAsync(db, scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>(), name => $"http://{name}.upstream/v1", "bench", protector.Protect("upstream-secret"));
         }
 
         Client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
     }
 
-    private static async Task<string> SeedAsync(GatewayDbContext db, CredentialProtector protector, VirtualKeyHasher hasher)
+    /// <summary>
+    /// Seeds a department, team, key (rate limits plus key/team/department budgets, never reached), two providers with
+    /// a chat and an embeddings deployment each, and the <see cref="ChatAlias"/>/<see cref="EmbeddingsAlias"/> routes
+    /// with the second provider as fallback. Returns the key's plaintext.
+    /// </summary>
+    public static async Task<string> SeedAsync(GatewayDbContext db, VirtualKeyHasher hasher, Func<string, string> providerBaseUrl, string upstreamModelPrefix, string? encryptedCredential)
     {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(hasher);
+        ArgumentNullException.ThrowIfNull(providerBaseUrl);
         var now = DateTimeOffset.UtcNow;
         var department = new Department { Name = "Bench", CostCenterCode = "BENCH", CreatedAt = now };
         var team = new Team { Name = "Bench", DepartmentId = department.Id, CreatedAt = now };
@@ -115,15 +124,15 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             var provider = new ProviderAccount
             {
-                Name = name, Type = ProviderType.OpenAICompatible, Residency = DataResidency.Eu, BaseUrl = $"http://{name}.upstream/v1",
-                AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = protector.Protect("upstream-secret"), TimeoutSeconds = 60, CreatedAt = now,
+                Name = name, Type = ProviderType.OpenAICompatible, Residency = DataResidency.Eu, BaseUrl = providerBaseUrl(name),
+                AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = encryptedCredential, TimeoutSeconds = 60, CreatedAt = now,
                 Capabilities = ProviderCapabilities.ChatCompletions | ProviderCapabilities.Streaming | ProviderCapabilities.Embeddings,
             };
             foreach (var (model, kind) in new[] { ("chat", ModelKind.Chat), ("embed", ModelKind.Embedding) })
             {
                 var deployment = new ModelDeployment
                 {
-                    Name = $"{name}/{model}", UpstreamModel = $"bench-{model}", Kind = kind,
+                    Name = $"{name}/{model}", UpstreamModel = $"{upstreamModelPrefix}-{model}", Kind = kind,
                     Prices = [new ModelPrice { InputPerMillionUsd = 2.5m, CachedInputPerMillionUsd = 1.25m, OutputPerMillionUsd = 10, EffectiveFrom = now.AddDays(-30) }],
                 };
                 provider.Deployments.Add(deployment);

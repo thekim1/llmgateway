@@ -1,0 +1,138 @@
+# Side-by-side performance comparison: the Ume LLM gateway and eneo (v2.2.1) against the SAME fake LLM, so only the
+# platforms themselves are measured. Driven by run.sh, which starts one platform at a time (profiles `ume` / `eneo`).
+#
+# CPU pinning keeps the components from competing: the platform's application process gets cores 4-7, its database and
+# Redis 8-9, the fake LLM 0-1 and the load generator (k6) 2-3. Both platforms get exactly the same resources.
+# Everything here is throwaway: tmpfs databases, test secrets, no host volumes.
+
+name: platform-compare
+
+# APP_CPUS / DATA_CPUS / K6_CPUS / NUM_WORKERS are overridden by scale.sh to vary the resources.
+x-app-cpus: &app-cpus
+  cpuset: "${APP_CPUS:-4-7}"
+x-data-cpus: &data-cpus
+  cpuset: "${DATA_CPUS:-8-9}"
+
+services:
+  fake-llm:
+    image: ume-llm-gateway/fake-llm:compare
+    cpuset: "0-1"
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Logging__LogLevel__Default: Warning
+    ports: ["127.0.0.1:18090:8080"]
+
+  # ---------- Ume LLM gateway ----------
+  ume-db:
+    profiles: [ume]
+    image: postgres:17-alpine
+    <<: *data-cpus
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "max_connections=500"] # statements per request; eneo opens up to 30 connections per worker
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gatewaydb
+    tmpfs: [/var/lib/postgresql/data]
+    ports: ["127.0.0.1:15432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gatewaydb"]
+      interval: 2s
+      retries: 30
+
+  ume-redis:
+    profiles: [ume]
+    image: redis:7.4-alpine
+    <<: *data-cpus
+
+  ume-gateway:
+    profiles: [ume]
+    image: ume-llm-gateway/gateway:compare
+    <<: *app-cpus
+    depends_on:
+      ume-db: { condition: service_healthy }
+      ume-redis: { condition: service_started }
+    environment:
+      # Not "Production": that profile insists on TLS to Postgres/Redis and a Data Protection certificate. Everything
+      # else (Release build, appsettings.json logging at Information, caches, Redis stores) is as in production.
+      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__gatewaydb: Host=ume-db;Database=gatewaydb;Username=postgres;Password=postgres
+      ConnectionStrings__redis: ume-redis:6379
+      Security__KeyPepper: compare-only-pepper-0123456789abcdef0123456789abcdef
+    ports: ["127.0.0.1:18080:8080"]
+
+  # ---------- eneo v2.2.1 ----------
+  eneo-db:
+    profiles: [eneo]
+    image: pgvector/pgvector:pg13
+    <<: *data-cpus
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "max_connections=500"] # statements per request; eneo opens up to 30 connections per worker
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: eneo
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d eneo"]
+      interval: 2s
+      retries: 30
+
+  eneo-redis:
+    profiles: [eneo]
+    image: redis
+    <<: *data-cpus
+
+  eneo-backend:
+    profiles: [eneo]
+    image: eneo-backend:v2.2.1
+    <<: *app-cpus
+    depends_on:
+      eneo-db: { condition: service_healthy }
+      eneo-redis: { condition: service_started }
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST: eneo-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: eneo
+      REDIS_HOST: eneo-redis
+      REDIS_PORT: "6379"
+      API_PREFIX: /api/v1
+      API_KEY_LENGTH: "64"
+      API_KEY_HEADER_NAME: X-API-Key
+      JWT_AUDIENCE: "*"
+      JWT_ISSUER: COMPARE
+      JWT_EXPIRY_TIME: "1440"
+      JWT_ALGORITHM: HS256
+      JWT_SECRET: compare-only-jwt-secret-0123456789abcdef
+      JWT_TOKEN_PREFIX: ""
+      URL_SIGNING_KEY: compare-only-url-signing-key-0123456789abcdef0123456789
+      ENCRYPTION_KEY: ""
+      TENANT_CREDENTIALS_ENABLED: "false"
+      OPENAI_API_KEY: fake-key
+      USING_ACCESS_MANAGEMENT: "true"
+      USING_CRAWL: "false"
+      LOGLEVEL: INFO
+      # One worker per core, matching the four cores the gateway gets (eneo's default is 3).
+      NUM_WORKERS: "${NUM_WORKERS:-4}"
+      DEFAULT_TENANT_NAME: CompareTenant
+      DEFAULT_TENANT_QUOTA_LIMIT: "10737418240"
+      DEFAULT_USER_NAME: CompareUser
+      DEFAULT_USER_EMAIL: compare@example.com
+      DEFAULT_USER_PASSWORD: ComparePassword123!
+      # Overridable to put eneo behind the Ume gateway: endpoint http://ume-gateway:8080/v1, model ume/chat, a virtual key.
+      FAKE_LLM_ENDPOINT: ${ENEO_LLM_ENDPOINT:-http://fake-llm:8080/v1}
+      FAKE_LLM_MODEL: ${ENEO_LLM_MODEL:-fake-chat}
+      FAKE_LLM_API_KEY: ${ENEO_LLM_API_KEY:-fake-key}
+    volumes:
+      - ./eneo/seed.py:/bench/seed.py:ro
+    # init_db.py migrates and creates the tenant/user, seed.py adds the fake model, run.sh starts gunicorn as in production.
+    command: ["sh", "-c", "python init_db.py && python /bench/seed.py && exec ./run.sh"]
+    ports: ["127.0.0.1:18000:8000"]
+
+  # ---------- load generator ----------
+  k6:
+    profiles: [tools]
+    image: grafana/k6:1.3.0
+    cpuset: "${K6_CPUS:-2-3}"
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results:/results

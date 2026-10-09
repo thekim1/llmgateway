@@ -121,6 +121,122 @@ saturates the machine, so the tail reflects CPU contention in this setup more th
 Unchanged and already cheap: body parsing (0.5 µs for 0.5 KB, 47 µs for 64 KB), per-attempt rewrite and serialisation,
 route selection (1.1 µs) and key hashing (0.9 µs).
 
+## Comparison with eneo
+
+A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
+(open in a browser, step with the arrow keys; works offline) and [reports/platform-comparison.pdf](reports/platform-comparison.pdf).
+Its numbers are copied from the runs below; regenerate it by hand after a new run.
+
+`benchmarks/compare` runs this gateway and [eneo](https://github.com/eneo-ai/eneo) v2.2.1 (production Docker image
+built from the tag) against the **same fake LLM**, which answers instantly, so only the platforms are measured. A
+third target sends the same requests straight to the fake LLM: that is the floor. Both platforms get the same four
+pinned cores for the application and two for Postgres + Redis; the fake LLM and the load generator (k6) have their own
+cores. Setup, fairness choices and how to re-run: [benchmarks/compare/README.md](../benchmarks/compare/README.md).
+
+**These are different kinds of product.** The gateway is a stateless proxy that authenticates a key, enforces limits
+and budgets, routes and records usage metadata. eneo is a chat application: every message resolves the assistant and
+its space, creates a conversation, stores the question and answer, and counts tokens. The numbers show what each
+costs on top of the LLM call, not which product is better.
+
+Measured 2026-10-09 (30 s per scenario, 0 failed checks in every scenario; each response verified to contain the fake
+LLM's answer). Overhead is the median minus the fake LLM's own median at the same load.
+
+| Chat message, non-streaming | Ume gateway | eneo v2.2.1 |
+|---|---:|---:|
+| Overhead, 1 client (median) | **1.1 ms** | 51.5 ms |
+| Maximum throughput on 4 cores (best of 1/16/64 clients) | **11 680 req/s** | 66 req/s |
+| Median / p99 at 64 clients | **3.4 / 30 ms** | 496 ms / 25.3 s (saturated) |
+| CPU per message, platform process (16 clients) | **0.37 ms** | 56.5 ms |
+| CPU per message, its Postgres + Redis (16 clients) | **0.14 ms** | 11.1 ms |
+| Postgres statements per message | **1–2** (background, batched) | 72 |
+| Memory of the platform process | 0.2–1.3 GB | 1.8 GB |
+
+| Chat message, streaming | Ume gateway | eneo v2.2.1 |
+|---|---:|---:|
+| Overhead, 1 client (median, whole stream) | **1.4 ms** | 65.3 ms |
+| Time to first byte, 1 client (median) | **1.4 ms** | 50.3 ms |
+| Maximum throughput on 4 cores | **10 566 req/s** | 49 req/s |
+| CPU per message, platform process (16 clients) | **0.49 ms** | 70.6 ms |
+| Postgres statements per message | **1–2** | 74 |
+
+Full table (all loads, p95/p99, TTFB, per-component CPU): `benchmarks/compare/results/report.md` after a run.
+
+Notes for reading the numbers:
+
+- With an LLM in the loop, eneo's ~50–65 ms is small next to a real model's 0.5–30 s, so a single user will not notice
+  it. It matters for capacity: at about 57–70 ms CPU per message, eneo needs roughly one core per 14–18 messages per
+  second, and queueing sets in early (at 64 concurrent clients the 99th percentile reached 25 s). The gateway's cost
+  per message is about 150× lower in CPU and 45× lower in latency.
+- CPU per request at one client is inflated for both by idle background work spread over few requests; the 16- and
+  64-client rows are the real marginal cost. The gateway's memory grows with load because .NET's server GC keeps a
+  larger heap when there is work; it is not a leak.
+- The gateway's Redis count (18) includes the operations inside its Lua scripts; that is still 3–4 network round trips.
+  eneo uses no Redis on this path.
+
+### Scaling
+
+`benchmarks/compare/scale.sh` measures how both platforms scale with load (1–256 concurrent clients on 4 vCPUs each)
+and with resources (1–6 vCPUs, eneo with one worker per vCPU, peak throughput on a fresh stack per size). Streaming
+chat, same fake LLM; vCPU means one hardware thread (this machine has 8 cores / 16 threads, CPU sets follow the
+physical cores). Measured 2026-10-09.
+
+| Concurrent clients (4 vCPUs) | 1 | 4 | 16 | 64 | 128 | 256 |
+|---|---:|---:|---:|---:|---:|---:|
+| Ume gateway, msg/s | 581 | 2 157 | 6 393 | 10 668 | 11 470 | 11 417 |
+| Ume gateway, median | 1.7 ms | 1.7 ms | 2.4 ms | 5.0 ms | 8.2 ms | 21 ms |
+| eneo, msg/s | 15 | 56 | 50 | 44 | 35 | 7 (29 % errors) |
+| eneo, median | 65 ms | 68 ms | 247 ms | 0.9 s | 2.9 s | 35 s |
+
+| vCPUs | 1 | 2 | 4 | 6 |
+|---|---:|---:|---:|---:|
+| Ume gateway, peak msg/s | 4 570 | 9 791 | 11 345 | 11 106 |
+| eneo, peak msg/s | 16 | 32 | 56 | 75 |
+| eneo, speed-up | 1.0× | 1.97× | 3.49× | 4.67× |
+
+- **eneo** scales close to linearly with workers, but each worker only serves about 13–16 messages/s (64–78 ms CPU per
+  message). Beyond about 4 concurrent requests per worker its throughput *falls*: each request holds two or more
+  pooled database connections at once, the per-worker SQLAlchemy pool (20 + 10 overflow) starves, and requests fail
+  after the 30 s pool timeout with HTTP 500 (`QueuePool limit of size 20 overflow 10 reached`). With Postgres'
+  default `max_connections=100`, four workers (up to 120 connections) can also exhaust the database; the scaling runs
+  use 500.
+- **The gateway** levels off at about 11 000 messages/s from 2 vCPUs, with CPU to spare (3.3 of 6 vCPUs busy at the
+  6-vCPU peak; Redis, Postgres and the fake LLM also below capacity). The limit is the usage writer: its queue
+  (10 000 records) stayed full for the whole run, so back-pressure caps the request rate at the rate one batched
+  insert loop can write to Postgres. Requests slow down instead of failing. Raising it (Postgres `COPY` for batches,
+  or more than one writer) is the next step if one instance ever needs more than ~10 000 messages/s; several gateway
+  instances each bring their own writer.
+
+### Data protection and resilience (not performance)
+
+Checked in the eneo v2.2.1 source and tested live on 2026-10-09 with the compare stack:
+
+| Safeguard | Ume gateway | eneo v2.2.1 |
+|---|---|---|
+| Scans message content for personal data | Yes: personnummer and samordningsnummer (Luhn and date checked), e-mail, phone, IBAN | No. Its "redaction" only masks secrets, tokens and e-mail addresses in its own logs (`observability/redaction.py`). Tested: a message with Skatteverket's test personnummer 19121212-1212, an e-mail and a phone number reached the model unchanged |
+| Acts on it | Per key: block, redact, keep on-premises, or log only | No |
+| Limits which models can be used | Per key: model and provider allow-lists, data residency | Per space: security classification level; a space only accepts models with at least its level (`spaces/space.py`, `validate_model_security_compatibility`). Set by an administrator in advance, not based on content |
+| Fallback when a provider fails | Ordered fallback within the allowed residencies; circuit breaker moves failing providers last | No. Tested: provider down gives HTTP 503 "AI service is temporarily unavailable" |
+| Stores message content | Never (usage metadata only) | Every question and answer, as chat history; the test personnummer was in `questions` afterwards |
+
+**eneo behind the gateway.** eneo reaches models through OpenAI-compatible provider endpoints, so it can use the gateway
+as its provider. Tested with `ENEO_LLM_ENDPOINT=http://ume-gateway:8080/v1`, `ENEO_LLM_MODEL=ume/chat` and a virtual key
+with the `Redact` policy: the model received `[PERSONNUMMER]`, `[E-POST]`, `[TELEFON]`, and with the primary provider
+unreachable eneo's request succeeded through the fallback provider (`FallbackCount = 1`). eneo still stores the original
+text in its own chat history; the gateway only protects what is sent to the model.
+
+The gateway's detection is pattern-based: it does not recognise names, addresses or free-text health information, and
+the policy is set per key (off unless configured).
+
+Where eneo's time goes (from reading the v2.2.1 code path for `POST /api/v1/conversations/`, not profiled): about 35
+of the 72 statements load the **whole space** for every message (all tenant models, assistants, MCP servers,
+capabilities, with a duplicated capability lookup); about 20 create the session and question placeholder (the
+question row is re-read right after `INSERT … RETURNING`); the rest are authentication (user, roles, tenant, groups),
+governance/skill policy and the final `UPDATE` plus an always-written `logging` row. Each request also builds a
+fresh dependency-injection container of ~230 providers, uses three to four transactions over two pooled connections
+(holding one open during the LLM call when not streaming), counts tokens 4–8 times with litellm/tiktoken, and goes
+through litellm's parameter handling and pydantic serialisation per streamed chunk. Caching the space/assistant
+resolution per user would likely remove most of the database work.
+
 ## Not done (yet)
 
 - **Anthropic-translated streaming** (`/v1/chat/completions` routed to an Anthropic provider) still builds JSON trees per

@@ -166,6 +166,7 @@ dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- --filter
 dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- audit        # DB/Redis calls per request + load test
 ```
 
+`benchmarks/compare` compares the gateway with eneo against the same fake LLM (see its README).
 Run them before and after changes to the request pipeline. What they measure and the current results are in
 [Performance](docs/performance.md).
 
@@ -311,6 +312,7 @@ development data is reused. These optional overrides apply only in local run mod
 | [Routing rules](docs/routing-rules.md) | Rule model, condition language, evaluation order, examples (see also *Routing examples* above) |
 | [Architecture](docs/architecture.md) | Scope and decisions, components, trust boundaries, tradeoffs |
 | [Performance](docs/performance.md) | Per-request cost (Postgres/Redis round trips, caching), benchmarks and how to run them |
+| [Performance improvement plan](docs/performance-improvement-plan.md) | Prioritised bottlenecks with evidence and acceptance criteria (handoff) |
 | [Security and compliance](docs/security-and-compliance.md) | Controls, DPIA and processing-record inputs, release gates |
 | [Accessibility statement](docs/accessibility-statement.md) | Automated evidence and outstanding manual checks |
 | [Runbook](docs/runbook.md) | Deployment, credentials, backups, incidents |
