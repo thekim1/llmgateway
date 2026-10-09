@@ -27,6 +27,9 @@ Cache behaviour:
 - **Expiry never blocks requests.** When a cached key or catalogue snapshot is older than its TTL
   (`Gateway:KeyCacheSeconds`, `Gateway:CatalogCacheSeconds`, default 30 s), it is still served while one background query
   replaces it. Concurrent misses for the same key share one query.
+- **Unknown keys are remembered too**, for the same TTL, in a separate cache capped at 10 000 entries (so made-up keys
+  cannot push real ones out). A client retrying with a deleted or mistyped key no longer costs a query per request.
+  Creating a key publishes the same invalidation as revoking one, so a new key works immediately.
 - **Admin changes apply at once.** Revoking a key or changing configuration publishes an invalidation over Redis; the
   next request then loads fresh data before it continues. A load that started before the invalidation is not cached.
 - A cold budget counter (first request after start-up or in a new period) is seeded once from the usage table, however
@@ -96,6 +99,7 @@ The Redis rows are dominated by round trips, which cost more in this Docker-on-W
 | Chat stream, warm caches | 6.46 ms | **2.51 ms** | 0 → 0 | 3 → **1** |
 | Embeddings, warm caches | 6.22 ms | **2.67 ms** | 0 → 0 | 3 → **1** |
 | Key and catalogue invalidated before every request | 10.0 ms | 7.58 ms | 9 → 9 (by design: an invalidation reloads synchronously) | 3 → 1 |
+| Unknown key, 401 (measured 2026-10-10, before/after the negative key cache) | 0.99 ms | **0.12 ms** | 1 → **0** | 0 → 0 |
 
 Redis round trips: about 10 sequential before (6 before the first byte, 4–5 after; non-streaming answers waited for all
 of them), now 2 before the first byte and 1 pipelined after the response. The background writer's figure is for

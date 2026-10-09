@@ -22,6 +22,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<AlertEvent> AlertEvents => Set<AlertEvent>();
+    public DbSet<AuthFailure> AuthFailures => Set<AuthFailure>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -171,6 +172,16 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.SpentSek).HasPrecision(18, 2);
             e.Property(x => x.LimitSek).HasPrecision(18, 2);
             e.HasIndex(x => new { x.BudgetId, x.PeriodStart, x.ThresholdPercent }).IsUnique();
+        });
+
+        modelBuilder.Entity<AuthFailure>(e =>
+        {
+            e.Property(x => x.Reason).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.KeyPrefix).HasMaxLength(20);
+            e.Property(x => x.SourceAddress).HasMaxLength(64);
+            e.HasIndex(x => x.LastSeen);
+            e.HasIndex(x => new { x.VirtualKeyId, x.LastSeen });
         });
     }
 }

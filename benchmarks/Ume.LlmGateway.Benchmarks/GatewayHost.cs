@@ -171,15 +171,18 @@ public sealed class GatewayHost : IAsyncDisposable
         throw new DirectoryNotFoundException("Could not find src/Ume.LlmGateway.Gateway above " + AppContext.BaseDirectory);
     }
 
-    /// <summary>Sends a request and reads the whole response, failing loudly so a benchmark never measures error paths.</summary>
-    public async Task<int> SendAsync(string path, byte[] body)
+    /// <summary>
+    /// Sends a request and reads the whole response, failing loudly on any status other than the expected one (success
+    /// by default) so a benchmark never measures an error path by accident.
+    /// </summary>
+    public async Task<int> SendAsync(string path, byte[] body, string? key = null, int? expectStatus = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Key);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key ?? Key);
         using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         var bytes = await response.Content.ReadAsByteArrayAsync();
-        if (!response.IsSuccessStatusCode)
+        if (expectStatus is { } expected ? (int)response.StatusCode != expected : !response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"{path} returned {(int)response.StatusCode}: {System.Text.Encoding.UTF8.GetString(bytes)}");
         }

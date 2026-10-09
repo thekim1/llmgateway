@@ -67,12 +67,15 @@ public static class InteractionAudit
             var chat = Encoding.UTF8.GetBytes(Payloads.ChatRequest(GatewayHost.ChatAlias));
             var stream = Encoding.UTF8.GetBytes(Payloads.ChatRequest(GatewayHost.ChatAlias, stream: true));
             var embeddings = Encoding.UTF8.GetBytes(Payloads.EmbeddingsRequest(GatewayHost.EmbeddingsAlias));
-            (string Name, string Path, byte[] Body, bool Cold)[] scenarios =
+            // Well-formed but unknown: a client with a deleted or mistyped key retrying in a loop.
+            var unknownKey = "ume-sk-" + new string('Q', host.Key.Length - "ume-sk-".Length);
+            (string Name, string Path, byte[] Body, bool Cold, string? Key, int? Status)[] scenarios =
             [
-                ("chat (warm caches)", "/v1/chat/completions", chat, false),
-                ("chat stream (warm caches)", "/v1/chat/completions", stream, false),
-                ("embeddings (warm caches)", "/v1/embeddings", embeddings, false),
-                ("chat (key + catalog cache miss)", "/v1/chat/completions", chat, true),
+                ("chat (warm caches)", "/v1/chat/completions", chat, false, null, null),
+                ("chat stream (warm caches)", "/v1/chat/completions", stream, false, null, null),
+                ("embeddings (warm caches)", "/v1/embeddings", embeddings, false, null, null),
+                ("chat (key + catalog cache miss)", "/v1/chat/completions", chat, true, null, null),
+                ("chat, unknown key (401)", "/v1/chat/completions", chat, false, unknownKey, 401),
             ];
 
             Console.WriteLine();
@@ -85,7 +88,7 @@ public static class InteractionAudit
             {
                 for (var i = 0; i < 20; i++)
                 {
-                    await host.SendAsync(scenario.Path, scenario.Body);
+                    await host.SendAsync(scenario.Path, scenario.Body, scenario.Key, scenario.Status);
                 }
 
                 await writer.FlushAsync(CancellationToken.None);
@@ -104,7 +107,7 @@ public static class InteractionAudit
                     }
 
                     var started = Stopwatch.GetTimestamp();
-                    await host.SendAsync(scenario.Path, scenario.Body);
+                    await host.SendAsync(scenario.Path, scenario.Body, scenario.Key, scenario.Status);
                     latencies[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 }
 

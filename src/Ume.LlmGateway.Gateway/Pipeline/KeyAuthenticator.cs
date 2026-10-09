@@ -14,11 +14,14 @@ namespace Ume.LlmGateway.Gateway.Pipeline;
 /// Resolves a presented virtual key. Only the HMAC hash is used for lookup; the plaintext key is never logged,
 /// cached or stored. Entries are cached briefly and dropped instantly when the admin API publishes a revocation.
 /// An entry older than the TTL is still served while one background lookup refreshes it, and concurrent misses for
-/// the same key share a single database query.
+/// the same key share a single database query. Unknown keys are remembered for the same TTL in a separate, smaller
+/// cache, so a client retrying with a deleted or mistyped key does not cost a query per request, and a flood of made-up
+/// keys cannot evict real ones. Creating a key publishes an invalidation, which clears both caches.
 /// </summary>
 public sealed class KeyAuthenticator : IDisposable
 {
     private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = 100_000 });
+    private readonly MemoryCache _unknown = new(new MemoryCacheOptions { SizeLimit = 10_000 });
     private readonly ConcurrentDictionary<string, Task<VirtualKey?>> _loading = new(StringComparer.Ordinal);
     private readonly VirtualKeyHasher _hasher;
     private readonly IServiceScopeFactory _scopes;
@@ -86,6 +89,11 @@ public sealed class KeyAuthenticator : IDisposable
             return cached.Key;
         }
 
+        if (_unknown.TryGetValue(hash, out DateTimeOffset unknownSince) && _time.GetUtcNow() - unknownSince < ttl)
+        {
+            return null;
+        }
+
         return await LoadSharedAsync(hash, ttl).WaitAsync(cancellationToken);
     }
 
@@ -142,6 +150,16 @@ public sealed class KeyAuthenticator : IDisposable
         if (key is null)
         {
             _cache.Remove(hash);
+            if (ttl > TimeSpan.Zero && !generation.IsCancellationRequested)
+            {
+                using var unknown = _unknown.CreateEntry(hash);
+                // Freshness is checked against TimeProvider like the positive cache; the cache's own expiry only evicts.
+                unknown.Value = _time.GetUtcNow();
+                unknown.AbsoluteExpirationRelativeToNow = ttl;
+                unknown.Size = 1;
+                unknown.AddExpirationToken(new CancellationChangeToken(generation));
+            }
+
             return null;
         }
 
@@ -170,5 +188,6 @@ public sealed class KeyAuthenticator : IDisposable
         _subscription.Dispose();
         _generation.Dispose();
         _cache.Dispose();
+        _unknown.Dispose();
     }
 }

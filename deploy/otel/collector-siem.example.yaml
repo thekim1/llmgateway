@@ -1,0 +1,73 @@
+# Example OpenTelemetry Collector (contrib distribution) configuration that sends the gateway's and admin API's
+# security events to a SIEM. See docs/data-access.md, "Shipping to a SIEM".
+#
+# Point both services at the collector:  OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.internal:4317
+# Security events are the log records whose logger category (exported as the instrumentation scope) is
+# "Ume.LlmGateway.Security". Everything else is operational telemetry and is not sent to the SIEM here.
+#
+# Pick ONE exporter for the security pipeline and remove or comment out the others. Check the exporter options
+# against the collector version you run; this file was validated with otel/opentelemetry-collector-contrib 0.120.0.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        # tls: { cert_file: /etc/otelcol/tls.crt, key_file: /etc/otelcol/tls.key }
+
+processors:
+  # Keep only security events in this pipeline (the condition lists what is DROPPED).
+  filter/security-only:
+    error_mode: ignore
+    logs:
+      log_record:
+        - instrumentation_scope.name != "Ume.LlmGateway.Security"
+
+  # Syslog needs an app name and a message; the record body is the formatted event text and the event's fields
+  # stay available as attributes (Reason, KeyId, SourceAddress, Count, ...).
+  transform/syslog:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["appname"], "ume-llm-gateway")
+          - set(attributes["message"], body)
+
+  batch: {}
+
+exporters:
+  # RFC 5424 syslog over TLS: QRadar, ArcSight, LogRhythm, rsyslog/syslog-ng relays and most other SIEMs.
+  syslog:
+    endpoint: siem.example.org
+    port: 6514
+    network: tcp
+    protocol: rfc5424
+    tls:
+      ca_file: /etc/otelcol/siem-ca.crt
+
+  # Splunk HTTP Event Collector.
+  # splunk_hec:
+  #   token: ${env:SPLUNK_HEC_TOKEN}
+  #   endpoint: https://splunk.example.org:8088/services/collector
+  #   source: ume-llm-gateway
+  #   sourcetype: ume:security
+  #   index: security
+
+  # Elasticsearch / Elastic Security.
+  # elasticsearch:
+  #   endpoints: [https://elastic.example.org:9200]
+  #   logs_index: ume-llm-gateway-security
+  #   auth: { authenticator: basicauth/elastic }
+
+  # Microsoft Sentinel via Azure Monitor (Application Insights connection string; or use the Azure Monitor
+  # Logs Ingestion API with a data collection rule).
+  # azuremonitor:
+  #   connection_string: ${env:APPLICATIONINSIGHTS_CONNECTION_STRING}
+
+service:
+  pipelines:
+    logs/security:
+      receivers: [otlp]
+      processors: [filter/security-only, transform/syslog, batch]
+      exporters: [syslog]
+    # Add pipelines for operational logs, traces and metrics to your usual observability backend here.

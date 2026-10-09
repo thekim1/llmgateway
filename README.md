@@ -155,7 +155,7 @@ The test stack uses the same ports as the dev stack, so stop the dev stack first
 rules (create, validate, test, reorder, disable, delete, team and department deletion and reassignment, key rotation, `budget_used`/`tokens_used`, with real gateway
 requests) and accessibility (axe at WCAG 2.2 AA in the three themes, drawers and dialogs, reflow, keyboard,
 forced colours, target size). They do not save screenshots, videos, traces or storage state.
-Open follow-ups (the manual screen reader pass) are listed in [HANDOVER.md](HANDOVER.md).
+No manual screen reader testing is planned; open follow-ups are listed in [HANDOVER.md](HANDOVER.md).
 
 ### Benchmarks
 
@@ -278,6 +278,36 @@ and sends it as an ordinary message is not stopped by this setting; the PII poli
 Chat Completions requests to Claude models now carry PDF and plain-text files as Anthropic `document` blocks (they used
 to be dropped silently). Parts Claude cannot take (audio, other file types, OpenAI `file_id`) return 400
 `unsupported_content` instead of being left out of the prompt.
+
+## Security events and data for other teams
+
+Security teams, BI and management get the gateway's data through interfaces, never through its database. The plan
+and the reasons are in [data-access.md](docs/data-access.md). What exists today:
+
+- **Security events for your SIEM.** The gateway and admin API log security events under the category
+  `Ume.LlmGateway.Security` with stable event names: `gateway.auth.failed`, `gateway.pii.action`,
+  `gateway.request.refused` and `admin.change`. Set `OTEL_EXPORTER_OTLP_ENDPOINT` on both services and route that
+  category to your SIEM with an OpenTelemetry Collector.
+  [`deploy/otel/collector-siem.example.yaml`](deploy/otel/collector-siem.example.yaml) sends it to syslog (RFC 5424),
+  with Splunk, Elastic and Sentinel alternatives.
+- **Refused keys are recorded.** Missing, unknown, revoked, expired and disabled keys are counted in the new
+  `AuthFailures` table. A row covers one reason, endpoint, key and client network for up to 10 seconds, so callers
+  without a valid key cannot flood the database. The presented key is never stored. Refused keys on `GET /v1/models`
+  are recorded with the endpoint `Models`.
+- **Unknown keys are cached.** A key the gateway does not know is remembered for `Gateway:KeyCacheSeconds` (30 s), so a
+  client retrying with a deleted or mistyped key costs no database query (0.99 → 0.12 ms per refused request in the
+  `audit` benchmark). Creating a key in the admin API clears the cache at once.
+
+Settings (`Gateway:Security:*`):
+
+| Setting | Default | |
+|---|---|---|
+| `SourceAddress` | `Truncated` | Client address kept for refused keys: `Truncated` (IPv4 /24, IPv6 /48), `Full` or `None`. Behind a reverse proxy, also set `UME_FORWARDED_HEADERS=true` (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`). |
+| `AuthFailureFlushSeconds` | `10` | How often refused keys are written and logged. |
+| `MaxAuthFailureBuckets` | `1000` | Distinct rows per interval; anything beyond is folded into one row per reason and endpoint. |
+
+A Data API for BI and management (OAuth client credentials, incremental feeds) is planned; see
+[data-access.md](docs/data-access.md#phase-2-data-api-proposal).
 
 ## Deployment and documentation
 

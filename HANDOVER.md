@@ -21,11 +21,10 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 
 ## Open items
 
-1. **Manual screen reader pass (needs a person).** Nothing has been listened to. Use NVDA with Firefox or Chrome (and VoiceOver with Safari if available)
-   in all three themes, at 200 % zoom and 320 px. Automated axe, focus, heading and name checks already pass. Things worth special attention:
-   `<datalist>` model-name inputs (replace with a Reka UI combobox if suggestions are not announced), the live regions (condition status, "now checked N of M"
-   after moving a rule, inline alerts), focus after opening and closing drawers and dialogs, the segmented controls, the `<details>` disclosures, `aria-disabled` move buttons,
-   and `lang="sv"` text. Record tool, browser and version in `docs/accessibility-statement.md`, which must not claim a screen reader pass until then.
+1. **Screen reader pass: not planned.** Decided 2026-10-10: there are no resources for manual testing with NVDA or VoiceOver. The automated axe,
+   focus, heading and name checks remain the evidence. `docs/accessibility-statement.md` keeps saying that no screen reader has been run; an adopter
+   who needs that evidence (for example before public use) has to arrange it. Untested areas most likely to need it: `<datalist>` model-name inputs, the
+   live regions, focus after drawers and dialogs, the segmented controls, the `<details>` disclosures and `aria-disabled` move buttons.
 2. **Decide:** a duplicate rule name (409) is shown as a form-level message, not on the *Name* field.
 3. **Decide:** the "Skip to main content" link is hidden from 768 px (`md:hidden`); the sidebar has about 15 tab stops before `main`. Landmarks are sufficient, but a skip link is cheap.
 4. **Fix:** `SettingsView` says theme options are in the top bar, but the theme control is in the sidebar and only visible from 1024 px.

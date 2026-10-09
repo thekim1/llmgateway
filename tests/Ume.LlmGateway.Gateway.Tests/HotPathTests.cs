@@ -227,6 +227,40 @@ public sealed class HotPathTests(GatewayFixture fixture)
         (await keys.FindAsync(key.Secret, Ct))!.IsEnabled.ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Unknown_key_is_remembered_until_it_expires_or_a_key_is_created()
+    {
+        var hasher = fixture.Services.GetRequiredService<VirtualKeyHasher>();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var bus = new InMemoryInvalidationBus();
+        using var keys = new KeyAuthenticator(hasher, fixture.Services.GetRequiredService<IServiceScopeFactory>(),
+            new StaticOptions(new GatewayOptions { KeyCacheSeconds = 30 }), bus, time);
+
+        // Expiry: the key appears in the database without an invalidation (e.g. a lost pub/sub message).
+        var late = hasher.Generate();
+        (await keys.FindAsync(late.PlainText, Ct)).ShouldBeNull();
+        await InsertKeyAsync(late);
+        (await keys.FindAsync(late.PlainText, Ct)).ShouldBeNull(); // remembered as unknown: no query
+        time.Advance(TimeSpan.FromSeconds(31));
+        (await keys.FindAsync(late.PlainText, Ct)).ShouldNotBeNull();
+
+        // Creation: the admin API publishes a key invalidation, which works immediately.
+        var created = hasher.Generate();
+        (await keys.FindAsync(created.PlainText, Ct)).ShouldBeNull();
+        await InsertKeyAsync(created);
+        await bus.PublishAsync(InvalidationKind.Keys, Ct);
+        (await keys.FindAsync(created.PlainText, Ct)).ShouldNotBeNull();
+    }
+
+    private async Task InsertKeyAsync(GeneratedKey generated)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        var team = new Team { Name = Guid.NewGuid().ToString(), DepartmentId = fixture.DepartmentId, CreatedAt = DateTimeOffset.UtcNow };
+        db.VirtualKeys.Add(new VirtualKey { Team = team, Name = "Late key", Prefix = generated.Prefix, KeyHash = generated.Hash, CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(Ct);
+    }
+
     private async Task SetEnabledAsync(Guid keyId, bool enabled)
     {
         using var scope = fixture.Services.CreateScope();

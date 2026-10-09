@@ -19,6 +19,9 @@
 #   UME_GATEWAY_BIND / UME_ADMIN_BIND (0.0.0.0), UME_GATEWAY_PORT (8443), UME_ADMIN_PORT (9443)
 #   UME_OIDC_ROLE_CLAIM, UME_OIDC_DEPARTMENT_CLAIM, UME_OIDC_GROUP_CLAIM, UME_OIDC_EXTRA_SCOPE,
 #   UME_OIDC_GROUPS_GATEWAY_ADMIN / _DEPARTMENT_ADMIN / _VIEWER   (see docs/runbook.md, "Identity provider")
+#   UME_OTEL_ENDPOINT         OTLP collector for logs, traces and security events (off when empty)
+#   UME_SOURCE_ADDRESS        client address kept for refused keys: Truncated (default), Full or None
+#   UME_FORWARDED_HEADERS     true behind a reverse proxy that is the only way to reach the gateway
 #
 # The data lives in the volumes <stack>_postgres-data, <stack>_ume-certs and <stack>_ume-secrets
 # (<stack>_ume-config holds static configuration and is rewritten on every start).
@@ -151,6 +154,10 @@ services:
       Kestrel__Endpoints__Https__Url: https://+:8443
       Kestrel__Endpoints__Https__Certificate__Path: /run/certs/gateway.crt
       Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/gateway.key
+      Gateway__Security__SourceAddress: ${UME_SOURCE_ADDRESS:-Truncated}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: ${UME_FORWARDED_HEADERS:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: gateway
       SSL_CERT_FILE: /run/certs/ca.pem
       DOTNET_SHUTDOWNTIMEOUTSECONDS: "50"
     volumes:
@@ -181,6 +188,8 @@ services:
       Kestrel__Endpoints__Https__Url: https://+:8443
       Kestrel__Endpoints__Https__Certificate__Path: /run/certs/adminapi.crt
       Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/adminapi.key
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: adminapi
       Oidc__Authority: ${UME_OIDC_AUTHORITY:?Set UME_OIDC_AUTHORITY (https URL)}
       Oidc__ClientId: ${UME_OIDC_CLIENT_ID:-ume-admin}
       Oidc__RoleClaim: ${UME_OIDC_ROLE_CLAIM:-roles}
@@ -343,7 +352,7 @@ configs:
     content: |
       GRANT SELECT ON ALL TABLES IN SCHEMA public TO ume_gateway, ume_admin;
       GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ume_gateway, ume_admin;
-      GRANT INSERT ON "UsageRecords", "AlertEvents", "DataProtectionKeys" TO ume_gateway;
+      GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
       GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
       GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",

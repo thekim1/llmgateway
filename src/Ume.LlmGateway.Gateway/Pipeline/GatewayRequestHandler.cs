@@ -31,13 +31,16 @@ public sealed partial class GatewayRequestHandler(
     IEnumerable<IProviderAdapter> adapters,
     CredentialProtector credentials,
     UsageWriter usageWriter,
+    AuthFailureRecorder authFailures,
     GatewayMetrics metrics,
     IOptionsMonitor<GatewayOptions> options,
     TimeProvider time,
+    ILoggerFactory loggers,
     ILogger<GatewayRequestHandler> logger)
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { MaxDepth = 64 };
     private readonly IProviderAdapter[] _adapters = [.. adapters];
+    private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
 
     public async Task HandleAsync(HttpContext http, GatewayEndpoint endpoint)
     {
@@ -369,7 +372,7 @@ public sealed partial class GatewayRequestHandler(
     {
         ArgumentNullException.ThrowIfNull(http);
         var ct = http.RequestAborted;
-        var key = await AuthenticateAsync(http, GatewayEndpoint.ChatCompletions, time.GetUtcNow(), ct);
+        var key = await AuthenticateAsync(http, GatewayEndpoint.Models, time.GetUtcNow(), ct);
         if (key is null)
         {
             return;
@@ -431,27 +434,31 @@ public sealed partial class GatewayRequestHandler(
     private async Task<VirtualKey?> AuthenticateAsync(HttpContext http, GatewayEndpoint endpoint, DateTimeOffset now, CancellationToken ct)
     {
         var docs = options.CurrentValue.DocsUrl;
-        var key = await keys.FindAsync(KeyAuthenticator.ExtractKey(http.Request), ct);
+        var presented = KeyAuthenticator.ExtractKey(http.Request);
+        var key = await keys.FindAsync(presented, ct);
         if (key is null)
         {
+            authFailures.Record(string.IsNullOrEmpty(presented) ? AuthFailureReason.MissingKey : AuthFailureReason.InvalidKey,
+                endpoint, null, http.Connection.RemoteIpAddress);
             http.Response.Headers.WWWAuthenticate = "Bearer";
             await GatewayErrors.WriteAsync(http, endpoint, 401, GatewayErrorCodes.InvalidApiKey,
                 "API-nyckeln saknas eller är ogiltig. Skicka den som 'Authorization: Bearer ume-sk-…'.", docs);
             return null;
         }
 
-        var (status, code, message) = key.GetStatus(now) switch
+        var (status, code, message, reason) = key.GetStatus(now) switch
         {
-            KeyStatus.Revoked => (401, GatewayErrorCodes.KeyRevoked, "API-nyckeln är återkallad. Använd den nya nyckeln eller be om en ny."),
-            KeyStatus.Expired => (401, GatewayErrorCodes.KeyExpired, "API-nyckeln har gått ut. Be administratören att rotera den."),
-            KeyStatus.Disabled => (403, GatewayErrorCodes.KeyDisabled, "API-nyckeln är tillfälligt inaktiverad."),
+            KeyStatus.Revoked => (401, GatewayErrorCodes.KeyRevoked, "API-nyckeln är återkallad. Använd den nya nyckeln eller be om en ny.", AuthFailureReason.KeyRevoked),
+            KeyStatus.Expired => (401, GatewayErrorCodes.KeyExpired, "API-nyckeln har gått ut. Be administratören att rotera den.", AuthFailureReason.KeyExpired),
+            KeyStatus.Disabled => (403, GatewayErrorCodes.KeyDisabled, "API-nyckeln är tillfälligt inaktiverad.", AuthFailureReason.KeyDisabled),
             _ when key.Team is not { IsActive: true } || key.Team.Department is not { IsActive: true }
-                => (403, GatewayErrorCodes.KeyDisabled, "Teamet eller förvaltningen som äger nyckeln är inaktiverad."),
-            _ => (0, string.Empty, string.Empty),
+                => (403, GatewayErrorCodes.KeyDisabled, "Teamet eller förvaltningen som äger nyckeln är inaktiverad.", AuthFailureReason.OwnerInactive),
+            _ => (0, string.Empty, string.Empty, default),
         };
 
         if (status != 0)
         {
+            authFailures.Record(reason, endpoint, key, http.Connection.RemoteIpAddress);
             await GatewayErrors.WriteAsync(http, endpoint, status, code, message, docs);
             return null;
         }
@@ -562,6 +569,16 @@ public sealed partial class GatewayRequestHandler(
 
         metrics.Record(record);
         LogCompleted(logger, state.RequestId, key.Prefix, record.RequestedModel, record.ProviderName ?? "-", status, record.LatencyMs, state.Fallbacks);
+        if (state.PiiAction is { } piiAction)
+        {
+            SecurityEvents.PiiAction(_security, PiiActionName(piiAction), state.RequestId, state.Endpoint.ToString(), state.PiiCategories,
+                key.Id, key.Prefix, key.TeamId, record.DepartmentId);
+        }
+
+        if (errorCode is GatewayErrorCodes.AttachmentNotAllowed or GatewayErrorCodes.ModelNotAllowed)
+        {
+            SecurityEvents.RequestRefused(_security, state.RequestId, state.Endpoint.ToString(), errorCode, key.Id, key.Prefix, key.TeamId, record.DepartmentId);
+        }
         try
         {
             await usageWriter.EnqueueAsync(new UsageWork(record, alerts), cts.Token);
@@ -659,6 +676,15 @@ public sealed partial class GatewayRequestHandler(
 
     private static string AttachmentNames(AttachmentKinds kinds) =>
         string.Join(" eller ", AttachmentKindNames.Where(n => kinds.HasFlag(n.Kind)).Select(n => n.Name));
+
+    /// <summary>The <c>Action</c> attribute of the <c>gateway.pii.action</c> security event.</summary>
+    private static string PiiActionName(PiiPolicy policy) => policy switch
+    {
+        PiiPolicy.Block => "blocked",
+        PiiPolicy.Redact => "redacted",
+        PiiPolicy.RerouteToOnPrem => "rerouted_onprem",
+        _ => "detected",
+    };
 
     private static string FormatSek(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
 

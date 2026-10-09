@@ -239,6 +239,30 @@ Register `/signin-oidc` and `/signout-callback-oidc` for the admin public HTTPS 
 code+PKCE, `roles` and `departmentCodes` claims. Test all three RBAC roles and department
 scoping. IdP MFA and logout confirmation must be reviewed with users.
 
+## Security events and SIEM
+
+The gateway and admin API write security events (refused keys, PII actions, policy refusals, admin changes) as
+log records in the category `Ume.LlmGateway.Security`; event names and fields are listed in
+[data-access.md](data-access.md#phase-1-security-events). To ship them:
+
+1. Run an OpenTelemetry Collector (contrib distribution) that the services can reach. Start from
+   `deploy/otel/collector-siem.example.yaml`: it keeps only the security category and sends it to syslog
+   (RFC 5424 over TLS), with Splunk HEC, Elastic and Azure Monitor (Sentinel) as commented alternatives.
+2. Set `UME_OTEL_ENDPOINT` (for example `https://otel-collector.internal:4317`) in `deploy/.env` or the Portainer
+   stack. Both services then export logs, traces and metrics over OTLP; when it is empty nothing is exported.
+   `SSL_CERT_FILE` points the services at the internal CA bundle, so the collector's certificate must chain to a CA in
+   `ca.pem`.
+3. Check that events arrive: a request with a made-up key produces a `gateway.auth.failed` event within
+   `Gateway:Security:AuthFailureFlushSeconds` (10 s).
+
+Push over OTLP is best-effort. The durable record is in the database: `AuthFailures` (refused keys, counted per
+reason, endpoint, key and client network), `UsageRecords` (PII actions and refusals) and `AuditLog`.
+
+`UME_SOURCE_ADDRESS` (`Truncated` by default, `Full` or `None`) sets how much of the client address is kept for
+refused keys; record the choice in your DPIA. Behind a reverse proxy the gateway sees only the proxy's address unless
+`UME_FORWARDED_HEADERS=true` is set (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`). Set it only when the gateway port is reachable from the proxy alone,
+otherwise clients can forge `X-Forwarded-For`.
+
 ## Health and troubleshooting
 
 Check container health and `/health/ready` with the appropriate CA. `/health/live` is

@@ -55,6 +55,9 @@ public enum GatewayEndpoint
     Embeddings = 1,
     Responses = 2,
     AnthropicMessages = 3,
+
+    /// <summary><c>GET /v1/models</c>. Never sent to a provider; only appears in authentication failures.</summary>
+    Models = 4,
 }
 
 public enum ModelKind
@@ -178,4 +181,21 @@ public enum RequestOutcome
     PiiBlocked = 4,
     Rejected = 5,
     ClientCancelled = 6,
+}
+
+/// <summary>Why the gateway refused a request's credentials.</summary>
+public enum AuthFailureReason
+{
+    /// <summary>No key in Authorization, x-api-key or api-key.</summary>
+    MissingKey = 0,
+
+    /// <summary>Something was sent, but it is not a known key (malformed, made up, or a key from another system).</summary>
+    InvalidKey = 1,
+
+    KeyRevoked = 2,
+    KeyExpired = 3,
+    KeyDisabled = 4,
+
+    /// <summary>The key is valid but its team or department is deactivated.</summary>
+    OwnerInactive = 5,
 }

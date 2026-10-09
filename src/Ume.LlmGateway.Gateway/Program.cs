@@ -33,6 +33,8 @@ builder.Services.AddSingleton<BudgetService>();
 builder.Services.AddSingleton<GatewayMetrics>();
 builder.Services.AddSingleton<UsageWriter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UsageWriter>());
+builder.Services.AddSingleton<AuthFailureRecorder>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
 builder.Services.AddSingleton<GatewayRequestHandler>();
 builder.Services.AddHttpClient("alerts");
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>

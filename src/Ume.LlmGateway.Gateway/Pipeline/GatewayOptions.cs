@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
 
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
@@ -26,4 +27,30 @@ public sealed class GatewayOptions
 
     /// <summary>Optional webhook that receives budget threshold alerts (metadata only).</summary>
     public Uri? AlertWebhookUrl { get; set; }
+
+    /// <summary>Security events and authentication failure recording (docs/data-access.md).</summary>
+    [ValidateObjectMembers]
+    public SecurityEventOptions Security { get; set; } = new();
+}
+
+public sealed class SecurityEventOptions
+{
+    /// <summary>How much of the client address is kept for authentication failures. The default keeps the network only.</summary>
+    public SourceAddressMode SourceAddress { get; set; } = SourceAddressMode.Truncated;
+
+    /// <summary>How often counted authentication failures are written to the database and logged as security events.</summary>
+    [Range(1, 3600)]
+    public int AuthFailureFlushSeconds { get; set; } = 10;
+
+    /// <summary>Distinct (reason, endpoint, key, address) buckets kept per interval; more are folded into one overflow bucket.</summary>
+    [Range(10, 100_000)]
+    public int MaxAuthFailureBuckets { get; set; } = 1000;
+}
+
+public enum SourceAddressMode
+{
+    /// <summary>IPv4 /24 or IPv6 /48.</summary>
+    Truncated = 0,
+    Full = 1,
+    None = 2,
 }

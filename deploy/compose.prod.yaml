@@ -98,6 +98,10 @@ services:
       Kestrel__Endpoints__Https__Url: https://+:8443
       Kestrel__Endpoints__Https__Certificate__Path: /run/certs/gateway.crt
       Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/gateway.key
+      Gateway__Security__SourceAddress: ${UME_SOURCE_ADDRESS:-Truncated}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: ${UME_FORWARDED_HEADERS:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: gateway
       SSL_CERT_FILE: /run/certs/ca.pem
       DOTNET_SHUTDOWNTIMEOUTSECONDS: "50"
     volumes:
@@ -128,6 +132,8 @@ services:
       Kestrel__Endpoints__Https__Url: https://+:8443
       Kestrel__Endpoints__Https__Certificate__Path: /run/certs/adminapi.crt
       Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/adminapi.key
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: adminapi
       Oidc__Authority: ${UME_OIDC_AUTHORITY:?Set HTTPS OIDC authority in deploy/.env}
       Oidc__ClientId: ${UME_OIDC_CLIENT_ID:-ume-admin}
       Oidc__RoleClaim: ${UME_OIDC_ROLE_CLAIM:-roles}

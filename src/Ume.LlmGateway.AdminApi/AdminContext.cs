@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
@@ -17,10 +18,37 @@ public sealed class AdminFaultException(int status, string message, IDictionary<
     public IDictionary<string, object?>? Extensions { get; } = extensions;
 }
 
-public sealed class AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time)
+public sealed class AdminContext
 {
-    public GatewayDbContext Db { get; } = db;
-    public DateTimeOffset Now => time.GetUtcNow();
+    private readonly IInvalidationBus _bus;
+    private readonly TimeProvider _time;
+    private readonly ILogger _security;
+    private List<AuditLogEntry> _saving = [];
+
+    public AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time, ILoggerFactory loggers)
+    {
+        Db = db;
+        _bus = bus;
+        _time = time;
+        _security = SecurityEvents.CreateLogger(loggers);
+
+        // Every audit entry, however it was added (including config import), becomes an admin.change security
+        // event once it is saved. Details are not logged: they stay in the audit log, where secrets are masked.
+        db.SavingChanges += (_, _) => _saving = [.. db.ChangeTracker.Entries<AuditLogEntry>().Where(e => e.State == EntityState.Added).Select(e => e.Entity)];
+        db.SavedChanges += (_, _) =>
+        {
+            foreach (var entry in _saving)
+            {
+                SecurityEvents.AdminChange(_security, entry.Actor, entry.Action, entry.EntityType, entry.EntityId);
+            }
+
+            _saving = [];
+        };
+        db.SaveChangesFailed += (_, _) => _saving = [];
+    }
+
+    public GatewayDbContext Db { get; }
+    public DateTimeOffset Now => _time.GetUtcNow();
     public static bool IsAdmin(ClaimsPrincipal user) => user.IsInRole("gateway-admin");
     public static string[] Codes(ClaimsPrincipal user) => [.. user.FindAll("departmentCodes").Select(c => c.Value)];
 
@@ -71,7 +99,7 @@ public sealed class AdminContext(GatewayDbContext db, IInvalidationBus bus, Time
             Details = JsonSerializer.Serialize(new { before, after }),
         });
         await Db.SaveChangesAsync(ct);
-        await bus.PublishAsync(kind, ct);
+        await _bus.PublishAsync(kind, ct);
     }
 }
 

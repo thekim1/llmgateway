@@ -28,7 +28,7 @@ tredjeparts-IdP. Inloggningsleverantören behöver egen granskning.
 
 | Kontroll | Genomförande / status |
 |---|---|
-| NVDA + Firefox/Chrome, VoiceOver + Safari | Läsrubriker, landmärken, tabeller, statusregioner, dialog/fokusåtergång: **ej utfört** |
+| NVDA + Firefox/Chrome, VoiceOver + Safari | Läsrubriker, landmärken, tabeller, statusregioner, dialog/fokusåtergång: **ej utfört och inte planerat** (beslut 2026-10-10, resurser saknas); en organisation som behöver kontrollen får genomföra den själv |
 | Enbart tangentbord | Kompletta CRUD-, budget-, rotation- och logoutresor, ingen fokusfälla: automatiska delar finns; manuell helhetskontroll återstår |
 | Fokusutseende/ej dolt fokus | Alla fokusytor och modal-/scrolllägen, WCAG 2.4.11/2.4.13: manuell kontroll återstår |
 | Förstoring och textavstånd | 200/400% webbläsarzoom, 320px, 1.4.12-avstånd, inga informationsförluster: automatiskt text/reflow; verklig zoom återstår |
