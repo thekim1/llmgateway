@@ -45,6 +45,16 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   AdminApi/Gateway tests; assert on your own rows (the AdminApi tests run serially because they share one database).
 - **Hot path:** the request handler, adapters, stores and caches are performance-critical. Run the benchmarks (`-- --filter *Pipeline*`, `*Provider*`) and the `audit` before and after changing them,
   and keep "no Postgres on the request path" and the Redis round-trip budget in [docs/performance.md](docs/performance.md) true.
+- **Where things live** (see *Code layout* in [docs/architecture.md](docs/architecture.md)):
+  - Endpoint semantics (routing name, paths, capability, model kinds, audio/realtime/streaming flags) only in `GatewayEndpoints` (Domain); do not add endpoint switches.
+  - Redis keys and channels only in `RedisKeys` (all under `ume:`; the ACL in `deploy/redis/users.acl.example` depends on it).
+  - Exchange rate, key rotation lineage and budget spend queries in `GatewayQueries` (Infrastructure), shared by gateway and admin API.
+  - Provider failures carry a `FailureKind`: only `Transient` counts toward the circuit breaker; `ClientError` is answered without fallback.
+  - Every accepted gateway request is accounted exactly once (`AccountAsync`); new failure paths must go through it.
+  - Admin API endpoints stay thin; logic belongs in the services (`RoutingRuleService`, `ProviderCatalogService`, `BudgetAdminService`,
+    `ConfigTransferService`, `OwnerScopeResolver`). Throw `ApiFaultException` (Swedish message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
+  - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
+  - Options are validated on start (DataAnnotations/`IValidatableObject`); add a range or `[Required]` with each new setting.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.
 - **AppHost:** `src/Ume.LlmGateway.AppHost`. Stop the exact AppHost (`aspire stop --apphost ...`) before backend builds. File-based AppHosts cannot use `DistributedApplicationTestingBuilder`, hence Testcontainers in the integration tests.
   Never use `dotnet run` for the AppHost. Project-local skills are in `.agents/skills`.

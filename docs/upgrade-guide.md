@@ -50,6 +50,20 @@ Live audio (`/v1/realtime`, `/v1/realtime/translations`) needs three more steps:
   audio token or per-minute prices. Realtime models price audio tokens far above text tokens, so set the audio token
   prices or their cost is under-reported.
 
+The control- and data-plane cleanup needs no migration, but check these before upgrading:
+- **Startup validation.** The admin API refuses to start without `Oidc:Authority`, with `Admin:RequestsPerMinute`
+  outside 1–10000, or with a `Gateway:BaseUrl`/`Gateway:OperationsUrl` that is not an absolute http(s) URL; the
+  gateway validates `Gateway:FallbackSekPerUsd` (0.01–1000) and the migration service its `Seed:*` settings.
+- **Exchange rate.** If no USD exchange rate has been entered, the gateway's readiness check `exchange-rate` now
+  reports Degraded and each catalogue load logs a warning (costs still use `Gateway:FallbackSekPerUsd`, 10). Enter
+  the rate under Settings.
+- **Audit details.** New entries hold dedicated snapshots (camelCase, enum names, no derived fields); older entries
+  keep their shape, so a consumer of `details` (Data API `security.read`, SIEM) must accept both.
+- **CSV.** The admin usage export quotes cells only when needed (it quoted every text cell) and no longer prefixes
+  numeric text such as `-1` with `'`; the Data API now also prefixes formulas after leading spaces or starting with a
+  line feed.
+- **Alert webhooks** are sent once, without retries, from their own queue.
+
 ### Adding the Data API to an existing installation
 
 New installations get the read-only database role `ume_data` from `init.sql`. An existing database was initialised

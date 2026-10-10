@@ -4,6 +4,9 @@ Base path: same origin as the admin UI (BFF pattern). JSON uses **camelCase**, e
 **strings** (e.g. `"RevokeImmediately"`), timestamps are ISO-8601 with offset, money is SEK unless the field
 name says `Usd`. Errors use RFC 9457 `application/problem+json`:
 `{ "type", "title", "status", "detail", "errors": { "field": ["message"] } }` (Swedish messages).
+A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "Ett internt fel inträffade."
+(the exception is only logged, by type). Every response, error responses included, carries `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 
 ## Authentication (BFF)
 - `GET /bff/login?returnUrl=/path` → 302 to OIDC provider (Keycloak in dev, Entra ID/AD FS in prod).
@@ -24,6 +27,9 @@ name says `Usd`. Errors use RFC 9457 `application/problem+json`:
 - Local configuration: `Oidc:Authority`, `Oidc:ClientId` (default `ume-admin`), optional
   `Oidc:ClientSecret`, `ConnectionStrings:gatewaydb`, `Security:KeyPepper`, optional Redis and
   Data Protection certificate settings shared with the gateway. Production OIDC metadata requires HTTPS.
+  Settings are validated at startup: the API does not start without `Oidc:Authority`, with `Admin:RequestsPerMinute`
+  out of range, or with a `Gateway:BaseUrl` / `Gateway:OperationsUrl` that is not an absolute http(s) URL.
+  `Gateway:BaseUrl` is the public gateway address shown in the catalogue (default `https://localhost:5140`).
 - API rate limit: 120 requests/minute per authenticated subject (`Admin:RequestsPerMinute`, 1–10000).
   Exceeded → 429 ProblemDetails with `Retry-After`.
 
@@ -142,7 +148,12 @@ and invalidate the gateway catalogue.
 - `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitSek, period, alertThresholds, isActive }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
 - `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentSek, limitSek, periodStart, timestamp, acknowledged }]`
 - `POST /api/alerts/{id}/acknowledge` → 204
-- `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }` · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`
+- `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
+  Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
+  reports its `exchange-rate` readiness check (and so the gateway component in `/api/ops/health`) as Degraded.
+- Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
+  also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
+  full the alert is stored but not sent (a warning is logged).
 
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
@@ -150,13 +161,16 @@ and invalidate the gateway catalogue.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
   → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
-- `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad SEK
+- `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad SEK.
+  Semicolon-separated; cells are quoted only when they contain a semicolon, a quote or a line break. A text cell a spreadsheet would run as
+  a formula (starting with a tab or line break, or with `=`, `+`, `-` or `@` after any leading spaces) is prefixed with `'`;
+  numbers such as `-1.5` are left as they are. The Data API's CSV (comma-separated) uses the same rule.
 
 ## Catalogue (developer portal, any authenticated user)
 - `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
 
 ## Operations (gateway-admin)
-- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs }] }` (the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
+- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
 - Gateway status/version/queue are fetched live over `Gateway:OperationsUrl` (HTTPS; defaults to
   `Gateway:BaseUrl`) within five seconds. An unavailable, malformed or unauthenticated probe
   yields an explicit `Unhealthy` gateway component and null version/usageWriter, never fabricated
@@ -167,7 +181,8 @@ and invalidate the gateway catalogue.
   Usage write failures retain the in-flight batch for retry and report Degraded until recovery;
   queue persistence across process/host loss is not guaranteed.
 - `POST /api/ops/providers/{id}/circuit` `{ state: "Open" | "Closed" }` → 204 (force open = take out of rotation for 15 min)
-- `POST /api/ops/cache/invalidate-keys` → 204
+- `POST /api/ops/cache/invalidate-keys` → 204 (audited as `invalidate` on `Keys`; the cache invalidations that
+  ordinary changes publish are not audited separately)
 - `GET /api/ops/config/export` → JSON document (providers without credentials, models, prices, routes, global routing rules)
 - `POST /api/ops/config/import` (same JSON) → `{ created, updated, skipped }`
 - Config schema: `{ schemaVersion: 1, providers: [{ configuration: ProviderRequest (without credential),
@@ -176,12 +191,17 @@ and invalidate the gateway catalogue.
   targets: [{ modelName, priority, weight }] }], routingRules?: [{ name, description?, isEnabled, priority, condition?, chain,
   targets: [{ model, weight }], fallbacks?: string[] }] }`. Only **global** routing rules are transferred (key/team/department ids differ between
   environments); rules are matched by name, created or updated, never deleted by import, and each is validated like one saved through the API (an invalid rule fails the whole import).
-  Documents without `routingRules` (older exports) still import.
+  Documents without `routingRules` (older exports) still import. Changing the kind of a model that a route uses → 409
+  "Modelltypen kan inte ändras när modellen används i en rutt." (same as `PUT /api/models/{id}`).
   References use stable names; database IDs in model configuration are ignored on import.
   Import is transactional, rejects plaintext credentials, preserves existing encrypted credentials when
   a reference is omitted, and never overwrites price history. Environment references must already exist
   in the Admin API process. Export never contains secret values or encrypted credentials.
 - `GET /api/audit?page=&pageSize=&entityType=` → `{ items: [{ id, timestamp, actor, action, entityType, entityId, details }], total }`
+  - `details` is JSON `{ before, after }` (camelCase, enums as names) with snapshots of the entity's own stored settings,
+    never a secret: no derived or volatile values such as `deploymentCount`, `createdAt`, `currentPrice`, `providerName`,
+    key `status` or `lastUsedAt`. For a rotation `after` is `{ previousKey, key }`, for a reveal/copy the key's name and
+    prefix, for a config import the counts `{ created, updated, skipped }`.
 
 ## Gateway (data plane) – for the developer portal snippets
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
@@ -202,7 +222,17 @@ and invalidate the gateway catalogue.
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `budget_exceeded`,
-  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.
+  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
+  `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
+  with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).
+- Fallback and circuit breaker: the next provider is tried after a transient failure (408, 409, 429, 5xx, timeout,
+  connection error, invalid JSON) or a provider configuration failure (upstream 401/403/404, `https_required`,
+  `credential_unavailable`, `endpoint_not_supported`). Only transient failures count toward the provider's circuit
+  breaker. Other client errors (e.g. 400) are returned as they are.
+- `GET /v1/models` lists only aliases and models the key may use and that some endpoint of their kind can reach, by the
+  same rule as routing: model and provider enabled and not drained, a provider capability for that endpoint, and the
+  key's provider and residency allow-lists.
+- Outgoing requests to providers carry `User-Agent: Ume-LlmGateway/<version>`.
   A provider-side refusal is passed through with the provider's status; one the gateway raises itself is
   `unsupported_content` (400): a Chat Completions request to a Claude model contains a part the Messages API cannot
   take (audio, video, an OpenAI `file_id`, or a file other than PDF or plain text). An audio upload with no `file`, or
@@ -225,15 +255,16 @@ WebSocket endpoints speaking the OpenAI Realtime protocol (JSON events, audio as
   sessions), `budget_exceeded` (402), `all_providers_failed` (502/504, after trying each candidate).
 - During the session the gateway sends OpenAI-style `error` events `{ type: "error", error: { type, code, message,
   event_id } }` (`event_id` is the client event refused): `model_not_allowed` (an input transcription model that is
-  not a `Transcription` alias/model of the session's provider), `pii_blocked`, `invalid_request` (binary frame),
+  not a `Transcription` alias/model of the session's provider, or whose provider is unavailable or outside the key's
+  provider and residency allow-lists), `pii_blocked`, `invalid_request` (binary frame),
   `request_too_large` (event over `MaxMessageBytes`; the session is closed with 1009). It ends the session with an
-  error event and a close frame on `budget_exceeded` (close 1008), `session_time_limit` (1000),
+  error event and a close frame on `budget_exceeded` (close 1008; the message names the exhausted budget like the HTTP 402), `session_time_limit` (1000),
   `gateway_shutting_down` (1001) and `provider_disconnected` (1001).
 - Usage: one record per session; `streamed` is true, `latencyMs` is the session length, `audioSeconds` the audio
   streamed (provider-reported duration when given, otherwise counted from the appended audio at the session's input
   format), tokens the sum of the provider's usage events. Outcomes: `Success` (closed by either side, time limit or
   shutdown, with `errorCode` `session_time_limit` / `gateway_shutting_down`), `ClientCancelled` (connection dropped),
-  `ProviderError` (`stream_interrupted`), `BudgetExceeded`.
+  `ProviderError` (`stream_interrupted`, or `internal_error` with the usage so far billed), `BudgetExceeded`.
 - Settings (`Gateway:Realtime:`): `MaxSessionsPerKey` (20, 0 = no limit; needs the Redis ACL commands `zadd zrem zcard
   zremrangebyscore`, otherwise the limit is not enforced and a warning is logged), `MaxSessionMinutes` (120),
   `BudgetCheckSeconds` (30), `ReserveMinutes` (5), `MaxMessageBytes` (4 MB).

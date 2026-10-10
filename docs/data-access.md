@@ -169,7 +169,13 @@ milliseconds.
 
 JSON by default; `?format=csv` or `?format=ndjson` (or the `Accept` header `text/csv`, `application/x-ndjson`) for
 bulk loads. Many ETL tools cannot set headers, hence the query parameter. CSV is RFC 4180 with a header row, lists
-joined with `;`, and cells a spreadsheet would run as a formula prefixed with `'`.
+joined with `;`, and cells quoted only when they contain a comma, a quote or a line break. A text cell a spreadsheet
+would run as a formula (starting with a tab or line break, or with `=`, `+`, `-` or `@` after leading spaces) is
+prefixed with `'`; numbers such as `-1.5` stay numbers. The admin API's usage export uses the same rule.
+
+Errors are RFC 9457 problem responses; an unexpected failure is a 500 with the detail "Ett internt fel inträffade."
+(as in the admin API). Responses under `/v1` are `Cache-Control: no-store`, and every response carries
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 
 Example (PowerShell, Keycloak):
 

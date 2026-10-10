@@ -110,7 +110,9 @@ the gateway creates them with what the provider reports:
 
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
 edited in the model drawer. Most providers, including Ollama Cloud, do not publish prices, so
-add them under the model's price history. Audio, image-generation-only and moderation models
+add them under the model's price history. Prices are in USD, so also enter the USD exchange rate under **Settings**:
+until one is in effect the gateway uses `Gateway:FallbackSekPerUsd` (10 SEK), logs a warning and reports its readiness
+check `exchange-rate` as Degraded (visible under operations health). Audio, image-generation-only and moderation models
 are left out of the list. Models added before this feature have no capabilities until you set
 them or re-add them through discovery. Database migration `ModelFeatures` adds the column and
 runs with the normal migration service.
@@ -198,6 +200,8 @@ How it behaves: the target is tried first (with its own provider order from the 
 in a way that can be retried (a timeout, 408, 409, 429, a 5xx or a provider configuration error), and never after the response has started
 streaming. Other client errors (such as 400) are returned as they are. The response header `x-ume-fallbacks` counts the extra attempts and
 `x-ume-rule` names the rule. Providers whose circuit breaker is open are moved last, so the fallback is tried before a known-broken primary.
+Only transient failures (timeouts, connection errors, 408, 409, 429, 5xx) count toward the circuit breaker; a provider configuration
+error (such as an upstream 401, 403 or 404) falls back to the next provider without opening the circuit.
 
 ### Example 2 (advanced): chats with personal data go to an on-prem model
 

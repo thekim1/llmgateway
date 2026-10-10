@@ -35,6 +35,8 @@ How it behaves: the target is tried first (with its own provider order from the 
 in a way that can be retried (a timeout, 408, 409, 429, a 5xx or a provider configuration error), and never after the response has started
 streaming. Other client errors (such as 400) are returned as they are. The response header `x-ume-fallbacks` counts the extra attempts and
 `x-ume-rule` names the rule. Providers whose circuit breaker is open are moved last, so the fallback is tried before a known-broken primary.
+Only transient failures (timeouts, connection errors, 408, 409, 429, 5xx) count toward the circuit breaker; a provider configuration
+error (such as an upstream 401, 403 or 404) falls back to the next provider without opening the circuit.
 
 ### Example 2 (advanced): chats with personal data go to an on-prem model
 
@@ -114,7 +116,7 @@ changes the (disposable) test database only.
 
 The matching rule's targets are put in weighted-random order (so a 70/30 split sends about 70 % of
 requests to the first target), the remaining targets act as failover, and the fallbacks follow.
-Duplicates are removed. The existing failover behaviour is unchanged: retryable provider failures
+Duplicates are removed. The existing failover behaviour is unchanged: transient and provider-configuration failures
 move to the next candidate, and nothing is retried once streaming has started.
 
 ### Chaining

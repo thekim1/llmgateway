@@ -36,6 +36,8 @@ Cache behaviour:
   many requests arrive at the same time.
 - If Postgres is unavailable, the last catalogue snapshot keeps being served (previously requests failed once the TTL
   expired); keys that are already cached keep working.
+- Provider credentials are decrypted once per catalogue snapshot, not once per request or attempt.
+- Budget alert webhooks are sent from their own queue, so a slow receiver never holds up the usage writer.
 
 Streaming: each upstream SSE event is parsed only as far as needed (a forward-only scan for the text length; the usage
 chunk is parsed fully) and written straight into the response pipe with one flush per event, so tokens reach the client

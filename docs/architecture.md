@@ -33,8 +33,15 @@ isolating Redis to the gateway alone would break these control-plane functions.
 Bounded JSON request -> HMAC authentication -> key attachment policy -> model/endpoint authorization -> Redis
 rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
 budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
-Fallback occurs for retryable/provider-configuration failures, never after streaming
-has sent bytes. Unknown JSON fields pass through; model parameter rewrites are explicit.
+Fallback occurs for transient failures (408, 409, 429, 5xx, timeouts, connection errors, invalid JSON) and
+provider-configuration failures (upstream 401/403/404, plain HTTP in production, an undecryptable credential, an
+endpoint the provider type cannot serve), never after streaming has sent bytes. Only transient failures count
+toward the circuit breaker, so a misconfigured provider does not open its circuit. Unknown JSON fields pass through;
+model parameter rewrites are explicit.
+Every request that passes authentication ends in exactly one usage record: an unexpected exception after acceptance
+releases the budget reservation, is recorded (outcome `ProviderError`, error `internal_error`; an HTTP request is charged nothing, a live session what it
+used so far) and answers 500 `internal_error` if nothing was sent yet; a client abort is recorded as 499. A shared store that times out during accounting is
+logged and the usage record is still written; a record is dropped (and logged) only if the usage queue stays full for 10 s.
 Anthropic/OpenAI translation covers the implemented text/image/document/tool/streaming paths; content the Messages API
 cannot take (audio, other file types) is rejected with `unsupported_content` rather than dropped.
 
@@ -55,13 +62,32 @@ visible to conditions. The admin API (`/api/routing-rules`) audits every change 
 Budgets are calendar-aligned in Europe/Stockholm; persisted timestamps are UTC.
 Reservations atomically check every budget. Rotation shares predecessor budgets and
 spend, including grace-period keys. Redis counters rebuild from persisted usage on a
-cold start. Pricing uses effective-date USD rates and SEK exchange rates.
+cold start. Pricing uses effective-date USD rates and SEK exchange rates. While no USD exchange rate is in effect the
+gateway prices with `Gateway:FallbackSekPerUsd` (10), logs a warning on each catalogue load and reports its readiness
+check `exchange-rate` as Degraded.
 
 The bounded usage channel back-pressures requests. It is **not a durable queue**:
 process/host failure can lose unpersisted metadata and cold-start budget reconstruction
 can lag in-flight usage. Streaming estimates can differ from provider billing.
 Production financial assurance requires durable accounting/reconciliation and tested
 availability objectives; this POC must not be presented as exact invoicing.
+
+### Code layout
+
+- **Gateway.** `GatewayEndpoints` (Domain) is the one table of endpoint semantics: routing name, client and upstream
+  path, required capability, model kinds, and the audio, realtime and streaming flags. HTTP and realtime requests share
+  the pipeline stages in `GatewayRequestHandler` (routing, candidates, budget reservation, credentials, accounting).
+  `ProviderAuth`/`ProviderTransport` hold provider authentication and HTTP details, and `FailureKind` decides fallback
+  and circuit breaking. `/v1/models` and realtime input transcription models use the same eligibility rule as routing.
+- **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
+  ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the exchange rate, key
+  rotation lineage and budget spend queries used by both the gateway and the admin API.
+- **Admin API.** Endpoints are thin; logic sits in services (`RoutingRuleService`, `ProviderCatalogService`,
+  `BudgetAdminService`, `ConfigTransferService`, `OwnerScopeResolver`) with typed request/response contracts and
+  dedicated audit snapshots.
+- **ServiceDefaults.** `WebDefaults` (`ExitIfHealthProbeAsync`, `AddUmeWebDefaults`/`UseUmeWebDefaults`,
+  `UseUmeSecurityHeaders`) and `ApiExceptionHandler` with `ApiFaultException` give the admin API and Data API the same
+  JSON, problem responses, security headers and Swedish 500 message.
 
 ## Stored and transient data
 
