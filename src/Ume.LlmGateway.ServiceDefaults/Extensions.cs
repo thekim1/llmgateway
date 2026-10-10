@@ -64,6 +64,26 @@ public static class Extensions
         return builder;
     }
 
+    /// <summary>
+    /// Takes the standard resilience handler (retries, 30 s total timeout) that <see cref="AddServiceDefaults{TBuilder}"/> adds to
+    /// every client out of this client's pipeline, for calls that must not be repeated or that have their own timeout.
+    /// (RemoveAllResilienceHandlers is still experimental.)
+    /// </summary>
+    public static IHttpClientBuilder RemoveStandardResilienceHandler(this IHttpClientBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder.ConfigureAdditionalHttpMessageHandlers(static (handlers, _) =>
+        {
+            for (var i = handlers.Count - 1; i >= 0; i--)
+            {
+                if (handlers[i] is Microsoft.Extensions.Http.Resilience.ResilienceHandler)
+                {
+                    handlers.RemoveAt(i);
+                }
+            }
+        });
+    }
+
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Logging.AddOpenTelemetry(logging =>

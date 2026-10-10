@@ -35,7 +35,10 @@ builder.Services.AddOpenApi();
 builder.Services.AddAdminServices();
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-builder.Services.AddHttpClient("provider-discovery").ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) });
+// One attempt within discovery's own 20 s timeout: an admin testing a connection should not sit through retries.
+builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) })
+    .RemoveStandardResilienceHandler();
 builder.Services.AddRateLimiter(o =>
 {
     o.AddPolicy("admin", http => RateLimitPartition.GetFixedWindowLimiter(

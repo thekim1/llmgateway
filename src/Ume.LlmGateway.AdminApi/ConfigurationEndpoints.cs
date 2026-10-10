@@ -117,8 +117,9 @@ public static class ConfigurationEndpoints
         providers.MapPost("/{id:guid}/drain", async (Guid id, DrainRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await catalog.DrainAsync(user, id, input.Drained, ct)))
             .WithName("DrainProvider").WithSummary("Stops (or resumes) routing new requests to a provider");
-        providers.MapPost("/{id:guid}/discover-models", async (Guid id, ProviderCatalogService catalog, CredentialProtector protector, IHttpClientFactory clients, CancellationToken ct) =>
-            TypedResults.Ok(await ModelDiscovery.DiscoverAsync(await catalog.ProviderAsync(id, ct), clients.CreateClient("provider-discovery"), protector, ct)))
+        providers.MapPost("/{id:guid}/discover-models", async (Guid id, ProviderCatalogService catalog, CredentialProtector protector, IHttpClientFactory clients, IHostEnvironment environment, CancellationToken ct) =>
+            TypedResults.Ok(await ModelDiscovery.DiscoverAsync(await catalog.ProviderAsync(id, ct), clients.CreateClient(ModelDiscovery.HttpClientName), protector,
+                requireHttps: environment.IsProduction(), ct)))
             .WithName("DiscoverModels").WithSummary("Lists the models the provider offers");
         providers.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
         {

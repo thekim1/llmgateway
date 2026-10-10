@@ -41,9 +41,7 @@ builder.Services.AddSingleton<AuthFailureRecorder>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
 builder.Services.AddSingleton<GatewayRequestHandler>();
 // One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
-// (RemoveAllResilienceHandlers is still experimental, so the handler added by ConfigureHttpClientDefaults is taken out here.)
-builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout)
-    .ConfigureAdditionalHttpMessageHandlers(static (handlers, _) => AlertNotifier.RemoveResilienceHandlers(handlers));
+builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();
 builder.Services.AddHealthChecks().AddCheck<ExchangeRateHealthCheck>(ExchangeRateHealthCheck.Name);
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {

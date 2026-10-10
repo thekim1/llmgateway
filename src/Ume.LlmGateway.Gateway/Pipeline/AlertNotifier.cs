@@ -36,19 +36,6 @@ public sealed partial class AlertNotifier : BackgroundService
         _logger = logger;
     }
 
-    /// <summary>Takes the standard resilience handler (retries, 30 s total timeout) out of the alert client's pipeline.</summary>
-    public static void RemoveResilienceHandlers(IList<DelegatingHandler> handlers)
-    {
-        ArgumentNullException.ThrowIfNull(handlers);
-        for (var i = handlers.Count - 1; i >= 0; i--)
-        {
-            if (handlers[i] is Microsoft.Extensions.Http.Resilience.ResilienceHandler)
-            {
-                handlers.RemoveAt(i);
-            }
-        }
-    }
-
     /// <summary>Queues the alert for the webhook, if one is configured. Never waits.</summary>
     public void Enqueue(AlertEvent alert)
     {

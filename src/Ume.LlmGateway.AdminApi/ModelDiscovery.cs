@@ -27,6 +27,8 @@ public sealed record DiscoveredModel(
 /// </summary>
 public static partial class ModelDiscovery
 {
+    public const string HttpClientName = "provider-discovery";
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
     /// <summary>Models the gateway has no endpoint for (speech synthesis, images, video, moderation, chat with audio).</summary>
@@ -48,9 +50,13 @@ public static partial class ModelDiscovery
     [GeneratedRegex(@"^(o\d|gpt-5)", RegexOptions.IgnoreCase)]
     private static partial Regex ReasoningModel();
 
+    /// <param name="requireHttps">Only https base URLs (production), the same rule the gateway applies to provider calls.</param>
     public static async Task<DiscoveredModel[]> DiscoverAsync(
-        ProviderAccount provider, HttpClient http, CredentialProtector protector, CancellationToken ct)
+        ProviderAccount provider, HttpClient http, CredentialProtector protector, bool requireHttps, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(http);
+        ArgumentNullException.ThrowIfNull(protector);
         if (provider.Type == ProviderType.AzureOpenAI)
         {
             throw new ApiFaultException(400, "Azure OpenAI kan inte lista distributioner via API:et. Lägg till modellerna manuellt.");
@@ -59,37 +65,22 @@ public static partial class ModelDiscovery
         var anthropic = provider.Type == ProviderType.Anthropic;
         var ollama = provider.Type is ProviderType.Ollama or ProviderType.OllamaCloud;
         // Ollama's OpenAI-compatible base URL ends in /v1; model listing lives on the native /api.
-        // A query string on the base URL (Azure's api-version) goes after the path.
-        var query = provider.BaseUrl.IndexOf('?', StringComparison.Ordinal) is var q and >= 0 ? provider.BaseUrl[q..] : string.Empty;
-        var root = provider.BaseUrl[..(provider.BaseUrl.Length - query.Length)].TrimEnd('/');
-        if (ollama && root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        var baseUrl = ollama ? WithoutVersionSegment(provider.BaseUrl) : provider.BaseUrl;
+        var listUri = Build(baseUrl, ollama ? "api/tags" : "models");
+        if (anthropic)
         {
-            root = root[..^3];
+            listUri = WithQueryParameter(listUri, "limit=1000");
+        }
+        if (!ProviderTransport.IsPermitted(listUri, requireHttps))
+        {
+            throw new ApiFaultException(400, "Leverantörens adress måste använda https.");
         }
         var credential = protector.Unprotect(provider.EncryptedCredential);
 
-        HttpRequestMessage CreateRequest(HttpMethod method, string url)
+        HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)
         {
-            var request = new HttpRequestMessage(method, new Uri(url));
-            if (!string.IsNullOrEmpty(credential))
-            {
-                switch (provider.AuthMode)
-                {
-                    case ProviderAuthMode.Bearer:
-                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
-                        break;
-                    case ProviderAuthMode.ApiKeyHeader:
-                        request.Headers.TryAddWithoutValidation("api-key", credential);
-                        break;
-                    case ProviderAuthMode.XApiKeyHeader:
-                        request.Headers.TryAddWithoutValidation("x-api-key", credential);
-                        break;
-                }
-            }
-            if (anthropic)
-            {
-                request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicAdapter.ApiVersion);
-            }
+            var request = new HttpRequestMessage(method, uri);
+            ProviderAuth.Apply(request, provider, credential);
             return request;
         }
 
@@ -98,7 +89,7 @@ public static partial class ModelDiscovery
         JsonNode? body;
         try
         {
-            using var request = CreateRequest(HttpMethod.Get, ollama ? root + "/api/tags" + query : root + "/models" + (anthropic ? "?limit=1000" : query));
+            using var request = CreateRequest(HttpMethod.Get, listUri);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
@@ -129,7 +120,7 @@ public static partial class ModelDiscovery
 
         if (ollama)
         {
-            await EnrichOllamaAsync(items, http, CreateRequest, root, timeout.Token);
+            await EnrichOllamaAsync(items, http, CreateRequest, Build(baseUrl, "api/show"), timeout.Token);
         }
 
         var existing = provider.Deployments.Select(d => d.UpstreamModel).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -140,9 +131,34 @@ public static partial class ModelDiscovery
             .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary><paramref name="path"/> after the base URL's path; a query string on the base URL (Azure's api-version) is kept.</summary>
+    private static Uri Build(string baseUrl, string path)
+    {
+        try
+        {
+            return ProviderTransport.BuildUri(baseUrl, path);
+        }
+        catch (UriFormatException)
+        {
+            throw new ApiFaultException(400, "Leverantörens adress är ogiltig.");
+        }
+    }
+
+    /// <summary>The base URL without a trailing <c>/v1</c> path segment (its query string is kept).</summary>
+    private static string WithoutVersionSegment(string baseUrl)
+    {
+        var queryStart = baseUrl.IndexOf('?', StringComparison.Ordinal);
+        var path = (queryStart < 0 ? baseUrl : baseUrl[..queryStart]).TrimEnd('/');
+        var query = queryStart < 0 ? string.Empty : baseUrl[queryStart..];
+        return (path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? path[..^3] : path) + query;
+    }
+
+    private static Uri WithQueryParameter(Uri uri, string parameter) =>
+        new UriBuilder(uri) { Query = uri.Query.Length > 1 ? uri.Query[1..] + "&" + parameter : parameter }.Uri;
+
     /// <summary>Best effort: <c>/api/show</c> reports capabilities and context length per Ollama model.</summary>
     private static async Task EnrichOllamaAsync(
-        JsonArray items, HttpClient http, Func<HttpMethod, string, HttpRequestMessage> create, string root, CancellationToken ct)
+        JsonArray items, HttpClient http, Func<HttpMethod, Uri, HttpRequestMessage> create, Uri showUri, CancellationToken ct)
     {
         using var gate = new SemaphoreSlim(8);
         await Task.WhenAll(items.OfType<JsonObject>().Select(async item =>
@@ -155,7 +171,7 @@ public static partial class ModelDiscovery
             await gate.WaitAsync(ct);
             try
             {
-                using var request = create(HttpMethod.Post, root + "/api/show");
+                using var request = create(HttpMethod.Post, showUri);
                 request.Content = JsonContent.Create(new { model = name });
                 using var response = await http.SendAsync(request, ct);
                 if (!response.IsSuccessStatusCode || JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) is not JsonObject show)
