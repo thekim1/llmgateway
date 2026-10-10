@@ -174,19 +174,7 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
     private async Task<decimal> SpentFromDatabaseAsync(Budget budget, PeriodWindow window, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        var query = db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= window.Start && u.Timestamp < window.End);
-        var keyIds = budget.Scope == BudgetScope.VirtualKey
-            ? KeyRotation.Descendants(budget.ScopeId, await db.VirtualKeys.Where(k => k.RotatedToKeyId != null)
-                .ToDictionaryAsync(k => k.Id, k => k.RotatedToKeyId!.Value, cancellationToken)).ToArray()
-            : [];
-        query = budget.Scope switch
-        {
-            BudgetScope.Department => query.Where(u => u.DepartmentId == budget.ScopeId),
-            BudgetScope.Team => query.Where(u => u.TeamId == budget.ScopeId),
-            _ => query.Where(u => keyIds.Contains(u.VirtualKeyId)),
-        };
-        return await query.SumAsync(u => u.CostSek, cancellationToken);
+        return await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().SpentAsync(budget, window, cancellationToken);
     }
 
     public static long ToMicro(decimal sek) => (long)decimal.Round(sek * MicroPerSek, MidpointRounding.AwayFromZero);

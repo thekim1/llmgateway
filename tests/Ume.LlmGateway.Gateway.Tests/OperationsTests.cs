@@ -79,8 +79,7 @@ public sealed class OperationsTests(GatewayFixture fixture)
         };
         var fail = 1;
         var scopes = new OutageScopeFactory(fixture.Services, () => Volatile.Read(ref fail) == 1);
-        using var writer = new UsageWriter(scopes, fixture.Services.GetRequiredService<IHttpClientFactory>(),
-            fixture.Services.GetRequiredService<IOptionsMonitor<GatewayOptions>>(), TimeProvider.System,
+        using var writer = new UsageWriter(scopes, fixture.Services.GetRequiredService<AlertNotifier>(), TimeProvider.System,
             NullLogger<UsageWriter>.Instance, fixture.Services.GetRequiredService<GatewayMetrics>());
         await writer.StartAsync(TestContext.Current.CancellationToken);
         try

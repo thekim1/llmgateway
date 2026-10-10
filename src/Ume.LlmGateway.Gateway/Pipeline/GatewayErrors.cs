@@ -22,6 +22,9 @@ public static class GatewayErrorCodes
     public const string BudgetExceeded = "budget_exceeded";
     public const string AllProvidersFailed = "all_providers_failed";
     public const string ProviderRejected = "provider_rejected";
+
+    /// <summary>Unexpected failure inside the gateway after the request was accepted (it is accounted; nothing is charged).</summary>
+    public const string InternalError = "internal_error";
 }
 
 public static class GatewayErrors

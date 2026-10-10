@@ -104,6 +104,9 @@ public sealed record AppliedRule(Guid RuleId, string Name, string FromModel, str
 /// </summary>
 public sealed record RoutingDecision(IReadOnlyList<string> Models, IReadOnlyList<AppliedRule> Applied, bool ChainLimitReached)
 {
+    /// <summary>No rule applied: the request goes where it asked.</summary>
+    public static RoutingDecision Empty { get; } = new([], [], false);
+
     public bool Matched => Models.Count > 0;
 
     public string? PrimaryModel => Models.Count > 0 ? Models[0] : null;

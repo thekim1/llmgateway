@@ -48,16 +48,60 @@ public sealed class AudioUpload(byte[] pooled, int length, string fileName, stri
 
 public abstract class ProviderResult;
 
-/// <summary>Upstream failed before any byte was sent to the client. Retryable failures trigger fallback.</summary>
-public sealed class ProviderFailure(int statusCode, bool retryable, string reason, string? body = null, string? contentType = null) : ProviderResult
+/// <summary>Why a provider attempt failed, which decides what the gateway does next (see <see cref="ProviderFailure"/>).</summary>
+public enum FailureKind
 {
+    /// <summary>Overloaded, unreachable, timed out or answered garbage: try the next provider and count it against the circuit breaker.</summary>
+    Transient = 0,
+
+    /// <summary>Our configuration is wrong (upstream 401/403/404, plain HTTP in production, undecryptable credential): try the next provider.</summary>
+    ProviderConfig = 1,
+
+    /// <summary>The client's request is the problem (e.g. an invalid parameter): answer it, another provider would refuse it too.</summary>
+    ClientError = 2,
+
+    /// <summary>The provider type cannot serve this endpoint at all: try the next provider.</summary>
+    Unsupported = 3,
+}
+
+/// <summary>Upstream failed before any byte was sent to the client. <see cref="Kind"/> decides fallback and circuit breaking.</summary>
+public sealed class ProviderFailure(int statusCode, FailureKind kind, string reason, string? body = null, string? contentType = null) : ProviderResult
+{
+    /// <summary>Production refuses to send content or credentials over plain HTTP.</summary>
+    public static ProviderFailure HttpsRequired { get; } = new(503, FailureKind.ProviderConfig, "https_required");
+
+    /// <summary>The stored credential cannot be decrypted (Data Protection key ring missing?).</summary>
+    public static ProviderFailure CredentialUnavailable { get; } = new(500, FailureKind.ProviderConfig, "credential_unavailable");
+
+    public static ProviderFailure EndpointNotSupported { get; } = new(400, FailureKind.Unsupported, "endpoint_not_supported");
+
+    public static ProviderFailure Timeout { get; } = new(504, FailureKind.Transient, "timeout");
+
+    public static ProviderFailure InvalidJson { get; } = new(502, FailureKind.Transient, "invalid_json");
+
     public int StatusCode { get; } = statusCode;
-    public bool Retryable { get; } = retryable;
+    public FailureKind Kind { get; } = kind;
     public string Reason { get; } = reason;
     public string? Body { get; } = body;
     public string? ContentType { get; } = contentType;
 
-    public static bool IsRetryableStatus(int status) => status is 408 or 409 or 429 or >= 500;
+    /// <summary>Everything but a client error is worth another provider.</summary>
+    public bool CanFallBack => Kind != FailureKind.ClientError;
+
+    /// <summary>Only transient failures say something about the provider's health.</summary>
+    public bool CountsAgainstCircuit => Kind == FailureKind.Transient;
+
+    /// <summary>What an upstream HTTP error status means.</summary>
+    public static FailureKind KindForStatus(int status) => status switch
+    {
+        408 or 409 or 429 or >= 500 => FailureKind.Transient,
+        401 or 403 or 404 => FailureKind.ProviderConfig,
+        _ => FailureKind.ClientError,
+    };
+
+    /// <summary>A failure for an upstream HTTP error status, with the provider's error body when there is one.</summary>
+    public static ProviderFailure FromStatus(int status, string? body = null, string? contentType = null) =>
+        new(status, KindForStatus(status), $"http_{status}", body, contentType);
 }
 
 /// <summary>
@@ -297,4 +341,29 @@ public static class UsageParser
 
     internal static long Long(JsonNode? node) =>
         node is JsonValue v && v.TryGetValue<long>(out var n) ? n : 0;
+}
+
+/// <summary>
+/// The adapter for each provider type, decided once from the registered adapters (the first that can handle a type
+/// wins, in registration order), so the request path is an array access.
+/// </summary>
+public sealed class ProviderAdapterLookup
+{
+    private readonly IProviderAdapter?[] _byType;
+
+    public ProviderAdapterLookup(IEnumerable<IProviderAdapter> adapters)
+    {
+        ArgumentNullException.ThrowIfNull(adapters);
+        IProviderAdapter[] registered = [.. adapters];
+        _byType = new IProviderAdapter?[Enum.GetValues<ProviderType>().Max(t => (int)t) + 1];
+        for (var type = 0; type < _byType.Length; type++)
+        {
+            _byType[type] = registered.FirstOrDefault(a => a.CanHandle((ProviderType)type));
+        }
+    }
+
+    public IProviderAdapter Resolve(ProviderType type) =>
+        (uint)type < (uint)_byType.Length && _byType[(int)type] is { } adapter
+            ? adapter
+            : throw new InvalidOperationException($"No provider adapter handles provider type {type}.");
 }

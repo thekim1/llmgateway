@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Net.Http.Json;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
@@ -16,7 +14,10 @@ public sealed record UsageWork(UsageRecord Record, IReadOnlyList<AlertCandidate>
 
 /// <summary>
 /// Decouples request latency from database writes: usage metadata is queued in a bounded channel and written
-/// in batches. When the queue is full callers wait (back-pressure) rather than dropping billing data.
+/// in batches. When the queue is full callers wait (back-pressure) for a bounded time; a record that still cannot be
+/// queued then is dropped and logged by the caller (<c>GatewayRequestHandler</c>) rather than holding the request
+/// forever. A batch that fails to write is kept and retried, never dropped. Budget alerts are stored with the batch
+/// and handed to <see cref="AlertNotifier"/> once it has committed.
 /// </summary>
 public sealed partial class UsageWriter : BackgroundService
 {
@@ -28,17 +29,15 @@ public sealed partial class UsageWriter : BackgroundService
     });
 
     private readonly IServiceScopeFactory _scopes;
-    private readonly IHttpClientFactory _httpClients;
-    private readonly IOptionsMonitor<GatewayOptions> _options;
+    private readonly AlertNotifier _alerts;
     private readonly TimeProvider _time;
     private readonly ILogger<UsageWriter> _logger;
 
-    public UsageWriter(IServiceScopeFactory scopes, IHttpClientFactory httpClients, IOptionsMonitor<GatewayOptions> options, TimeProvider time, ILogger<UsageWriter> logger, GatewayMetrics metrics)
+    public UsageWriter(IServiceScopeFactory scopes, AlertNotifier alerts, TimeProvider time, ILogger<UsageWriter> logger, GatewayMetrics metrics)
     {
         ArgumentNullException.ThrowIfNull(metrics);
         _scopes = scopes;
-        _httpClients = httpClients;
-        _options = options;
+        _alerts = alerts;
         _time = time;
         _logger = logger;
         metrics.ObserveQueueDepth(() => _channel.Reader.Count);
@@ -51,6 +50,9 @@ public sealed partial class UsageWriter : BackgroundService
     public UsageWriterStatus Status => new(QueueDepth, Capacity, Volatile.Read(ref _inFlightRecords),
         Interlocked.Read(ref _lastWriteTicks) is > 0 and var ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null,
         Volatile.Read(ref _consecutiveFailures));
+
+    /// <summary>Queues the work if there is room right now (the usual case, without waiting or allocating).</summary>
+    public bool TryEnqueue(UsageWork work) => _channel.Writer.TryWrite(work);
 
     public ValueTask EnqueueAsync(UsageWork work, CancellationToken cancellationToken) =>
         _channel.Writer.WriteAsync(work, cancellationToken);
@@ -161,15 +163,22 @@ public sealed partial class UsageWriter : BackgroundService
 
         db.UsageRecords.AddRange(batch.Select(b => b.Record).Where(r => !persisted.Contains(r.Id)));
 
-        // Alerts: unique per (budget, period, threshold) – skip ones already raised.
-        var alerts = batch.SelectMany(b => b.Alerts).ToList();
+        // Alerts: unique per (budget, period, threshold) – skip ones already raised (one query for the whole batch).
         var newAlerts = new List<AlertEvent>();
-        foreach (var group in alerts.GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)))
+        var groups = batch.SelectMany(b => b.Alerts).GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)).ToList();
+        if (groups.Count > 0)
         {
-            var (budgetId, start, threshold) = group.Key;
-            var exists = await db.AlertEvents.AnyAsync(a => a.BudgetId == budgetId && a.PeriodStart == start && a.ThresholdPercent == threshold, cancellationToken);
-            if (!exists)
+            var budgetIds = groups.Select(g => g.Key.Id).Distinct().ToArray();
+            var starts = groups.Select(g => g.Key.Start).Distinct().ToArray();
+            var raised = (await db.AlertEvents.AsNoTracking()
+                    .Where(a => budgetIds.Contains(a.BudgetId) && starts.Contains(a.PeriodStart))
+                    .Select(a => new { a.BudgetId, a.PeriodStart, a.ThresholdPercent })
+                    .ToListAsync(cancellationToken))
+                .Select(a => (a.BudgetId, a.PeriodStart, a.ThresholdPercent))
+                .ToHashSet();
+            foreach (var group in groups.Where(g => !raised.Contains(g.Key)))
             {
+                var (budgetId, start, threshold) = group.Key;
                 var a = group.MaxBy(x => x.SpentSek)!;
                 newAlerts.Add(new AlertEvent
                 {
@@ -188,6 +197,13 @@ public sealed partial class UsageWriter : BackgroundService
         db.AlertEvents.AddRange(newAlerts);
         await db.SaveChangesAsync(cancellationToken);
 
+        // Committed: notify now. Should a later step fail, the retry finds these alerts stored and does not raise them again.
+        foreach (var alert in newAlerts)
+        {
+            LogBudgetAlert(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
+            _alerts.Enqueue(alert);
+        }
+
         // Last-used timestamps: at most one statement per key and minute, instead of one per batch.
         foreach (var keyGroup in batch.GroupBy(b => b.Record.VirtualKeyId))
         {
@@ -201,40 +217,6 @@ public sealed partial class UsageWriter : BackgroundService
                 .ExecuteUpdateAsync(s => s.SetProperty(k => k.LastUsedAt, last), cancellationToken);
             _lastUsedWritten[keyGroup.Key] = last;
         }
-
-        foreach (var alert in newAlerts)
-        {
-            LogBudgetAlert(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
-            await SendWebhookAsync(alert, cancellationToken);
-        }
-    }
-
-    private async Task SendWebhookAsync(AlertEvent alert, CancellationToken cancellationToken)
-    {
-        var url = _options.CurrentValue.AlertWebhookUrl;
-        if (url is null)
-        {
-            return;
-        }
-
-        try
-        {
-            using var client = _httpClients.CreateClient("alerts");
-            using var response = await client.PostAsJsonAsync(url, new
-            {
-                type = "budget_threshold",
-                scope = alert.Scope.ToString(),
-                scopeId = alert.ScopeId,
-                thresholdPercent = alert.ThresholdPercent,
-                spentSek = alert.SpentSek,
-                limitSek = alert.LimitSek,
-                periodStart = alert.PeriodStart,
-            }, cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            LogWebhookFailed(_logger, ex);
-        }
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write {Count} usage records ({ExceptionType}); retaining batch for retry")]
@@ -245,9 +227,6 @@ public sealed partial class UsageWriter : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Shutdown timed out with {Count} usage records unwritten")]
     private static partial void LogShutdownDropped(ILogger logger, int count);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Alert webhook failed")]
-    private static partial void LogWebhookFailed(ILogger logger, Exception ex);
 }
 
 /// <summary>OpenTelemetry metrics (no content, no key secrets; key prefix is not used as a tag to bound cardinality).</summary>
@@ -296,7 +275,7 @@ public sealed class GatewayMetrics
             { "endpoint", record.Endpoint.ToString() },
         };
         _requests.Add(1, tags);
-        if (record.Endpoint is GatewayEndpoint.Realtime or GatewayEndpoint.RealtimeTranslations)
+        if (GatewayEndpoints.Info(record.Endpoint).IsRealtime)
         {
             _sessionDuration.Record(record.LatencyMs / 1000d, tags); // a session's length is not request latency
         }

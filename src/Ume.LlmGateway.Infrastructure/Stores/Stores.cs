@@ -8,7 +8,11 @@ public readonly record struct RateLimitDecision(bool Allowed, int? RequestLimit,
     public static RateLimitDecision Unlimited { get; } = new(true, null, null, TimeSpan.Zero, null);
 }
 
-/// <summary>Per virtual key fixed-window (1 minute) limits on requests and tokens.</summary>
+/// <summary>
+/// Per virtual key fixed-window (1 minute) limits on requests and tokens. Like every store here, the Redis
+/// implementation is bounded by the multiplexer's timeouts and does not observe cancellation tokens (see
+/// <see cref="RedisRateLimiter"/>); in-memory implementations complete synchronously.
+/// </summary>
 public interface IRateLimiter
 {
     Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken);
@@ -25,7 +29,7 @@ public interface IRateLimiter
 public sealed record SpendCounter(string Key, long LimitMicroSek, TimeSpan TimeToLive)
 {
     public static string KeyFor(BudgetScope scope, Guid scopeId, BudgetPeriod period, DateTimeOffset periodStart) =>
-        $"ume:spend:{scope}:{scopeId:N}:{period}:{periodStart.ToUnixTimeSeconds()}";
+        RedisKeys.Spend(scope, scopeId, period, periodStart);
 }
 
 /// <summary>
@@ -39,7 +43,8 @@ public sealed record SpendReservation(int ExhaustedIndex, IReadOnlyList<long> Va
 
 /// <summary>
 /// Shared spend counters used for budget enforcement. Counters include in-flight reservations;
-/// reservations are reconciled to actual cost after the provider call.
+/// reservations are reconciled to actual cost after the provider call. The Redis implementation is bounded by the
+/// multiplexer's timeouts rather than the cancellation token.
 /// </summary>
 public interface ISpendLedger
 {
@@ -49,13 +54,10 @@ public interface ISpendLedger
     /// <summary>Seeds a missing counter. No-op if it already exists (another instance won the race).</summary>
     Task InitializeAsync(string key, long valueMicroSek, TimeSpan timeToLive, CancellationToken cancellationToken);
 
-    /// <summary>Atomically checks all counters are below their limit and adds the amount. Returns -1 on success, else the index of the exhausted counter.</summary>
-    Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken);
-
     /// <summary>
-    /// Like <see cref="TryReserveAsync"/>, in one round trip, but also returns each counter's value before the
-    /// reservation. Unless <paramref name="missingAsZero"/> is set, nothing is reserved when a counter is missing: the
-    /// result lists the missing counters so the caller can seed them and try again.
+    /// Atomically, in one round trip, checks every counter is below its limit with room for the amount and adds it, and
+    /// returns each counter's value before the reservation. Unless <paramref name="missingAsZero"/> is set, nothing is
+    /// reserved when a counter is missing: the result lists the missing counters so the caller can seed them and try again.
     /// </summary>
     Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken);
 
@@ -112,24 +114,40 @@ public sealed class CircuitBreakerOptions
     public TimeSpan BreakDuration { get; set; } = TimeSpan.FromSeconds(30);
 }
 
+/// <summary>The fixed one-minute window shared by the rate limiters.</summary>
+internal static class RateLimitWindow
+{
+    /// <summary>The current minute (Unix minutes) and the time left until it ends.</summary>
+    public static (long Minute, TimeSpan RetryAfter) Current(DateTimeOffset now)
+    {
+        var seconds = now.ToUnixTimeSeconds();
+        return (seconds / 60, TimeSpan.FromSeconds(60 - (seconds % 60)));
+    }
+
+    public static double TokenPercent(long used, int limit) => Math.Clamp(used * 100d / limit, 0d, 100d);
+}
+
 /// <summary>Single-instance implementations used in tests and when Redis is not configured.</summary>
 public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
 {
-    private readonly ConcurrentDictionary<string, long> _counters = new();
+    private readonly ConcurrentDictionary<Counter, long> _counters = new();
     private readonly Lock _lock = new();
+    private long _prunedMinute;
+
+    private readonly record struct Counter(Guid KeyId, long Minute, bool Tokens);
 
     public Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken)
     {
-        var (minute, retry) = Window(time.GetUtcNow());
+        var (minute, retry) = Window();
         lock (_lock)
         {
-            var tokens = _counters.GetValueOrDefault($"tok:{keyId}:{minute}");
+            var tokens = _counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true));
             if (tokensPerMinute is > 0 && tokens >= tokensPerMinute)
             {
                 return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0, retry, "tokens"));
             }
 
-            var requests = _counters.AddOrUpdate($"req:{keyId}:{minute}", 1, (_, v) => v + 1);
+            var requests = _counters.AddOrUpdate(new Counter(keyId, minute, Tokens: false), 1, (_, v) => v + 1);
             if (requestsPerMinute is > 0 && requests > requestsPerMinute)
             {
                 return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0, retry, "requests"));
@@ -142,8 +160,8 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
 
     public Task RecordTokensAsync(Guid keyId, long tokens, CancellationToken cancellationToken)
     {
-        var (minute, _) = Window(time.GetUtcNow());
-        _counters.AddOrUpdate($"tok:{keyId}:{minute}", tokens, (_, v) => v + tokens);
+        var (minute, _) = Window();
+        _counters.AddOrUpdate(new Counter(keyId, minute, Tokens: true), tokens, (_, v) => v + tokens);
         return Task.CompletedTask;
     }
 
@@ -154,16 +172,30 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
             return Task.FromResult<double?>(null);
         }
 
-        var (minute, _) = Window(time.GetUtcNow());
-        return Task.FromResult<double?>(TokenPercent(_counters.GetValueOrDefault($"tok:{keyId}:{minute}"), tokensPerMinute.Value));
+        var (minute, _) = Window();
+        return Task.FromResult<double?>(RateLimitWindow.TokenPercent(_counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true)), tokensPerMinute.Value));
     }
 
-    internal static double TokenPercent(long used, int limit) => Math.Clamp(used * 100d / limit, 0d, 100d);
+    /// <summary>Number of counters held (tests: old windows are dropped).</summary>
+    internal int Count => _counters.Count;
 
-    internal static (long Minute, TimeSpan RetryAfter) Window(DateTimeOffset now)
+    /// <summary>The current window; the first call in a new minute drops the counters of earlier ones.</summary>
+    private (long Minute, TimeSpan RetryAfter) Window()
     {
-        var seconds = now.ToUnixTimeSeconds();
-        return (seconds / 60, TimeSpan.FromSeconds(60 - (seconds % 60)));
+        var window = RateLimitWindow.Current(time.GetUtcNow());
+        if (Interlocked.Read(ref _prunedMinute) != window.Minute && Interlocked.Exchange(ref _prunedMinute, window.Minute) != window.Minute)
+        {
+            foreach (var counter in _counters.Keys)
+            {
+                // The previous minute is kept: tokens of a request that started in it may still be reported.
+                if (counter.Minute < window.Minute - 1)
+                {
+                    _counters.TryRemove(counter, out _);
+                }
+            }
+        }
+
+        return window;
     }
 }
 
@@ -247,9 +279,6 @@ public sealed class InMemorySpendLedger : ISpendLedger
 
         return Task.CompletedTask;
     }
-
-    public async Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken) =>
-        (await ReserveAsync(counters, amountMicroSek, missingAsZero: true, cancellationToken)).ExhaustedIndex;
 
     public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken)
     {

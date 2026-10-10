@@ -21,8 +21,8 @@ public sealed record RealtimeCall(
 public interface IRealtimeConnector
 {
     /// <summary>
-    /// The open socket, or a failure (retryable ones trigger fallback). Caller cancellation propagates as
-    /// <see cref="OperationCanceledException"/>; a provider that does not answer in time is a retryable 504.
+    /// The open socket, or a failure (its <see cref="ProviderFailure.Kind"/> decides fallback). Caller cancellation propagates as
+    /// <see cref="OperationCanceledException"/>; a provider that does not answer in time is a transient 504.
     /// </summary>
     Task<(WebSocket? Socket, ProviderFailure? Failure)> ConnectAsync(RealtimeCall call, CancellationToken cancellationToken);
 }
@@ -45,13 +45,13 @@ public sealed class RealtimeConnector(ProviderHttpClient http) : IRealtimeConnec
         ArgumentNullException.ThrowIfNull(call);
         if (call.Provider.Type == ProviderType.Anthropic)
         {
-            return (null, new ProviderFailure(400, true, "endpoint_not_supported"));
+            return (null, ProviderFailure.EndpointNotSupported);
         }
 
         var uri = BuildUri(call.Provider.BaseUrl, call.Endpoint, call.Deployment.UpstreamModel, call.Query);
-        if (http.RequireHttps && uri.Scheme != "wss")
+        if (!http.Permits(uri))
         {
-            return (null, new ProviderFailure(503, true, "https_required"));
+            return (null, ProviderFailure.HttpsRequired);
         }
 
         var socket = new ClientWebSocket();
@@ -62,24 +62,10 @@ public sealed class RealtimeConnector(ProviderHttpClient http) : IRealtimeConnec
             socket.Options.SetRequestHeader(name, value);
         }
 
-        if (!string.IsNullOrEmpty(call.Credential))
-        {
-            switch (call.Provider.AuthMode)
-            {
-                case ProviderAuthMode.Bearer:
-                    socket.Options.SetRequestHeader("Authorization", "Bearer " + call.Credential);
-                    break;
-                case ProviderAuthMode.ApiKeyHeader:
-                    socket.Options.SetRequestHeader("api-key", call.Credential);
-                    break;
-                case ProviderAuthMode.XApiKeyHeader:
-                    socket.Options.SetRequestHeader("x-api-key", call.Credential);
-                    break;
-            }
-        }
+        ProviderAuth.Apply(socket.Options, call.Provider, call.Credential);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(call.Provider.TimeoutSeconds, 1, 120)));
+        timeout.CancelAfter(ProviderTransport.RealtimeConnectTimeout(call.Provider));
         try
         {
             // The shared handler: same connection limits and TLS settings as the HTTP calls.
@@ -89,15 +75,15 @@ public sealed class RealtimeConnector(ProviderHttpClient http) : IRealtimeConnec
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             socket.Dispose();
-            return (null, new ProviderFailure(504, true, "timeout"));
+            return (null, ProviderFailure.Timeout);
         }
         catch (Exception ex) when (ex is WebSocketException or HttpRequestException)
         {
             var status = (int)socket.HttpStatusCode;
             socket.Dispose();
             return status is 0 or 101
-                ? (null, new ProviderFailure(502, true, $"connection_error:{(ex as WebSocketException)?.WebSocketErrorCode.ToString() ?? "http"}"))
-                : (null, new ProviderFailure(status, ProviderFailure.IsRetryableStatus(status), $"http_{status}"));
+                ? (null, new ProviderFailure(502, FailureKind.Transient, $"connection_error:{(ex as WebSocketException)?.WebSocketErrorCode.ToString() ?? "http"}"))
+                : (null, ProviderFailure.FromStatus(status));
         }
     }
 
@@ -109,7 +95,7 @@ public sealed class RealtimeConnector(ProviderHttpClient http) : IRealtimeConnec
     public static Uri BuildUri(string baseUrl, GatewayEndpoint endpoint, string upstreamModel, IReadOnlyList<KeyValuePair<string, string>> query)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var http = ProviderAdapterBase.BuildUri(baseUrl, endpoint == GatewayEndpoint.RealtimeTranslations ? "realtime/translations" : "realtime");
+        var http = ProviderTransport.BuildUri(baseUrl, ProviderTransport.UpstreamPath(endpoint));
         var builder = new UriBuilder(http) { Scheme = http.Scheme == Uri.UriSchemeHttp ? "ws" : "wss", Port = http.IsDefaultPort ? -1 : http.Port };
         var parts = new StringBuilder(http.Query.TrimStart('?'));
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

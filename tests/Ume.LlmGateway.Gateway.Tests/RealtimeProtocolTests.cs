@@ -118,6 +118,6 @@ public sealed class RealtimeProtocolTests
 
     [Fact]
     public void Http_paths_keep_a_query_string_on_the_base_url() =>
-        ProviderAdapterBase.BuildUri("https://res.openai.azure.com/openai?api-version=2025-04-01-preview", "chat/completions")
+        ProviderTransport.BuildUri("https://res.openai.azure.com/openai?api-version=2025-04-01-preview", "chat/completions")
             .ShouldBe(new Uri("https://res.openai.azure.com/openai/chat/completions?api-version=2025-04-01-preview"));
 }

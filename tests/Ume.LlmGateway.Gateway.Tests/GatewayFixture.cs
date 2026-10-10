@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ public sealed class GatewayFixture : IAsyncLifetime
     public CapturingLoggerProvider Logs { get; } = new();
     public IServiceProvider Services => _factory.Services;
     public Guid DepartmentId { get; private set; }
+    private readonly string _keyPepper = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)); // fixed, so derived gateways accept the same keys
     public string ProviderSecret { get; } = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     public async ValueTask InitializeAsync()
@@ -46,7 +48,7 @@ public sealed class GatewayFixture : IAsyncLifetime
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:gatewaydb", _postgres.GetConnectionString());
-            builder.UseSetting("Security:KeyPepper", Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+            builder.UseSetting("Security:KeyPepper", _keyPepper);
             builder.UseSetting("Gateway:KeyCacheSeconds", "0");
             builder.UseSetting("Gateway:CatalogCacheSeconds", "0");
             builder.UseSetting("Gateway:MaxRequestBodyBytes", "4096");
@@ -154,6 +156,10 @@ public sealed class GatewayFixture : IAsyncLifetime
         }
         Client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
     }
+
+    /// <summary>A second gateway on the same database and upstreams, with some services replaced. Dispose it.</summary>
+    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> configure) =>
+        _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(configure));
 
     private void Map(string model, ProviderType type, string behavior)
     {

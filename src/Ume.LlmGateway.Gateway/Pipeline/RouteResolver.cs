@@ -60,7 +60,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             return snapshot.Rules.Count > 0 ? new ModelResolution(null, null) : Reject(404, GatewayErrorCodes.ModelNotFound, NotFound(model));
         }
 
-        if (key.AllowedModels.Count > 0 && !key.AllowedModels.Contains(resolved.Name, StringComparer.OrdinalIgnoreCase))
+        if (!key.IsModelAllowed(resolved.Name))
         {
             return Reject(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(resolved.Name));
         }
@@ -71,7 +71,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             return Reject(403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda någon leverantör som tillhandahåller '{resolved.Name}'.");
         }
 
-        if (!IsCompatible(resolved.Kind, endpoint))
+        if (!GatewayEndpoints.Info(endpoint).Serves(resolved.Kind))
         {
             return Reject(400, GatewayErrorCodes.InvalidRequest, $"Modellen '{resolved.Name}' kan inte användas med denna endpoint.");
         }
@@ -102,15 +102,16 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
                 return Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel));
             }
 
-            if (key.AllowedModels.Count > 0 && !key.AllowedModels.Contains(entitled.Name, StringComparer.OrdinalIgnoreCase))
+            if (!key.IsModelAllowed(entitled.Name))
             {
                 return Rejected(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(entitled.Name));
             }
         }
 
+        var info = GatewayEndpoints.Info(endpoint);
         var models = decision.Models
             .Select(snapshot.Resolve)
-            .Where(m => m is not null && IsCompatible(m.Kind, endpoint))
+            .Where(m => m is not null && info.Serves(m.Kind))
             .Select(m => m!)
             .ToList();
         return models.Count > 0
@@ -173,32 +174,8 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
     private static HashSet<Guid> ProviderIds(IEnumerable<ResolvedModel> models) =>
         [.. models.SelectMany(m => m.Targets).Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId)];
 
-    /// <summary>The value of the <c>endpoint</c> variable in routing conditions.</summary>
-    public static string EndpointName(GatewayEndpoint endpoint) => endpoint switch
-    {
-        GatewayEndpoint.ChatCompletions => "chat_completions",
-        GatewayEndpoint.Embeddings => "embeddings",
-        GatewayEndpoint.Responses => "responses",
-        GatewayEndpoint.AnthropicMessages => "anthropic_messages",
-        GatewayEndpoint.AudioTranscriptions => "audio_transcriptions",
-        GatewayEndpoint.AudioTranslations => "audio_translations",
-        GatewayEndpoint.Realtime => "realtime",
-        GatewayEndpoint.RealtimeTranslations => "realtime_translations",
-        _ => endpoint.ToString().ToLowerInvariant(),
-    };
-
-    /// <summary>Which kinds of model an endpoint serves. Live transcription uses speech-to-text models on <c>/v1/realtime</c>.</summary>
-    public static bool IsCompatible(ModelKind kind, GatewayEndpoint endpoint) => endpoint switch
-    {
-        GatewayEndpoint.Embeddings => kind == ModelKind.Embedding,
-        GatewayEndpoint.AudioTranscriptions or GatewayEndpoint.AudioTranslations => kind == ModelKind.Transcription,
-        GatewayEndpoint.Realtime => kind is ModelKind.Realtime or ModelKind.Transcription,
-        GatewayEndpoint.RealtimeTranslations => kind == ModelKind.SpeechTranslation,
-        _ => kind == ModelKind.Chat,
-    };
-
     private static string NotFound(string model) =>
-        $"Modellen '{(model.Length > 200 ? model[..200] : model)}' finns inte. Se GET /v1/models för tillgängliga modeller.";
+        $"Modellen '{ModelNames.Truncate(model)}' finns inte. Se GET /v1/models för tillgängliga modeller.";
 
     private static string ModelNotAllowed(string name) => $"Nyckeln får inte använda modellen '{name}'.";
 

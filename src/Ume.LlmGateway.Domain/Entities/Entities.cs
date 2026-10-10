@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace Ume.LlmGateway.Domain.Entities;
 
 /// <summary>Förvaltning – top level of cost attribution.</summary>
@@ -99,6 +101,36 @@ public sealed class VirtualKey
     }
 
     public bool IsUsable(DateTimeOffset now) => GetStatus(now) is KeyStatus.Active or KeyStatus.InGracePeriod;
+
+    // Case-insensitive index of AllowedModels, built once by IndexAllowedModels for keys held in a read-only cache.
+    private FrozenSet<string>? _allowedModelIndex;
+    private List<string>? _indexedModels;
+    private int _indexedCount;
+
+    /// <summary>
+    /// Builds the lookup <see cref="IsModelAllowed"/> uses, so a cached key answers without allocating. Call once the key is
+    /// loaded for read-only use; if <see cref="AllowedModels"/> is replaced or resized afterwards the index is ignored.
+    /// </summary>
+    public void IndexAllowedModels()
+    {
+        _allowedModelIndex = AllowedModels.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _indexedModels = AllowedModels;
+        _indexedCount = AllowedModels.Count;
+    }
+
+    /// <summary>The key's model allow-list (route aliases and model names, case-insensitive). Empty = every model.</summary>
+    public bool IsModelAllowed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (AllowedModels.Count == 0)
+        {
+            return true;
+        }
+
+        return _allowedModelIndex is { } index && ReferenceEquals(_indexedModels, AllowedModels) && _indexedCount == AllowedModels.Count
+            ? index.Contains(name)
+            : AllowedModels.Contains(name, StringComparer.OrdinalIgnoreCase);
+    }
 }
 
 public sealed class ProviderAccount
@@ -132,16 +164,7 @@ public sealed class ProviderAccount
 
     public bool IsAvailable => IsEnabled && !IsDrained;
 
-    public bool Supports(GatewayEndpoint endpoint) => endpoint switch
-    {
-        GatewayEndpoint.ChatCompletions => Capabilities.HasFlag(ProviderCapabilities.ChatCompletions),
-        GatewayEndpoint.Embeddings => Capabilities.HasFlag(ProviderCapabilities.Embeddings),
-        GatewayEndpoint.Responses => Capabilities.HasFlag(ProviderCapabilities.Responses),
-        GatewayEndpoint.AnthropicMessages => Capabilities.HasFlag(ProviderCapabilities.AnthropicMessages),
-        GatewayEndpoint.AudioTranscriptions or GatewayEndpoint.AudioTranslations => Capabilities.HasFlag(ProviderCapabilities.AudioTranscriptions),
-        GatewayEndpoint.Realtime or GatewayEndpoint.RealtimeTranslations => Capabilities.HasFlag(ProviderCapabilities.Realtime),
-        _ => false,
-    };
+    public bool Supports(GatewayEndpoint endpoint) => GatewayEndpoints.Info(endpoint).IsSupportedBy(Capabilities);
 }
 
 /// <summary>A concrete model offered by a provider account.</summary>

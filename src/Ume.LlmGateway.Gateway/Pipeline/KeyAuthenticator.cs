@@ -163,6 +163,8 @@ public sealed class KeyAuthenticator : IDisposable
             return null;
         }
 
+        // Read-only from here on: the allow-list is indexed once instead of scanned on every request.
+        key.IndexAllowedModels();
         if (ttl > TimeSpan.Zero && !generation.IsCancellationRequested)
         {
             using var entry = _cache.CreateEntry(hash);

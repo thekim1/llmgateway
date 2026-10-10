@@ -61,24 +61,56 @@ public static class RouteSelector
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(constraints);
-        var deployment = target.ModelDeployment;
+        return IsEligible(target.ModelDeployment, constraints);
+    }
+
+    /// <summary>
+    /// The one eligibility rule: the deployment and its provider are enabled (and not drained), the provider serves the
+    /// endpoint, and the key's provider and residency allow-lists admit it.
+    /// </summary>
+    public static bool IsEligible(ModelDeployment? deployment, RoutingConstraints constraints)
+    {
+        ArgumentNullException.ThrowIfNull(constraints);
+        return IsUsable(deployment, constraints.AllowedResidencies, constraints.AllowedProviders) && deployment!.ProviderAccount!.Supports(constraints.Endpoint);
+    }
+
+    /// <summary>
+    /// Eligible for at least one endpoint that serves the deployment's kind: what <c>GET /v1/models</c> lists. The
+    /// endpoint in <paramref name="constraints"/> is not used.
+    /// </summary>
+    public static bool IsEligibleForAnyEndpoint(ModelDeployment? deployment, ModelKind kind, RoutingConstraints constraints)
+    {
+        ArgumentNullException.ThrowIfNull(constraints);
+        if (!IsUsable(deployment, constraints.AllowedResidencies, constraints.AllowedProviders))
+        {
+            return false;
+        }
+
+        foreach (var endpoint in GatewayEndpoints.ServingKind(kind))
+        {
+            if (deployment!.ProviderAccount!.Supports(endpoint))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUsable(ModelDeployment? deployment, IReadOnlyCollection<DataResidency>? residencies, IReadOnlyCollection<string>? providers)
+    {
         var provider = deployment?.ProviderAccount;
         if (deployment is null || provider is null || !deployment.IsEnabled || !provider.IsAvailable)
         {
             return false;
         }
 
-        if (!provider.Supports(constraints.Endpoint))
+        if (!IsProviderAllowed(provider, providers))
         {
             return false;
         }
 
-        if (!IsProviderAllowed(provider, constraints.AllowedProviders))
-        {
-            return false;
-        }
-
-        return constraints.AllowedResidencies is null || constraints.AllowedResidencies.Contains(provider.Residency);
+        return residencies is null || residencies.Contains(provider.Residency);
     }
 
     /// <summary>A key's provider allow-list: null or empty = any provider.</summary>

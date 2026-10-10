@@ -29,6 +29,13 @@ public sealed class GatewayOptions
     [Range(1024, 512L * 1024 * 1024)]
     public long MaxAudioRequestBodyBytes { get; set; } = 26 * 1024 * 1024;
 
+    /// <summary>
+    /// SEK per USD used to price requests only while no USD exchange rate has been entered (admin API, exchange rates).
+    /// Each catalogue load that uses it logs a warning, and the readiness check reports Degraded.
+    /// </summary>
+    [Range(typeof(decimal), "0.01", "1000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
+    public decimal FallbackSekPerUsd { get; set; } = 10m;
+
     /// <summary>Public documentation URL used in error responses.</summary>
     public string DocsUrl { get; set; } = "/scalar";
 
@@ -57,6 +64,9 @@ public sealed class RealtimeOptions
     /// <summary>How often a running session's cost is checked against its budgets (and its session slot renewed).</summary>
     [Range(1, 600)]
     public int BudgetCheckSeconds { get; set; } = 30;
+
+    /// <summary>How long a session's slot is held without renewal: a few missed checks, so slots of a crashed instance free themselves.</summary>
+    public TimeSpan SessionSlotLifetime => TimeSpan.FromSeconds(BudgetCheckSeconds * 3 + 30);
 
     /// <summary>Minutes of audio reserved against the budgets at a time: at connect, then again whenever the reservation runs low.</summary>
     [Range(1, 60)]
