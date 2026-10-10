@@ -121,7 +121,7 @@ public sealed partial class RealtimeRelay(
         {
             return RealtimeEndReason.Closed;
         }
-        catch (WebSocketException)
+        catch (Exception ex) when (ex is WebSocketException or IOException)
         {
             await CloseUpstreamAsync(WebSocketCloseStatus.NormalClosure, null);
             return RealtimeEndReason.ClientLost;
@@ -331,7 +331,7 @@ public sealed partial class RealtimeRelay(
                 await client.SendAsync(message, type, endOfMessage: true, ct);
             }
         }
-        catch (WebSocketException)
+        catch (Exception ex) when (ex is WebSocketException or IOException)
         {
             // The client is gone; its pump notices and ends the session.
         }

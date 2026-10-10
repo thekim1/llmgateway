@@ -6,7 +6,9 @@ namespace Ume.LlmGateway.Infrastructure.Stores;
 
 /// <summary>
 /// Redis-backed stores. Only counters, circuit flags and invalidation signals are stored – never prompt or
-/// response content, never key material. All keys are namespaced with <c>ume:</c>.
+/// response content, never key material. All keys are namespaced with <c>ume:</c> (see <see cref="RedisKeys"/>).
+/// Calls are bounded by the multiplexer's sync/async timeouts; cancellation tokens are not passed on (StackExchange.Redis
+/// cannot cancel a command once it is queued, and wrapping every call would cost an allocation on the request path).
 /// </summary>
 public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider time) : IRateLimiter
 {
@@ -28,11 +30,11 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
             return RateLimitDecision.Unlimited;
         }
 
-        var (minute, retry) = InMemoryRateLimiter.Window(time.GetUtcNow());
+        var (minute, retry) = RateLimitWindow.Current(time.GetUtcNow());
         var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(
             Script,
-            [$"ume:rl:req:{keyId:N}:{minute}", $"ume:rl:tok:{keyId:N}:{minute}"],
-            [requestsPerMinute ?? 0, tokensPerMinute ?? 0, 120]))!;
+            [RedisKeys.RateRequests(keyId, minute), RedisKeys.RateTokens(keyId, minute)],
+            [requestsPerMinute ?? 0, tokensPerMinute ?? 0, RedisKeys.RateWindowSeconds]))!;
 
         var status = (long)result[0];
         return status switch
@@ -51,11 +53,11 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
             return;
         }
 
-        var (minute, _) = InMemoryRateLimiter.Window(time.GetUtcNow());
-        var key = $"ume:rl:tok:{keyId:N}:{minute}";
+        var (minute, _) = RateLimitWindow.Current(time.GetUtcNow());
+        RedisKey key = RedisKeys.RateTokens(keyId, minute);
         var db = redis.GetDatabase();
         var increment = db.StringIncrementAsync(key, tokens);
-        _ = db.KeyExpireAsync(key, TimeSpan.FromSeconds(120), CommandFlags.FireAndForget); // pipelined after the INCRBY
+        _ = db.KeyExpireAsync(key, RedisKeys.RateWindow, CommandFlags.FireAndForget); // pipelined after the INCRBY
         await increment;
     }
 
@@ -66,9 +68,9 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
             return null;
         }
 
-        var (minute, _) = InMemoryRateLimiter.Window(time.GetUtcNow());
-        var used = await redis.GetDatabase().StringGetAsync($"ume:rl:tok:{keyId:N}:{minute}");
-        return InMemoryRateLimiter.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
+        var (minute, _) = RateLimitWindow.Current(time.GetUtcNow());
+        var used = await redis.GetDatabase().StringGetAsync(RedisKeys.RateTokens(keyId, minute));
+        return RateLimitWindow.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
     }
 }
 
@@ -107,7 +109,7 @@ public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, T
     public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) =>
         redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), sessionId);
 
-    private static RedisKey Key(Guid keyId) => $"ume:rt:{keyId:N}";
+    private static RedisKey Key(Guid keyId) => RedisKeys.RealtimeSessions(keyId);
 }
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
@@ -150,9 +152,6 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
     public Task InitializeAsync(string key, long valueMicroSek, TimeSpan timeToLive, CancellationToken cancellationToken) =>
         redis.GetDatabase().StringSetAsync(key, valueMicroSek, timeToLive, When.NotExists);
 
-    public async Task<int> TryReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, CancellationToken cancellationToken) =>
-        (await ReserveAsync(counters, amountMicroSek, missingAsZero: true, cancellationToken)).ExhaustedIndex;
-
     public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken)
     {
         if (counters.Count == 0)
@@ -187,7 +186,7 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
 
 public sealed partial class RedisInvalidationBus(IConnectionMultiplexer redis, ILogger<RedisInvalidationBus> logger) : IInvalidationBus
 {
-    private static readonly RedisChannel Channel = RedisChannel.Literal("ume:invalidate");
+    private static readonly RedisChannel Channel = RedisKeys.InvalidateChannel;
 
     public Task PublishAsync(InvalidationKind kind, CancellationToken cancellationToken) =>
         redis.GetSubscriber().PublishAsync(Channel, kind.ToString());
@@ -229,8 +228,8 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
         return 0
         """;
 
-    private static string OpenKey(Guid id) => $"ume:circuit:{id:N}";
-    private static string FailKey(Guid id) => $"ume:circuit-fail:{id:N}";
+    private static RedisKey OpenKey(Guid id) => RedisKeys.CircuitOpen(id);
+    private static RedisKey FailKey(Guid id) => RedisKeys.CircuitFailures(id);
 
     public async Task<IReadOnlySet<Guid>> GetOpenAsync(IReadOnlyCollection<Guid> providerIds, CancellationToken cancellationToken)
     {
@@ -240,7 +239,7 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
         }
 
         var ids = providerIds.ToArray();
-        var values = await redis.GetDatabase().StringGetAsync([.. ids.Select(id => (RedisKey)OpenKey(id))]);
+        var values = await redis.GetDatabase().StringGetAsync([.. ids.Select(OpenKey)]);
         return ids.Where((_, i) => values[i].HasValue).ToHashSet();
     }
 

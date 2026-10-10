@@ -206,8 +206,8 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         var ledger = fixture.GatewayServices.GetRequiredService<ISpendLedger>();
         ledger.ShouldBeOfType<RedisSpendLedger>();
         var counter = new SpendCounter("ume:integration:" + Guid.NewGuid().ToString("N"), 1000, TimeSpan.FromMinutes(1));
-        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => ledger.TryReserveAsync([counter], 100, Cancellation)));
-        results.Count(r => r == -1).ShouldBe(10);
+        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => ledger.ReserveAsync([counter], 100, missingAsZero: true, Cancellation)));
+        results.Count(r => r.Reserved).ShouldBe(10);
         (await ledger.GetAsync([counter.Key], Cancellation))[0].ShouldBe(1000);
     }
 

@@ -130,9 +130,6 @@ public static class InfrastructureExtensions
         return services;
     }
 
-    public static IProviderAdapter Resolve(this IEnumerable<IProviderAdapter> adapters, Domain.ProviderType type) =>
-        adapters.First(a => a.CanHandle(type));
-
     /// <summary>Helper exposed for reuse by the seeding worker.</summary>
     public static VirtualKeyHasher CreateKeyHasher(IConfiguration configuration)
     {

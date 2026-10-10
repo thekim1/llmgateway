@@ -30,11 +30,14 @@ public sealed class ProviderHttpClient : IDisposable
     {
         RequireHttps = requireHttps;
         Client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        Client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Ume-LlmGateway", "0.1"));
+        Client.DefaultRequestHeaders.UserAgent.Add(ProviderTransport.UserAgent);
     }
 
     public HttpClient Client { get; }
     internal bool RequireHttps { get; }
+
+    /// <summary>Whether content and credentials may be sent to <paramref name="uri"/> (production: only over TLS).</summary>
+    internal bool Permits(Uri uri) => ProviderTransport.IsPermitted(uri, RequireHttps);
 
     public void Dispose() => Client.Dispose();
 }
@@ -47,57 +50,10 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
 
     public abstract Task<ProviderResult> SendAsync(ProviderCall call, CancellationToken cancellationToken);
 
-    protected static string PathFor(GatewayEndpoint endpoint) => endpoint switch
-    {
-        GatewayEndpoint.ChatCompletions => "chat/completions",
-        GatewayEndpoint.Embeddings => "embeddings",
-        GatewayEndpoint.Responses => "responses",
-        GatewayEndpoint.AnthropicMessages => "messages",
-        GatewayEndpoint.AudioTranscriptions => "audio/transcriptions",
-        GatewayEndpoint.AudioTranslations => "audio/translations",
-        _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
-    };
-
-    /// <summary>
-    /// <paramref name="path"/> appended to the base URL's path. A query string on the base URL (e.g. Azure's
-    /// <c>api-version</c>) is kept after it.
-    /// </summary>
-    public static Uri BuildUri(string baseUrl, string path)
-    {
-        ArgumentNullException.ThrowIfNull(baseUrl);
-        var query = baseUrl.IndexOf('?', StringComparison.Ordinal);
-        return query < 0
-            ? new Uri(baseUrl.TrimEnd('/') + "/" + path)
-            : new Uri(baseUrl[..query].TrimEnd('/') + "/" + path + baseUrl[query..]);
-    }
-
-    protected virtual void ApplyHeaders(HttpRequestMessage request, ProviderCall call)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(call);
-        if (string.IsNullOrEmpty(call.Credential))
-        {
-            return;
-        }
-
-        switch (call.Provider.AuthMode)
-        {
-            case ProviderAuthMode.Bearer:
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", call.Credential);
-                break;
-            case ProviderAuthMode.ApiKeyHeader:
-                request.Headers.TryAddWithoutValidation("api-key", call.Credential);
-                break;
-            case ProviderAuthMode.XApiKeyHeader:
-                request.Headers.TryAddWithoutValidation("x-api-key", call.Credential);
-                break;
-        }
-    }
-
     /// <summary>
     /// Sends the request and returns either the (successful) response with headers read, or a failure.
     /// Caller cancellation propagates as <see cref="OperationCanceledException"/>; provider timeouts become a
-    /// retryable 504 failure.
+    /// transient 504 failure.
     /// </summary>
     protected Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
         Uri uri, JsonObject body, ProviderCall call, CancellationTokenSource timeout, CancellationToken cancellationToken)
@@ -114,9 +70,9 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         ArgumentNullException.ThrowIfNull(timeout);
         ArgumentNullException.ThrowIfNull(call);
         using var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = content };
-        if (http.RequireHttps && uri.Scheme != Uri.UriSchemeHttps)
+        if (!http.Permits(uri))
         {
-            return (null, new ProviderFailure(503, true, "https_required"));
+            return (null, ProviderFailure.HttpsRequired);
         }
 
         if (call.Stream)
@@ -124,7 +80,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         }
 
-        ApplyHeaders(request, call);
+        ProviderAuth.Apply(request, call.Provider, call.Credential);
 
         HttpResponseMessage response;
         try
@@ -133,11 +89,11 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return (null, new ProviderFailure(504, true, "timeout"));
+            return (null, ProviderFailure.Timeout);
         }
         catch (HttpRequestException ex)
         {
-            return (null, new ProviderFailure(502, true, $"connection_error:{ex.HttpRequestError}"));
+            return (null, new ProviderFailure(502, FailureKind.Transient, $"connection_error:{ex.HttpRequestError}"));
         }
 
         if (response.IsSuccessStatusCode)
@@ -157,8 +113,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
             }
 
             var status = (int)response.StatusCode;
-            return (null, new ProviderFailure(status, ProviderFailure.IsRetryableStatus(status), $"http_{status}",
-                errorBody, response.Content.Headers.ContentType?.ToString()));
+            return (null, ProviderFailure.FromStatus(status, errorBody, response.Content.Headers.ContentType?.ToString()));
         }
     }
 
@@ -177,7 +132,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new ProviderFailure(504, true, "timeout");
+            return ProviderFailure.Timeout;
         }
 
         try
@@ -188,7 +143,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         catch (JsonException)
         {
             System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-            return new ProviderFailure(502, true, "invalid_json");
+            return ProviderFailure.InvalidJson;
         }
     }
 
@@ -196,7 +151,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
     {
         ArgumentNullException.ThrowIfNull(call);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(call.Provider.TimeoutSeconds, 1, 900)));
+        cts.CancelAfter(ProviderTransport.RequestTimeout(call.Provider));
         return cts;
     }
 
@@ -231,7 +186,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         ArgumentNullException.ThrowIfNull(call);
         if (call.Endpoint == GatewayEndpoint.AnthropicMessages)
         {
-            return new ProviderFailure(400, true, "endpoint_not_supported");
+            return ProviderFailure.EndpointNotSupported;
         }
 
         if (call.Audio is not null)
@@ -240,7 +195,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         }
 
         var timeout = CreateTimeout(call, cancellationToken);
-        var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, PathFor(call.Endpoint)), call.Body, call, timeout, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), call.Body, call, timeout, cancellationToken);
         if (failure is not null)
         {
             timeout.Dispose();
@@ -272,7 +227,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
     {
         var audio = call.Audio!;
         var timeout = CreateTimeout(call, cancellationToken);
-        var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, PathFor(call.Endpoint)), AudioForm(call.Body, audio), call, timeout, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), AudioForm(call.Body, audio), call, timeout, cancellationToken);
         if (failure is not null)
         {
             timeout.Dispose();
@@ -298,7 +253,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return new ProviderFailure(504, true, "timeout");
+                return ProviderFailure.Timeout;
             }
 
             var json = contentType?.MediaType is null or "application/json" || contentType.MediaType.EndsWith("+json", StringComparison.Ordinal);
@@ -313,7 +268,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
                 catch (JsonException)
                 {
                     System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-                    return new ProviderFailure(502, true, "invalid_json");
+                    return ProviderFailure.InvalidJson;
                 }
             }
 

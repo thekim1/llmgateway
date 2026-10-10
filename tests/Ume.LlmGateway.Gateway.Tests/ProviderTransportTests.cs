@@ -19,7 +19,9 @@ public sealed class ProviderTransportTests
             new JsonObject { ["model"] = "test" }, false, null, false);
         var failure = (await adapter.SendAsync(call, TestContext.Current.CancellationToken)).ShouldBeOfType<ProviderFailure>();
         failure.Reason.ShouldBe("https_required");
-        failure.Retryable.ShouldBeTrue();
+        failure.Kind.ShouldBe(FailureKind.ProviderConfig);
+        failure.CanFallBack.ShouldBeTrue();
+        failure.CountsAgainstCircuit.ShouldBeFalse();
     }
 
     private sealed class RejectSendHandler : HttpMessageHandler

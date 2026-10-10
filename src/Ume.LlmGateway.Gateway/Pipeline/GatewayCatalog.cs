@@ -20,7 +20,8 @@ public sealed class CatalogSnapshot
         DateTimeOffset loadedAt,
         IReadOnlyDictionary<Guid, Guid>? keyReplacements = null,
         RoutingRuleSet? rules = null,
-        IReadOnlyList<RuleBuildError>? ruleErrors = null)
+        IReadOnlyList<RuleBuildError>? ruleErrors = null,
+        bool usesFallbackRate = false)
     {
         Providers = providers;
         Routes = routes.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
@@ -32,6 +33,7 @@ public sealed class CatalogSnapshot
         _previousKeys = KeyRotation.PreviousKeys(KeyReplacements);
         Rules = rules ?? RoutingRuleSet.Empty;
         RuleErrors = ruleErrors ?? [];
+        UsesFallbackRate = usesFallbackRate;
     }
 
     public IReadOnlyList<ProviderAccount> Providers { get; }
@@ -39,6 +41,10 @@ public sealed class CatalogSnapshot
     public IReadOnlyDictionary<string, ModelDeployment> Deployments { get; }
     public ILookup<(BudgetScope Scope, Guid ScopeId), Budget> Budgets { get; }
     public decimal SekPerUsd { get; }
+
+    /// <summary>No USD exchange rate was in effect: <see cref="SekPerUsd"/> is <c>Gateway:FallbackSekPerUsd</c>.</summary>
+    public bool UsesFallbackRate { get; }
+
     public DateTimeOffset LoadedAt { get; }
     public IReadOnlyDictionary<Guid, Guid> KeyReplacements { get; }
 
@@ -51,6 +57,9 @@ public sealed class CatalogSnapshot
     public RoutingRuleSet Rules { get; }
 
     public IReadOnlyList<RuleBuildError> RuleErrors { get; }
+
+    /// <summary>Decrypted provider credentials, cached for this snapshot's lifetime (see <see cref="ProviderCredentials"/>).</summary>
+    internal ProviderCredentials Credentials { get; } = new();
 
     /// <summary>Resolves a requested model name to candidate targets: a route alias, or a concrete deployment.</summary>
     public ResolvedModel? Resolve(string model)
@@ -116,7 +125,7 @@ public sealed partial class GatewayCatalog : IDisposable
     {
         var current = _snapshot;
         var ttl = TimeSpan.FromSeconds(_options.CurrentValue.CatalogCacheSeconds);
-        if (current is not null && _time.GetUtcNow() - current.LoadedAt < ttl)
+        if (current is not null && IsFresh(current, ttl))
         {
             return current;
         }
@@ -131,7 +140,7 @@ public sealed partial class GatewayCatalog : IDisposable
         try
         {
             current = _snapshot;
-            if (current is not null && _time.GetUtcNow() - current.LoadedAt < ttl)
+            if (current is not null && IsFresh(current, ttl))
             {
                 return current;
             }
@@ -143,6 +152,10 @@ public sealed partial class GatewayCatalog : IDisposable
             _lock.Release();
         }
     }
+
+    /// <summary>A TTL of 0 never serves from cache, even if the wall clock steps backwards (age below zero).</summary>
+    private bool IsFresh(CatalogSnapshot snapshot, TimeSpan ttl) =>
+        ttl > TimeSpan.Zero && _time.GetUtcNow() - snapshot.LoadedAt < ttl;
 
     private async Task<CatalogSnapshot> LoadAndCacheAsync(CancellationToken cancellationToken)
     {
@@ -195,6 +208,12 @@ public sealed partial class GatewayCatalog : IDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "Background catalogue refresh failed; serving the previous snapshot")]
     private static partial void LogRefreshFailed(ILogger logger, Exception ex);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No {Currency} exchange rate is in effect; costs are calculated with Gateway:FallbackSekPerUsd = {SekPerUsd}. Enter a rate in the admin API.")]
+    private static partial void LogFallbackRate(ILogger logger, string currency, decimal sekPerUsd);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Routing rule '{Rule}' ({RuleId}) is ignored: {Error}")]
+    private static partial void LogRuleIgnored(ILogger logger, string rule, Guid ruleId, string error);
+
     private async Task<CatalogSnapshot> LoadAsync(CancellationToken cancellationToken)
     {
         await using var scope = _scopes.CreateAsyncScope();
@@ -206,14 +225,13 @@ public sealed partial class GatewayCatalog : IDisposable
         var routes = await db.RouteAliases.AsNoTracking().Include(r => r.Targets).ToListAsync(cancellationToken);
         var budgets = await db.Budgets.AsNoTracking().Where(b => b.IsActive).ToListAsync(cancellationToken);
         var ruleEntities = await db.RoutingRules.AsNoTracking().Include(r => r.Targets).ToListAsync(cancellationToken);
-        var replacements = await db.VirtualKeys.AsNoTracking().Where(k => k.RotatedToKeyId != null)
-            .ToDictionaryAsync(k => k.Id, k => k.RotatedToKeyId!.Value, cancellationToken);
+        var replacements = await db.KeyRotationMapAsync(cancellationToken);
         var now = _time.GetUtcNow();
-        var rate = await db.ExchangeRates.AsNoTracking()
-            .Where(r => r.Currency == "USD" && r.EffectiveFrom <= now)
-            .OrderByDescending(r => r.EffectiveFrom)
-            .Select(r => (decimal?)r.SekPerUnit)
-            .FirstOrDefaultAsync(cancellationToken) ?? 10m;
+        var rate = (await db.CurrentRateAsync(now, cancellationToken))?.SekPerUnit;
+        if (rate is null)
+        {
+            LogFallbackRate(_logger, GatewayQueries.PriceCurrency, _options.CurrentValue.FallbackSekPerUsd);
+        }
 
         // Wire navigation properties across the separately loaded graphs.
         var deployments = new Dictionary<Guid, ModelDeployment>();
@@ -240,10 +258,11 @@ public sealed partial class GatewayCatalog : IDisposable
         var (rules, ruleErrors) = RoutingRuleSet.Build(ruleEntities.Select(r => r.ToDefinition()));
         foreach (var error in ruleErrors)
         {
-            _logger.LogWarning("Routing rule '{Rule}' ({RuleId}) is ignored: {Error}", error.RuleName, error.RuleId, error.Message);
+            LogRuleIgnored(_logger, error.RuleName, error.RuleId, error.Message);
         }
 
-        return new CatalogSnapshot(providers, routes, budgets, rate, now, replacements, rules, ruleErrors);
+        return new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
+            usesFallbackRate: rate is null);
     }
 
     public void Dispose()

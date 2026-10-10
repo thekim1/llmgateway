@@ -339,7 +339,7 @@ public sealed class RealtimeEventPolicy(
             if (resolveTranscriptionModel(requested) is not { } deployment)
             {
                 return new RealtimeRejection(GatewayErrorCodes.ModelNotAllowed,
-                    $"Transkriberingsmodellen '{(requested.Length > 200 ? requested[..200] : requested)}' finns inte hos sessionens leverantör eller får inte användas med nyckeln. Ange ett tal till text-alias från GET /v1/models.");
+                    $"Transkriberingsmodellen '{ModelNames.Truncate(requested)}' finns inte hos sessionens leverantör eller får inte användas med nyckeln. Ange ett tal till text-alias från GET /v1/models.");
             }
 
             t["model"] = deployment.UpstreamModel;

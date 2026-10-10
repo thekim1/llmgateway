@@ -10,16 +10,10 @@ namespace Ume.LlmGateway.Infrastructure.Providers;
 /// </summary>
 public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time) : ProviderAdapterBase(http)
 {
+    /// <summary>Sent as <c>anthropic-version</c> by <see cref="ProviderAuth"/>.</summary>
     public const string ApiVersion = "2023-06-01";
 
     public override bool CanHandle(ProviderType type) => type == ProviderType.Anthropic;
-
-    protected override void ApplyHeaders(HttpRequestMessage request, ProviderCall call)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        base.ApplyHeaders(request, call);
-        request.Headers.TryAddWithoutValidation("anthropic-version", ApiVersion);
-    }
 
     public override async Task<ProviderResult> SendAsync(ProviderCall call, CancellationToken cancellationToken)
     {
@@ -27,7 +21,7 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         var translate = call.Endpoint == GatewayEndpoint.ChatCompletions;
         if (!translate && call.Endpoint != GatewayEndpoint.AnthropicMessages)
         {
-            return new ProviderFailure(400, true, "endpoint_not_supported");
+            return ProviderFailure.EndpointNotSupported;
         }
 
         JsonObject body;
@@ -39,16 +33,16 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         {
             // The client's content, not the provider, is the problem: answer 400 without touching circuit health.
             var error = new JsonObject { ["error"] = new JsonObject { ["message"] = ex.Message, ["type"] = "invalid_request_error", ["code"] = "unsupported_content" } };
-            return new ProviderFailure(400, false, "unsupported_content", error.ToJsonString(), "application/json");
+            return new ProviderFailure(400, FailureKind.ClientError, "unsupported_content", error.ToJsonString(), "application/json");
         }
 
         var timeout = CreateTimeout(call, cancellationToken);
-        var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, "messages"), body, call, timeout, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(GatewayEndpoint.AnthropicMessages)), body, call, timeout, cancellationToken);
         if (failure is not null)
         {
             timeout.Dispose();
             return translate && failure.Body is not null
-                ? new ProviderFailure(failure.StatusCode, failure.Retryable, failure.Reason, AnthropicTranslator.ToOpenAIError(failure.Body), "application/json")
+                ? new ProviderFailure(failure.StatusCode, failure.Kind, failure.Reason, AnthropicTranslator.ToOpenAIError(failure.Body), "application/json")
                 : failure;
         }
 

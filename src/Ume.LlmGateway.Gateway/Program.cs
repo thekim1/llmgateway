@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.Domain;
@@ -31,12 +32,19 @@ builder.Services.AddSingleton<GatewayCatalog>();
 builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
 builder.Services.AddSingleton<BudgetService>();
 builder.Services.AddSingleton<GatewayMetrics>();
+// Registered before the usage writer so it stops after it: alerts raised while the writer drains are still sent.
+builder.Services.AddSingleton<AlertNotifier>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AlertNotifier>());
 builder.Services.AddSingleton<UsageWriter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UsageWriter>());
 builder.Services.AddSingleton<AuthFailureRecorder>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
 builder.Services.AddSingleton<GatewayRequestHandler>();
-builder.Services.AddHttpClient("alerts");
+// One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
+// (RemoveAllResilienceHandlers is still experimental, so the handler added by ConfigureHttpClientDefaults is taken out here.)
+builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout)
+    .ConfigureAdditionalHttpMessageHandlers(static (handlers, _) => AlertNotifier.RemoveResilienceHandlers(handlers));
+builder.Services.AddHealthChecks().AddCheck<ExchangeRateHealthCheck>(ExchangeRateHealthCheck.Name);
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
     doc.Info.Title = "Umeå kommun LLM Gateway";
@@ -44,12 +52,12 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
     return Task.CompletedTask;
 }));
 
-var maxBody = builder.Configuration.GetValue<long?>($"{GatewayOptions.SectionName}:{nameof(GatewayOptions.MaxRequestBodyBytes)}") ?? new GatewayOptions().MaxRequestBodyBytes;
-builder.WebHost.ConfigureKestrel(k =>
+// From the validated options, so Kestrel's limit and the gateway's own body check never disagree.
+builder.Services.AddOptions<KestrelServerOptions>().Configure<IOptions<GatewayOptions>>((kestrel, gateway) =>
 {
-    k.AddServerHeader = false;
-    k.Limits.MaxRequestBodySize = maxBody;
-    k.Limits.MaxRequestHeadersTotalSize = 32 * 1024;
+    kestrel.AddServerHeader = false;
+    kestrel.Limits.MaxRequestBodySize = gateway.Value.MaxRequestBodyBytes;
+    kestrel.Limits.MaxRequestHeadersTotalSize = 32 * 1024;
 });
 
 var app = builder.Build();
@@ -134,9 +142,6 @@ v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) 
 v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
     .WithSummary("Modeller och alias som nyckeln får använda")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-// Fail fast on invalid configuration (e.g. missing key pepper) with an actionable message.
-_ = app.Services.GetRequiredService<IOptions<GatewayOptions>>().Value;
 
 await app.RunAsync();
 
