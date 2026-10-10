@@ -58,6 +58,13 @@ public sealed class GatewayHost : IAsyncDisposable
     private async Task InitializeAsync()
     {
         await Task.WhenAll(_postgres.StartAsync(), _redis?.StartAsync() ?? Task.CompletedTask);
+
+        // Migrate before the host starts: it loads the Data Protection key ring from the database on start-up.
+        await using (var migrator = new GatewayDbContext(new DbContextOptionsBuilder<GatewayDbContext>().UseNpgsql(_postgres.GetConnectionString()).Options))
+        {
+            await migrator.Database.MigrateAsync();
+        }
+
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -85,7 +92,6 @@ public sealed class GatewayHost : IAsyncDisposable
         using (var scope = Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            await db.Database.MigrateAsync();
             var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();
             Key = await SeedAsync(db, scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>(), name => $"http://{name}.upstream/v1", "bench", protector.Protect("upstream-secret"));
         }

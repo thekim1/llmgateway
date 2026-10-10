@@ -127,6 +127,24 @@ saturates the machine, so the tail reflects CPU contention in this setup more th
 Unchanged and already cheap: body parsing (0.5 µs for 0.5 KB, 47 µs for 64 KB), per-attempt rewrite and serialisation,
 route selection (1.1 µs) and key hashing (0.9 µs).
 
+### Release cleanup check (2026-10-10)
+
+The architecture/DRY cleanup before the first release (see the changelog) was checked against commit `1f38195` on the
+same machine, run back to back. Same requests, same external calls: 0 Postgres statements on the request path and
+9 Redis commands per request in both, and the same 9 statements per cache miss.
+
+| Benchmark | Before | After |
+|---|---:|---:|
+| `POST /v1/chat/completions`, in-memory stores | 340 μs ± 116, 69.9 KB | **204 μs ± 16**, 68.8 KB |
+| `POST /v1/chat/completions`, Redis | 1,725 μs ± 210, 85.7 KB | **1,524 μs ± 31**, 85.2 KB |
+| Chat stream (300 chunks), in-memory / Redis | 758 / 2,021 μs | 754 / 1,953 μs |
+| Embeddings (16×1536), in-memory / Redis | 1,041 / 2,438 μs | 1,003 / 2,321 μs |
+| Provider leg, request parsing, routing | | unchanged (within ±2 %, same allocations) |
+| Load test, 64 streaming clients, 4 runs each | 7,214–7,895 req/s (mean 7,530) | 7,112–7,658 req/s (mean 7,435) |
+
+The steadier chat time comes mainly from caching decrypted provider credentials per catalogue snapshot instead of
+decrypting them on every attempt. The load-test difference is within run-to-run noise.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
