@@ -1,17 +1,16 @@
-using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.AdminApi;
 using Ume.LlmGateway.Infrastructure;
 
-if (await Extensions.RunHealthProbeAsync(args) is { } probeExit)
+if (await WebDefaults.ExitIfHealthProbeAsync(args))
 {
-    Environment.ExitCode = probeExit;
     return;
 }
 
@@ -21,25 +20,33 @@ builder.AddServiceDefaults();
 builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
 builder.AddGatewayStores();
-builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
-builder.Services.AddProblemDetails();
+builder.AddUmeWebDefaults(maxRequestBodySize: 1024 * 1024, errors =>
+{
+    errors.Title = "Åtgärden kunde inte utföras";
+    // Concurrent edits and unique or foreign key violations are the caller's to resolve, not internal errors.
+    errors.Translators.Add(exception => exception is DbUpdateConcurrencyException or DbUpdateException { InnerException: PostgresException { SqlState: "23505" or "23503" } }
+        ? new ApiFaultException(StatusCodes.Status409Conflict, "Ändringen krockar med befintliga uppgifter.")
+        : null);
+});
+builder.Services.AddOptions<AdminOptions>().BindConfiguration(AdminOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<GatewayLinkOptions>().BindConfiguration(GatewayLinkOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<OidcOptions>().BindConfiguration(OidcOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOpenApi();
-builder.Services.AddScoped<AdminContext>();
+builder.Services.AddAdminServices();
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient("provider-discovery").ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) });
-var requestsPerMinute = builder.Configuration.GetValue<int?>("Admin:RequestsPerMinute") ?? 120;
-if (requestsPerMinute is < 1 or > 10000) { throw new InvalidOperationException("Admin:RequestsPerMinute must be between 1 and 10000."); }
 builder.Services.AddRateLimiter(o =>
 {
     o.AddPolicy("admin", http => RateLimitPartition.GetFixedWindowLimiter(
         http.User.FindFirst("sub")?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = requestsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
-    o.OnRejected = async (context, ct) =>
-    {
-        context.HttpContext.Response.Headers.RetryAfter = "60";
-        await Results.Problem(statusCode: 429, detail: "För många anrop. Vänta en minut.").ExecuteAsync(context.HttpContext);
-    };
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = http.RequestServices.GetRequiredService<IOptions<AdminOptions>>().Value.RequestsPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+    o.RejectWithProblem("För många anrop. Vänta en minut.");
 });
 builder.Services.AddAntiforgery(o =>
 {
@@ -49,7 +56,6 @@ builder.Services.AddAntiforgery(o =>
     o.Cookie.SameSite = SameSiteMode.Lax;
     o.Cookie.Path = "/";
 });
-var oidcClaims = builder.Configuration.GetSection("Oidc").Get<OidcClaimOptions>() ?? new OidcClaimOptions();
 builder.Services.AddAuthentication(o =>
 {
     o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -67,9 +73,6 @@ builder.Services.AddAuthentication(o =>
     o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
 }).AddOpenIdConnect(o =>
 {
-    o.Authority = builder.Configuration["Oidc:Authority"];
-    o.ClientId = builder.Configuration["Oidc:ClientId"] ?? "ume-admin";
-    o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
     o.ResponseType = "code";
     o.UsePkce = true;
     o.SaveTokens = false;
@@ -78,13 +81,9 @@ builder.Services.AddAuthentication(o =>
     o.TokenValidationParameters.NameClaimType = "name";
     o.TokenValidationParameters.RoleClaimType = "roles";
     o.Scope.Add("email");
-    foreach (var scope in oidcClaims.ExtraScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
-    {
-        o.Scope.Add(scope);
-    }
     o.Events.OnTokenValidated = ctx =>
     {
-        AdminAuthentication.ApplyClaimMapping(ctx.Principal, oidcClaims);
+        AdminAuthentication.ApplyClaimMapping(ctx.Principal, ctx.HttpContext.RequestServices.GetRequiredService<IOptions<OidcOptions>>().Value);
         return Task.CompletedTask;
     };
     // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the
@@ -116,49 +115,34 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy("manage", p => p.RequireRole("gateway-admin", "department-admin"));
     o.AddPolicy("read", p => p.RequireRole("gateway-admin", "department-admin", "viewer"));
 });
-builder.WebHost.ConfigureKestrel(o => { o.AddServerHeader = false; o.Limits.MaxRequestBodySize = 1024 * 1024; });
-var app = builder.Build();
-app.UseExceptionHandler(errorApp => errorApp.Run(async http =>
+// Read from the validated options when the handler is first used, not while services are registered.
+builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme).Configure<IOptions<OidcOptions>>((o, oidc) =>
 {
-    var exception = http.Features.Get<IExceptionHandlerFeature>()!.Error;
-    var status = exception is AdminFaultException fault ? fault.Status :
-        exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException or Microsoft.EntityFrameworkCore.DbUpdateException { InnerException: PostgresException { SqlState: "23505" or "23503" } } ? 409 : 500;
-    var detail = exception is AdminFaultException known ? known.Message : status == 409 ? "Ändringen krockar med befintliga uppgifter." : "Ett internt fel inträffade.";
-    if (status == 500)
+    o.Authority = oidc.Value.Authority;
+    o.ClientId = oidc.Value.ClientId;
+    o.ClientSecret = oidc.Value.ClientSecret;
+    foreach (var scope in oidc.Value.ExtraScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
     {
-        http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AdminApi")
-            .LogError("Admin request failed ({ExceptionType})", exception.GetType().Name);
-    }
-    await Results.Problem(statusCode: status, title: "Åtgärden kunde inte utföras", detail: detail,
-        extensions: (exception as AdminFaultException)?.Extensions).ExecuteAsync(http);
-}));
-app.Use(async (http, next) =>
-{
-    http.Response.Headers.XContentTypeOptions = "nosniff";
-    http.Response.Headers.XFrameOptions = "DENY";
-    http.Response.Headers["Referrer-Policy"] = "no-referrer";
-    http.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
-    if (http.Request.Path.StartsWithSegments("/api") || http.Request.Path.StartsWithSegments("/bff"))
-    {
-        http.Response.Headers.CacheControl = "no-store";
-    }
-    await next(http);
-    if (http.Response.StatusCode >= 400 && !http.Response.HasStarted)
-    {
-        await Results.Problem(statusCode: http.Response.StatusCode, title: "Åtgärden kunde inte utföras").ExecuteAsync(http);
+        o.Scope.Add(scope);
     }
 });
-if (!app.Environment.IsDevelopment())
+var app = builder.Build();
+app.UseUmeWebDefaults();
+app.UseUmeSecurityHeaders(o =>
 {
-    app.UseHsts();
-}
+    o.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    o.NoStorePrefixes.Add("/api");
+    o.NoStorePrefixes.Add("/bff");
+});
+app.UseProblemDetailsForEmptyErrors("Åtgärden kunde inte utföras");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.UseMiddleware<AdminAntiforgeryMiddleware>();
 app.MapDefaultEndpoints();
 app.MapAdminAuthentication();
-var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("admin").AddEndpointFilter<AdminValidationFilter>();
+var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("admin").AddEndpointFilter<AdminValidationFilter>()
+    .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
 api.MapOrganisation();
 api.MapKeys();
 api.MapConfiguration();

@@ -53,7 +53,7 @@ public static partial class ModelDiscovery
     {
         if (provider.Type == ProviderType.AzureOpenAI)
         {
-            throw new AdminFaultException(400, "Azure OpenAI kan inte lista distributioner via API:et. Lägg till modellerna manuellt.");
+            throw new ApiFaultException(400, "Azure OpenAI kan inte lista distributioner via API:et. Lägg till modellerna manuellt.");
         }
 
         var anthropic = provider.Type == ProviderType.Anthropic;
@@ -103,21 +103,21 @@ public static partial class ModelDiscovery
             if (!response.IsSuccessStatusCode)
             {
                 var hint = (int)response.StatusCode is 401 or 403 ? "Kontrollera API-nyckeln." : "Kontrollera adressen och inloggningsmetoden.";
-                throw new AdminFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");
+                throw new ApiFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");
             }
             body = JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new AdminFaultException(504, "Leverantören svarade inte i tid.");
+            throw new ApiFaultException(504, "Leverantören svarade inte i tid.");
         }
         catch (HttpRequestException)
         {
-            throw new AdminFaultException(502, "Kunde inte ansluta till leverantören. Kontrollera adressen.");
+            throw new ApiFaultException(502, "Kunde inte ansluta till leverantören. Kontrollera adressen.");
         }
         catch (System.Text.Json.JsonException)
         {
-            throw new AdminFaultException(502, "Leverantören returnerade ett oväntat svar och verkar inte ha en modellista.");
+            throw new ApiFaultException(502, "Leverantören returnerade ett oväntat svar och verkar inte ha en modellista.");
         }
 
         var items = body switch
@@ -125,7 +125,7 @@ public static partial class ModelDiscovery
             JsonArray array => array,
             JsonObject obj => (obj["data"] ?? obj["models"]) as JsonArray,
             _ => null,
-        } ?? throw new AdminFaultException(502, "Leverantören returnerade ingen modellista.");
+        } ?? throw new ApiFaultException(502, "Leverantören returnerade ingen modellista.");
 
         if (ollama)
         {

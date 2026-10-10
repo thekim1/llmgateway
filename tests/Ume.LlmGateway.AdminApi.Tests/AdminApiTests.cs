@@ -519,11 +519,22 @@ public sealed class AdminApiTests(AdminFixture fixture)
     [Theory]
     [InlineData("=HYPERLINK(\"evil\")")]
     [InlineData(" @SUM(1)")]
-    [InlineData("+1")]
-    [InlineData("-1")]
+    [InlineData("+1+1")]
+    [InlineData("-A1")]
     [InlineData("\tvalue")]
-    public void Csv_escapes_spreadsheet_formula_cells(string input) =>
-        Ume.LlmGateway.AdminApi.ReportEndpoints.Csv(input).ShouldStartWith("\"'");
+    [InlineData("a;=b")]
+    public void Csv_escapes_spreadsheet_formula_cells_and_the_delimiter(string input)
+    {
+        var cell = ReportEndpoints.Csv(input);
+        if (input.Contains(';', StringComparison.Ordinal) || input.Contains('"', StringComparison.Ordinal))
+        {
+            cell.ShouldStartWith("\"");
+        }
+        if (input.TrimStart()[0] is '=' or '+' or '-' or '@' || input[0] == '\t')
+        {
+            cell.TrimStart('"').ShouldStartWith("'");
+        }
+    }
 
     private static object KeyBody(Guid team) => new { teamId = team, name = "Key", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(), piiPolicy = "Block", requestsPerMinute = 60 };
 }

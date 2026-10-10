@@ -6,7 +6,7 @@ builder.AddDeploymentSecrets();
 builder.AddServiceDefaults();
 builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
-builder.Services.AddOptions<SeedOptions>().Bind(builder.Configuration.GetSection(SeedOptions.SectionName));
+builder.Services.AddOptions<SeedOptions>().BindConfiguration(SeedOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<DevSeeder>();
 builder.Services.AddHostedService<MigrationWorker>();

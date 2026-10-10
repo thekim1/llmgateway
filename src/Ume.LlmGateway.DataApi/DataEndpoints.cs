@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.ServiceDefaults;
 
 namespace Ume.LlmGateway.DataApi;
 
@@ -77,7 +78,7 @@ public static class DataEndpoints
             .WithSummary("Usage records, one per request (incremental feed)");
 
         usage.MapGet("/aggregate", async (DateOnly from, DateOnly to, string? granularity, HttpContext http, GatewayDbContext db, IOptions<DataApiOptions> options, CancellationToken ct) =>
-            DataResults.List(http, await AggregateAsync(db, options.Value, from, to, granularity, ct)))
+            DataResults.List(http, await AggregateAsync(db, options.Value, from, to, Granularity(granularity), ct)))
             .RequireAuthorization(DataPermissions.UsageAggregate)
             .WithSummary("Totals per day or month, department, model, provider and endpoint (from and to are inclusive dates)");
 
@@ -161,15 +162,11 @@ public static class DataEndpoints
     /// with fewer than <see cref="DataApiOptions.MinimumGroupSize"/> distinct keys in a period is reported without its
     /// department (all such departments together), so a one-person team's use does not show as its own row.
     /// </summary>
-    internal static async Task<List<AggregateItem>> AggregateAsync(GatewayDbContext db, DataApiOptions options, DateOnly from, DateOnly to, string? granularity, CancellationToken ct)
+    internal static async Task<List<AggregateItem>> AggregateAsync(GatewayDbContext db, DataApiOptions options, DateOnly from, DateOnly to, AggregateGranularity granularity, CancellationToken ct)
     {
-        var unit = (granularity ?? "day").ToLowerInvariant() switch
-        {
-            "day" => "day",
-            "month" => "month",
-            _ => throw new BadHttpRequestException("'granularity' must be day or month."),
-        };
-        if (unit == "month")
+        // date_trunc's field name; passed as a parameter, never spliced into the SQL.
+        var unit = EnumQuery.Name(granularity);
+        if (granularity == AggregateGranularity.Month)
         {
             from = new DateOnly(from.Year, from.Month, 1);
             to = new DateOnly(to.Year, to.Month, 1).AddMonths(1).AddDays(-1);
@@ -177,7 +174,7 @@ public static class DataEndpoints
 
         if (to < from || to.DayNumber - from.DayNumber + 1 > options.MaxAggregateDays)
         {
-            throw new BadHttpRequestException($"'to' must be on or after 'from', and the range at most {options.MaxAggregateDays} days.");
+            throw new ApiFaultException(StatusCodes.Status400BadRequest, $"'to' must be on or after 'from', and the range at most {options.MaxAggregateDays} days.");
         }
 
         var zone = TimeZoneInfo.FindSystemTimeZoneById(options.TimeZone);
@@ -223,6 +220,12 @@ public static class DataEndpoints
                 r.Requests, r.SuccessfulRequests, r.InputTokens, r.CachedInputTokens, r.OutputTokens, r.CostSek, r.CostUsd, r.AudioSeconds);
         })];
     }
+
+    /// <summary>Case-insensitive <c>day</c> or <c>month</c>; omitted is <c>day</c>.</summary>
+    private static AggregateGranularity Granularity(string? value) =>
+        value is null ? AggregateGranularity.Day
+        : EnumQuery.TryParse<AggregateGranularity>(value, out var granularity) ? granularity
+        : throw new ApiFaultException(StatusCodes.Status400BadRequest, $"'granularity' must be {string.Join(" or ", EnumQuery.Names<AggregateGranularity>())}.");
 
     private static DateTimeOffset LocalMidnightUtc(DateOnly date, TimeZoneInfo zone)
     {

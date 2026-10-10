@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.AdminApi;
@@ -56,8 +55,7 @@ public sealed class GatewayOperationsTests
     private static GatewayOperationsClient Client(HttpMessageHandler handler, string address = "https://gateway")
     {
         var factory = new ProbeClientFactory(handler);
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Gateway:OperationsUrl"] = address }).Build();
-        return new GatewayOperationsClient(factory, configuration, Options.Create(new GatewaySecurityOptions { KeyPepper = Pepper }),
+        return new GatewayOperationsClient(factory, Options.Create(new GatewayLinkOptions { OperationsUrl = address }), Options.Create(new GatewaySecurityOptions { KeyPepper = Pepper }),
             TimeProvider.System, NullLogger<GatewayOperationsClient>.Instance);
     }
 

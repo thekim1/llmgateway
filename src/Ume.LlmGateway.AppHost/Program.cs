@@ -1,7 +1,12 @@
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
+using Ume.LlmGateway.ServiceDefaults;
 
 #pragma warning disable ASPIRECERTIFICATES001
+
+// Connection-string names the services look up (Ume.LlmGateway.Infrastructure.InfrastructureExtensions.DatabaseResourceName and RedisResourceName).
+const string DatabaseResourceName = "gatewaydb";
+const string RedisResourceName = "redis";
 
 var builder = DistributedApplication.CreateBuilder(args);
 builder.AddDockerComposeEnvironment("compose").WithDashboard(false);
@@ -14,8 +19,8 @@ var dataClientSecret = Secret("data-client-secret", 48);
 
 var postgres = builder.AddPostgres("postgres").WithImageTag("17-alpine")
     .WithDataVolume(builder.ExecutionContext.IsRunMode ? builder.Configuration["DevelopmentVolumes:Postgres"] : null);
-var database = postgres.AddDatabase("gatewaydb");
-var redis = builder.AddRedis("redis", password: Secret("redis-password", 48));
+var database = postgres.AddDatabase(DatabaseResourceName);
+var redis = builder.AddRedis(RedisResourceName, password: Secret("redis-password", 48));
 
 // Oidc:Authority (AppHost user secrets or appsettings) points local runs at an existing identity provider
 // (company Keycloak, AD FS, Entra ID) instead of the bundled test Keycloak, which is then not started.
@@ -30,7 +35,7 @@ var keycloak = builder.ExecutionContext.IsRunMode && !externalOidc ? builder.Add
 // FakeLlm:Enabled=false (AppHost user secrets or appsettings) keeps the fake provider from starting in local runs.
 var fakeLlm = builder.ExecutionContext.IsRunMode && builder.Configuration.GetValue("FakeLlm:Enabled", true) ? builder.AddProject<Projects.Ume_LlmGateway_FakeLlm>("fake-llm", o => o.ExcludeLaunchProfile = true)
     .WithHttpsEndpoint()
-    .WithHttpHealthCheck("/health/ready", endpointName: "https") : null;
+    .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https") : null;
 
 var migrations = builder.AddProject<Projects.Ume_LlmGateway_MigrationService>("migrations")
     .WithReference(database)
@@ -69,7 +74,7 @@ var gateway = builder.AddProject<Projects.Ume_LlmGateway_Gateway>("gateway", o =
     .WaitFor(database)
     .WaitFor(redis)
     .WaitForCompletion(migrations)
-    .WithHttpHealthCheck("/health/ready", endpointName: "https")
+    .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https")
     .WithExternalHttpEndpoints();
 
 var adminApi = builder.AddProject<Projects.Ume_LlmGateway_AdminApi>("adminapi", o => o.LaunchProfileName = "https")
@@ -82,7 +87,7 @@ var adminApi = builder.AddProject<Projects.Ume_LlmGateway_AdminApi>("adminapi", 
     .WaitFor(database)
     .WaitFor(redis)
     .WaitForCompletion(migrations)
-    .WithHttpHealthCheck("/health/ready", endpointName: "https");
+    .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https");
 
 if (keycloak is not null)
 {
@@ -117,7 +122,7 @@ if (builder.Configuration.GetValue("DataApi:Enabled", builder.ExecutionContext.I
         .WithReference(database)
         .WaitFor(database)
         .WaitForCompletion(migrations)
-        .WithHttpHealthCheck("/health/ready", endpointName: "https");
+        .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https");
 
     if (keycloak is not null)
     {

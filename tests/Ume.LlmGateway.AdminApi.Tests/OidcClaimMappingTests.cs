@@ -14,7 +14,7 @@ public sealed class OidcClaimMappingTests
     public void Defaults_expand_json_arrays_like_the_bundled_realm()
     {
         var user = Principal(("roles", "[\"viewer\",\"gateway-admin\"]"), ("departmentCodes", "[\"KS\"]"));
-        AdminAuthentication.ApplyClaimMapping(user, new OidcClaimOptions());
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions());
         Values(user, "roles").ShouldBe(["viewer", "gateway-admin"], ignoreOrder: true);
         Values(user, "departmentCodes").ShouldBe(["KS"]);
     }
@@ -23,7 +23,7 @@ public sealed class OidcClaimMappingTests
     public void Renamed_claims_are_copied_to_the_names_the_api_uses()
     {
         var user = Principal(("role", "viewer"), ("department", "KS"));
-        AdminAuthentication.ApplyClaimMapping(user, new OidcClaimOptions { RoleClaim = "role", DepartmentClaim = "department" });
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions { RoleClaim = "role", DepartmentClaim = "department" });
         Values(user, "roles").ShouldBe(["viewer"]);
         Values(user, "departmentCodes").ShouldBe(["KS"]);
     }
@@ -31,7 +31,7 @@ public sealed class OidcClaimMappingTests
     [Fact]
     public void Groups_grant_roles_case_insensitively_and_unmapped_groups_grant_nothing()
     {
-        var options = new OidcClaimOptions
+        var options = new OidcOptions
         {
             RoleGroups = new() { ["gateway-admin"] = "GG-Llm-Admins; GG-Llm-Ops", ["viewer"] = "GG-Llm-Viewers" },
         };
@@ -44,7 +44,7 @@ public sealed class OidcClaimMappingTests
     public void A_user_without_matching_claims_gets_no_roles()
     {
         var user = Principal(("groups", "GG-Other"));
-        AdminAuthentication.ApplyClaimMapping(user, new OidcClaimOptions { RoleGroups = new() { ["viewer"] = "GG-Llm-Viewers" } });
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions { RoleGroups = new() { ["viewer"] = "GG-Llm-Viewers" } });
         Values(user, "roles").ShouldBeEmpty();
     }
 }

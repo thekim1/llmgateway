@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Ume.LlmGateway.ServiceDefaults;
 
 namespace Microsoft.Extensions.Hosting;
 
@@ -17,8 +18,6 @@ namespace Microsoft.Extensions.Hosting;
 public static class Extensions
 {
     public const string TelemetryName = "Ume.LlmGateway";
-    private const string LivePath = "/health/live";
-    private const string ReadyPath = "/health/ready";
 
     public static async Task<int?> RunHealthProbeAsync(string[] args)
     {
@@ -28,7 +27,7 @@ public static class Extensions
         }
         // Runs inside the container, so this is the container's own listener (the Kestrel URL in Compose),
         // not the host port published to the network. Override only if that internal URL changes.
-        var url = Environment.GetEnvironmentVariable("UME_HEALTHCHECK_URL") ?? "https://localhost:8443" + ReadyPath;
+        var url = Environment.GetEnvironmentVariable("UME_HEALTHCHECK_URL") ?? "https://localhost:8443" + HealthEndpoints.ReadyPath;
         // The loopback name need not be in the certificate (certificates issued for the public name),
         // so a name mismatch is accepted; an untrusted or expired certificate still fails the probe.
         using var handler = new SocketsHttpHandler
@@ -108,13 +107,13 @@ public static class Extensions
 
     /// <summary>
     /// Maps /health/live (process up) and /health/ready (dependencies OK). Responses contain only the
-    /// aggregate status � no exception details � so they are safe to expose to orchestrators/load balancers.
+    /// aggregate status (no exception details), so they are safe to expose to orchestrators/load balancers.
     /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        app.MapHealthChecks(LivePath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") })
+        app.MapHealthChecks(HealthEndpoints.LivePath, new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") })
             .DisableHttpMetrics();
-        app.MapHealthChecks(ReadyPath).DisableHttpMetrics();
+        app.MapHealthChecks(HealthEndpoints.ReadyPath).DisableHttpMetrics();
         app.MapGet("/version", () => Results.Ok(new
         {
             application = app.Environment.ApplicationName,

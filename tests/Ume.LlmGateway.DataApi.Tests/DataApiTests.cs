@@ -210,6 +210,58 @@ public sealed class DataApiTests(DataApiFixture fixture)
         error.SqlState.ShouldBe("42501"); // insufficient_privilege
     }
 
+    [Fact]
+    public async Task Responses_carry_the_security_headers()
+    {
+        using var feed = await fixture.Client("usage.detail").GetAsync("/v1/usage/records?limit=1", Ct);
+        feed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        feed.Headers.GetValues("X-Frame-Options").Single().ShouldBe("DENY");
+        feed.Headers.GetValues("X-Content-Type-Options").Single().ShouldBe("nosniff");
+        feed.Headers.GetValues("Referrer-Policy").Single().ShouldBe("no-referrer");
+        feed.Headers.CacheControl!.NoStore.ShouldBeTrue();
+        feed.Headers.Contains("Server").ShouldBeFalse();
+
+        // Outside /v1 (the contract) responses may be cached, but still may not be framed.
+        using var contract = await fixture.Anonymous().GetAsync("/openapi/v1.json", Ct);
+        contract.Headers.GetValues("X-Frame-Options").Single().ShouldBe("DENY");
+        (contract.Headers.CacheControl?.NoStore ?? false).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("/v1/usage/records?limit=0", "'limit' must be between 1 and")]
+    [InlineData("/v1/usage/records?after=abc", "'after' must be a cursor")]
+    [InlineData("/v1/usage/records?format=xml", "'format' must be json, ndjson or csv.")]
+    public async Task Invalid_parameters_are_answered_with_a_problem(string path, string detail)
+    {
+        using var response = await fixture.Client("usage.detail").GetAsync(path, Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+        response.Headers.GetValues("X-Frame-Options").Single().ShouldBe("DENY");
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        problem.RootElement.GetProperty("status").GetInt32().ShouldBe(400);
+        problem.RootElement.GetProperty("detail").GetString()!.ShouldStartWith(detail);
+    }
+
+    [Theory]
+    [InlineData("Month")]
+    [InlineData("month")]
+    [InlineData("DAY")]
+    public async Task Aggregate_granularity_is_case_insensitive(string granularity)
+    {
+        using var response = await fixture.Client("usage.aggregate").GetAsync($"/v1/usage/aggregate?from=2020-01-01&to=2020-01-31&granularity={granularity}", Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData("week")]
+    [InlineData("1")]
+    public async Task Unknown_aggregate_granularity_is_rejected(string granularity)
+    {
+        using var response = await fixture.Client("usage.aggregate").GetAsync($"/v1/usage/aggregate?from=2020-01-01&to=2020-01-31&granularity={granularity}", Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("'granularity' must be day or month.");
+    }
+
     private async Task<JsonDocument> ReadAsync(HttpClient client, string path)
     {
         using var response = await client.GetAsync(path, Ct);

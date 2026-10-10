@@ -13,6 +13,10 @@
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Health endpoint paths, shared with the services without referencing ServiceDefaults (the type is internal on both sides). -->
+    <Compile Include="..\Ume.LlmGateway.ServiceDefaults\HealthEndpoints.cs" Link="HealthEndpoints.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.AdminApi\Ume.LlmGateway.AdminApi.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.DataApi\Ume.LlmGateway.DataApi.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.FakeLlm\Ume.LlmGateway.FakeLlm.csproj" />

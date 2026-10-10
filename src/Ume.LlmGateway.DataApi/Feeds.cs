@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.ServiceDefaults;
 
 namespace Ume.LlmGateway.DataApi;
 
@@ -24,13 +25,13 @@ public static class Feeds
         long cursor = 0;
         if (!string.IsNullOrEmpty(after) && (!long.TryParse(after, NumberStyles.None, CultureInfo.InvariantCulture, out cursor) || cursor < 0))
         {
-            throw new BadHttpRequestException("'after' must be a cursor returned by an earlier page (or omitted to start from the beginning).");
+            throw new ApiFaultException(StatusCodes.Status400BadRequest, "'after' must be a cursor returned by an earlier page (or omitted to start from the beginning).");
         }
 
         var size = limit ?? Math.Min(1000, options.MaxPageSize);
         if (size < 1 || size > options.MaxPageSize)
         {
-            throw new BadHttpRequestException($"'limit' must be between 1 and {options.MaxPageSize}.");
+            throw new ApiFaultException(StatusCodes.Status400BadRequest, $"'limit' must be between 1 and {options.MaxPageSize}.");
         }
 
         return (cursor, size);
@@ -102,7 +103,7 @@ public static class DataResults
             return requested.ToLowerInvariant() switch
             {
                 "json" or "csv" or "ndjson" => requested.ToLowerInvariant(),
-                _ => throw new BadHttpRequestException("'format' must be json, ndjson or csv."),
+                _ => throw new ApiFaultException(StatusCodes.Status400BadRequest, "'format' must be json, ndjson or csv."),
             };
         }
 
@@ -127,16 +128,16 @@ public static class DataResults
         return Results.Text(text.ToString(), "application/x-ndjson", Encoding.UTF8);
     }
 
-    /// <summary>RFC 4180 with a header row; lists are joined with ';'. Cells that a spreadsheet would run as a formula are prefixed with '.</summary>
+    /// <summary>RFC 4180 with a header row; lists are joined with ';'. Cells are escaped by <see cref="CsvCell"/>.</summary>
     private static IResult Csv<T>(HttpContext http, IReadOnlyList<T> items)
     {
         var options = Json(http);
         var columns = options.GetTypeInfo(typeof(T)).Properties.Select(p => p.Name).ToArray();
-        var text = new StringBuilder().AppendJoin(',', columns.Select(Cell)).Append("\r\n");
+        var text = new StringBuilder().AppendJoin(',', columns.Select(c => CsvCell.Escape(c))).Append("\r\n");
         foreach (var item in items)
         {
             var element = JsonSerializer.SerializeToElement(item, options);
-            text.AppendJoin(',', columns.Select(c => element.TryGetProperty(c, out var value) ? Cell(Value(value)) : string.Empty)).Append("\r\n");
+            text.AppendJoin(',', columns.Select(c => element.TryGetProperty(c, out var value) ? CsvCell.Escape(Value(value)) : string.Empty)).Append("\r\n");
         }
 
         return Results.Text(text.ToString(), "text/csv", Encoding.UTF8);
@@ -149,19 +150,9 @@ public static class DataResults
         JsonValueKind.Array => string.Join(';', value.EnumerateArray().Select(Value)),
         _ => value.GetRawText(),
     };
-
-    private static string Cell(string value)
-    {
-        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r' && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-        {
-            value = "'" + value;
-        }
-
-        return value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : value;
-    }
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
+/// <summary>The <c>granularity</c> of <c>/v1/usage/aggregate</c>: <c>day</c> (default) or <c>month</c>.</summary>
 public enum AggregateGranularity
 {
     Day,

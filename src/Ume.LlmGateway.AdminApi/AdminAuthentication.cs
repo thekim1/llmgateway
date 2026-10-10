@@ -13,7 +13,7 @@ public static class AdminAuthentication
     /// Normalises identity-provider claims to the names the API authorises on ("roles", "departmentCodes"):
     /// expands JSON-array claims, copies differently named claims, and derives roles from group membership.
     /// </summary>
-    public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcClaimOptions options)
+    public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcOptions options)
     {
         if (principal?.Identity is not ClaimsIdentity identity)
         {
@@ -124,19 +124,4 @@ public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
         }
         await next(http);
     }
-}
-
-/// <summary>
-/// Bound from the <c>Oidc</c> configuration section. Defaults match the bundled Keycloak realm; other
-/// identity providers (Keycloak with different mappers, AD FS, Entra ID) can remap claims or map groups to roles.
-/// </summary>
-public sealed class OidcClaimOptions
-{
-    public string RoleClaim { get; set; } = "roles";
-    public string DepartmentClaim { get; set; } = "departmentCodes";
-    public string GroupClaim { get; set; } = "groups";
-    /// <summary>Role name (gateway-admin, department-admin, viewer) to the group names that grant it, separated by ';'.</summary>
-    public Dictionary<string, string> RoleGroups { get; set; } = [];
-    /// <summary>Extra scopes to request, for example "groups".</summary>
-    public string[] ExtraScopes { get; set; } = [];
 }

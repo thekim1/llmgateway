@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
@@ -16,9 +17,11 @@ public sealed class SeedOptions
     public bool Enabled { get; set; }
 
     /// <summary>Base URL (incl. /v1) of the fake OpenAI/Anthropic-compatible provider used for demos and tests.</summary>
+    [Url]
     public string? FakeLlmUrl { get; set; }
 
     /// <summary>Base URL (incl. /v1) of a local Ollama server.</summary>
+    [Url]
     public string? OllamaUrl { get; set; }
 
     public string OllamaModel { get; set; } = "qwen2.5:0.5b";
@@ -26,7 +29,9 @@ public sealed class SeedOptions
     /// <summary>Optional development key: either a full <c>ume-sk-…</c> key or its 43-character random part.</summary>
     public string? DevKey { get; set; }
 
+    [Url]
     public string? AzureOpenAIEndpoint { get; set; }
+    [Url]
     public string? AIFoundryEndpoint { get; set; }
 
     /// <summary>Provider credentials keyed by provider name (openai, azure-openai-swc, ai-foundry, anthropic, ollama-cloud).</summary>

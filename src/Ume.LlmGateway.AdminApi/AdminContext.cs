@@ -2,21 +2,12 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
-
-public sealed class AdminFaultException(int status, string message, IDictionary<string, object?>? extensions = null) : Exception(message)
-{
-    public int Status { get; } = status;
-
-    /// <summary>Extra machine-readable members for the problem response (e.g. the choices a client can offer the user).</summary>
-    public IDictionary<string, object?>? Extensions { get; } = extensions;
-}
 
 public sealed class AdminContext
 {
@@ -61,45 +52,51 @@ public sealed class AdminContext
     public IQueryable<UsageRecord> Usage(ClaimsPrincipal user) =>
         Db.UsageRecords.Where(u => Departments(user).Any(d => d.Id == u.DepartmentId));
 
-    public async Task<string?> ScopeNameAsync(ClaimsPrincipal user, BudgetScope scope, Guid id, CancellationToken ct) => scope switch
+    /// <summary>Who made a change, as written to the audit log: the OIDC subject, else the name.</summary>
+    public static string Actor(ClaimsPrincipal user) => user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown";
+
+    /// <summary>
+    /// The audit entry for a change. <paramref name="before"/> and <paramref name="after"/> are snapshot records (see AuditSnapshots.cs)
+    /// that never hold secrets.
+    /// </summary>
+    public AuditLogEntry Audit(ClaimsPrincipal user, string action, string entityType, object? id, object? before, object? after) => new()
     {
-        BudgetScope.Department => await Departments(user).Where(d => d.Id == id).Select(d => d.Name).FirstOrDefaultAsync(ct),
-        BudgetScope.Team => await Teams(user).Where(t => t.Id == id).Select(t => t.Name).FirstOrDefaultAsync(ct),
-        BudgetScope.VirtualKey => await Keys(user).Where(k => k.Id == id).Select(k => k.Name).FirstOrDefaultAsync(ct),
-        _ => null,
+        Timestamp = Now, Actor = Actor(user), Action = action, EntityType = entityType, EntityId = id?.ToString(),
+        Details = JsonSerializer.Serialize(new AuditDetails(before, after), AuditJson.Options),
     };
 
     /// <summary>Writes an audit entry without publishing a cache invalidation (for read-only actions such as revealing a key).</summary>
     public async Task AuditAsync(ClaimsPrincipal user, string action, string entityType, object id, object? details, CancellationToken ct)
     {
-        Db.AuditLog.Add(new AuditLogEntry
-        {
-            Timestamp = Now, Actor = user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown",
-            Action = action, EntityType = entityType, EntityId = id.ToString(),
-            Details = JsonSerializer.Serialize(new { before = (object?)null, after = details }),
-        });
+        StageAudit(user, action, entityType, id, null, details);
         await Db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Adds an audit entry to the current unit of work without saving; the next <see cref="SaveAsync"/> commits it together with the change.</summary>
+    /// <summary>Adds an audit entry to the current unit of work without saving; the next <see cref="SaveAsync(ClaimsPrincipal, string, string, object, object?, object?, InvalidationKind, CancellationToken)"/> commits it together with the change.</summary>
     public void StageAudit(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after) =>
-        Db.AuditLog.Add(new AuditLogEntry
-        {
-            Timestamp = Now, Actor = user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown",
-            Action = action, EntityType = entityType, EntityId = id.ToString(),
-            Details = JsonSerializer.Serialize(new { before, after }),
-        });
+        Db.AuditLog.Add(Audit(user, action, entityType, id, before, after));
 
-    public async Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct)
+    /// <summary>Saves the change and its audit entry in one transaction, then tells the gateways to reload.</summary>
+    public Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct) =>
+        SaveAsync(user, action, entityType, id, before, after, [kind], ct);
+
+    /// <summary>As above, for a change that affects more than one gateway cache (e.g. a rotated key changes keys and budgets).</summary>
+    public async Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after,
+        IReadOnlyCollection<InvalidationKind> kinds, CancellationToken ct)
     {
-        Db.AuditLog.Add(new AuditLogEntry
-        {
-            Timestamp = Now, Actor = user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown",
-            Action = action, EntityType = entityType, EntityId = id.ToString(),
-            Details = JsonSerializer.Serialize(new { before, after }),
-        });
+        StageAudit(user, action, entityType, id, before, after);
         await Db.SaveChangesAsync(ct);
-        await _bus.PublishAsync(kind, ct);
+        await PublishAsync(kinds, ct);
+    }
+
+    /// <summary>Tells the gateways to reload; for changes saved elsewhere (a committed import) or caches without a database change.</summary>
+    public async Task PublishAsync(IReadOnlyCollection<InvalidationKind> kinds, CancellationToken ct)
+    {
+        // The gateways subscribe to one kind per message, so each kind is its own message.
+        foreach (var kind in kinds.Distinct())
+        {
+            await _bus.PublishAsync(kind, ct);
+        }
     }
 }
 
@@ -112,7 +109,7 @@ public sealed class AdminValidationFilter : IEndpointFilter
         {
             Validate(argument, "", errors);
         }
-        return errors.Count > 0 ? Results.ValidationProblem(errors, title: "Kontrollera de markerade fälten.") : await next(context);
+        return errors.Count > 0 ? Results.ValidationProblem(errors, title: ApiFaultException.ValidationTitle) : await next(context);
     }
 
     private static void Validate(AdminRequest argument, string prefix, Dictionary<string, string[]> errors)

@@ -1,11 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Security;
-using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -66,12 +62,21 @@ public sealed record ModelRequest(
     bool IsEnabled = true,
     PriceRequest? Price = null,
     [property: MaxLength(20)] string[]? Features = null) : AdminRequest;
-public sealed record TargetRequest(Guid ModelId, [property: Range(0, 1000)] int Priority, [property: Range(1, 1000000)] int Weight) : AdminRequest;
+/// <summary>Limits of route aliases, shared by the API and the configuration document.</summary>
+public static class RouteLimits
+{
+    public const int MaxNameLength = 200;
+    public const int MaxDescriptionLength = 1000;
+    public const int MaxTargets = 100;
+    public const int MaxPriority = 1000;
+    public const int MaxWeight = 1_000_000;
+}
+public sealed record TargetRequest(Guid ModelId, [property: Range(0, RouteLimits.MaxPriority)] int Priority, [property: Range(1, RouteLimits.MaxWeight)] int Weight) : AdminRequest;
 public sealed record RouteRequest(
-    [property: Required, StringLength(200)] string Name,
+    [property: Required, StringLength(RouteLimits.MaxNameLength)] string Name,
     [property: EnumDataType(typeof(ModelKind))] ModelKind Kind,
-    [property: Required, MinLength(1), MaxLength(100)] TargetRequest[] Targets,
-    [property: StringLength(1000)] string? Description = null,
+    [property: Required, MinLength(1), MaxLength(RouteLimits.MaxTargets)] TargetRequest[] Targets,
+    [property: StringLength(RouteLimits.MaxDescriptionLength)] string? Description = null,
     bool IsEnabled = true) : AdminRequest;
 public sealed record DrainRequest(bool Drained) : AdminRequest;
 public sealed record BudgetRequest(
@@ -94,271 +99,106 @@ public sealed record ExchangeRequest([property: Range(typeof(decimal), "0.000001
 
 public static class ConfigurationEndpoints
 {
-    public static ProviderCapabilities[] Capabilities(ProviderCapabilities value) =>
-        [.. Enum.GetValues<ProviderCapabilities>().Where(c => c != ProviderCapabilities.None && value.HasFlag(c))];
-    public static object ProviderDto(ProviderAccount p) => new
-    {
-        p.Id, p.Name, p.DisplayName, p.Type, p.BaseUrl, p.AuthMode,
-        hasCredential = !string.IsNullOrEmpty(p.EncryptedCredential), p.Residency,
-        capabilities = Capabilities(p.Capabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds,
-        p.CreatedAt, deploymentCount = p.Deployments.Count,
-    };
-    public static object PriceDto(ModelPrice p) => new { p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.EffectiveFrom };
-    public static object ModelDto(ModelDeployment m, DateTimeOffset now) => new
-    {
-        m.Id, providerId = m.ProviderAccountId, providerName = m.ProviderAccount?.Name, residency = m.ProviderAccount?.Residency,
-        m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile,         m.ContextWindow, m.IsEnabled, m.Features,
-        currentPrice = m.PriceAt(now) is { } p ? PriceDto(p) : null,
-    };
-    public static object RouteDto(RouteAlias r) => new
-    {
-        r.Id, r.Name, r.Description, r.Kind, r.IsEnabled,
-        targets = r.Targets.OrderBy(t => t.Priority).Select(t => new
-        {
-            modelId = t.ModelDeploymentId, modelName = t.ModelDeployment?.Name,
-            providerName = t.ModelDeployment?.ProviderAccount?.Name, residency = t.ModelDeployment?.ProviderAccount?.Residency,
-            t.Priority, t.Weight,
-        }).ToArray(),
-    };
-
     public static void MapConfiguration(this RouteGroupBuilder api)
     {
         api = api.MapGroup("").RequireAuthorization("read");
-        var providers = api.MapGroup("/providers").RequireAuthorization("admin");
-        providers.MapGet("", async (AdminContext ctx, CancellationToken ct) =>
-            (await ctx.Db.ProviderAccounts.Include(p => p.Deployments).OrderBy(p => p.Name).ToListAsync(ct)).Select(ProviderDto));
-        providers.MapPost("", async (ProviderRequest input, AdminContext ctx, ClaimsPrincipal user, CredentialProtector protector, CancellationToken ct) =>
-        {
-            var p = new ProviderAccount { Name = input.Name, BaseUrl = input.BaseUrl, CreatedAt = ctx.Now };
-            Apply(p, input, protector);
-            ctx.Db.ProviderAccounts.Add(p);
-            await ctx.SaveAsync(user, "create", "Provider", p.Id, null, ProviderDto(p), InvalidationKind.Config, ct);
-            return Results.Created($"/api/providers/{p.Id}", ProviderDto(p));
-        });
-        providers.MapPut("/{id:guid}", async (Guid id, ProviderRequest input, AdminContext ctx, ClaimsPrincipal user, CredentialProtector protector, CancellationToken ct) =>
-        {
-            var p = await ProviderAsync(ctx, id, ct);
-            var before = ProviderDto(p);
-            Apply(p, input, protector);
-            await ctx.SaveAsync(user, "update", "Provider", id, before, ProviderDto(p), InvalidationKind.Config, ct);
-            return Results.Ok(ProviderDto(p));
-        });
-        providers.MapPost("/{id:guid}/drain", async (Guid id, DrainRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var p = await ProviderAsync(ctx, id, ct);
-            var before = ProviderDto(p); p.IsDrained = input.Drained;
-            await ctx.SaveAsync(user, "drain", "Provider", id, before, ProviderDto(p), InvalidationKind.Config, ct);
-            return Results.Ok(ProviderDto(p));
-        });
-        providers.MapPost("/{id:guid}/discover-models", async (Guid id, AdminContext ctx, CredentialProtector protector, IHttpClientFactory clients, CancellationToken ct) =>
-        {
-            var p = await ProviderAsync(ctx, id, ct);
-            return Results.Ok(await ModelDiscovery.DiscoverAsync(p, clients.CreateClient("provider-discovery"), protector, ct));
-        });
-        providers.MapDelete("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var p = await ProviderAsync(ctx, id, ct);
-            if (p.Deployments.Count > 0) { throw new AdminFaultException(409, "Leverantören har modeller och kan inte tas bort."); }
-            ctx.Db.ProviderAccounts.Remove(p);
-            await ctx.SaveAsync(user, "delete", "Provider", id, ProviderDto(p), null, InvalidationKind.Config, ct);
-            return Results.NoContent();
-        });
-        var models = api.MapGroup("/models").RequireAuthorization("admin");
-        models.MapGet("", async (AdminContext ctx, CancellationToken ct) =>
-            (await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).OrderBy(m => m.Name).ToListAsync(ct)).Select(m => ModelDto(m, ctx.Now)));
-        models.MapPost("", async (ModelRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var provider = await ProviderAsync(ctx, input.ProviderId, ct);
-            var m = new ModelDeployment { Name = input.Name.Trim(), UpstreamModel = input.UpstreamModel, ProviderAccount = provider, ProviderAccountId = provider.Id };
-            Apply(m, input);
-            if (input.Price is { } price) { m.Prices.Add(Price(price, ctx.Now)); }
-            ctx.Db.ModelDeployments.Add(m);
-            await ctx.SaveAsync(user, "create", "Model", m.Id, null, ModelDto(m, ctx.Now), InvalidationKind.Config, ct);
-            return Results.Created($"/api/models/{m.Id}", ModelDto(m, ctx.Now));
-        });
-        models.MapPut("/{id:guid}", async (Guid id, ModelRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var m = await ModelAsync(ctx, id, ct);
-            if (m.Kind != input.Kind && await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new AdminFaultException(409, "Modelltypen kan inte ändras när modellen används i en rutt."); }
-            if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, m.Name, "byta namn", ct); }
-            var before = ModelDto(m, ctx.Now); Apply(m, input);
-            await ctx.SaveAsync(user, "update", "Model", id, before, ModelDto(m, ctx.Now), InvalidationKind.Config, ct);
-            return Results.Ok(ModelDto(m, ctx.Now));
-        });
-        models.MapDelete("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var m = await ModelAsync(ctx, id, ct);
-            if (await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new AdminFaultException(409, "Modellen används i en rutt."); }
-            await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, m.Name, "tas bort", ct);
-            ctx.Db.ModelDeployments.Remove(m);
-            await ctx.SaveAsync(user, "delete", "Model", id, ModelDto(m, ctx.Now), null, InvalidationKind.Config, ct);
-            return Results.NoContent();
-        });
-        models.MapGet("/{id:guid}/prices", async (Guid id, AdminContext ctx, CancellationToken ct) =>
-            (await ModelAsync(ctx, id, ct)).Prices.OrderByDescending(p => p.EffectiveFrom).Select(PriceDto));
-        models.MapPost("/{id:guid}/prices", async (Guid id, PriceRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var m = await ModelAsync(ctx, id, ct);
-            var price = Price(input, ctx.Now); m.Prices.Add(price);
-            price.ModelDeploymentId = m.Id;
-            ctx.Db.ModelPrices.Add(price);
-            await ctx.SaveAsync(user, "price", "Model", id, null, PriceDto(price), InvalidationKind.Config, ct);
-            return Results.Created($"/api/models/{id}/prices", PriceDto(price));
-        });
-        var routes = api.MapGroup("/routes").RequireAuthorization("admin");
-        routes.MapGet("", async (AdminContext ctx, CancellationToken ct) => (await Routes(ctx).OrderBy(r => r.Name).ToListAsync(ct)).Select(RouteDto));
-        routes.MapPost("", async (RouteRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var r = new RouteAlias { Name = input.Name.Trim() };
-            await ApplyRouteAsync(r, input, ctx, ct);
-            ctx.Db.RouteAliases.Add(r);
-            await ctx.SaveAsync(user, "create", "Route", r.Id, null, RouteDto(r), InvalidationKind.Config, ct);
-            return Results.Created($"/api/routes/{r.Id}", RouteDto(r));
-        });
-        routes.MapPut("/{id:guid}", async (Guid id, RouteRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var r = await Routes(ctx).SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new AdminFaultException(404, "Rutten finns inte.");
-            if (!string.Equals(r.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, r.Name, "byta namn", ct); }
-            var before = RouteDto(r); ctx.Db.RouteTargets.RemoveRange(r.Targets); r.Targets.Clear();
-            await ApplyRouteAsync(r, input, ctx, ct);
-            await ctx.SaveAsync(user, "update", "Route", id, before, RouteDto(r), InvalidationKind.Config, ct);
-            return Results.Ok(RouteDto(r));
-        });
-        routes.MapDelete("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var r = await Routes(ctx).SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new AdminFaultException(404, "Rutten finns inte.");
-            await RoutingRuleEndpoints.EnsureNotUsedByRulesAsync(ctx, r.Name, "tas bort", ct);
-            ctx.Db.RouteAliases.Remove(r);
-            await ctx.SaveAsync(user, "delete", "Route", id, RouteDto(r), null, InvalidationKind.Config, ct);
-            return Results.NoContent();
-        });
-        MapBudgets(api);
-        api.MapGet("/settings/exchange-rate", async (AdminContext ctx, CancellationToken ct) => await CurrentRateAsync(ctx, ct));
-        api.MapPut("/settings/exchange-rate", async (ExchangeRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var before = await CurrentRateAsync(ctx, ct);
-            var rate = new ExchangeRate { SekPerUnit = input.SekPerUnit, EffectiveFrom = ctx.Now };
-            ctx.Db.ExchangeRates.Add(rate);
-            await ctx.SaveAsync(user, "update", "ExchangeRate", rate.Id, before, new { rate.Currency, rate.SekPerUnit, rate.EffectiveFrom }, InvalidationKind.Config, ct);
-            return Results.Ok(new { rate.Currency, rate.SekPerUnit, rate.EffectiveFrom });
-        }).RequireAuthorization("admin");
-    }
 
-    /// <summary>One budget per owner and period: spend counters are keyed by owner and period, so two would share one counter.</summary>
-    private static async Task EnsureUniquePeriodAsync(AdminContext ctx, BudgetRequest input, Guid? self, CancellationToken ct)
-    {
-        if (await ctx.Db.Budgets.AnyAsync(x => x.Scope == input.Scope && x.ScopeId == input.ScopeId && x.Period == input.Period && x.Id != self, ct))
+        var providers = api.MapGroup("/providers").RequireAuthorization("admin").WithTags("Providers");
+        providers.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.ProvidersAsync(ct)))
+            .WithName("ListProviders").WithSummary("Providers with their deployment count");
+        providers.MapPost("", async (ProviderRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
         {
-            throw new AdminFaultException(409, "Det finns redan en budget för samma period. Ändra den befintliga budgeten.");
-        }
+            var provider = await catalog.CreateProviderAsync(user, input, ct);
+            return TypedResults.Created($"/api/providers/{provider.Id}", provider);
+        }).WithName("CreateProvider").WithSummary("Adds a provider; the credential is stored encrypted and never returned");
+        providers.MapPut("/{id:guid}", async (Guid id, ProviderRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.UpdateProviderAsync(user, id, input, ct)))
+            .WithName("UpdateProvider").WithSummary("Changes a provider; omit the credential to keep it, send an empty one to remove it");
+        providers.MapPost("/{id:guid}/drain", async (Guid id, DrainRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.DrainAsync(user, id, input.Drained, ct)))
+            .WithName("DrainProvider").WithSummary("Stops (or resumes) routing new requests to a provider");
+        providers.MapPost("/{id:guid}/discover-models", async (Guid id, ProviderCatalogService catalog, CredentialProtector protector, IHttpClientFactory clients, CancellationToken ct) =>
+            TypedResults.Ok(await ModelDiscovery.DiscoverAsync(await catalog.ProviderAsync(id, ct), clients.CreateClient("provider-discovery"), protector, ct)))
+            .WithName("DiscoverModels").WithSummary("Lists the models the provider offers");
+        providers.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            await catalog.DeleteProviderAsync(user, id, ct);
+            return TypedResults.NoContent();
+        }).WithName("DeleteProvider").WithSummary("Deletes a provider without models");
+
+        var models = api.MapGroup("/models").RequireAuthorization("admin").WithTags("Models");
+        models.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.ModelsAsync(ct)))
+            .WithName("ListModels").WithSummary("Model deployments with their current price");
+        models.MapPost("", async (ModelRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var model = await catalog.CreateModelAsync(user, input, ct);
+            return TypedResults.Created($"/api/models/{model.Id}", model);
+        }).WithName("CreateModel");
+        models.MapPut("/{id:guid}", async (Guid id, ModelRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.UpdateModelAsync(user, id, input, ct)))
+            .WithName("UpdateModel");
+        models.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            await catalog.DeleteModelAsync(user, id, ct);
+            return TypedResults.NoContent();
+        }).WithName("DeleteModel").WithSummary("Deletes a model that no route or routing rule uses");
+        models.MapGet("/{id:guid}/prices", async (Guid id, ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.PricesAsync(id, ct)))
+            .WithName("ListModelPrices").WithSummary("Price history, newest first");
+        models.MapPost("/{id:guid}/prices", async (Guid id, PriceRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Created($"/api/models/{id}/prices", await catalog.AddPriceAsync(user, id, input, ct)))
+            .WithName("AddModelPrice").WithSummary("Adds a price; earlier prices are kept for past usage");
+
+        var routes = api.MapGroup("/routes").RequireAuthorization("admin").WithTags("Routes");
+        routes.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.RoutesAsync(ct)))
+            .WithName("ListRoutes");
+        routes.MapPost("", async (RouteRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var route = await catalog.CreateRouteAsync(user, input, ct);
+            return TypedResults.Created($"/api/routes/{route.Id}", route);
+        }).WithName("CreateRoute");
+        routes.MapPut("/{id:guid}", async (Guid id, RouteRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.UpdateRouteAsync(user, id, input, ct)))
+            .WithName("UpdateRoute");
+        routes.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            await catalog.DeleteRouteAsync(user, id, ct);
+            return TypedResults.NoContent();
+        }).WithName("DeleteRoute");
+
+        MapBudgets(api);
+        api.MapGet("/settings/exchange-rate", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.CurrentRateAsync(ct)))
+            .WithName("GetExchangeRate").WithSummary("SEK per USD now (empty when none has been entered)");
+        api.MapPut("/settings/exchange-rate", async (ExchangeRequest input, ProviderCatalogService catalog, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.SetRateAsync(user, input.SekPerUnit, ct)))
+            .RequireAuthorization("admin").WithName("SetExchangeRate");
     }
 
     private static void MapBudgets(RouteGroupBuilder api)
     {
-        api.MapGet("/budgets", async (BudgetScope? scope, Guid? scopeId, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        var budgets = api.MapGroup("").WithTags("Budgets");
+        budgets.MapGet("/budgets", async (BudgetScope? scope, Guid? scopeId, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(user, scope, scopeId, ct)))
+            .WithName("ListBudgets").WithSummary("Budgets the user may see, with spend in the current period");
+        budgets.MapPost("/budgets", async (BudgetRequest input, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
-            var items = new List<object>();
-            foreach (var b in await ctx.Db.Budgets.Where(b => (scope == null || b.Scope == scope) && (scopeId == null || b.ScopeId == scopeId)).ToListAsync(ct))
-            {
-                if (await ctx.ScopeNameAsync(user, b.Scope, b.ScopeId, ct) is { } name) { items.Add(await BudgetDtoAsync(b, name, ctx, ct)); }
-            }
-            return items;
-        });
-        api.MapPost("/budgets", async (BudgetRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+            var budget = await service.CreateAsync(user, input, ct);
+            return TypedResults.Created($"/api/budgets/{budget.Id}", budget);
+        }).RequireAuthorization("manage").WithName("CreateBudget");
+        budgets.MapPut("/budgets/{id:guid}", async (Guid id, BudgetRequest input, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await service.UpdateAsync(user, id, input, ct)))
+            .RequireAuthorization("manage").WithName("UpdateBudget");
+        budgets.MapDelete("/budgets/{id:guid}", async (Guid id, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
-            var name = await ctx.ScopeNameAsync(user, input.Scope, input.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgetens ägare finns inte.");
-            await EnsureUniquePeriodAsync(ctx, input, null, ct);
-            var b = new Budget { Scope = input.Scope, ScopeId = input.ScopeId, LimitSek = input.LimitSek, Period = input.Period, AlertThresholds = [.. input.AlertThresholds.Distinct().Order()], IsActive = input.IsActive, CreatedAt = ctx.Now };
-            ctx.Db.Budgets.Add(b);
-            await ctx.SaveAsync(user, "create", "Budget", b.Id, null, new { b.Scope, b.ScopeId, b.LimitSek, b.Period, b.AlertThresholds, b.IsActive }, InvalidationKind.Config, ct);
-            return Results.Created($"/api/budgets/{b.Id}", await BudgetDtoAsync(b, name, ctx, ct));
-        }).RequireAuthorization("manage");
-        api.MapPut("/budgets/{id:guid}", async (Guid id, BudgetRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+            await service.DeleteAsync(user, id, ct);
+            return TypedResults.NoContent();
+        }).RequireAuthorization("manage").WithName("DeleteBudget");
+        budgets.MapGet("/alerts", async (bool? acknowledged, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await service.AlertsAsync(user, acknowledged, ct)))
+            .WithName("ListAlerts").WithSummary("Budget alerts the user may see, newest first");
+        budgets.MapPost("/alerts/{id:guid}/acknowledge", async (Guid id, BudgetAdminService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
-            var b = await ctx.Db.Budgets.SingleOrDefaultAsync(b => b.Id == id, ct) ?? throw new AdminFaultException(404, "Budgeten finns inte.");
-            var oldName = await ctx.ScopeNameAsync(user, b.Scope, b.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgeten finns inte.");
-            var name = await ctx.ScopeNameAsync(user, input.Scope, input.ScopeId, ct) ?? throw new AdminFaultException(404, "Budgetens ägare finns inte.");
-            await EnsureUniquePeriodAsync(ctx, input, id, ct);
-            var before = await BudgetDtoAsync(b, oldName, ctx, ct);
-            b.Scope = input.Scope; b.ScopeId = input.ScopeId; b.LimitSek = input.LimitSek; b.Period = input.Period; b.AlertThresholds = [.. input.AlertThresholds.Distinct().Order()]; b.IsActive = input.IsActive;
-            await ctx.SaveAsync(user, "update", "Budget", id, before, new { b.Scope, b.ScopeId, b.LimitSek, b.Period, b.AlertThresholds, b.IsActive }, InvalidationKind.Config, ct);
-            return Results.Ok(await BudgetDtoAsync(b, name, ctx, ct));
-        }).RequireAuthorization("manage");
-        api.MapDelete("/budgets/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var b = await ctx.Db.Budgets.SingleOrDefaultAsync(b => b.Id == id, ct) ?? throw new AdminFaultException(404, "Budgeten finns inte.");
-            if (await ctx.ScopeNameAsync(user, b.Scope, b.ScopeId, ct) is null) { throw new AdminFaultException(404, "Budgeten finns inte."); }
-            ctx.Db.Budgets.Remove(b);
-            await ctx.SaveAsync(user, "delete", "Budget", id, new { b.Scope, b.ScopeId, b.LimitSek, b.Period }, null, InvalidationKind.Config, ct);
-            return Results.NoContent();
-        }).RequireAuthorization("manage");
-        api.MapGet("/alerts", async (bool? acknowledged, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var result = new List<object>();
-            foreach (var a in await ctx.Db.AlertEvents.Where(a => acknowledged == null || a.Acknowledged == acknowledged).OrderByDescending(a => a.Timestamp).ToListAsync(ct))
-            {
-                if (await ctx.ScopeNameAsync(user, a.Scope, a.ScopeId, ct) is { } name)
-                {
-                    result.Add(new { a.Id, a.BudgetId, a.Scope, scopeName = name, a.ThresholdPercent, a.SpentSek, a.LimitSek, a.PeriodStart, a.Timestamp, a.Acknowledged });
-                }
-            }
-            return result;
-        });
-        api.MapPost("/alerts/{id:guid}/acknowledge", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var a = await ctx.Db.AlertEvents.SingleOrDefaultAsync(a => a.Id == id, ct) ?? throw new AdminFaultException(404, "Larmet finns inte.");
-            if (await ctx.ScopeNameAsync(user, a.Scope, a.ScopeId, ct) is null) { throw new AdminFaultException(404, "Larmet finns inte."); }
-            a.Acknowledged = true;
-            await ctx.SaveAsync(user, "acknowledge", "Alert", id, null, new { a.Acknowledged }, InvalidationKind.Config, ct);
-            return Results.NoContent();
-        }).RequireAuthorization("manage");
-    }
-
-    private static async Task<object> BudgetDtoAsync(Budget b, string name, AdminContext ctx, CancellationToken ct)
-    {
-        var window = BudgetPeriods.GetWindow(b.Period, ctx.Now);
-        var query = ctx.Db.UsageRecords.Where(u => u.Timestamp >= window.Start && u.Timestamp < window.End);
-        var keyIds = b.Scope == BudgetScope.VirtualKey
-            ? KeyRotation.Descendants(b.ScopeId, await ctx.Db.VirtualKeys.Where(k => k.RotatedToKeyId != null).ToDictionaryAsync(k => k.Id, k => k.RotatedToKeyId!.Value, ct)).ToArray()
-            : [];
-        query = b.Scope switch { BudgetScope.Department => query.Where(u => u.DepartmentId == b.ScopeId), BudgetScope.Team => query.Where(u => u.TeamId == b.ScopeId), _ => query.Where(u => keyIds.Contains(u.VirtualKeyId)) };
-        var spent = await query.SumAsync(u => u.CostSek, ct);
-        return new { b.Id, b.Scope, b.ScopeId, scopeName = name, b.LimitSek, b.Period, b.AlertThresholds, b.IsActive, periodStart = window.Start, periodEnd = window.End, spentSek = spent, percentUsed = b.LimitSek == 0 ? (spent > 0 ? 100 : 0) : decimal.Round(spent / b.LimitSek * 100, 2) };
-    }
-
-    internal static IQueryable<RouteAlias> Routes(AdminContext ctx) => ctx.Db.RouteAliases.Include(r => r.Targets).ThenInclude(t => t.ModelDeployment!).ThenInclude(m => m.ProviderAccount);
-    internal static async Task<ProviderAccount> ProviderAsync(AdminContext ctx, Guid id, CancellationToken ct) => await ctx.Db.ProviderAccounts.Include(p => p.Deployments).SingleOrDefaultAsync(p => p.Id == id, ct) ?? throw new AdminFaultException(404, "Leverantören finns inte.");
-    private static async Task<ModelDeployment> ModelAsync(AdminContext ctx, Guid id, CancellationToken ct) => await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).SingleOrDefaultAsync(m => m.Id == id, ct) ?? throw new AdminFaultException(404, "Modellen finns inte.");
-    internal static async Task<object?> CurrentRateAsync(AdminContext ctx, CancellationToken ct) =>
-        await ctx.Db.ExchangeRates.Where(r => r.Currency == "USD" && r.EffectiveFrom <= ctx.Now).OrderByDescending(r => r.EffectiveFrom).Select(r => new { r.Currency, r.SekPerUnit, r.EffectiveFrom }).FirstOrDefaultAsync(ct);
-    internal static void Apply(ProviderAccount p, ProviderRequest input, CredentialProtector protector)
-    {
-        p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
-        p.Residency = input.Residency; p.Capabilities = input.Capabilities.Aggregate(ProviderCapabilities.None, (a, b) => a | b); p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
-        if (input.Credential is not null) { p.EncryptedCredential = input.Credential.Length == 0 ? null : protector.Protect(input.Credential); }
-    }
-    internal static void Apply(ModelDeployment m, ModelRequest input)
-    {
-        m.Name = input.Name.Trim(); m.UpstreamModel = input.UpstreamModel.Trim(); m.Kind = input.Kind; m.ParameterProfile = input.ParameterProfile;
-        m.ContextWindow = input.ContextWindow; m.IsEnabled = input.IsEnabled;
-        if (input.Features is not null)
-        {
-            m.Features = [.. input.Features.Select(f => f.Trim().ToLowerInvariant()).Where(f => f.Length is > 0 and <= 40).Distinct().Take(20).Order()];
-        }
-    }
-    internal static ModelPrice Price(PriceRequest input, DateTimeOffset now) => new()
-    {
-        InputPerMillionUsd = input.InputPerMillionUsd, CachedInputPerMillionUsd = input.CachedInputPerMillionUsd,
-        OutputPerMillionUsd = input.OutputPerMillionUsd, AudioPerMinuteUsd = input.AudioPerMinuteUsd,
-        AudioInputPerMillionUsd = input.AudioInputPerMillionUsd, AudioOutputPerMillionUsd = input.AudioOutputPerMillionUsd, EffectiveFrom = (input.EffectiveFrom ?? now).ToUniversalTime(),
-    };
-    internal static async Task ApplyRouteAsync(RouteAlias r, RouteRequest input, AdminContext ctx, CancellationToken ct)
-    {
-        var ids = input.Targets.Select(t => t.ModelId).Distinct().ToArray();
-        var deployments = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Where(m => ids.Contains(m.Id)).ToDictionaryAsync(m => m.Id, ct);
-        if (deployments.Count != ids.Length || deployments.Values.Any(m => m.Kind != input.Kind)) { throw new AdminFaultException(400, "Ruttens modeller måste finnas och ha samma typ som rutten."); }
-        r.Name = input.Name.Trim(); r.Description = input.Description; r.Kind = input.Kind; r.IsEnabled = input.IsEnabled;
-        r.Targets = [.. input.Targets.Select(t => new RouteTarget { ModelDeploymentId = t.ModelId, ModelDeployment = deployments[t.ModelId], Priority = t.Priority, Weight = t.Weight })];
-        ctx.Db.RouteTargets.AddRange(r.Targets);
+            await service.AcknowledgeAsync(user, id, ct);
+            return TypedResults.NoContent();
+        }).RequireAuthorization("manage").WithName("AcknowledgeAlert");
     }
 }

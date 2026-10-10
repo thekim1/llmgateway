@@ -6,12 +6,12 @@ using Ume.LlmGateway.Infrastructure.Security;
 namespace Ume.LlmGateway.AdminApi;
 
 public sealed partial class GatewayOperationsClient(
-    IHttpClientFactory clients, IConfiguration configuration, IOptions<GatewaySecurityOptions> security,
+    IHttpClientFactory clients, IOptions<GatewayLinkOptions> gateway, IOptions<GatewaySecurityOptions> security,
     TimeProvider time, ILogger<GatewayOperationsClient> logger)
 {
     public async Task<GatewayOperationsStatus?> ReadAsync(CancellationToken ct)
     {
-        var address = configuration["Gateway:OperationsUrl"] ?? configuration["Gateway:BaseUrl"];
+        var address = gateway.Value.OperationsAddress;
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
         {
             LogUnavailable(logger, "Missing HTTPS operations address");
