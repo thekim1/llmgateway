@@ -12,7 +12,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Authors>Umeå kommun</Authors>
     <Product>Ume LLM Gateway</Product>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <ContainerImageTag>$(Version)</ContainerImageTag>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>

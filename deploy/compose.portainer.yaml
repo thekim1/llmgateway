@@ -225,7 +225,7 @@ services:
   dataapi:
     <<: *hardened
     profiles: [data]
-    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
+    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.2.0}
     user: "1654:1654"
     restart: unless-stopped
     ports: ["${UME_DATA_BIND:-0.0.0.0}:${UME_DATA_PORT:-10443}:8443"]

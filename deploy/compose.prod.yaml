@@ -67,7 +67,7 @@ services:
 
   migrations:
     <<: *hardened
-    image: ${MIGRATIONS_IMAGE:-ume-llm-gateway/migrations:0.1.0}
+    image: ${MIGRATIONS_IMAGE:-ume-llm-gateway/migrations:0.2.0}
     user: "1654:1654"
     restart: "no"
     environment:
@@ -86,7 +86,7 @@ services:
 
   gateway:
     <<: *hardened
-    image: ${GATEWAY_IMAGE:-ume-llm-gateway/gateway:0.1.0}
+    image: ${GATEWAY_IMAGE:-ume-llm-gateway/gateway:0.2.0}
     user: "1654:1654"
     restart: unless-stopped
     stop_grace_period: 60s
@@ -121,7 +121,7 @@ services:
 
   adminapi:
     <<: *hardened
-    image: ${ADMINAPI_IMAGE:-ume-llm-gateway/adminapi:0.1.0}
+    image: ${ADMINAPI_IMAGE:-ume-llm-gateway/adminapi:0.2.0}
     user: "1654:1654"
     restart: unless-stopped
     ports: ["${UME_ADMIN_BIND:-127.0.0.1}:${UME_ADMIN_PORT:-9443}:8443"]
@@ -166,7 +166,7 @@ services:
   dataapi:
     <<: *hardened
     profiles: [data]
-    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
+    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.2.0}
     user: "1654:1654"
     restart: unless-stopped
     ports: ["${UME_DATA_BIND:-127.0.0.1}:${UME_DATA_PORT:-10443}:8443"]

@@ -1,7 +1,7 @@
 {
   "name": "ume-llm-gateway-admin-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Admin UI för Umeå kommuns LLM Gateway",
   "type": "module",
   "engines": {

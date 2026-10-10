@@ -211,7 +211,7 @@ dotnet publish src\Ume.LlmGateway.MigrationService -c Release /t:PublishContaine
 dotnet publish src\Ume.LlmGateway.DataApi -c Release /t:PublishContainer   # optional Data API
 ```
 
-Release-tagged images use 0.1.0 currently. Push to the approved private registry and deploy
+Locally built images are tagged with `<Version>` from `Directory.Build.props`. Push to the approved private registry and deploy
 by immutable digest, not `latest`. .NET base and Postgres/Redis image digests are pinned (the .NET base digest in `Directory.Build.targets`).
 Scan dependency/image reports and generate/review an SBOM per release (see upgrade guide).
 No production `aspire prepare/deploy` secret-resolution file is required: this procedure
