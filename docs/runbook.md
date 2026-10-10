@@ -167,6 +167,7 @@ Set-Location ..\..
 dotnet publish src\Ume.LlmGateway.Gateway -c Release /t:PublishContainer
 dotnet publish src\Ume.LlmGateway.AdminApi -c Release /t:PublishContainer /p:PublishAdminUi=true
 dotnet publish src\Ume.LlmGateway.MigrationService -c Release /t:PublishContainer
+dotnet publish src\Ume.LlmGateway.DataApi -c Release /t:PublishContainer   # optional Data API
 ```
 
 Release-tagged images use 0.1.0 currently. Push to the approved private registry and deploy
@@ -182,7 +183,7 @@ Use host-native paths on Linux; the PowerShell examples are for the Windows buil
 
 ## Nonsecret deployment inputs
 
-Set `GATEWAY_IMAGE`, `ADMINAPI_IMAGE`, `MIGRATIONS_IMAGE` to approved `repository@sha256:...`.
+Set `GATEWAY_IMAGE`, `ADMINAPI_IMAGE`, `MIGRATIONS_IMAGE` (and `DATAAPI_IMAGE` with the Data API) to approved `repository@sha256:...`.
 Set `UME_CERTS_DIR`, `UME_SECRETS_DIR` to absolute operator-managed directories.
 Set `UME_OIDC_AUTHORITY` (HTTPS), `UME_OIDC_CLIENT_ID`, `UME_GATEWAY_PUBLIC_URL` (HTTPS).
 Optional `UME_GATEWAY_BIND/PORT` and `UME_ADMIN_BIND/PORT` default to loopback:8443/9443.
@@ -211,11 +212,13 @@ Do not mount another service's secrets into an app.
 | certs/gateway | ca.pem, gateway.crt/key (SAN gateway, localhost and public name), data-protection.pfx |
 | certs/adminapi | ca.pem, adminapi.crt/key (SAN adminapi, localhost and public name), data-protection.pfx |
 | certs/migrations | ca.pem, data-protection.pfx |
-| secrets/postgres | bootstrap_password, migrator_password, gateway_password, admin_password |
+| certs/dataapi | ca.pem, dataapi.crt/key (SAN dataapi, localhost and the Data API host); no Data Protection certificate |
+| secrets/postgres | bootstrap_password, migrator_password, gateway_password, admin_password, data_password (Data API) |
 | secrets/redis | users.acl based on users.acl.example, containing password SHA256 hash, not plaintext |
 | secrets/migrations | ConnectionStrings__gatewaydb (ume_migrator), Security__KeyPepper, optional DataProtection__CertificatePassword |
 | secrets/gateway | ConnectionStrings__gatewaydb (ume_gateway), ConnectionStrings__redis, Security__KeyPepper, optional DataProtection__CertificatePassword |
 | secrets/adminapi | ConnectionStrings__gatewaydb (ume_admin), ConnectionStrings__redis, Security__KeyPepper, Oidc__ClientSecret if confidential client, optional DataProtection__CertificatePassword |
+| secrets/dataapi | ConnectionStrings__gatewaydb (ume_data) only: no pepper, no Redis |
 
 Use a secret manager to deliver files on a protected memory-backed mount. Application
 files use `__` for config nesting. The HMAC pepper and Data Protection certificate must
@@ -238,6 +241,33 @@ Changing password files alone does **not** change existing database role passwor
 Register `/signin-oidc` and `/signout-callback-oidc` for the admin public HTTPS origin,
 code+PKCE, `roles` and `departmentCodes` claims. Test all three RBAC roles and department
 scoping. IdP MFA and logout confirmation must be reviewed with users.
+
+## Data API (optional)
+
+The read-only Data API serves BI, management and security integrations over HTTPS; design and endpoints are in
+[data-access.md](data-access.md). It runs as its own service with its own database role (`ume_data`, `SELECT` only,
+and column by column on tables that hold secrets), so it can be deployed in a different network zone or left out.
+
+1. **Start it.** `init-deployment.sh` and the Portainer bootstrap already create its certificate, password and
+   connection string. Set `COMPOSE_PROFILES=data` (in `deploy/.env` or the Portainer stack) and `DATAAPI_IMAGE`, then
+   `docker compose ... up -d --wait`. It listens on `UME_DATA_BIND:UME_DATA_PORT` (loopback:10443; 0.0.0.0 with
+   `--proxy` or Portainer). Its certificate comes from the internal CA; for one from your PKI, put the Data API
+   behind your proxy or API gateway. Existing installations need one superuser step first, see the upgrade guide.
+2. **Register clients at your identity provider**, one per integration (an ETL job, a SIEM connector), using
+   OAuth 2.0 client credentials. Each token needs:
+   - `aud` = `ume-data-api` (`UME_DATA_AUDIENCE`). Keycloak: an *Audience* mapper; Entra ID: the application ID URI of
+     an app registration that represents the Data API.
+   - The permissions it may use, as values of `scope`, `scp` or `roles`: `usage.aggregate` (management dashboards),
+     `usage.detail` (data warehouse), `security.read` (SIEM), `catalog.read` (dimensions). Keycloak: realm roles
+     mapped to a `roles` claim (see the `ume-data-dev` client in `dev/keycloak/ume-realm.json`); Entra ID: app roles
+     granted to the client as application permissions.
+   - Tokens are accepted from `UME_DATA_AUTHORITY` (defaults to `UME_OIDC_AUTHORITY`).
+3. **Settings** (`DataApi__*` in the service environment; the Compose files expose `UME_DATA_AUTHORITY`,
+   `UME_DATA_AUDIENCE`, `UME_DATA_MINIMUM_GROUP_SIZE` and `UME_DATA_TIME_ZONE`): `MinimumGroupSize` (5; departments with fewer active keys in a period
+   are reported without their department), `TimeZone` (Europe/Stockholm; day and month boundaries), `SettleSeconds`
+   (60), `MaxPageSize` (10 000), `RequestsPerMinute` per client (600), `Detail__IncludePiiCategories` (false).
+
+Every read is logged as a `data.read` security event (client, path, status, cursor), so the SIEM sees who pulled what.
 
 ## Security events and SIEM
 

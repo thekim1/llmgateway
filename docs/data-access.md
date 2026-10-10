@@ -3,8 +3,9 @@
 How organisations running the gateway get its data into their own reporting, data warehouse and SIEM, and
 how different consumers get different data.
 
-> **Status.** Design accepted 2026-10-10. **Phase 1 (security events and persisted authentication failures) is
-> implemented**; phases 2 and 3 are proposals. Sections say which phase they belong to.
+> **Status.** Design accepted 2026-10-10. **Phase 1 (security events and persisted authentication failures) and
+> phase 2 (the Data API) are implemented.** Of phase 3, the minimum group size and the PII-category toggle exist;
+> retention and purging are still a proposal. Sections say which phase they belong to.
 
 ## Goals and constraints
 
@@ -66,6 +67,7 @@ renamed or removed, within a major version.
 | 1002 | `gateway.pii.action` | Gateway | A key's PII policy found personal data (blocked, redacted, rerouted on-prem or only detected) | `RequestId`, `Action`, `Categories`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
 | 1003 | `gateway.request.refused` | Gateway | A request was refused by policy: attachment not allowed, model or provider not allowed for the key | `RequestId`, `ErrorCode`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
 | 2001 | `admin.change` | Admin API | Every audit log entry (key created, revoked, rotated or revealed; provider, budget, rule or config changed) | `Actor`, `Action`, `EntityType`, `EntityId` |
+| 3001 | `data.read` | Data API | Every authenticated read | `Client`, `Path`, `Status`, `Cursor` |
 
 `Reason` for `gateway.auth.failed` is one of `missing_key`, `invalid_key`, `key_revoked`, `key_expired`,
 `key_disabled`, `owner_inactive`. `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
@@ -120,49 +122,80 @@ distribution) that:
    Splunk HEC, Elastic and Azure Monitor (Microsoft Sentinel).
 
 Push over OTLP is best-effort: if the collector is down, events can be lost. `AuthFailures`, `UsageRecords` and
-`AuditLog` are the durable record; phase 2's `security.read` feed lets a SIEM catch up from them.
+`AuditLog` are the durable record; the Data API's `security.read` feeds let a SIEM catch up from them.
 
-## Phase 2: Data API (proposal)
+## Phase 2: Data API
 
-A separate project, `Ume.LlmGateway.DataApi`, so an adopter can deploy it in another network zone, point it at a
-read replica, or not deploy it at all.
+`src/Ume.LlmGateway.DataApi` is a separate, optional service. An adopter can deploy it in another network zone, point
+it at a read replica (`ConnectionStrings:gatewaydb`), or not deploy it at all. Deployment and identity-provider setup
+are in the [runbook](runbook.md#data-api-optional); the contract is the OpenAPI document at `/openapi/v1.json`
+(public; it contains no data) with a browsable reference at `/scalar`.
 
-- **Read-only.** Its own Postgres role with `SELECT` only on the tables it serves.
-- **Machine authentication.** OAuth 2.0 client credentials against the adopter's IdP (the same OIDC authority as the
-  admin API). Each integration gets its own client, and therefore its own audit trail and revocation.
-- **Scopes are consumer classes.**
+### Access
 
-  | Scope | Data |
-  |---|---|
-  | `usage.aggregate` | Daily and monthly totals per department, model, provider and residency. No key- or team-level rows. Small groups suppressed (see phase 3). |
-  | `usage.detail` | Request-level usage records with key, team and department ids. Never key hashes, secrets or audit details. |
-  | `security.read` | `AuthFailures`, security-relevant usage records (PII actions, policy refusals), the audit log, key inventory (status, expiry, last used, policies). |
-  | `catalog.read` | Departments (with cost-centre codes), teams, keys (name and prefix only), models, prices, budgets, exchange rates. |
+- **Read-only, enforced by the database.** The service connects as `ume_data`, which has `SELECT` only. Tables that
+  hold secrets are granted column by column, so the role cannot read key hashes, encrypted key secrets, provider
+  credentials or base URLs, or the Data Protection key ring. A bug in the API cannot leak them. The tests run as this
+  role with the real `app-roles.sql`.
+- **Machine authentication.** OAuth 2.0 client-credentials access tokens from the adopter's IdP
+  (`DataApi:Authority`, audience `DataApi:Audience`, default `ume-data-api`). Each integration is its own client,
+  with its own audit trail (`data.read` events), rate limit (`DataApi:RequestsPerMinute`, default 600) and revocation.
+- **Permissions are consumer classes**, read from the claims in `DataApi:PermissionClaims` (default `scope`, `scp`
+  and `roles`). This covers Keycloak (realm roles or client scopes), AD FS and Entra ID, which puts application
+  permissions in `roles`.
 
-- **Incremental feeds.** Every feed is ordered by a monotonically increasing id and paged with a cursor:
-  `GET /v1/usage/records?after=<cursor>&limit=5000` returns `items` and `nextCursor`. Integration tools store the
-  cursor as a watermark and never re-read history. Aggregates take a closed date range.
-- **Formats.** JSON by default, NDJSON and CSV for bulk loads (`Accept` header).
-- **Versioned contract.** `/v1/…`, published OpenAPI document; fields are added, never renamed or removed within a
-  version. EF migrations do not change the contract.
-- **Limits.** Per-client rate limit, maximum page size, maximum date range for aggregates.
+| Permission | Endpoints | Data |
+|---|---|---|
+| `usage.aggregate` | `GET /v1/usage/aggregate?from=&to=&granularity=day\|month` | Totals per period, department (with cost-centre code), model, provider, residency and endpoint: requests, successful requests, tokens, cost in SEK and USD. No key- or team-level rows; small departments folded (see phase 3). `from`/`to` are inclusive dates in `DataApi:TimeZone`. |
+| `usage.detail` | `GET /v1/usage/records` (feed) | One row per request with key, team and department ids, model, provider, tokens, cost, latency, outcome, routing rule. PII categories only if `DataApi:Detail:IncludePiiCategories`. |
+| `security.read` | `GET /v1/security/auth-failures`, `/requests`, `/audit` (feeds); `GET /v1/security/keys` | Refused keys; requests with a PII action or a policy refusal (with PII categories); the admin audit log with its masked before/after details; every key's status, expiry, last use and policies. |
+| `catalog.read` | `GET /v1/catalog/departments`, `teams`, `keys`, `providers`, `models`, `prices`, `budgets`, `exchange-rates` | Dimensions for joining. Keys are id, team, name and prefix only. |
+
+### Incremental feeds
+
+A feed returns rows in id order after a cursor: `GET /v1/usage/records?after=<cursor>&limit=5000` answers
+`{ items, nextCursor, hasMore }` (also as `X-Next-Cursor` and `X-Has-More` headers). The integration stores
+`nextCursor` and passes it as `after` on the next run; omit `after` to start from the beginning. `hasMore: false` means
+caught up for now. `limit` defaults to 1 000 (maximum `DataApi:MaxPageSize`, 10 000).
+
+Ids alone are not a safe cursor. Several gateway instances insert batches concurrently, so a row with a lower id can
+commit after a row with a higher one, and a consumer that has already moved past it would never see it. Every fed table
+therefore has a `RecordedAt` column set by Postgres (transaction start). A feed hands out only rows older than
+`DataApi:SettleSeconds` (60), and **stops at the first row that has not settled**, even when later rows have. A
+row is skipped only if a write transaction runs longer than the settle window; the usage writer's transactions take
+milliseconds.
+
+### Formats
+
+JSON by default; `?format=csv` or `?format=ndjson` (or the `Accept` header `text/csv`, `application/x-ndjson`) for
+bulk loads. Many ETL tools cannot set headers, hence the query parameter. CSV is RFC 4180 with a header row, lists
+joined with `;`, and cells a spreadsheet would run as a formula prefixed with `'`.
+
+Example (PowerShell, Keycloak):
+
+```powershell
+$token = (Invoke-RestMethod -Method Post "$authority/protocol/openid-connect/token" -Body @{
+  grant_type = 'client_credentials'; client_id = 'bi-etl'; client_secret = $secret }).access_token
+Invoke-RestMethod "https://data.example.se:10443/v1/usage/aggregate?from=2026-10-01&to=2026-10-31&granularity=month" `
+  -Headers @{ Authorization = "Bearer $token" }
+```
 
 Feeds map to warehouse tables as a star schema: `fact_usage` (records), `fact_usage_daily` (aggregate),
 `dim_department`, `dim_team`, `dim_key`, `dim_model`, `dim_budget`. A sample Data Factory / SSIS pipeline and a Power
-BI template are good follow-ups once the API exists.
+BI template are good follow-ups.
 
 Not planned: direct database access, database views as a contract, or OData. Direct access and views tie consumers to
 Postgres and the schema; OData would add a large dependency for a feature Power BI also gets from the warehouse.
 
-## Phase 3: governance settings (proposal)
+## Phase 3: governance settings
 
 Settings, with defaults chosen so that an adopter who does nothing exposes the least:
 
 | Setting | Default | Effect |
 |---|---|---|
-| `DataApi:MinimumGroupSize` | 5 | Aggregate rows covering fewer distinct keys are folded into "Other", so a one-person team's usage is not visible as personal performance data. |
-| `DataApi:Detail:IncludePiiCategories` | `false` | Whether `usage.detail` includes PII category counts (always included for `security.read`). |
-| `Retention:UsageDays`, `Retention:AuthFailureDays`, `Retention:AuditDays` | unset (keep) | A purge job in the migration service deletes older rows. Each adopter sets these from its records-retention decision. |
+| `DataApi:MinimumGroupSize` | 5 | **Implemented.** In each period, departments with fewer distinct keys than this are reported together without a department (`departmentId` null), so a one-person team's use is not visible as personal performance data. |
+| `DataApi:Detail:IncludePiiCategories` | `false` | **Implemented.** Whether `usage.detail` includes PII category counts (always included for `security.read`). |
+| `Retention:UsageDays`, `Retention:AuthFailureDays`, `Retention:AuditDays` | unset (keep) | **Proposal.** A purge job in the migration service deletes older rows. Each adopter sets these from its records-retention decision. |
 
 Adopters document in their DPIA: which consumers get which scope, retention, minimum group size, source address
 mode, and where the SIEM and warehouse copies are kept (each copy is a new record with its own retention).

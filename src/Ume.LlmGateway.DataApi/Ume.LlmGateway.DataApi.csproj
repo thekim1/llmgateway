@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>ume-llm-gateway-dataapi</UserSecretsId>
+    <ContainerRepository>ume-llm-gateway/dataapi</ContainerRepository>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0.12-noble-chiseled-extra@sha256:00e0ad6a7ef8c0c1391b87f05c7ac757a15740455688f2bfcd146a3f4b987efd</ContainerBaseImage>
+    <ContainerUser>1654</ContainerUser>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Ume.LlmGateway.Infrastructure\Ume.LlmGateway.Infrastructure.csproj" />
+    <ProjectReference Include="..\Ume.LlmGateway.ServiceDefaults\Ume.LlmGateway.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ume.LlmGateway.DataApi.Tests" />
+  </ItemGroup>
+</Project>

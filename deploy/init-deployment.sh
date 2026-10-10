@@ -16,6 +16,7 @@
 #   --oidc-client-secret-file FILE
 #                           confidential OIDC client: install the secret for the admin API
 #                           (omit for a public client using PKCE only)
+#   --data-host HOST        hostname clients use for the optional Data API (default: gateway host)
 #   --gateway-cert/--gateway-key/--admin-cert/--admin-key/--ca-file FILE
 #                           use certificates from your PKI for the public listeners instead of
 #                           the generated internal CA (ca-file = your root/intermediate chain)
@@ -24,11 +25,11 @@ umask 077
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 certs="$here/certs"; secrets="$here/secrets"; env_file="$here/.env"
-oidc_authority=""; oidc_client="ume-admin"; gateway_host=""; admin_host=""
+oidc_authority=""; oidc_client="ume-admin"; gateway_host=""; admin_host=""; data_host=""
 gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0
 oidc_secret_file=""; proxy=0; upstream_host=""; gw_cert=""; gw_key=""; adm_cert=""; adm_key=""; ca_file=""
 
-usage() { sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die() { echo "error: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -37,6 +38,7 @@ while [ $# -gt 0 ]; do
     --oidc-client-id) oidc_client="$2"; shift 2;;
     --gateway-host) gateway_host="$2"; shift 2;;
     --admin-host) admin_host="$2"; shift 2;;
+    --data-host) data_host="$2"; shift 2;;
     --gateway-port) gateway_port="$2"; shift 2;;
     --admin-port) admin_port="$2"; shift 2;;
     --bind) bind="$2"; shift 2;;
@@ -129,7 +131,9 @@ if [ "$renew" = 1 ] && [ -f "$env_file" ]; then
   . "$env_file"
   gateway_host="${UME_GATEWAY_PUBLIC_URL#https://}"; gateway_host="${gateway_host%%[:/]*}"
   admin_host="${UME_ADMIN_PUBLIC_HOST:-$gateway_host}"
+  data_host="${UME_DATA_HOST:-}"
 fi
+[ -n "$data_host" ] || data_host="$gateway_host"
 for svc in postgres redis; do
   if [ "$renew" = 1 ] || new_file "$certs/$svc/$svc.crt"; then issue "$svc"; fi
 done
@@ -143,6 +147,8 @@ else
   if { [ "$renew" = 1 ] && [ -e "$certs/gateway/.internal" ]; } || new_file "$certs/gateway/gateway.crt"; then issue gateway "$gateway_host"; fi
   if { [ "$renew" = 1 ] && [ -e "$certs/adminapi/.internal" ]; } || new_file "$certs/adminapi/adminapi.crt"; then issue adminapi "$admin_host"; fi
 fi
+# The Data API always gets an internal certificate; put it behind your proxy or API gateway for a PKI one.
+if [ "$renew" = 1 ] || new_file "$certs/dataapi/dataapi.crt"; then issue dataapi "$data_host"; fi
 
 # --- Data Protection certificate (stable: never regenerate once data exists) --------
 dp="$certs/data-protection.pfx"
@@ -158,15 +164,15 @@ for svc in gateway adminapi migrations; do
   cp "$dp" "$certs/$svc/data-protection.pfx"
   cp "$certs/ca.pem" "$certs/$svc/ca.pem"
 done
-for svc in postgres redis; do cp "$certs/ca.pem" "$certs/$svc/ca.pem"; done
+for svc in postgres redis dataapi; do cp "$certs/ca.pem" "$certs/$svc/ca.pem"; done
 # Services trust the internal CA plus, when given, your PKI chain (their only trust store).
 if [ -n "$ca_file" ]; then
-  for svc in gateway adminapi; do cat "$ca_file" >> "$certs/$svc/ca.pem"; done
+  for svc in gateway adminapi dataapi; do cat "$ca_file" >> "$certs/$svc/ca.pem"; done
 fi
 
 # --- Secrets ----------------------------------------------------------------------
-mkdir -p "$secrets"/{postgres,redis,gateway,adminapi,migrations}
-for role in bootstrap migrator gateway admin; do
+mkdir -p "$secrets"/{postgres,redis,gateway,adminapi,dataapi,migrations}
+for role in bootstrap migrator gateway admin data; do
   new_file "$secrets/postgres/${role}_password" && rand > "$secrets/postgres/${role}_password"
 done
 new_file "$secrets/redis/redis_password" && rand > "$secrets/redis/redis_password"
@@ -187,6 +193,10 @@ for svc in gateway adminapi migrations; do
   fi
 done
 
+# Data API (optional, profile "data"): read-only role, no pepper, no Redis.
+printf 'Host=postgres;Database=gatewaydb;Username=ume_data;Password=%s;SSL Mode=VerifyFull;Root Certificate=/run/certs/ca.pem;GSS Encryption Mode=Disable' \
+  "$(cat "$secrets/postgres/data_password")" > "$secrets/dataapi/ConnectionStrings__gatewaydb"
+
 if [ -n "$oidc_secret_file" ]; then
   tr -d '\r\n' < "$oidc_secret_file" > "$secrets/adminapi/Oidc__ClientSecret"
 fi
@@ -201,8 +211,8 @@ own() { # own UID DIR... (needs root; falls back to a printed command)
 chown_todo=()
 own 70 "$certs/postgres" "$secrets/postgres"
 own 999 "$certs/redis" "$secrets/redis"
-own 1654 "$certs/gateway" "$certs/adminapi" "$certs/migrations" \
-  "$secrets/gateway" "$secrets/adminapi" "$secrets/migrations"
+own 1654 "$certs/gateway" "$certs/adminapi" "$certs/dataapi" "$certs/migrations" \
+  "$secrets/gateway" "$secrets/adminapi" "$secrets/dataapi" "$secrets/migrations"
 chmod 755 "$certs" "$secrets" 2>/dev/null || true
 
 # --- deploy/.env (non-secret settings only) ------------------------------------------
@@ -228,6 +238,13 @@ UME_GATEWAY_BIND=$bind
 UME_GATEWAY_PORT=$gateway_port
 UME_ADMIN_BIND=$bind
 UME_ADMIN_PORT=$admin_port
+# Optional read-only Data API (docs/data-access.md): uncomment to start it with the stack.
+# COMPOSE_PROFILES=data
+UME_DATA_HOST=$data_host
+UME_DATA_BIND=$bind
+UME_DATA_PORT=10443
+# UME_DATA_AUTHORITY=   (defaults to UME_OIDC_AUTHORITY; the issuer of the integrations' client-credentials tokens)
+# UME_DATA_AUDIENCE=ume-data-api
 # Claims from an existing IdP (Keycloak, AD FS, Entra ID); see docs/runbook.md, "Identity provider".
 # UME_OIDC_ROLE_CLAIM=roles
 # UME_OIDC_DEPARTMENT_CLAIM=departmentCodes
@@ -241,6 +258,7 @@ UME_ADMIN_PORT=$admin_port
 # GATEWAY_IMAGE=registry.example.se/ume/gateway@sha256:...
 # ADMINAPI_IMAGE=registry.example.se/ume/adminapi@sha256:...
 # MIGRATIONS_IMAGE=registry.example.se/ume/migrations@sha256:...
+# DATAAPI_IMAGE=registry.example.se/ume/dataapi@sha256:...
 EOF
 fi
 

@@ -9,7 +9,11 @@
     "realm": [
       { "name": "gateway-admin" },
       { "name": "department-admin" },
-      { "name": "viewer" }
+      { "name": "viewer" },
+      { "name": "usage.aggregate", "description": "Data API permission (docs/data-access.md)" },
+      { "name": "usage.detail", "description": "Data API permission (docs/data-access.md)" },
+      { "name": "security.read", "description": "Data API permission (docs/data-access.md)" },
+      { "name": "catalog.read", "description": "Data API permission (docs/data-access.md)" }
     ]
   },
   "clients": [
@@ -60,6 +64,31 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "ume-data-dev",
+      "name": "Data API example integration (client credentials)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${UME_DATA_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "data-permissions",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": { "claim.name": "roles", "multivalued": "true", "jsonType.label": "String", "access.token.claim": "true", "id.token.claim": "false", "userinfo.token.claim": "false" }
+        },
+        {
+          "name": "data-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "ume-data-api", "access.token.claim": "true", "id.token.claim": "false" }
+        }
+      ]
     }
   ],
   "users": [
@@ -95,6 +124,12 @@
       "realmRoles": [ "viewer" ],
       "attributes": { "departmentCodes": [ "1000" ] },
       "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    },
+    {
+      "username": "service-account-ume-data-dev",
+      "enabled": true,
+      "serviceAccountClientId": "ume-data-dev",
+      "realmRoles": [ "usage.aggregate", "usage.detail", "security.read", "catalog.read" ]
     }
   ]
 }

@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Ume.LlmGateway.AdminApi/Ume.LlmGateway.AdminApi.csproj" />
+    <Project Path="src/Ume.LlmGateway.DataApi/Ume.LlmGateway.DataApi.csproj" />
     <Project Path="src/Ume.LlmGateway.Domain/Ume.LlmGateway.Domain.csproj" />
     <Project Path="src/Ume.LlmGateway.FakeLlm/Ume.LlmGateway.FakeLlm.csproj" />
     <Project Path="src/Ume.LlmGateway.Gateway/Ume.LlmGateway.Gateway.csproj" />
@@ -16,6 +17,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Ume.LlmGateway.AdminApi.Tests/Ume.LlmGateway.AdminApi.Tests.csproj" />
+    <Project Path="tests/Ume.LlmGateway.DataApi.Tests/Ume.LlmGateway.DataApi.Tests.csproj" />
     <Project Path="tests/Ume.LlmGateway.Domain.Tests/Ume.LlmGateway.Domain.Tests.csproj" />
     <Project Path="tests/Ume.LlmGateway.Gateway.Tests/Ume.LlmGateway.Gateway.Tests.csproj" />
     <Project Path="tests/Ume.LlmGateway.IntegrationTests/Ume.LlmGateway.IntegrationTests.csproj" />

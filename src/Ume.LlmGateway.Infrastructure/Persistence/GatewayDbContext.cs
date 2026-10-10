@@ -149,6 +149,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.PiiCategories).HasMaxLength(200);
             e.Property(x => x.ErrorCode).HasMaxLength(50);
             e.Property(x => x.RoutingRuleName).HasMaxLength(200);
+            e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");
             e.HasIndex(x => x.RequestId);
             e.HasIndex(x => x.Timestamp);
             e.HasIndex(x => new { x.VirtualKeyId, x.Timestamp });
@@ -163,6 +164,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Action).HasMaxLength(100);
             e.Property(x => x.EntityType).HasMaxLength(100);
             e.Property(x => x.EntityId).HasMaxLength(100);
+            e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");
             e.HasIndex(x => x.Timestamp);
         });
 
@@ -180,6 +182,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.KeyPrefix).HasMaxLength(20);
             e.Property(x => x.SourceAddress).HasMaxLength(64);
+            e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");
             e.HasIndex(x => x.LastSeen);
             e.HasIndex(x => new { x.VirtualKeyId, x.LastSeen });
         });

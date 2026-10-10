@@ -22,6 +22,8 @@
 #   UME_OTEL_ENDPOINT         OTLP collector for logs, traces and security events (off when empty)
 #   UME_SOURCE_ADDRESS        client address kept for refused keys: Truncated (default), Full or None
 #   UME_FORWARDED_HEADERS     true behind a reverse proxy that is the only way to reach the gateway
+#   COMPOSE_PROFILES=data     also start the read-only Data API (DATAAPI_IMAGE, UME_DATA_PORT 10443, UME_DATA_HOST,
+#                             UME_DATA_AUTHORITY defaults to UME_OIDC_AUTHORITY; see docs/data-access.md)
 #
 # The data lives in the volumes <stack>_postgres-data, <stack>_ume-certs and <stack>_ume-secrets
 # (<stack>_ume-config holds static configuration and is rewritten on every start).
@@ -62,6 +64,7 @@ services:
     environment:
       UME_GATEWAY_HOST: ${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST}
       UME_ADMIN_HOST: ${UME_ADMIN_HOST:-}
+      UME_DATA_HOST: ${UME_DATA_HOST:-}
       UME_OIDC_CLIENT_SECRET: ${UME_OIDC_CLIENT_SECRET:-}
     configs:
       - {source: bootstrap-script, target: /config/bootstrap.sh}
@@ -232,7 +235,8 @@ configs:
       S=/secrets
       : "$${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST (public hostname of the gateway API)}"
       ADMIN_HOST="$${UME_ADMIN_HOST:-$$UME_GATEWAY_HOST}"
-      for d in postgres redis gateway adminapi migrations; do mkdir -p "$$C/$$d" "$$S/$$d"; done
+      DATA_HOST="$${UME_DATA_HOST:-$$UME_GATEWAY_HOST}"
+      for d in postgres redis gateway adminapi dataapi migrations; do mkdir -p "$$C/$$d" "$$S/$$d"; done
       rand() { openssl rand -hex 32; }
       quiet() { "$$@" >/dev/null 2>&1; }
 
@@ -258,15 +262,16 @@ configs:
       issue redis "DNS:redis,DNS:localhost"
       issue gateway "DNS:gateway,DNS:localhost,DNS:$$UME_GATEWAY_HOST"
       issue adminapi "DNS:adminapi,DNS:localhost,DNS:$$ADMIN_HOST"
+      issue dataapi "DNS:dataapi,DNS:localhost,DNS:$$DATA_HOST"
 
       if [ ! -f "$$C/data-protection.pfx" ]; then
         quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout /tmp/dp.key -out /tmp/dp.crt -days 3650 -subj /CN=ume-gateway-data-protection
         quiet openssl pkcs12 -export -inkey /tmp/dp.key -in /tmp/dp.crt -out "$$C/data-protection.pfx" -passout pass:
       fi
       for d in gateway adminapi migrations; do cp "$$C/data-protection.pfx" "$$C/$$d/data-protection.pfx"; done
-      for d in postgres redis gateway adminapi migrations; do cp "$$C/ca.pem" "$$C/$$d/ca.pem"; done
+      for d in postgres redis gateway adminapi dataapi migrations; do cp "$$C/ca.pem" "$$C/$$d/ca.pem"; done
 
-      for role in bootstrap migrator gateway admin; do
+      for role in bootstrap migrator gateway admin data; do
         [ -f "$$S/postgres/$${role}_password" ] || rand > "$$S/postgres/$${role}_password"
       done
       [ -f "$$S/redis/redis_password" ] || rand > "$$S/redis/redis_password"
@@ -285,6 +290,9 @@ configs:
             "$$(cat "$$S/redis/redis_password")" > "$$S/$$svc/ConnectionStrings__redis"
         fi
       done
+      # Data API (optional, profile "data"): read-only role, no pepper, no Redis.
+      printf 'Host=postgres;Database=gatewaydb;Username=ume_data;Password=%s;SSL Mode=VerifyFull;Root Certificate=/run/certs/ca.pem;GSS Encryption Mode=Disable' \
+        "$$(cat "$$S/postgres/data_password")" > "$$S/dataapi/ConnectionStrings__gatewaydb"
       # Confidential OIDC client (optional); the file follows the variable, so removing it clears the secret.
       if [ -n "$${UME_OIDC_CLIENT_SECRET:-}" ]; then
         printf '%s' "$$UME_OIDC_CLIENT_SECRET" > "$$S/adminapi/Oidc__ClientSecret"
@@ -303,7 +311,7 @@ configs:
 
       chown -R 70:70 "$$C/postgres" "$$S/postgres"
       chown -R 999:999 "$$C/redis" "$$S/redis"
-      chown -R 1654:1654 "$$C/gateway" "$$C/adminapi" "$$C/migrations" "$$S/gateway" "$$S/adminapi" "$$S/migrations"
+      chown -R 1654:1654 "$$C/gateway" "$$C/adminapi" "$$C/dataapi" "$$C/migrations" "$$S/gateway" "$$S/adminapi" "$$S/dataapi" "$$S/migrations"
       chmod 755 "$$C" "$$S"
       echo "bootstrap: certificates and secrets ready"
   redis-acl-template:
@@ -335,6 +343,12 @@ configs:
           btrim(pg_read_file('/run/postgres-secrets/gateway_password'), E'\r\n '));
         EXECUTE format('CREATE ROLE ume_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
           btrim(pg_read_file('/run/postgres-secrets/admin_password'), E'\r\n '));
+        -- Read-only role for the optional Data API (docs/data-access.md); only when a password was provisioned.
+        -- Test one field: a record IS NOT NULL only when every field is, and some are always null on Linux.
+        IF (pg_stat_file('/run/postgres-secrets/data_password', true)).size IS NOT NULL THEN
+          EXECUTE format('CREATE ROLE ume_data LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+            btrim(pg_read_file('/run/postgres-secrets/data_password'), E'\r\n '));
+        END IF;
       END $$$$;
       CREATE DATABASE gatewaydb OWNER ume_migrator;
       REVOKE ALL ON DATABASE gatewaydb FROM PUBLIC;
@@ -343,11 +357,18 @@ configs:
       REVOKE ALL ON SCHEMA public FROM PUBLIC;
       ALTER SCHEMA public OWNER TO ume_migrator;
       GRANT USAGE ON SCHEMA public TO ume_gateway, ume_admin;
+      DO $$$$
+      BEGIN
+        IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'ume_data') THEN
+          GRANT CONNECT ON DATABASE gatewaydb TO ume_data;
+          GRANT USAGE ON SCHEMA public TO ume_data;
+        END IF;
+      END $$$$;
   postgres-hba:
     content: |
       local all all scram-sha-256
       hostnossl all all all reject
-      hostssl gatewaydb ume_migrator,ume_gateway,ume_admin all scram-sha-256
+      hostssl gatewaydb ume_migrator,ume_gateway,ume_admin,ume_data all scram-sha-256
   app-roles:
     content: |
       GRANT SELECT ON ALL TABLES IN SCHEMA public TO ume_gateway, ume_admin;
@@ -359,6 +380,58 @@ configs:
         "Budgets", "ExchangeRates" TO ume_admin;
       GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
       GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
+      -- Data API (optional): read-only, and column by column where a table holds secrets, so the role cannot
+      -- read key hashes, encrypted key secrets or provider credentials even through a bug. Skipped while the
+      -- role does not exist (it is created by init.sql on new installs; see docs/upgrade-guide.md for existing ones).
+      DO $$$$
+      BEGIN
+        IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'ume_data') THEN
+          GRANT CONNECT ON DATABASE gatewaydb TO ume_data;
+          GRANT USAGE ON SCHEMA public TO ume_data;
+          GRANT SELECT ON "UsageRecords", "AuthFailures", "AuditLog", "Departments", "Teams", "ModelDeployments",
+            "ModelPrices", "Budgets", "ExchangeRates" TO ume_data;
+          GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
+            "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
+            "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute") ON "VirtualKeys" TO ume_data;
+          GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
+        END IF;
+      END $$$$;
+
+  # Optional read-only Data API for BI, management and security integrations (docs/data-access.md).
+  # Started only with the "data" profile: COMPOSE_PROFILES=data (or --profile data).
+  dataapi:
+    <<: *hardened
+    profiles: [data]
+    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
+    user: "1654:1654"
+    restart: unless-stopped
+    ports: ["${UME_DATA_BIND:-0.0.0.0}:${UME_DATA_PORT:-10443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/dataapi.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/dataapi.key
+      DataApi__Authority: ${UME_DATA_AUTHORITY:-${UME_OIDC_AUTHORITY}}
+      DataApi__Audience: ${UME_DATA_AUDIENCE:-ume-data-api}
+      DataApi__MinimumGroupSize: ${UME_DATA_MINIMUM_GROUP_SIZE:-5}
+      DataApi__TimeZone: ${UME_DATA_TIME_ZONE:-Europe/Stockholm}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: dataapi
+      SSL_CERT_FILE: /run/certs/ca.pem
+    volumes:
+      - {<<: *certs-mount, volume: {subpath: dataapi}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: dataapi}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.DataApi.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
 
 networks:
   edge: {driver: bridge}

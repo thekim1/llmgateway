@@ -10,6 +10,7 @@ var pepper = Secret("key-pepper", 64);
 var devKey = Secret("dev-key", 43);
 var oidcSecret = Secret("oidc-client-secret", 48);
 var devUserPassword = Secret("dev-user-password", 32);
+var dataClientSecret = Secret("data-client-secret", 48);
 
 var postgres = builder.AddPostgres("postgres").WithImageTag("17-alpine")
     .WithDataVolume(builder.ExecutionContext.IsRunMode ? builder.Configuration["DevelopmentVolumes:Postgres"] : null);
@@ -23,6 +24,7 @@ var keycloak = builder.ExecutionContext.IsRunMode && !externalOidc ? builder.Add
     .WithRealmImport(Path.Combine("..", "..", "dev", "keycloak"))
     .WithEnvironment("UME_OIDC_CLIENT_SECRET", oidcSecret)
     .WithEnvironment("UME_DEV_USER_PASSWORD", devUserPassword)
+    .WithEnvironment("UME_DATA_CLIENT_SECRET", dataClientSecret)
     .WithHttpsDeveloperCertificate() : null;
 
 // FakeLlm:Enabled=false (AppHost user secrets or appsettings) keeps the fake provider from starting in local runs.
@@ -101,6 +103,34 @@ if (externalOidc)
         if (value is not null)
         {
             adminApi.WithEnvironment("Oidc__" + key.Replace(":", "__"), value);
+        }
+    }
+}
+
+// Read-only Data API for BI, management and security integrations (docs/data-access.md). Local runs include it
+// (DataApi:Enabled=false leaves it out); its tokens come from the bundled Keycloak's ume-data-dev client (secret:
+// data-client-secret). `aspire publish` leaves it out unless DataApi:Enabled=true, because compose.hardening.yaml does
+// not cover it; deploy it with compose.prod.yaml or compose.portainer.yaml (profile "data") instead.
+if (builder.Configuration.GetValue("DataApi:Enabled", builder.ExecutionContext.IsRunMode))
+{
+    var dataApi = builder.AddProject<Projects.Ume_LlmGateway_DataApi>("dataapi", o => o.LaunchProfileName = "https")
+        .WithReference(database)
+        .WaitFor(database)
+        .WaitForCompletion(migrations)
+        .WithHttpHealthCheck("/health/ready", endpointName: "https");
+
+    if (keycloak is not null)
+    {
+        dataApi.WithEnvironment("DataApi__Authority", ReferenceExpression.Create($"{keycloak.GetEndpoint("http")}/realms/ume"))
+            .WaitFor(keycloak);
+    }
+
+    // Every DataApi:* setting (Authority, Audience, PermissionClaims:0, MinimumGroupSize, ...) is passed through.
+    foreach (var (key, value) in builder.Configuration.GetSection("DataApi").AsEnumerable(makePathsRelative: true))
+    {
+        if (value is not null && key != "Enabled")
+        {
+            dataApi.WithEnvironment("DataApi__" + key.Replace(":", "__"), value);
         }
     }
 }

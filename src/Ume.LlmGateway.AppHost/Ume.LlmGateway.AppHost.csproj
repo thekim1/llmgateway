@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.AdminApi\Ume.LlmGateway.AdminApi.csproj" />
+    <ProjectReference Include="..\Ume.LlmGateway.DataApi\Ume.LlmGateway.DataApi.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.FakeLlm\Ume.LlmGateway.FakeLlm.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.Gateway\Ume.LlmGateway.Gateway.csproj" />
     <ProjectReference Include="..\Ume.LlmGateway.MigrationService\Ume.LlmGateway.MigrationService.csproj" />

@@ -312,6 +312,12 @@ public sealed class UsageRecord
 
     /// <summary>Name of that rule at the time of the request, so reports stay readable after it is renamed or deleted.</summary>
     public string? RoutingRuleName { get; set; }
+
+    /// <summary>
+    /// When the row was written (database transaction start, set by Postgres). Data API feeds only hand out rows older
+    /// than their settle window, so a row committed late by a concurrent writer is never skipped by a consumer's cursor.
+    /// </summary>
+    public DateTimeOffset RecordedAt { get; set; }
 }
 
 public sealed class AuditLogEntry
@@ -325,6 +331,12 @@ public sealed class AuditLogEntry
 
     /// <summary>JSON details; secrets are always masked before being written.</summary>
     public string? Details { get; set; }
+
+    /// <summary>
+    /// When the row was written (database transaction start, set by Postgres). Data API feeds only hand out rows older
+    /// than their settle window, so a row committed late by a concurrent writer is never skipped by a consumer's cursor.
+    /// </summary>
+    public DateTimeOffset RecordedAt { get; set; }
 }
 
 public sealed class AlertEvent
@@ -364,4 +376,10 @@ public sealed class AuthFailure
     public string? SourceAddress { get; set; }
 
     public int Count { get; set; }
+
+    /// <summary>
+    /// When the row was written (database transaction start, set by Postgres). Data API feeds only hand out rows older
+    /// than their settle window, so a row committed late by a concurrent writer is never skipped by a consumer's cursor.
+    /// </summary>
+    public DateTimeOffset RecordedAt { get; set; }
 }

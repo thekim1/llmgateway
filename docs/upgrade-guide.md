@@ -27,6 +27,32 @@ Routing rules add the migrations `RoutingRules` (tables `RoutingRules`, `Routing
 working against the new schema. `deploy/postgres/app-roles.sql` now also grants the admin role write access to the
 new tables; re-run the role-grant job with the migration.
 
+Security events add the migrations `AuthFailures` (new table) and `FeedRecordedAt` (a `RecordedAt` column with a
+database default on `UsageRecords`, `AuthFailures` and `AuditLog`; existing rows get the migration time). Both are
+additive. `app-roles.sql` grants the gateway role `INSERT` on `AuthFailures`; re-run the role-grant job.
+
+### Adding the Data API to an existing installation
+
+New installations get the read-only database role `ume_data` from `init.sql`. An existing database was initialised
+before that, and creating a role needs the database superuser, so it is one manual step. The Data API is optional;
+skip this until you want it.
+
+1. Re-run `deploy/init-deployment.sh` (Portainer: redeploy the stack, which runs the bootstrap). Existing secrets are
+   kept; it adds `secrets/postgres/data_password`, `secrets/dataapi/` and `certs/dataapi/`.
+2. Create the role (idempotent; reads the password file inside the Postgres container and reloads `pg_hba.conf`):
+
+   ```bash
+   docker compose -f deploy/compose.prod.yaml --env-file deploy/.env exec -T postgres \
+     sh -c 'PGPASSWORD=$(cat /run/postgres-secrets/bootstrap_password) psql -q -v ON_ERROR_STOP=1 -U postgres -d gatewaydb' \
+     < deploy/postgres/add-data-role.sql
+   ```
+
+   The Postgres container must be running with the new `pg_hba.conf` (it lists `ume_data`); `docker compose up -d`
+   with the updated files does that.
+3. Re-run the migrations job so `app-roles.sql` grants the role its read access (it skips the grants while the role does
+   not exist), then start the Data API: set `COMPOSE_PROFILES=data` in `deploy/.env` and run `docker compose ... up -d
+   --wait`. If the Data API was started before the role existed, give its health check a few seconds to recover.
+
 Schema-breaking changes require an explicit downtime/rollback plan. Image rollback is safe
 only if the previous app supports the new schema. Do not automatically run destructive
 down-migrations; restore an approved backup in isolation first. Redis counters reconstructed

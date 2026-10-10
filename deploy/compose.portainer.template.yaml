@@ -22,6 +22,8 @@
 #   UME_OTEL_ENDPOINT         OTLP collector for logs, traces and security events (off when empty)
 #   UME_SOURCE_ADDRESS        client address kept for refused keys: Truncated (default), Full or None
 #   UME_FORWARDED_HEADERS     true behind a reverse proxy that is the only way to reach the gateway
+#   COMPOSE_PROFILES=data     also start the read-only Data API (DATAAPI_IMAGE, UME_DATA_PORT 10443, UME_DATA_HOST,
+#                             UME_DATA_AUTHORITY defaults to UME_OIDC_AUTHORITY; see docs/data-access.md)
 #
 # The data lives in the volumes <stack>_postgres-data, <stack>_ume-certs and <stack>_ume-secrets
 # (<stack>_ume-config holds static configuration and is rewritten on every start).
@@ -62,6 +64,7 @@ services:
     environment:
       UME_GATEWAY_HOST: ${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST}
       UME_ADMIN_HOST: ${UME_ADMIN_HOST:-}
+      UME_DATA_HOST: ${UME_DATA_HOST:-}
       UME_OIDC_CLIENT_SECRET: ${UME_OIDC_CLIENT_SECRET:-}
     configs:
       - {source: bootstrap-script, target: /config/bootstrap.sh}
@@ -236,6 +239,42 @@ configs:
   app-roles:
     content: |
       @INCLUDE postgres/app-roles.sql
+
+  # Optional read-only Data API for BI, management and security integrations (docs/data-access.md).
+  # Started only with the "data" profile: COMPOSE_PROFILES=data (or --profile data).
+  dataapi:
+    <<: *hardened
+    profiles: [data]
+    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
+    user: "1654:1654"
+    restart: unless-stopped
+    ports: ["${UME_DATA_BIND:-0.0.0.0}:${UME_DATA_PORT:-10443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/dataapi.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/dataapi.key
+      DataApi__Authority: ${UME_DATA_AUTHORITY:-${UME_OIDC_AUTHORITY}}
+      DataApi__Audience: ${UME_DATA_AUDIENCE:-ume-data-api}
+      DataApi__MinimumGroupSize: ${UME_DATA_MINIMUM_GROUP_SIZE:-5}
+      DataApi__TimeZone: ${UME_DATA_TIME_ZONE:-Europe/Stockholm}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: dataapi
+      SSL_CERT_FILE: /run/certs/ca.pem
+    volumes:
+      - {<<: *certs-mount, volume: {subpath: dataapi}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: dataapi}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.DataApi.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
 
 networks:
   edge: {driver: bridge}

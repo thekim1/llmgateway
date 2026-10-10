@@ -10,7 +10,8 @@ C=/certs
 S=/secrets
 : "${UME_GATEWAY_HOST:?Set UME_GATEWAY_HOST (public hostname of the gateway API)}"
 ADMIN_HOST="${UME_ADMIN_HOST:-$UME_GATEWAY_HOST}"
-for d in postgres redis gateway adminapi migrations; do mkdir -p "$C/$d" "$S/$d"; done
+DATA_HOST="${UME_DATA_HOST:-$UME_GATEWAY_HOST}"
+for d in postgres redis gateway adminapi dataapi migrations; do mkdir -p "$C/$d" "$S/$d"; done
 rand() { openssl rand -hex 32; }
 quiet() { "$@" >/dev/null 2>&1; }
 
@@ -36,15 +37,16 @@ issue postgres "DNS:postgres,DNS:localhost"
 issue redis "DNS:redis,DNS:localhost"
 issue gateway "DNS:gateway,DNS:localhost,DNS:$UME_GATEWAY_HOST"
 issue adminapi "DNS:adminapi,DNS:localhost,DNS:$ADMIN_HOST"
+issue dataapi "DNS:dataapi,DNS:localhost,DNS:$DATA_HOST"
 
 if [ ! -f "$C/data-protection.pfx" ]; then
   quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout /tmp/dp.key -out /tmp/dp.crt -days 3650 -subj /CN=ume-gateway-data-protection
   quiet openssl pkcs12 -export -inkey /tmp/dp.key -in /tmp/dp.crt -out "$C/data-protection.pfx" -passout pass:
 fi
 for d in gateway adminapi migrations; do cp "$C/data-protection.pfx" "$C/$d/data-protection.pfx"; done
-for d in postgres redis gateway adminapi migrations; do cp "$C/ca.pem" "$C/$d/ca.pem"; done
+for d in postgres redis gateway adminapi dataapi migrations; do cp "$C/ca.pem" "$C/$d/ca.pem"; done
 
-for role in bootstrap migrator gateway admin; do
+for role in bootstrap migrator gateway admin data; do
   [ -f "$S/postgres/${role}_password" ] || rand > "$S/postgres/${role}_password"
 done
 [ -f "$S/redis/redis_password" ] || rand > "$S/redis/redis_password"
@@ -63,6 +65,9 @@ for svc in gateway adminapi migrations; do
       "$(cat "$S/redis/redis_password")" > "$S/$svc/ConnectionStrings__redis"
   fi
 done
+# Data API (optional, profile "data"): read-only role, no pepper, no Redis.
+printf 'Host=postgres;Database=gatewaydb;Username=ume_data;Password=%s;SSL Mode=VerifyFull;Root Certificate=/run/certs/ca.pem;GSS Encryption Mode=Disable' \
+  "$(cat "$S/postgres/data_password")" > "$S/dataapi/ConnectionStrings__gatewaydb"
 # Confidential OIDC client (optional); the file follows the variable, so removing it clears the secret.
 if [ -n "${UME_OIDC_CLIENT_SECRET:-}" ]; then
   printf '%s' "$UME_OIDC_CLIENT_SECRET" > "$S/adminapi/Oidc__ClientSecret"
@@ -81,6 +86,6 @@ chmod -R a+rX "$F"
 
 chown -R 70:70 "$C/postgres" "$S/postgres"
 chown -R 999:999 "$C/redis" "$S/redis"
-chown -R 1654:1654 "$C/gateway" "$C/adminapi" "$C/migrations" "$S/gateway" "$S/adminapi" "$S/migrations"
+chown -R 1654:1654 "$C/gateway" "$C/adminapi" "$C/dataapi" "$C/migrations" "$S/gateway" "$S/adminapi" "$S/dataapi" "$S/migrations"
 chmod 755 "$C" "$S"
 echo "bootstrap: certificates and secrets ready"

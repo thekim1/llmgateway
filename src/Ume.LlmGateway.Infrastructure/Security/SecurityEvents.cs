@@ -44,6 +44,10 @@ public static partial class SecurityEvents
     public static partial void RequestRefused(ILogger logger, string requestId, string endpoint, string errorCode,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
+    [LoggerMessage(EventId = 3001, EventName = "data.read", Level = LogLevel.Information,
+        Message = "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}")]
+    public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);
+
     [LoggerMessage(EventId = 2001, EventName = "admin.change", Level = LogLevel.Information,
         Message = "Admin {Actor}: {Action} {EntityType} {EntityId}")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);
