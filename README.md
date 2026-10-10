@@ -436,13 +436,21 @@ and for existing installations the upgrade guide. Endpoints and design: [data-ac
 
 ### Quick production setup
 
-On a Linux Docker host (Docker 28+, Compose v2.24+), with the three images built and pushed
-(runbook, *Build and publish*) and an OIDC client for the admin UI:
+On a Linux Docker host (Docker 28+, Compose v2.24+) with an OIDC client for the admin UI, download a
+[GitHub release](https://github.com/thekim1/llmgateway/releases) bundle; its Compose files point at
+that release's images on GHCR, pinned by digest:
 
 ```bash
+curl -fsSLO https://github.com/thekim1/llmgateway/releases/download/vX.Y.Z/ume-llm-gateway-X.Y.Z.tar.gz
+tar -xzf ume-llm-gateway-X.Y.Z.tar.gz && cd ume-llm-gateway-X.Y.Z
 ./deploy/init-deployment.sh        # asks for the OIDC authority and public hostnames
 docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 ```
+
+Releases are made by pushing a tag `vX.Y.Z` that matches `<Version>` in `Directory.Build.props`; the
+release workflow tests, pushes the images, smoke-tests the bundle and publishes it (runbook, *Releases*).
+GHCR packages start private: make them public or `docker login ghcr.io` on the host. To build the images
+yourself instead, see the runbook, *Build and publish*, and run the same commands from a clone.
 
 `init-deployment.sh` creates an internal CA, service certificates, the Data Protection
 certificate, all database/Redis passwords, the key pepper and `deploy/.env`
@@ -451,8 +459,8 @@ It is safe to re-run: existing secrets are never overwritten. All options are av
 non-interactively (`--help`); `--renew-certs` re-issues the service certificates. Back up
 `deploy/secrets/.pepper` and `deploy/certs/data-protection.pfx` separately from database dumps.
 
-No shell access (**Portainer**)? Use `deploy/compose.portainer.yaml`: the same stack configured only through
-environment variables, with certificates and secrets generated automatically in Docker volumes on
+No shell access (**Portainer**)? Use `compose.portainer.yaml` (attached to each release, image references
+already pinned): the same stack configured only through environment variables, with certificates and secrets generated automatically in Docker volumes on
 first start. See the runbook, *Portainer and other hosts without shell access*.
 
 Behind **Nginx Proxy Manager, nginx or an F5** that terminates TLS: add `--proxy` (two hostnames,

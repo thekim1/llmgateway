@@ -220,6 +220,42 @@ services:
       start_period: 30s
       retries: 5
 
+  # Optional read-only Data API for BI, management and security integrations (docs/data-access.md).
+  # Started only with the "data" profile: COMPOSE_PROFILES=data (or --profile data).
+  dataapi:
+    <<: *hardened
+    profiles: [data]
+    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
+    user: "1654:1654"
+    restart: unless-stopped
+    ports: ["${UME_DATA_BIND:-0.0.0.0}:${UME_DATA_PORT:-10443}:8443"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Security__SecretsDirectory: /run/app-secrets
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/dataapi.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/dataapi.key
+      DataApi__Authority: ${UME_DATA_AUTHORITY:-${UME_OIDC_AUTHORITY}}
+      DataApi__Audience: ${UME_DATA_AUDIENCE:-ume-data-api}
+      DataApi__MinimumGroupSize: ${UME_DATA_MINIMUM_GROUP_SIZE:-5}
+      DataApi__TimeZone: ${UME_DATA_TIME_ZONE:-Europe/Stockholm}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
+      OTEL_SERVICE_NAME: dataapi
+      SSL_CERT_FILE: /run/certs/ca.pem
+    volumes:
+      - {<<: *certs-mount, volume: {subpath: dataapi}}
+      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: dataapi}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]
+    healthcheck:
+      test: [CMD, dotnet, Ume.LlmGateway.DataApi.dll, --health-check]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
 configs:
   bootstrap-script:
     content: |
@@ -396,42 +432,6 @@ configs:
           GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
         END IF;
       END $$$$;
-
-  # Optional read-only Data API for BI, management and security integrations (docs/data-access.md).
-  # Started only with the "data" profile: COMPOSE_PROFILES=data (or --profile data).
-  dataapi:
-    <<: *hardened
-    profiles: [data]
-    image: ${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:0.1.0}
-    user: "1654:1654"
-    restart: unless-stopped
-    ports: ["${UME_DATA_BIND:-0.0.0.0}:${UME_DATA_PORT:-10443}:8443"]
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      Security__SecretsDirectory: /run/app-secrets
-      Kestrel__Endpoints__Https__Url: https://+:8443
-      Kestrel__Endpoints__Https__Certificate__Path: /run/certs/dataapi.crt
-      Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/dataapi.key
-      DataApi__Authority: ${UME_DATA_AUTHORITY:-${UME_OIDC_AUTHORITY}}
-      DataApi__Audience: ${UME_DATA_AUDIENCE:-ume-data-api}
-      DataApi__MinimumGroupSize: ${UME_DATA_MINIMUM_GROUP_SIZE:-5}
-      DataApi__TimeZone: ${UME_DATA_TIME_ZONE:-Europe/Stockholm}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
-      OTEL_SERVICE_NAME: dataapi
-      SSL_CERT_FILE: /run/certs/ca.pem
-    volumes:
-      - {<<: *certs-mount, volume: {subpath: dataapi}}
-      - {<<: *secrets-mount, target: /run/app-secrets, volume: {subpath: dataapi}}
-    depends_on:
-      postgres: {condition: service_healthy}
-      migrations: {condition: service_completed_successfully}
-    networks: [edge, data]
-    healthcheck:
-      test: [CMD, dotnet, Ume.LlmGateway.DataApi.dll, --health-check]
-      interval: 15s
-      timeout: 10s
-      start_period: 30s
-      retries: 5
 
 networks:
   edge: {driver: bridge}

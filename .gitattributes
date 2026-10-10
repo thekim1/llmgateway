@@ -1,0 +1,7 @@
+# Files mounted into Linux containers or run by sh must keep LF on every checkout (CRLF breaks
+# redis.conf, pg_hba.conf, the Redis ACL and shell scripts).
+*.sh text eol=lf
+deploy/**/*.yaml text eol=lf
+deploy/**/*.conf text eol=lf
+deploy/**/*.sql text eol=lf
+deploy/**/*.example text eol=lf

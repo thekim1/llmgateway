@@ -13,8 +13,8 @@ Read [security/compliance](security-and-compliance.md) before introducing real d
 
 ## Quick start (recommended)
 
-After building and pushing the images (next section), run `deploy/init-deployment.sh` on the
-Docker host, then
+Download a release bundle (*Releases* below), or build and push the images yourself (*Build and
+publish*), then run `deploy/init-deployment.sh` on the Docker host and
 `docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait`.
 The script generates everything in *Nonsecret deployment inputs* and *Certificate and secret
 layout* below (internal CA, certificates, secrets, `deploy/.env`) and prints the OIDC redirect
@@ -31,7 +31,8 @@ variables**, for operators who cannot run `init-deployment.sh` (Portainer, manag
 Paste it into a Portainer stack (Web editor) or deploy the repository's file via Git, and set the
 variables listed at the top of the file (images, `UME_OIDC_AUTHORITY`, `UME_GATEWAY_HOST`,
 `UME_GATEWAY_PUBLIC_URL`; optional claim mapping and ports). The images must be in a registry the
-host can pull from.
+host can pull from. The `compose.portainer.yaml` attached to a GitHub release already points at that
+release's images (by digest), so the image variables are optional there.
 
 A one-shot `bootstrap` container creates the internal CA, certificates, passwords, key pepper and
 Redis ACL in the `ume-certs` and `ume-secrets` volumes on first start; the services still read them
@@ -155,6 +156,42 @@ the gateway's operations endpoint through its public URL (`UME_GATEWAY_OPERATION
 in `deploy/.env`): the container must be able to resolve and reach that name. Postgres and Redis
 always keep internal certificates. PKI-supplied certificates are not touched by `--renew-certs`;
 replace the files (or re-run with the options) before they expire and restart the services.
+
+## Releases (GitHub)
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`. The tag must equal `<Version>` in
+`Directory.Build.props` (bump it, and move the CHANGELOG's *Unreleased* notes under `## X.Y.Z - date`,
+which become the release notes). The workflow:
+
+1. runs the full verify workflow (build, tests, UI, audits, SBOM, Compose validation);
+2. pushes `ghcr.io/<owner>/<repo>/gateway`, `adminapi` (with the admin UI), `migrations` and `dataapi`
+   tagged `X.Y.Z` (linux/amd64, never `latest`);
+3. builds the deploy bundle with `deploy/build-release-bundle.sh`, which pins the image defaults in
+   `compose.prod.yaml` and `compose.portainer.yaml` to those digests;
+4. boots the bundle with `init-deployment.sh` and `compose.prod.yaml` (data profile included) as a smoke test;
+5. creates the GitHub release with `ume-llm-gateway-X.Y.Z.tar.gz`, `compose.portainer.yaml`, the SPDX SBOM
+   and `SHA256SUMS`. A tag with a suffix (`v1.0.0-rc.1`) becomes a pre-release.
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+On the Docker host:
+
+```bash
+curl -fsSLO https://github.com/<owner>/<repo>/releases/download/v0.2.0/ume-llm-gateway-0.2.0.tar.gz
+tar -xzf ume-llm-gateway-0.2.0.tar.gz && cd ume-llm-gateway-0.2.0
+./deploy/init-deployment.sh
+docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
+```
+
+GHCR packages are private when first pushed. Either make the four packages public (package settings on
+GitHub) or log the host in with a token that has `read:packages`:
+`echo <token> | docker login ghcr.io -u <user> --password-stdin`. `GATEWAY_IMAGE`, `ADMINAPI_IMAGE`,
+`MIGRATIONS_IMAGE` and `DATAAPI_IMAGE` in `deploy/.env` still override the pinned images (for example to
+mirror them into an approved private registry). To upgrade, extract the new bundle next to the old one,
+move `deploy/.env`, `deploy/certs` and `deploy/secrets` across, read the upgrade guide, and run the same
+`up -d --wait`.
 
 ## Build and publish
 

@@ -220,26 +220,6 @@ services:
       start_period: 30s
       retries: 5
 
-configs:
-  bootstrap-script:
-    content: |
-      @INCLUDE portainer/bootstrap.sh
-  redis-acl-template:
-    content: |
-      @INCLUDE redis/users.acl.example
-  redis-conf:
-    content: |
-      @INCLUDE redis/redis.conf
-  postgres-init:
-    content: |
-      @INCLUDE postgres/init.sql
-  postgres-hba:
-    content: |
-      @INCLUDE postgres/pg_hba.conf
-  app-roles:
-    content: |
-      @INCLUDE postgres/app-roles.sql
-
   # Optional read-only Data API for BI, management and security integrations (docs/data-access.md).
   # Started only with the "data" profile: COMPOSE_PROFILES=data (or --profile data).
   dataapi:
@@ -275,6 +255,26 @@ configs:
       timeout: 10s
       start_period: 30s
       retries: 5
+
+configs:
+  bootstrap-script:
+    content: |
+      @INCLUDE portainer/bootstrap.sh
+  redis-acl-template:
+    content: |
+      @INCLUDE redis/users.acl.example
+  redis-conf:
+    content: |
+      @INCLUDE redis/redis.conf
+  postgres-init:
+    content: |
+      @INCLUDE postgres/init.sql
+  postgres-hba:
+    content: |
+      @INCLUDE postgres/pg_hba.conf
+  app-roles:
+    content: |
+      @INCLUDE postgres/app-roles.sql
 
 networks:
   edge: {driver: bridge}

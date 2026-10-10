@@ -8,7 +8,7 @@ awk '
   match($0, /^ *@INCLUDE /) {
     indent = substr($0, 1, RLENGTH - 9); file = substr($0, RLENGTH + 1)
     while ((getline line < file) > 0) {
-      gsub(/\$/, "$$", line)
+      sub(/\r$/, "", line); gsub(/\$/, "$$", line)
       print (line == "" ? "" : indent line)
     }
     close(file); next

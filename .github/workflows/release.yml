@@ -1,0 +1,114 @@
+name: Release
+# Push a tag vX.Y.Z (matching <Version> in Directory.Build.props) to release:
+#   1. the full verify workflow runs;
+#   2. the service images are pushed to ghcr.io/<owner>/<repo>/{gateway,adminapi,migrations,dataapi}:X.Y.Z;
+#   3. the deploy bundle, pinned to those image digests, is booted with compose.prod.yaml as a smoke test;
+#   4. a GitHub release is created with the bundle, the Portainer stack, the SBOM and checksums.
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Resolve version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          project="$(dotnet msbuild src/Ume.LlmGateway.Gateway -getProperty:Version)"
+          [ "$version" = "$project" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match <Version>$project</Version> in Directory.Build.props"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build admin UI
+        working-directory: src/admin-ui
+        run: |
+          npm ci
+          npm run build
+      - name: Build and push images
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REPOSITORY: ${{ steps.version.outputs.repository }}
+        run: |
+          for entry in gateway:Gateway adminapi:AdminApi migrations:MigrationService dataapi:DataApi; do
+            name="${entry%%:*}"; project="${entry#*:}"
+            extra=""; [ "$name" = adminapi ] && extra="-p:PublishAdminUi=true"
+            dotnet publish "src/Ume.LlmGateway.$project" -c Release -t:PublishContainer --os linux --arch x64 --nologo \
+              -p:ContainerRegistry=ghcr.io -p:ContainerRepository="$REPOSITORY/$name" -p:PublishRepositoryUrl=true $extra
+            ref="ghcr.io/$REPOSITORY/$name:$VERSION"
+            digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
+            echo "${name^^}_IMAGE=$ref@$digest" | tee -a images.env
+          done
+      - name: Build deploy bundle
+        run: |
+          set -a; . ./images.env; set +a
+          sh deploy/build-release-bundle.sh "${{ steps.version.outputs.version }}" dist
+      - name: Smoke test the bundle
+        working-directory: ${{ runner.temp }}
+        run: |
+          tar -xzf "$GITHUB_WORKSPACE/dist/ume-llm-gateway-${{ steps.version.outputs.version }}.tar.gz"
+          cd "ume-llm-gateway-${{ steps.version.outputs.version }}"
+          ./deploy/init-deployment.sh --oidc-authority https://login.microsoftonline.com/common/v2.0 \
+            --gateway-host llm.smoke.test --yes
+          compose="docker compose -p ume-smoke -f deploy/compose.prod.yaml --env-file deploy/.env --profile data"
+          $compose up -d --wait --wait-timeout 300 || { $compose ps -a; $compose logs; exit 1; }
+          curl -fsS --cacert deploy/certs/ca.pem --resolve llm.smoke.test:9443:127.0.0.1 -o /dev/null https://llm.smoke.test:9443/
+          status="$(curl -s -o /dev/null -w '%{http_code}' --cacert deploy/certs/ca.pem --resolve llm.smoke.test:8443:127.0.0.1 https://llm.smoke.test:8443/v1/models)"
+          [ "$status" = 401 ] || { echo "::error::Gateway answered $status without a key, expected 401"; $compose logs gateway; exit 1; }
+          $compose down -v
+      - uses: actions/download-artifact@v4
+        with:
+          name: ume-gateway-spdx
+          path: sbom
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          (cd sbom && zip -qr "../dist/ume-llm-gateway-$VERSION-spdx.zip" .)
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          {
+            awk -v v="$VERSION" '$0 ~ "^## " v "( |$)" {f=1; next} /^## / && f {exit} f' CHANGELOG.md
+            echo
+            echo "## Images"
+            echo
+            echo '```'
+            cat images.env
+            echo '```'
+            echo
+            echo "## Deploy with Docker Compose"
+            echo
+            echo '```bash'
+            echo "curl -fsSLO https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/ume-llm-gateway-$VERSION.tar.gz"
+            echo "tar -xzf ume-llm-gateway-$VERSION.tar.gz && cd ume-llm-gateway-$VERSION"
+            echo "./deploy/init-deployment.sh"
+            echo "docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait"
+            echo '```'
+            echo
+            echo "Portainer: paste \`compose.portainer.yaml\` from this release into a stack. See docs/runbook.md, *Releases*."
+          } > notes.md
+          prerelease=""; case "$VERSION" in *-*) prerelease="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Ume LLM Gateway $VERSION" --notes-file notes.md $prerelease dist/*

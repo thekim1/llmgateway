@@ -1,7 +1,9 @@
 name: Verify POC
 on:
   push:
+    branches: ['**']
   pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -13,6 +15,20 @@ jobs:
         run: |
           sh deploy/build-portainer-stack.sh
           git diff --exit-code -- deploy/compose.portainer.yaml || { echo "Run deploy/build-portainer-stack.sh and commit compose.portainer.yaml"; exit 1; }
+      - name: Production Compose files are valid
+        env:
+          UME_CERTS_DIR: /certs
+          UME_SECRETS_DIR: /secrets
+          UME_OIDC_AUTHORITY: https://idp.example.se
+          UME_GATEWAY_HOST: llm.example.se
+          UME_GATEWAY_PUBLIC_URL: https://llm.example.se
+          GATEWAY_IMAGE: gateway
+          ADMINAPI_IMAGE: adminapi
+          MIGRATIONS_IMAGE: migrations
+        run: |
+          for file in deploy/compose.prod.yaml deploy/compose.portainer.yaml; do
+            docker compose -f "$file" --profile data config --quiet
+          done
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.401
@@ -43,7 +59,7 @@ jobs:
       - name: Publish and generate SPDX SBOM
         run: |
           dotnet publish src/Ume.LlmGateway.AdminApi -c Release -o /tmp/ume-release /p:PublishAdminUi=true
-          dnx Microsoft.Sbom.DotNetTool@4.1.13 -y -- generate -b /tmp/ume-release -bc src -pn Ume.LlmGateway -pv 0.1.0 -ps "Umea kommun" -nsb https://www.umea.se/llm-gateway -V Warning
+          dnx Microsoft.Sbom.DotNetTool@4.1.13 -y -- generate -b /tmp/ume-release -bc src -pn Ume.LlmGateway -pv "$(dotnet msbuild src/Ume.LlmGateway.AdminApi -getProperty:Version)" -ps "Umea kommun" -nsb https://www.umea.se/llm-gateway -V Warning
       - name: Upload release SBOM only
         uses: actions/upload-artifact@v4
         with:
