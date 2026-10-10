@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
@@ -29,6 +30,7 @@ public sealed class GatewayFixture : IAsyncLifetime
     private readonly Dictionary<string, ModelDeployment> _models = new(StringComparer.Ordinal);
     private WebApplicationFactory<Program> _factory = null!;
     public WireMockServer Upstream { get; private set; } = null!;
+    public RealtimeUpstream Realtime { get; } = new();
     public HttpClient Client { get; private set; } = null!;
     public CapturingLoggerProvider Logs { get; } = new();
     public IServiceProvider Services => _factory.Services;
@@ -39,6 +41,7 @@ public sealed class GatewayFixture : IAsyncLifetime
     {
         await _postgres.StartAsync();
         Upstream = WireMockServer.Start();
+        await Realtime.StartAsync();
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -47,6 +50,9 @@ public sealed class GatewayFixture : IAsyncLifetime
             builder.UseSetting("Gateway:KeyCacheSeconds", "0");
             builder.UseSetting("Gateway:CatalogCacheSeconds", "0");
             builder.UseSetting("Gateway:MaxRequestBodyBytes", "4096");
+            builder.UseSetting("Gateway:MaxAudioRequestBodyBytes", (256 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            builder.UseSetting("Gateway:Realtime:BudgetCheckSeconds", "1");
+            builder.UseSetting("Gateway:Realtime:MaxSessionsPerKey", "2");
             builder.ConfigureLogging(logging =>
             {
                 logging.SetMinimumLevel(LogLevel.Trace);
@@ -95,6 +101,55 @@ public sealed class GatewayFixture : IAsyncLifetime
                 }
                 db.ProviderAccounts.Add(provider);
             }
+
+            // Speech to text: one provider per upstream behaviour, told apart by base path (multipart bodies are not matched).
+            foreach (var (name, model, price) in new[]
+            {
+                ("speech", "whisper", new ModelPrice { AudioPerMinuteUsd = 0.006m }),
+                ("speechtext", "whisper", new ModelPrice { AudioPerMinuteUsd = 0.006m }),
+                ("speechtokens", "transcribe", new ModelPrice { InputPerMillionUsd = 6, OutputPerMillionUsd = 10 }),
+                ("speechfail", "whisper", new ModelPrice { AudioPerMinuteUsd = 0.006m }),
+            })
+            {
+                price.EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1);
+                var deployment = new ModelDeployment { Name = name + "/" + model, UpstreamModel = name + "-" + model, Kind = ModelKind.Transcription, Prices = [price] };
+                db.ProviderAccounts.Add(new ProviderAccount
+                {
+                    Name = name, Type = ProviderType.OpenAICompatible, Residency = DataResidency.Eu, BaseUrl = $"{Upstream.Url}/{name}/v1",
+                    AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = protector.Protect(ProviderSecret),
+                    Capabilities = ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Streaming, TimeoutSeconds = 10,
+                    CreatedAt = DateTimeOffset.UtcNow, Deployments = [deployment],
+                });
+                _models.Add(deployment.Name, deployment);
+            }
+
+            MapSpeech();
+
+            // Live audio: providers on the scripted WebSocket upstream, told apart by base path (livefail refuses the handshake).
+            foreach (var (name, residency) in new[] { ("live", DataResidency.Eu), ("livefail", DataResidency.Eu), ("liveonprem", DataResidency.OnPrem) })
+            {
+                var provider = new ProviderAccount
+                {
+                    Name = name, Type = ProviderType.OpenAICompatible, Residency = residency, BaseUrl = $"{Realtime.Url}/{name}/v1",
+                    AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = protector.Protect(ProviderSecret),
+                    Capabilities = ProviderCapabilities.Realtime | ProviderCapabilities.AudioTranscriptions, TimeoutSeconds = 10, CreatedAt = DateTimeOffset.UtcNow,
+                };
+                foreach (var (model, kind, price) in new[]
+                {
+                    ("whisper", ModelKind.Transcription, new ModelPrice { AudioPerMinuteUsd = 0.006m }),
+                    ("realtime", ModelKind.Realtime, new ModelPrice { InputPerMillionUsd = 4, CachedInputPerMillionUsd = 0.4m, OutputPerMillionUsd = 16, AudioInputPerMillionUsd = 32, AudioOutputPerMillionUsd = 64 }),
+                    ("interpret", ModelKind.SpeechTranslation, new ModelPrice { AudioPerMinuteUsd = 0.02m }),
+                })
+                {
+                    price.EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1);
+                    var deployment = new ModelDeployment { Name = name + "/" + model, UpstreamModel = name + "-" + model, Kind = kind, Prices = [price] };
+                    provider.Deployments.Add(deployment);
+                    _models.Add(deployment.Name, deployment);
+                }
+
+                db.ProviderAccounts.Add(provider);
+            }
+
             await db.SaveChangesAsync();
         }
         Client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
@@ -132,6 +187,115 @@ public sealed class GatewayFixture : IAsyncLifetime
                         "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":20,\"prompt_tokens_details\":{\"cached_tokens\":10}}}\n\n" +
                         "data: [DONE]\n\n"));
         }
+    }
+
+    private void MapSpeech()
+    {
+        IRequestBuilder Speech(string provider) => Request.Create().WithPath($"/{provider}/v1/audio/*").UsingPost();
+        Upstream.Given(Speech("speech")).RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"text":"Hej från Umeå","usage":{"type":"duration","seconds":90}}"""));
+        Upstream.Given(Speech("speechtext")).RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "text/plain; charset=utf-8")
+            .WithBody("Hej från Umeå\n"));
+        Upstream.Given(Speech("speechtokens")).AtPriority(10).RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"text":"Hej","usage":{"type":"tokens","input_tokens":1000,"output_tokens":50,"total_tokens":1050,"input_token_details":{"audio_tokens":1000,"text_tokens":0}}}"""));
+        Upstream.Given(Speech("speechtokens").WithHeader("Accept", "*text/event-stream*")).AtPriority(1).RespondWith(Response.Create().WithStatusCode(200)
+            .WithHeader("Content-Type", "text/event-stream")
+            .WithBody("""
+                data: {"type":"transcript.text.delta","delta":"Hej"}
+
+                data: {"type":"transcript.text.done","text":"Hej","usage":{"type":"tokens","input_tokens":1000,"output_tokens":50,"total_tokens":1050}}
+
+
+                """));
+        Upstream.Given(Speech("speechfail")).RespondWith(Response.Create().WithStatusCode(503).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"error":{"message":"Fake provider unavailable","type":"server_error"}}"""));
+    }
+
+    /// <summary>A PCM WAV file (16 kHz, mono, 16-bit) of the given length; its header gives the exact duration.</summary>
+    public static byte[] Wav(double seconds)
+    {
+        const int byteRate = 16_000 * 2;
+        var dataLength = (int)(seconds * byteRate);
+        var wav = new byte[44 + dataLength];
+        var span = wav.AsSpan();
+        "RIFF"u8.CopyTo(span);
+        BinaryPrimitives.WriteInt32LittleEndian(span[4..], 36 + dataLength);
+        "WAVEfmt "u8.CopyTo(span[8..]);
+        BinaryPrimitives.WriteInt32LittleEndian(span[16..], 16);
+        BinaryPrimitives.WriteInt16LittleEndian(span[20..], 1); // PCM
+        BinaryPrimitives.WriteInt16LittleEndian(span[22..], 1); // mono
+        BinaryPrimitives.WriteInt32LittleEndian(span[24..], 16_000);
+        BinaryPrimitives.WriteInt32LittleEndian(span[28..], byteRate);
+        BinaryPrimitives.WriteInt16LittleEndian(span[32..], 2);
+        BinaryPrimitives.WriteInt16LittleEndian(span[34..], 16);
+        "data"u8.CopyTo(span[36..]);
+        BinaryPrimitives.WriteInt32LittleEndian(span[40..], dataLength);
+        return wav;
+    }
+
+    /// <summary>Posts an OpenAI-style multipart upload; a null <paramref name="file"/> leaves the file part out.</summary>
+    public async Task<HttpResponseMessage> SendAudioAsync(TestKey? key, string model, byte[]? file, string endpoint = "/v1/audio/transcriptions",
+        IDictionary<string, string>? fields = null, string fileName = "samtal.wav")
+    {
+        using var form = new MultipartFormDataContent { { new StringContent(model), "model" } };
+        foreach (var (name, value) in fields ?? new Dictionary<string, string>())
+        {
+            form.Add(new StringContent(value), name);
+        }
+
+        if (file is not null)
+        {
+            var content = new ByteArrayContent(file);
+            content.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+            form.Add(content, "file", fileName);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = form };
+        if (key is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        }
+
+        return await Client.SendAsync(request);
+    }
+
+    /// <summary>Opens a live session through the gateway; a refused handshake throws with the status code in the message.</summary>
+    public async Task<System.Net.WebSockets.WebSocket> ConnectRealtimeAsync(TestKey? key, string model, string path = "/v1/realtime", string query = "",
+        IDictionary<string, string>? headers = null)
+    {
+        var client = _factory.Server.CreateWebSocketClient();
+        client.ConfigureRequest = request =>
+        {
+            if (key is not null)
+            {
+                request.Headers.Authorization = "Bearer " + key.Secret;
+            }
+
+            foreach (var (name, value) in headers ?? new Dictionary<string, string>())
+            {
+                request.Headers[name] = value;
+            }
+        };
+        return await client.ConnectAsync(new Uri($"ws://localhost{path}?model={Uri.EscapeDataString(model)}{query}"), TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>The one usage record of a key, once the writer has flushed.</summary>
+    public async Task<UsageRecord> UsageForKeyAsync(Guid keyId)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        UsageRecord? record = null;
+        while (record is null)
+        {
+            await Services.GetRequiredService<UsageWriter>().FlushAsync(cts.Token);
+            using var scope = Services.CreateScope();
+            record = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.SingleOrDefaultAsync(u => u.VirtualKeyId == keyId, cts.Token);
+            if (record is null)
+            {
+                await Task.Delay(50, cts.Token); // the session is still being accounted after the close
+            }
+        }
+
+        return record;
     }
 
     public async Task<TestKey> CreateKeyAsync(Action<VirtualKey>? configure = null)
@@ -219,6 +383,7 @@ public sealed class GatewayFixture : IAsyncLifetime
             await _factory.DisposeAsync();
         }
         Upstream?.Dispose();
+        await Realtime.DisposeAsync();
         await _postgres.DisposeAsync();
     }
 }

@@ -293,7 +293,8 @@ onMounted(load)
         </template>
         <template #cell-context="{ row }">{{ row.contextWindow == null ? '—' : formatNumber(row.contextWindow) }}</template>
         <template #cell-price="{ row }">
-          <span v-if="row.currentPrice">{{ formatUsd(row.currentPrice.inputPerMillionUsd) }} / {{ formatUsd(row.currentPrice.outputPerMillionUsd) }}</span>
+          <span v-if="row.currentPrice?.audioPerMinuteUsd">{{ formatUsd(row.currentPrice.audioPerMinuteUsd) }} per min</span>
+          <span v-else-if="row.currentPrice">{{ formatUsd(row.currentPrice.inputPerMillionUsd) }} / {{ formatUsd(row.currentPrice.outputPerMillionUsd) }}</span>
           <span v-else class="text-fg-3">No price</span>
         </template>
         <template #cell-status="{ row }"><UiBadge :tone="row.isEnabled ? 'ok' : 'neutral'" :label="row.isEnabled ? 'Enabled' : 'Disabled'" /></template>

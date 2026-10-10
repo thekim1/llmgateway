@@ -211,6 +211,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
     }
 
     private const string ImagePart = """{"type":"image_url","image_url":{"url":"data:image/png;base64,YWJj"}}""";
+    private const string VideoPart = """{"type":"video_url","video_url":{"url":"data:video/mp4;base64,AAAAIGZ0eXA="}}""";
     private const string PdfPart = """{"type":"file","file":{"filename":"beslut.pdf","file_data":"data:application/pdf;base64,JVBERi0="}}""";
 
     private static string ChatWith(string model, string part) =>
@@ -221,6 +222,8 @@ public sealed class GatewayTests(GatewayFixture fixture)
     [InlineData(AttachmentPolicy.ImagesOnly, ImagePart, 200)]
     [InlineData(AttachmentPolicy.ImagesOnly, PdfPart, 400)]
     [InlineData(AttachmentPolicy.None, ImagePart, 400)]
+    [InlineData(AttachmentPolicy.Allowed, VideoPart, 200)]
+    [InlineData(AttachmentPolicy.ImagesOnly, VideoPart, 400)]
     [InlineData(AttachmentPolicy.None, """{"type":"text","text":"bara text"}""", 200)]
     public async Task Attachment_policy_is_enforced(AttachmentPolicy policy, string part, int status)
     {
@@ -258,7 +261,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         var key = await fixture.CreateKeyAsync();
         using var pdf = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", PdfPart));
         pdf.StatusCode.ShouldBe(HttpStatusCode.OK);
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Body!.Contains("\"type\":\"document\"", StringComparison.Ordinal)
+        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Body != null && e.RequestMessage.Body.Contains("\"type\":\"document\"", StringComparison.Ordinal)
             && e.RequestMessage.Body.Contains("beslut.pdf", StringComparison.Ordinal));
 
         using var audio = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", """{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}"""));

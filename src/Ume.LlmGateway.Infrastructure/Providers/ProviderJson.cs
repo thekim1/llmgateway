@@ -57,6 +57,60 @@ internal static class ProviderJson
         return usage;
     }
 
+    /// <summary>
+    /// Usage of a JSON transcription: the top-level <c>usage</c> object (tokens or duration) and, for
+    /// <c>verbose_json</c>, the top-level <c>duration</c> in seconds. Throws <see cref="JsonException"/> for invalid JSON.
+    /// </summary>
+    public static (TokenUsage Usage, bool Reported) ReadTranscriptionUsage(ReadOnlySpan<byte> json)
+    {
+        var reader = new Utf8JsonReader(json);
+        TokenUsage usage = default;
+        var reported = false;
+        decimal? duration = null;
+        if (!reader.Read())
+        {
+            throw new JsonException("Empty response body.");
+        }
+
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+        }
+        else
+        {
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+            {
+                var isUsage = reader.ValueTextEquals("usage"u8);
+                var isDuration = reader.ValueTextEquals("duration"u8);
+                reader.Read();
+                if (isUsage && reader.TokenType == JsonTokenType.StartObject)
+                {
+                    reported = UsageParser.TryRead(JsonNode.Parse(ref reader), out usage);
+                }
+                else if (isDuration && reader.TokenType == JsonTokenType.Number && reader.TryGetDecimal(out var seconds) && seconds > 0)
+                {
+                    duration = seconds;
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+        }
+
+        while (reader.Read())
+        {
+        }
+
+        if (usage.AudioSeconds == 0 && duration is { } d)
+        {
+            usage = usage with { AudioSeconds = d };
+            reported = true;
+        }
+
+        return (usage, reported);
+    }
+
     /// <summary>Characters of generated text in an OpenAI chunk: <c>choices[].delta.content</c> (chat) or a top-level <c>delta</c> string (Responses API).</summary>
     public static long OpenAIContentLength(string json) => TextLength(json, anthropic: false);
 

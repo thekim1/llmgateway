@@ -53,10 +53,23 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         GatewayEndpoint.Embeddings => "embeddings",
         GatewayEndpoint.Responses => "responses",
         GatewayEndpoint.AnthropicMessages => "messages",
+        GatewayEndpoint.AudioTranscriptions => "audio/transcriptions",
+        GatewayEndpoint.AudioTranslations => "audio/translations",
         _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
     };
 
-    protected static Uri BuildUri(string baseUrl, string path) => new(baseUrl.TrimEnd('/') + "/" + path);
+    /// <summary>
+    /// <paramref name="path"/> appended to the base URL's path. A query string on the base URL (e.g. Azure's
+    /// <c>api-version</c>) is kept after it.
+    /// </summary>
+    public static Uri BuildUri(string baseUrl, string path)
+    {
+        ArgumentNullException.ThrowIfNull(baseUrl);
+        var query = baseUrl.IndexOf('?', StringComparison.Ordinal);
+        return query < 0
+            ? new Uri(baseUrl.TrimEnd('/') + "/" + path)
+            : new Uri(baseUrl[..query].TrimEnd('/') + "/" + path + baseUrl[query..]);
+    }
 
     protected virtual void ApplyHeaders(HttpRequestMessage request, ProviderCall call)
     {
@@ -86,20 +99,26 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
     /// Caller cancellation propagates as <see cref="OperationCanceledException"/>; provider timeouts become a
     /// retryable 504 failure.
     /// </summary>
-    protected async Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
+    protected Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
         Uri uri, JsonObject body, ProviderCall call, CancellationTokenSource timeout, CancellationToken cancellationToken)
+    {
+        var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body, Compact));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        return SendRawAsync(uri, content, call, timeout, cancellationToken);
+    }
+
+    /// <summary>As above with any request content (the multipart upload of the audio endpoints). The content is disposed.</summary>
+    protected async Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
+        Uri uri, HttpContent content, ProviderCall call, CancellationTokenSource timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(timeout);
         ArgumentNullException.ThrowIfNull(call);
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = content };
         if (http.RequireHttps && uri.Scheme != Uri.UriSchemeHttps)
         {
             return (null, new ProviderFailure(503, true, "https_required"));
         }
-        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
-        {
-            Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body, Compact)),
-        };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
         if (call.Stream)
         {
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -215,6 +234,11 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             return new ProviderFailure(400, true, "endpoint_not_supported");
         }
 
+        if (call.Audio is not null)
+        {
+            return await SendAudioAsync(call, cancellationToken);
+        }
+
         var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, PathFor(call.Endpoint)), call.Body, call, timeout, cancellationToken);
         if (failure is not null)
@@ -237,6 +261,93 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         var acc = new UsageAccumulator();
         var events = StreamEvents(response!, evt => TransformChunk(evt, acc, call.ClientRequestedStreamUsage), cancellationToken);
         return new ProviderStreamResult(events, acc, response);
+    }
+
+    /// <summary>
+    /// Speech to text: the form fields and the file go upstream as <c>multipart/form-data</c>. The answer is JSON,
+    /// plain text, SRT or WebVTT depending on <c>response_format</c>, or an SSE stream (gpt-4o-transcribe with
+    /// <c>stream=true</c>; Whisper ignores <c>stream</c> and answers in one piece, which is passed on as such).
+    /// </summary>
+    private async Task<ProviderResult> SendAudioAsync(ProviderCall call, CancellationToken cancellationToken)
+    {
+        var audio = call.Audio!;
+        var timeout = CreateTimeout(call, cancellationToken);
+        var (response, failure) = await SendRawAsync(BuildUri(call.Provider.BaseUrl, PathFor(call.Endpoint)), AudioForm(call.Body, audio), call, timeout, cancellationToken);
+        if (failure is not null)
+        {
+            timeout.Dispose();
+            return failure;
+        }
+
+        var contentType = response!.Content.Headers.ContentType;
+        if (call.Stream && contentType?.MediaType == "text/event-stream")
+        {
+            timeout.Dispose();
+            var acc = new UsageAccumulator();
+            return new ProviderStreamResult(StreamEvents(response, evt => TransformChunk(evt, acc, clientWantsUsage: true), cancellationToken), acc, response);
+        }
+
+        using (timeout)
+        using (response)
+        {
+            byte[] buffer;
+            int length;
+            try
+            {
+                (buffer, length) = await ProviderJson.ReadBodyAsync(response.Content, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new ProviderFailure(504, true, "timeout");
+            }
+
+            var json = contentType?.MediaType is null or "application/json" || contentType.MediaType.EndsWith("+json", StringComparison.Ordinal);
+            TokenUsage usage = default;
+            var reported = false;
+            if (json)
+            {
+                try
+                {
+                    (usage, reported) = ProviderJson.ReadTranscriptionUsage(buffer.AsSpan(0, length));
+                }
+                catch (JsonException)
+                {
+                    System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                    return new ProviderFailure(502, true, "invalid_json");
+                }
+            }
+
+            // What the provider did not report is estimated: audio length from the file, transcript from the answer.
+            var estimate = CostCalculator.EstimateTranscription(audio.EstimatedSeconds);
+            usage = reported
+                ? usage with { AudioSeconds = usage.AudioSeconds > 0 ? usage.AudioSeconds : estimate.AudioSeconds }
+                : estimate with { OutputTokens = CostCalculator.EstimateTokens(length) };
+            return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer, json ? null : contentType!.ToString());
+        }
+    }
+
+    private static MultipartFormDataContent AudioForm(JsonObject fields, AudioUpload audio)
+    {
+        var form = new MultipartFormDataContent();
+        foreach (var (name, node) in fields)
+        {
+            // Repeated fields (timestamp_granularities[], include[]) were collected into an array.
+            var values = node is JsonArray array ? (IEnumerable<JsonNode?>)array : [node];
+            foreach (var value in values)
+            {
+                if (value is JsonValue v)
+                {
+                    var part = new StringContent(v.TryGetValue<string>(out var s) ? s : v.TryGetValue<bool>(out var b) ? (b ? "true" : "false") : v.ToJsonString());
+                    part.Headers.ContentType = null; // plain form field, as clients send it
+                    form.Add(part, name);
+                }
+            }
+        }
+
+        var file = new ReadOnlyMemoryContent(audio.Data);
+        file.Headers.ContentType = MediaTypeHeaderValue.TryParse(audio.ContentType, out var type) ? type : new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "file", audio.FileName);
+        return form;
     }
 
     internal static IEnumerable<SseEvent> TransformChunk(SseEvent evt, UsageAccumulator acc, bool clientWantsUsage)

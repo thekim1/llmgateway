@@ -27,10 +27,12 @@ export const PROVIDER_CAPABILITIES = [
   'Responses',
   'AnthropicMessages',
   'Streaming',
+  'AudioTranscriptions',
+  'Realtime',
 ] as const
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]
 
-export const MODEL_KINDS = ['Chat', 'Embedding'] as const
+export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation'] as const
 export type ModelKind = (typeof MODEL_KINDS)[number]
 
 export const PARAMETER_PROFILES = ['Standard', 'OpenAIReasoning'] as const
@@ -165,7 +167,7 @@ export interface VirtualKey {
   /** Provider account names the key may use. Empty = all providers. */
   allowedProviders: string[]
   piiPolicy: PiiPolicy
-  /** Which file parts (images, documents, audio) requests may carry. */
+  /** Which file parts (images, documents, audio, video) requests may carry. */
   attachmentPolicy: AttachmentPolicy
   requestsPerMinute: number | null
   tokensPerMinute: number | null
@@ -267,6 +269,11 @@ export interface Price {
   inputPerMillionUsd: number
   cachedInputPerMillionUsd: number
   outputPerMillionUsd: number
+  /** Speech-to-text models billed by duration (Whisper). */
+  audioPerMinuteUsd: number
+  /** Audio tokens of realtime and gpt-4o-transcribe models; 0 bills them as text tokens. */
+  audioInputPerMillionUsd: number
+  audioOutputPerMillionUsd: number
   effectiveFrom: IsoDateTime
 }
 
@@ -274,6 +281,11 @@ export interface NewPrice {
   inputPerMillionUsd: number
   cachedInputPerMillionUsd: number
   outputPerMillionUsd: number
+  /** Optional, defaults to 0. */
+  audioPerMinuteUsd?: number
+  /** Optional, defaults to 0 (audio tokens billed as text tokens). */
+  audioInputPerMillionUsd?: number
+  audioOutputPerMillionUsd?: number
   /** Optional, defaults to now. */
   effectiveFrom?: IsoDateTime | null
 }

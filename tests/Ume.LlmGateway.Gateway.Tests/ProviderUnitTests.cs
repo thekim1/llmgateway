@@ -57,6 +57,7 @@ public sealed class ProviderUnitTests
 
     [Theory]
     [InlineData("""{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}""", "ljud")]
+    [InlineData("""{"type":"video_url","video_url":{"url":"https://x/a.mp4"}}""", "video")]
     [InlineData("""{"type":"file","file":{"file_id":"file-abc"}}""", "file_id")]
     [InlineData("""{"type":"file","file":{"filename":"a.docx","file_data":"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEs="}}""", "wordprocessingml")]
     [InlineData("""{"type":"something_new"}""", "something_new")]
@@ -96,6 +97,50 @@ public sealed class ProviderUnitTests
     {
         UsageParser.TryRead(JsonNode.Parse(json), out var usage).ShouldBeTrue();
         usage.ShouldBe(new TokenUsage(input, cached, output));
+    }
+
+    [Fact]
+    public void Usage_parser_reads_speech_usage_by_duration_and_by_tokens()
+    {
+        UsageParser.TryRead(JsonNode.Parse("""{"type":"duration","seconds":12.5}"""), out var duration).ShouldBeTrue();
+        duration.ShouldBe(new TokenUsage(0, 0, 0, 12.5m));
+
+        UsageParser.TryRead(JsonNode.Parse("""{"type":"tokens","input_tokens":1000,"output_tokens":50,"input_token_details":{"audio_tokens":1000}}"""), out var tokens).ShouldBeTrue();
+        tokens.ShouldBe(new TokenUsage(1000, 0, 50, AudioInputTokens: 1000));
+    }
+
+    [Theory]
+    [InlineData("""{"prompt_tokens":100,"completion_tokens":40,"prompt_tokens_details":{"audio_tokens":60},"completion_tokens_details":{"audio_tokens":30}}""")]
+    [InlineData("""{"input_tokens":100,"output_tokens":40,"input_token_details":{"audio_tokens":60},"output_token_details":{"audio_tokens":30}}""")]
+    [InlineData("""{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"audio_tokens":60},"output_tokens_details":{"audio_tokens":30}}""")]
+    public void Usage_parser_reads_the_audio_part_of_the_tokens(string json)
+    {
+        UsageParser.TryRead(JsonNode.Parse(json), out var usage).ShouldBeTrue();
+        usage.ShouldBe(new TokenUsage(100, 0, 40, AudioInputTokens: 60, AudioOutputTokens: 30));
+    }
+
+    [Theory]
+    [InlineData("""{"text":"Hej","usage":{"type":"duration","seconds":7}}""", 0, 7, true)]
+    [InlineData("""{"task":"transcribe","language":"swedish","duration":8.25,"text":"Hej","segments":[]}""", 0, 8.25, true)]
+    [InlineData("""{"text":"Hej","usage":{"type":"tokens","input_tokens":100,"output_tokens":5}}""", 100, 0, true)]
+    [InlineData("""{"text":"Hej"}""", 0, 0, false)]
+    public void Transcription_usage_comes_from_usage_or_verbose_duration(string json, long input, double seconds, bool reported)
+    {
+        var (usage, wasReported) = ProviderJson.ReadTranscriptionUsage(Encoding.UTF8.GetBytes(json));
+        wasReported.ShouldBe(reported);
+        usage.InputTokens.ShouldBe(input);
+        usage.AudioSeconds.ShouldBe((decimal)seconds);
+    }
+
+    [Fact]
+    public void Stream_usage_falls_back_to_the_estimated_audio_length()
+    {
+        var acc = new UsageAccumulator();
+        acc.ToTokenUsage(17, 1.5m).AudioSeconds.ShouldBe(1.5m);
+        UsageParser.Apply(acc, new TokenUsage(1000, 0, 50));
+        acc.ToTokenUsage(17, 1.5m).ShouldBe(new TokenUsage(1000, 0, 50, 1.5m));
+        UsageParser.Apply(acc, new TokenUsage(0, 0, 0, 9m));
+        acc.ToTokenUsage(17, 1.5m).AudioSeconds.ShouldBe(9m);
     }
 
     [Theory]

@@ -66,6 +66,8 @@ const priceColumns: Column[] = [
   { key: 'input', label: 'Input', align: 'right' },
   { key: 'cached', label: 'Cached', align: 'right' },
   { key: 'output', label: 'Output', align: 'right' },
+  { key: 'audio', label: 'Audio / min', align: 'right' },
+  { key: 'audioTokens', label: 'Audio tokens in / out', align: 'right' },
 ]
 
 async function loadPrices(): Promise<void> {
@@ -184,13 +186,17 @@ async function priceAdded(): Promise<void> {
         <h3 id="model-prices" class="text-heading">Price history</h3>
         <UiButton size="sm" icon="add" @click="addPrice = true">Add price</UiButton>
       </div>
-      <p class="text-small text-fg-3">USD per 1M tokens.</p>
+      <p class="text-small text-fg-3">USD per 1M tokens; audio in USD per minute. A dash means audio tokens are billed as text tokens.</p>
       <AsyncState :loading="pricesLoading" :error="pricesError" :empty="prices.length === 0" empty-text="No price yet. Usage of this model is not costed." @retry="loadPrices">
         <DataTable :columns="priceColumns" :rows="prices" :row-key="(p) => p.effectiveFrom" caption="Price history">
           <template #cell-from="{ row }">{{ formatDateTime(row.effectiveFrom) }}</template>
           <template #cell-input="{ row }">{{ formatUsd(row.inputPerMillionUsd) }}</template>
           <template #cell-cached="{ row }">{{ formatUsd(row.cachedInputPerMillionUsd) }}</template>
           <template #cell-output="{ row }">{{ formatUsd(row.outputPerMillionUsd) }}</template>
+          <template #cell-audio="{ row }">{{ row.audioPerMinuteUsd ? formatUsd(row.audioPerMinuteUsd) : '—' }}</template>
+          <template #cell-audioTokens="{ row }">
+            {{ row.audioInputPerMillionUsd ? formatUsd(row.audioInputPerMillionUsd) : '—' }} / {{ row.audioOutputPerMillionUsd ? formatUsd(row.audioOutputPerMillionUsd) : '—' }}
+          </template>
         </DataTable>
       </AsyncState>
     </section>

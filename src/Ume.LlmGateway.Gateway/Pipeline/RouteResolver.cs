@@ -71,7 +71,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             return Reject(403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda någon leverantör som tillhandahåller '{resolved.Name}'.");
         }
 
-        if (resolved.Kind != ExpectedKind(endpoint))
+        if (!IsCompatible(resolved.Kind, endpoint))
         {
             return Reject(400, GatewayErrorCodes.InvalidRequest, $"Modellen '{resolved.Name}' kan inte användas med denna endpoint.");
         }
@@ -108,10 +108,9 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             }
         }
 
-        var expected = ExpectedKind(endpoint);
         var models = decision.Models
             .Select(snapshot.Resolve)
-            .Where(m => m is not null && m.Kind == expected)
+            .Where(m => m is not null && IsCompatible(m.Kind, endpoint))
             .Select(m => m!)
             .ToList();
         return models.Count > 0
@@ -181,10 +180,22 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
         GatewayEndpoint.Embeddings => "embeddings",
         GatewayEndpoint.Responses => "responses",
         GatewayEndpoint.AnthropicMessages => "anthropic_messages",
+        GatewayEndpoint.AudioTranscriptions => "audio_transcriptions",
+        GatewayEndpoint.AudioTranslations => "audio_translations",
+        GatewayEndpoint.Realtime => "realtime",
+        GatewayEndpoint.RealtimeTranslations => "realtime_translations",
         _ => endpoint.ToString().ToLowerInvariant(),
     };
 
-    private static ModelKind ExpectedKind(GatewayEndpoint endpoint) => endpoint == GatewayEndpoint.Embeddings ? ModelKind.Embedding : ModelKind.Chat;
+    /// <summary>Which kinds of model an endpoint serves. Live transcription uses speech-to-text models on <c>/v1/realtime</c>.</summary>
+    public static bool IsCompatible(ModelKind kind, GatewayEndpoint endpoint) => endpoint switch
+    {
+        GatewayEndpoint.Embeddings => kind == ModelKind.Embedding,
+        GatewayEndpoint.AudioTranscriptions or GatewayEndpoint.AudioTranslations => kind == ModelKind.Transcription,
+        GatewayEndpoint.Realtime => kind is ModelKind.Realtime or ModelKind.Transcription,
+        GatewayEndpoint.RealtimeTranslations => kind == ModelKind.SpeechTranslation,
+        _ => kind == ModelKind.Chat,
+    };
 
     private static string NotFound(string model) =>
         $"Modellen '{(model.Length > 200 ? model[..200] : model)}' finns inte. Se GET /v1/models för tillgängliga modeller.";

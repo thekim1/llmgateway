@@ -8,7 +8,10 @@ using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Infrastructure.Providers;
 
-/// <summary>One upstream call attempt. <see cref="Body"/> is already rewritten for the target deployment.</summary>
+/// <summary>
+/// One upstream call attempt. <see cref="Body"/> is already rewritten for the target deployment. For the audio
+/// endpoints it holds the form's text fields and <see cref="Audio"/> the uploaded file.
+/// </summary>
 public sealed record ProviderCall(
     ProviderAccount Provider,
     ModelDeployment Deployment,
@@ -16,7 +19,32 @@ public sealed record ProviderCall(
     JsonObject Body,
     bool Stream,
     string? Credential,
-    bool ClientRequestedStreamUsage);
+    bool ClientRequestedStreamUsage,
+    AudioUpload? Audio = null);
+
+/// <summary>
+/// An audio file uploaded to a speech-to-text endpoint, held in memory only (never on disk) for as long as the
+/// request runs, so fallback attempts can send it again. <see cref="Dispose"/> returns the pooled buffer.
+/// </summary>
+public sealed class AudioUpload(byte[] pooled, int length, string fileName, string? contentType) : IDisposable
+{
+    private byte[]? _pooled = pooled;
+
+    public ReadOnlyMemory<byte> Data { get; } = pooled.AsMemory(0, length);
+    public string FileName { get; } = fileName;
+    public string? ContentType { get; } = contentType;
+
+    /// <summary>Playing time read from the file header, or a deliberately high guess (see <see cref="AudioDuration"/>).</summary>
+    public decimal EstimatedSeconds { get; } = AudioDuration.Estimate(pooled.AsSpan(0, length));
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _pooled, null) is { } buffer)
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+}
 
 public abstract class ProviderResult;
 
@@ -35,14 +63,18 @@ public sealed class ProviderFailure(int statusCode, bool retryable, string reaso
 /// <summary>
 /// A complete JSON answer, held as the UTF-8 bytes to send to the client so it is never re-serialised. When
 /// <c>pooled</c> is given, <see cref="Body"/> lives in that rented array and <see cref="Dispose"/> returns it.
+/// Transcriptions may also be plain text, SRT or WebVTT; <see cref="ContentType"/> is then the provider's.
 /// </summary>
-public sealed class ProviderJsonResult(int statusCode, ReadOnlyMemory<byte> body, TokenUsage usage, byte[]? pooled = null) : ProviderResult, IDisposable
+public sealed class ProviderJsonResult(int statusCode, ReadOnlyMemory<byte> body, TokenUsage usage, byte[]? pooled = null, string? contentType = null) : ProviderResult, IDisposable
 {
     private byte[]? _pooled = pooled;
 
     public int StatusCode { get; } = statusCode;
     public ReadOnlyMemory<byte> Body { get; } = body;
     public TokenUsage Usage { get; } = usage;
+
+    /// <summary>Null means <c>application/json</c>.</summary>
+    public string? ContentType { get; } = contentType;
 
     public void Dispose()
     {
@@ -108,14 +140,25 @@ public sealed class UsageAccumulator
     public long InputTokens { get; set; }
     public long CachedInputTokens { get; set; }
     public long OutputTokens { get; set; }
+
+    /// <summary>Seconds of audio, when a speech-to-text provider reports usage by duration.</summary>
+    public decimal AudioSeconds { get; set; }
+
+    /// <summary>Audio part of <see cref="InputTokens"/> (gpt-4o-transcribe, audio-capable chat models).</summary>
+    public long AudioInputTokens { get; set; }
+
+    /// <summary>Audio part of <see cref="OutputTokens"/>.</summary>
+    public long AudioOutputTokens { get; set; }
+
     public bool Reported { get; set; }
 
     /// <summary>Characters of streamed output, used to estimate tokens if the provider never reports usage.</summary>
     public long OutputCharacters { get; set; }
 
-    public TokenUsage ToTokenUsage(long estimatedInputTokens) => Reported
-        ? new TokenUsage(InputTokens, CachedInputTokens, OutputTokens)
-        : new TokenUsage(estimatedInputTokens, 0, OutputCharacters == 0 ? 0 : CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, OutputCharacters)));
+    /// <summary>The reported usage, or estimates for what was not reported (audio length comes from the uploaded file).</summary>
+    public TokenUsage ToTokenUsage(long estimatedInputTokens, decimal estimatedAudioSeconds = 0) => Reported
+        ? new TokenUsage(InputTokens, CachedInputTokens, OutputTokens, AudioSeconds > 0 ? AudioSeconds : estimatedAudioSeconds, AudioInputTokens, AudioOutputTokens)
+        : new TokenUsage(estimatedInputTokens, 0, OutputCharacters == 0 ? 0 : CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, OutputCharacters)), estimatedAudioSeconds);
 }
 
 public interface IProviderAdapter
@@ -191,7 +234,7 @@ public static class SseReader
     }
 }
 
-/// <summary>Extracts token usage from provider responses (OpenAI chat/embeddings/responses and Anthropic formats).</summary>
+/// <summary>Extracts usage from provider responses (OpenAI chat/embeddings/responses/transcriptions and Anthropic formats).</summary>
 public static class UsageParser
 {
     public static bool TryRead(JsonNode? usage, out TokenUsage result)
@@ -202,11 +245,19 @@ public static class UsageParser
             return false;
         }
 
+        // Speech to text billed by duration: {"type":"duration","seconds":12.5} (whisper-1, vLLM)
+        if (u["seconds"] is JsonValue seconds && seconds.TryGetValue<decimal>(out var s))
+        {
+            result = new TokenUsage(0, 0, 0, Math.Max(s, 0));
+            return true;
+        }
+
         // OpenAI chat / embeddings
         if (u["prompt_tokens"] is not null)
         {
-            var cached = Long(u["prompt_tokens_details"]?["cached_tokens"]);
-            result = new TokenUsage(Long(u["prompt_tokens"]), cached, Long(u["completion_tokens"]));
+            var details = u["prompt_tokens_details"];
+            result = new TokenUsage(Long(u["prompt_tokens"]), Long(details?["cached_tokens"]), Long(u["completion_tokens"]),
+                AudioInputTokens: Long(details?["audio_tokens"]), AudioOutputTokens: Long(u["completion_tokens_details"]?["audio_tokens"]));
             return true;
         }
 
@@ -219,11 +270,13 @@ public static class UsageParser
             return true;
         }
 
-        // OpenAI Responses API / Anthropic without cache fields
+        // OpenAI Responses API / Anthropic without cache fields / Realtime and gpt-4o-transcribe (input_token_details)
         if (u["input_tokens"] is not null || u["output_tokens"] is not null)
         {
-            var cached = Long(u["input_tokens_details"]?["cached_tokens"]);
-            result = new TokenUsage(Long(u["input_tokens"]), cached, Long(u["output_tokens"]));
+            var details = u["input_tokens_details"] ?? u["input_token_details"];
+            var outputDetails = u["output_tokens_details"] ?? u["output_token_details"];
+            result = new TokenUsage(Long(u["input_tokens"]), Long(details?["cached_tokens"]), Long(u["output_tokens"]),
+                AudioInputTokens: Long(details?["audio_tokens"]), AudioOutputTokens: Long(outputDetails?["audio_tokens"]));
             return true;
         }
 
@@ -236,6 +289,9 @@ public static class UsageParser
         acc.InputTokens = usage.InputTokens;
         acc.CachedInputTokens = usage.CachedInputTokens;
         acc.OutputTokens = usage.OutputTokens;
+        acc.AudioSeconds = usage.AudioSeconds;
+        acc.AudioInputTokens = usage.AudioInputTokens;
+        acc.AudioOutputTokens = usage.AudioOutputTokens;
         acc.Reported = true;
     }
 

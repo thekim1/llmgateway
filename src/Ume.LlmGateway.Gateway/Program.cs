@@ -60,6 +60,9 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<RequestIdMiddleware>();
+// Only on the live audio paths: the middleware would otherwise add a handshake object to every request.
+app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime"),
+    branch => branch.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) }));
 app.Use(async (http, next) =>
 {
     var headers = http.Response.Headers;
@@ -112,6 +115,21 @@ v1.MapPost("/responses", (HttpContext http, GatewayRequestHandler h) => h.Handle
 v1.MapPost("/messages", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AnthropicMessages))
     .WithSummary("Anthropic Messages API (endast Anthropic-leverantörer)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/audio/transcriptions", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranscriptions))
+    .WithSummary("Tal till text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/audio/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranslations))
+    .WithSummary("Tal till engelsk text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+// Live audio: WebSocket (OpenAI Realtime protocol). HTTP/2 extended CONNECT is presented as GET as well.
+v1.MapGet("/realtime", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.Realtime))
+    .WithSummary("Realtidsljud över WebSocket: live-transkribering och realtidssamtal (OpenAI Realtime-kompatibel)");
+
+v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.RealtimeTranslations))
+    .WithSummary("Live-tolkning över WebSocket (OpenAI Realtime translations-kompatibel)");
 
 v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
     .WithSummary("Modeller och alias som nyckeln får använda")

@@ -124,7 +124,11 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
   `https://<admin host>/signin-oidc` and `/signout-callback-oidc` in the IdP.
 - Do not enable forwarded-header trust; it is not needed because the upstream hop is HTTPS.
 - Gateway host: disable response buffering and allow long reads (streamed completions can run
-  for minutes), and allow bodies of a few MB or more.
+  for minutes), and allow bodies of a few MB or more: 32 MB covers the 26 MB audio upload limit
+  (`Gateway__MaxAudioRequestBodyBytes`; raise both together). Disable request buffering as well, so uploaded
+  recordings and documents are not written to the proxy's temporary files. Pass the WebSocket upgrade for live
+  audio (`/v1/realtime`): the `Upgrade` and `Connection` headers, as in the nginx example; the gateway pings every
+  30 s, so the 600 s read timeout does not cut a quiet session.
 - The upstream certificate is signed by the internal CA, so the proxy must either skip
   upstream verification (the nginx default; Nginx Proxy Manager does this) or trust
   `deploy/certs/ca.pem` and use `proxy_ssl_name gateway;` / `adminapi;`. With F5, import
@@ -139,8 +143,8 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
 |---|---|---|
 | Scheme / Forward host / port | `https` / Docker host / 8443 | `https` / Docker host / 9443 |
 | SSL tab | your certificate, Force SSL, HTTP/2 | same |
-| Websockets Support | off | off |
-| Advanced (custom nginx configuration) | `proxy_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 32m;` | (none) |
+| Websockets Support | **on** (live audio, `/v1/realtime`) | off |
+| Advanced (custom nginx configuration) | `proxy_buffering off; proxy_request_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 32m;` | (none) |
 
 **PKI certificates.** Pass the certificate chain and key for each public name (the
 leaf certificate file should include intermediates). `--ca-file` appends your root and
@@ -314,6 +318,9 @@ does not deploy/expose a public Aspire dashboard.
 | Requests go to an unexpected model | Check the `x-ume-rule` response header and the usage record's `RoutingRuleName`; use the routing rule dry run (`POST /api/routing-rules/test`) with the same headers, key and budget values; look for gateway warnings about ignored rules |
 | Rules not applying after a reorganisation | A rule whose team/department was removed is *orphaned* and disabled until it is reassigned (`GET /api/routing-rules?orphaned=true`) |
 | No providers | Residency/capability/enable/drain/circuit settings; inspect request_id metadata, not content |
+| Live audio: 400 "requires a WebSocket connection" | The proxy drops the `Upgrade` header; see *Reverse proxy and PKI* |
+| Live audio: warning "session registry unavailable" | The Redis ACL lacks `zadd zrem zcard zremrangebyscore` (upgrade guide); sessions work but the per-key limit is off |
+| Live audio: sessions end with `gateway_shutting_down` | Expected on deploy/restart: open sessions are closed with an error event and clients reconnect. Metrics: `ume.gateway.realtime.sessions` (open now), `ume.gateway.realtime.session.duration`, `ume.gateway.audio` (seconds) |
 
 ## Backup and restore
 

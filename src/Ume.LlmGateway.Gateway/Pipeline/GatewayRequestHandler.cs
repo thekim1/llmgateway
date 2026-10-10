@@ -29,6 +29,9 @@ public sealed partial class GatewayRequestHandler(
     BudgetService budgets,
     ICircuitBreakerStore circuits,
     IEnumerable<IProviderAdapter> adapters,
+    IRealtimeConnector realtime,
+    IRealtimeSessionRegistry sessions,
+    IHostApplicationLifetime lifetime,
     CredentialProtector credentials,
     UsageWriter usageWriter,
     AuthFailureRecorder authFailures,
@@ -39,6 +42,9 @@ public sealed partial class GatewayRequestHandler(
     ILogger<GatewayRequestHandler> logger)
 {
     private static readonly JsonDocumentOptions JsonOptions = new() { MaxDepth = 64 };
+
+    /// <summary>Bodies this large are walked for images even when the key allows all files (see the token estimate).</summary>
+    private const long AttachmentInspectBytes = 32 * 1024;
     private readonly IProviderAdapter[] _adapters = [.. adapters];
     private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
 
@@ -58,64 +64,45 @@ public sealed partial class GatewayRequestHandler(
 
         state.Key = key;
 
-        // 2. Parse body (strict JSON object with a model name).
-        if (!http.Request.HasJsonContentType())
+        // 2. Parse body (strict JSON object with a model name; the audio endpoints take a multipart upload instead).
+        JsonObject? body;
+        long bodyLength;
+        AudioUpload? audio = null;
+        if (IsAudio(endpoint))
+        {
+            var maxAudioBytes = options.CurrentValue.MaxAudioRequestBodyBytes;
+            if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeLimit)
+            {
+                sizeLimit.MaxRequestBodySize = maxAudioBytes;
+            }
+
+            var form = await AudioFormReader.ReadAsync(http.Request, maxAudioBytes, ct);
+            if (form.Failed)
+            {
+                await RejectAsync(http, state, form.Status, form.Code!, form.Message!, RequestOutcome.Rejected);
+                return;
+            }
+
+            (body, audio, bodyLength) = (form.Fields, form.Audio, http.Request.ContentLength ?? form.Audio!.Data.Length);
+        }
+        else if (!http.Request.HasJsonContentType())
         {
             await RejectAsync(http, state, 415, GatewayErrorCodes.UnsupportedMediaType, "Content-Type måste vara application/json.", RequestOutcome.Rejected);
             return;
         }
-
-        JsonObject? body;
-        long bodyLength;
-        try
+        else
         {
-            var maxBodyBytes = options.CurrentValue.MaxRequestBodyBytes;
-            if (http.Request.ContentLength > maxBodyBytes)
+            (body, bodyLength, var readStatus) = await ReadJsonAsync(http.Request, ct);
+            if (readStatus != 0)
             {
-                throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
-            }
-
-            // Read into one pooled buffer sized from Content-Length; the parsed tree does not reference it afterwards.
-            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(http.Request.ContentLength ?? 16 * 1024, 1, maxBodyBytes) + 1);
-            var length = 0;
-            try
-            {
-                int read;
-                while ((read = await http.Request.Body.ReadAsync(buffer.AsMemory(length), ct)) > 0)
-                {
-                    length += read;
-                    if (length > maxBodyBytes)
-                    {
-                        throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
-                    }
-
-                    if (length == buffer.Length)
-                    {
-                        var larger = ArrayPool<byte>.Shared.Rent((int)Math.Min(buffer.Length * 2L, maxBodyBytes + 1));
-                        buffer.AsSpan(0, length).CopyTo(larger);
-                        ArrayPool<byte>.Shared.Return(buffer);
-                        buffer = larger;
-                    }
-                }
-
-                bodyLength = length;
-                body = JsonNode.Parse(buffer.AsSpan(0, length), documentOptions: JsonOptions) as JsonObject;
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+                await RejectAsync(http, state, readStatus, readStatus == 413 ? GatewayErrorCodes.RequestTooLarge : GatewayErrorCodes.InvalidRequest,
+                    readStatus == 413 ? "Förfrågan är för stor." : "Förfrågan är inte giltig JSON.", RequestOutcome.Rejected);
+                return;
             }
         }
-        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
-        {
-            await RejectAsync(http, state, 413, GatewayErrorCodes.RequestTooLarge, "Förfrågan är för stor.", RequestOutcome.Rejected);
-            return;
-        }
-        catch (JsonException)
-        {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, "Förfrågan är inte giltig JSON.", RequestOutcome.Rejected);
-            return;
-        }
+
+        // The upload stays in memory until the last attempt is done; disposing returns the pooled buffer.
+        using var audioLifetime = audio;
 
         if (body?["model"] is not JsonValue modelValue || !modelValue.TryGetValue<string>(out var model) || string.IsNullOrWhiteSpace(model))
         {
@@ -126,8 +113,11 @@ public sealed partial class GatewayRequestHandler(
         state.RequestedModel = model.Length > 200 ? model[..200] : model;
 
         // 2b. Attachment policy (per key): files are base64 the PII guard cannot read, so sensitive keys may refuse them.
-        if (key.AttachmentPolicy != AttachmentPolicy.Allowed
-            && AttachmentScanner.Disallowed(key.AttachmentPolicy, AttachmentScanner.Scan(body)) is var refused and not AttachmentKinds.None)
+        //     Large bodies are inspected regardless, so inline images do not count as text in the token estimate.
+        var attachments = audio is not null ? new AttachmentScan(AttachmentKinds.Audio, 0, 0)
+            : key.AttachmentPolicy != AttachmentPolicy.Allowed || bodyLength >= AttachmentInspectBytes ? AttachmentScanner.Inspect(body)
+            : default;
+        if (AttachmentScanner.Disallowed(key.AttachmentPolicy, attachments.Kinds) is var refused and not AttachmentKinds.None)
         {
             await RejectAsync(http, state, 400, GatewayErrorCodes.AttachmentNotAllowed,
                 $"Nyckeln tillåter inte bifogade {AttachmentNames(refused)}{(key.AttachmentPolicy == AttachmentPolicy.ImagesOnly ? " (endast bilder är tillåtna)" : string.Empty)}. Skicka förfrågan utan filer.",
@@ -149,21 +139,13 @@ public sealed partial class GatewayRequestHandler(
         var circuitPrefetch = requested is null ? null : router.PrefetchCircuits(requested, ct);
 
         // 4. Rate limits (requests and tokens per minute).
-        var estimatedInputTokens = CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, bodyLength));
+        // Audio: from the file's playing time (both the per-minute and the per-token way of pricing speech models).
+        var audioEstimate = audio is null ? default : CostCalculator.EstimateTranscription(audio.EstimatedSeconds);
+        var estimatedInputTokens = audio is null ? CostCalculator.EstimateInputTokens(bodyLength, attachments) : audioEstimate.InputTokens;
         state.EstimatedInputTokens = estimatedInputTokens;
-        var rate = await rateLimiter.AcquireAsync(key.Id, key.RequestsPerMinute, key.TokensPerMinute, ct);
-        if (rate.RequestLimit is { } limit)
+        state.EstimatedAudioSeconds = audioEstimate.AudioSeconds;
+        if (!await AcquireRateLimitAsync(http, state, key, ct))
         {
-            http.Response.Headers["x-ratelimit-limit-requests"] = limit.ToString(CultureInfo.InvariantCulture);
-            http.Response.Headers["x-ratelimit-remaining-requests"] = Math.Max(0, rate.RequestsRemaining ?? 0).ToString(CultureInfo.InvariantCulture);
-        }
-
-        if (!rate.Allowed)
-        {
-            var retryAfter = Math.Max(1, (int)Math.Ceiling(rate.RetryAfter.TotalSeconds));
-            http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
-            var what = rate.Reason == "tokens" ? "token per minut" : "anrop per minut";
-            await RejectAsync(http, state, 429, GatewayErrorCodes.RateLimited, $"Gränsen för {what} är nådd för nyckeln. Försök igen om {retryAfter} s.", RequestOutcome.RateLimited);
             return;
         }
 
@@ -242,7 +224,8 @@ public sealed partial class GatewayRequestHandler(
 
         // 8. Budget reservation across key, team and förvaltning.
         long maxOutput = endpoint == GatewayEndpoint.Embeddings ? 0 : RequestRewriter.RequestedMaxOutputTokens(body) ?? options.CurrentValue.DefaultOutputTokenEstimate;
-        var estimate = candidates.Max(t => CostCalculator.Calculate(new TokenUsage(estimatedInputTokens, 0, maxOutput), t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
+        var expectedUsage = audio is null ? new TokenUsage(estimatedInputTokens, 0, maxOutput) : audioEstimate;
+        var estimate = candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
         var reservation = await budgets.ReserveAsync(BudgetService.ApplicableBudgets(snapshot, key), estimate, ct);
         state.Reservation = reservation;
         if (reservation.RemainingSek is { } remainingBefore)
@@ -295,11 +278,11 @@ public sealed partial class GatewayRequestHandler(
             try
             {
                 result = await _adapters.Resolve(provider.Type)
-                    .SendAsync(new ProviderCall(provider, deployment, endpoint, attemptBody, stream, credential, clientWantsStreamUsage), ct);
+                    .SendAsync(new ProviderCall(provider, deployment, endpoint, attemptBody, stream, credential, clientWantsStreamUsage, audio), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                await AccountAsync(state, deployment, new TokenUsage(estimatedInputTokens, 0, 0), 499, RequestOutcome.ClientCancelled, null, snapshot);
+                await AccountAsync(state, deployment, new TokenUsage(estimatedInputTokens, 0, 0, state.EstimatedAudioSeconds), 499, RequestOutcome.ClientCancelled, null, snapshot);
                 return;
             }
 
@@ -340,7 +323,7 @@ public sealed partial class GatewayRequestHandler(
                         // The answer goes out first (complete, thanks to Content-Length); accounting then runs off the
                         // client's critical path. TrackPending keeps UsageWriter.FlushAsync waiting for it.
                         http.Response.StatusCode = json.StatusCode;
-                        http.Response.ContentType = "application/json";
+                        http.Response.ContentType = json.ContentType ?? "application/json";
                         http.Response.ContentLength = json.Body.Length;
                         await http.Response.Body.WriteAsync(json.Body, CancellationToken.None);
                         await AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
@@ -366,6 +349,79 @@ public sealed partial class GatewayRequestHandler(
         await RejectAsync(http, state, status, GatewayErrorCodes.AllProvidersFailed,
             $"Alla {candidates.Count} leverantörer för '{plan.Models[0].Name}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.",
             RequestOutcome.ProviderError);
+    }
+
+    /// <summary>Counts the request against the key's per-minute limits; when refused, the 429 has been written.</summary>
+    private async Task<bool> AcquireRateLimitAsync(HttpContext http, RequestState state, VirtualKey key, CancellationToken ct)
+    {
+        var rate = await rateLimiter.AcquireAsync(key.Id, key.RequestsPerMinute, key.TokensPerMinute, ct);
+        if (rate.RequestLimit is { } limit)
+        {
+            http.Response.Headers["x-ratelimit-limit-requests"] = limit.ToString(CultureInfo.InvariantCulture);
+            http.Response.Headers["x-ratelimit-remaining-requests"] = Math.Max(0, rate.RequestsRemaining ?? 0).ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (rate.Allowed)
+        {
+            return true;
+        }
+
+        var retryAfter = Math.Max(1, (int)Math.Ceiling(rate.RetryAfter.TotalSeconds));
+        http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
+        var what = rate.Reason == "tokens" ? "token per minut" : "anrop per minut";
+        await RejectAsync(http, state, 429, GatewayErrorCodes.RateLimited, $"Gränsen för {what} är nådd för nyckeln. Försök igen om {retryAfter} s.", RequestOutcome.RateLimited);
+        return false;
+    }
+
+    /// <summary>Reads the body into one pooled buffer and parses it. A non-zero status (413, 400) means it is refused.</summary>
+    private async Task<(JsonObject? Body, long Length, int Status)> ReadJsonAsync(HttpRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var maxBodyBytes = options.CurrentValue.MaxRequestBodyBytes;
+            if (request.ContentLength > maxBodyBytes)
+            {
+                throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
+            }
+
+            // Read into one pooled buffer sized from Content-Length; the parsed tree does not reference it afterwards.
+            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(request.ContentLength ?? 16 * 1024, 1, maxBodyBytes) + 1);
+            var length = 0;
+            try
+            {
+                int read;
+                while ((read = await request.Body.ReadAsync(buffer.AsMemory(length), ct)) > 0)
+                {
+                    length += read;
+                    if (length > maxBodyBytes)
+                    {
+                        throw new BadHttpRequestException("Request body exceeds configured limit.", StatusCodes.Status413PayloadTooLarge);
+                    }
+
+                    if (length == buffer.Length)
+                    {
+                        var larger = ArrayPool<byte>.Shared.Rent((int)Math.Min(buffer.Length * 2L, maxBodyBytes + 1));
+                        buffer.AsSpan(0, length).CopyTo(larger);
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        buffer = larger;
+                    }
+                }
+
+                return (JsonNode.Parse(buffer.AsSpan(0, length), documentOptions: JsonOptions) as JsonObject, length, 0);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            return (null, 0, 413);
+        }
+        catch (JsonException)
+        {
+            return (null, 0, 400);
+        }
     }
 
     public async Task ListModelsAsync(HttpContext http)
@@ -503,7 +559,7 @@ public sealed partial class GatewayRequestHandler(
             errorCode = "stream_interrupted";
         }
 
-        await AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens), status, outcome, errorCode, snapshot);
+        await AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
     }
 
     private async Task RejectAsync(HttpContext http, RequestState state, int status, string code, string message, RequestOutcome outcome)
@@ -512,14 +568,17 @@ public sealed partial class GatewayRequestHandler(
         await AccountAsync(state, null, default, status, outcome, code, null);
     }
 
-    /// <summary>Reconciles the budget reservation, records rate-limit tokens and queues the usage record.</summary>
-    private async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot)
+    /// <summary>
+    /// Reconciles the budget reservation, records rate-limit tokens and queues the usage record. The cost is calculated
+    /// from <paramref name="usage"/> at the deployment's price unless given (live sessions with two priced models).
+    /// </summary>
+    private async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot, Cost? knownCost = null)
     {
         var key = state.Key!;
         var now = time.GetUtcNow();
-        var cost = deployment is not null && snapshot is not null
+        var cost = knownCost ?? (deployment is not null && snapshot is not null
             ? CostCalculator.Calculate(usage, deployment.PriceAt(now), snapshot.SekPerUsd)
-            : default;
+            : default);
 
         // Accounting must complete even if the client disconnected.
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -553,6 +612,7 @@ public sealed partial class GatewayRequestHandler(
             InputTokens = usage.InputTokens,
             CachedInputTokens = usage.CachedInputTokens,
             OutputTokens = usage.OutputTokens,
+            AudioSeconds = decimal.Round(usage.AudioSeconds, 3),
             CostUsd = decimal.Round(cost.Usd, 6),
             CostSek = decimal.Round(cost.Sek, 6),
             LatencyMs = (int)Math.Min(int.MaxValue, time.GetElapsedTime(state.StartTimestamp).TotalMilliseconds),
@@ -668,11 +728,13 @@ public sealed partial class GatewayRequestHandler(
         http.Response.Headers["x-ume-fallbacks"] = fallbacks.ToString(CultureInfo.InvariantCulture);
     }
 
+    private static bool IsAudio(GatewayEndpoint endpoint) => endpoint is GatewayEndpoint.AudioTranscriptions or GatewayEndpoint.AudioTranslations;
+
     /// <summary>Upstream 401/403/404 means our provider configuration is wrong, not the client's request: try the next provider.</summary>
     private static bool IsProviderConfigError(int status) => status is 401 or 403 or 404;
 
     private static readonly (AttachmentKinds Kind, string Name)[] AttachmentKindNames =
-        [(AttachmentKinds.Image, "bilder"), (AttachmentKinds.Document, "dokument"), (AttachmentKinds.Audio, "ljudfiler")];
+        [(AttachmentKinds.Image, "bilder"), (AttachmentKinds.Document, "dokument"), (AttachmentKinds.Audio, "ljudfiler"), (AttachmentKinds.Video, "videofiler")];
 
     private static string AttachmentNames(AttachmentKinds kinds) =>
         string.Join(" eller ", AttachmentKindNames.Where(n => kinds.HasFlag(n.Kind)).Select(n => n.Name));
@@ -706,6 +768,7 @@ public sealed partial class GatewayRequestHandler(
         public VirtualKey? Key { get; set; }
         public string? RequestedModel { get; set; }
         public long EstimatedInputTokens { get; set; }
+        public decimal EstimatedAudioSeconds { get; set; }
         public bool Streamed { get; set; }
         public int Fallbacks { get; set; }
         public PiiPolicy? PiiAction { get; set; }

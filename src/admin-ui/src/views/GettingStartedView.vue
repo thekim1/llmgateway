@@ -18,7 +18,9 @@ const model = ref('')
 
 const baseUrl = computed(() => catalog.catalog?.gatewayBaseUrl ?? '')
 const aliasOptions = computed(() => (catalog.catalog?.routes ?? []).map((r) => ({ value: r.name, label: r.name })))
-const examples = computed(() => snippets(baseUrl.value, model.value))
+const examples = computed(() =>
+  snippets(baseUrl.value, model.value, catalog.catalog?.routes.find((r) => r.name === model.value)?.kind ?? 'Chat'),
+)
 
 onMounted(async () => {
   const result = await catalog.load()
@@ -95,7 +97,9 @@ onMounted(async () => {
           <DetailRow label="Key">A secret that identifies an application and controls its access, limits and budget.</DetailRow>
           <DetailRow label="Fallback">The next provider tried when a call fails before the response starts.</DetailRow>
           <DetailRow label="Budget">The most an owner may spend during a calendar period.</DetailRow>
-          <DetailRow label="Attached files">Images, PDFs and other files sent inside a request. A key can allow all files, images only, or text only; a refused file returns <span class="font-mono">attachment_not_allowed</span>. The personal data check reads text, not file contents, so keys for sensitive work should use text only.</DetailRow>
+          <DetailRow label="Speech to text">Send a recording to <span class="font-mono">/v1/audio/transcriptions</span> (or <span class="font-mono">/v1/audio/translations</span> for English text) as a file upload, with a speech-to-text alias such as <span class="font-mono">ume/transcribe</span>. Choose that alias above for examples. Files up to 25 MB.</DetailRow>
+          <DetailRow label="Live audio">Stream audio over a WebSocket to <span class="font-mono">/v1/realtime?model=…</span> for live transcription (a speech-to-text alias such as <span class="font-mono">ume/live-transcribe</span>) or a realtime model, or to <span class="font-mono">/v1/realtime/translations</span> for live interpreting (<span class="font-mono">ume/interpret</span>). Same protocol as OpenAI's Realtime API, server to server: connect from your backend with the key in the Authorization header, never from a browser. Billed per session; it is closed when the budget runs out.</DetailRow>
+          <DetailRow label="Attached files">Images, PDFs, audio and video sent inside a request (up to 16 MB per request). A key can allow all files, images only, or text only; a refused file returns <span class="font-mono">attachment_not_allowed</span>. The personal data check reads text, not file contents, so keys for sensitive work should use text only.</DetailRow>
           <DetailRow label="Routing rule">A condition on the request, such as a header or how much of the budget is left, that sends it to a different model than the one it asked for. The <span class="font-mono">x-ume-rule</span> response header shows which rule applied.</DetailRow>
         </DetailSection>
       </div>

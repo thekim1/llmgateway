@@ -183,4 +183,62 @@ public class CostCalculatorTests
         CostCalculator.EstimateTokens(0).ShouldBe(1);
         CostCalculator.EstimateTokens(400).ShouldBe(100);
     }
+
+    [Fact]
+    public void Audio_is_billed_per_minute_on_top_of_tokens()
+    {
+        var price = new ModelPrice { InputPerMillionUsd = 6, OutputPerMillionUsd = 10, AudioPerMinuteUsd = 0.006m };
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, 90), price, 10).ShouldBe(new Cost(0.009m, 0.09m));
+        CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 0, 60), price, 10).Usd.ShouldBe(6.006m);
+    }
+
+    [Fact]
+    public void Transcription_estimate_covers_both_pricing_models()
+    {
+        var estimate = CostCalculator.EstimateTranscription(60);
+        estimate.ShouldBe(new TokenUsage(60 * CostCalculator.AudioTokensPerSecond, 0, 60 * CostCalculator.TranscriptTokensPerSecond, 60,
+            AudioInputTokens: 60 * CostCalculator.AudioTokensPerSecond));
+    }
+
+    [Fact]
+    public void Audio_tokens_are_billed_at_the_audio_price_when_one_is_set()
+    {
+        // gpt-realtime-like: text 4/16, audio 32/64 USD per million.
+        var price = new ModelPrice { InputPerMillionUsd = 4, CachedInputPerMillionUsd = 0.4m, OutputPerMillionUsd = 16, AudioInputPerMillionUsd = 32, AudioOutputPerMillionUsd = 64 };
+        var usage = new TokenUsage(1_000_000, 0, 1_000_000, AudioInputTokens: 750_000, AudioOutputTokens: 500_000);
+        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(1 + 24 + 8 + 32m);
+
+        // Without audio prices the audio tokens are text tokens, as before.
+        CostCalculator.Calculate(usage, new ModelPrice { InputPerMillionUsd = 4, OutputPerMillionUsd = 16 }, 10).Usd.ShouldBe(20m);
+
+        // Audio tokens never exceed the uncached input: cached tokens keep their own rate.
+        CostCalculator.Calculate(new TokenUsage(100, 50, 0, AudioInputTokens: 100), price, 10).Usd.ShouldBe((50 * 32 + 50 * 0.4m) / 1_000_000);
+    }
+
+    [Fact]
+    public void Live_session_estimate_adds_spoken_output()
+    {
+        var estimate = CostCalculator.EstimateRealtime(60);
+        var spoken = 60 * CostCalculator.AudioTokensPerSecond;
+        estimate.AudioOutputTokens.ShouldBe(spoken);
+        estimate.OutputTokens.ShouldBe(60 * CostCalculator.TranscriptTokensPerSecond + spoken);
+        estimate.AudioSeconds.ShouldBe(60);
+    }
+
+    [Fact]
+    public void Token_usage_adds_up()
+    {
+        (new TokenUsage(1, 2, 3, 4, 5, 6) + new TokenUsage(10, 20, 30, 40, 50, 60)).ShouldBe(new TokenUsage(11, 22, 33, 44, 55, 66));
+    }
+
+    [Fact]
+    public void Estimate_input_tokens_counts_images_per_image_not_by_base64_size()
+    {
+        // 4 MB body, almost all of it one base64 photo: one image's worth of tokens plus the text around it.
+        var scan = new AttachmentScan(AttachmentKinds.Image, Images: 1, ImageChars: 4_000_000);
+        CostCalculator.EstimateInputTokens(4_000_400, scan).ShouldBe(100 + CostCalculator.ImageTokenEstimate);
+        CostCalculator.EstimateInputTokens(400, default).ShouldBe(100);
+        // Documents, audio and video stay size-based.
+        CostCalculator.EstimateInputTokens(4_000_000, new AttachmentScan(AttachmentKinds.Video, 0, 0)).ShouldBe(1_000_000);
+    }
 }

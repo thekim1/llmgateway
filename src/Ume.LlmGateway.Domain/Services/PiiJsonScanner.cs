@@ -31,6 +31,10 @@ public static class PiiJsonScanner
         "model", "role", "type", "id", "tool_call_id", "call_id", "name", "url", "image_url", "data",
         "encoding_format", "response_format", "tool_choice", "stop", "user", "service_tier",
         "reasoning_effort", "previous_response_id", "media_type", "format", "detail", "file_id",
+        // Base64 file payloads: matching them costs CPU per megabyte, and redacting a chance match would corrupt the file.
+        "file_data", "file_url", "video_url",
+        // Realtime events: base64 audio in input_audio parts, and event ids.
+        "audio", "event_id", "previous_item_id", "item_id",
     };
 
     public static PiiScanResult Scan(JsonNode? body, bool redact)

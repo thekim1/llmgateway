@@ -98,7 +98,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Content logging | Metadata only; prompts and responses are never persisted |
 | PII guard | Optional, per key: Off / Allow / Redact / Block / Reroute to on-prem |
 | Currency | Budgets in SEK; prices in USD with a configurable USD to SEK rate |
-| Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`; Anthropic `/v1/messages` |
+| Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`, `/v1/audio/transcriptions` and `/v1/audio/translations` (multipart, held in memory), live audio over WebSocket on `/v1/realtime` and `/v1/realtime/translations` (OpenAI Realtime protocol, relayed and metered); Anthropic `/v1/messages` |
 | Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
 | Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |

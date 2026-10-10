@@ -138,6 +138,8 @@ public sealed class ProviderAccount
         GatewayEndpoint.Embeddings => Capabilities.HasFlag(ProviderCapabilities.Embeddings),
         GatewayEndpoint.Responses => Capabilities.HasFlag(ProviderCapabilities.Responses),
         GatewayEndpoint.AnthropicMessages => Capabilities.HasFlag(ProviderCapabilities.AnthropicMessages),
+        GatewayEndpoint.AudioTranscriptions or GatewayEndpoint.AudioTranslations => Capabilities.HasFlag(ProviderCapabilities.AudioTranscriptions),
+        GatewayEndpoint.Realtime or GatewayEndpoint.RealtimeTranslations => Capabilities.HasFlag(ProviderCapabilities.Realtime),
         _ => false,
     };
 }
@@ -167,7 +169,12 @@ public sealed class ModelDeployment
         Prices.Where(p => p.EffectiveFrom <= when).MaxBy(p => p.EffectiveFrom);
 }
 
-/// <summary>Price per one million tokens in USD, valid from <see cref="EffectiveFrom"/>.</summary>
+/// <summary>
+/// Price per one million tokens in USD, valid from <see cref="EffectiveFrom"/>. Speech-to-text models billed by
+/// duration (Whisper, gpt-realtime-translate) use <see cref="AudioPerMinuteUsd"/> instead; a model may have both.
+/// Audio tokens (gpt-realtime, gpt-4o-transcribe) cost more than text tokens: when an audio token price is set, the
+/// audio part of the tokens is billed at it and only the rest at the text price.
+/// </summary>
 public sealed class ModelPrice
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -176,6 +183,15 @@ public sealed class ModelPrice
     public decimal InputPerMillionUsd { get; set; }
     public decimal CachedInputPerMillionUsd { get; set; }
     public decimal OutputPerMillionUsd { get; set; }
+
+    /// <summary>Price per minute of input audio in USD.</summary>
+    public decimal AudioPerMinuteUsd { get; set; }
+
+    /// <summary>Price per million audio input tokens in USD; 0 bills them as text input.</summary>
+    public decimal AudioInputPerMillionUsd { get; set; }
+
+    /// <summary>Price per million audio output tokens in USD; 0 bills them as text output.</summary>
+    public decimal AudioOutputPerMillionUsd { get; set; }
 }
 
 /// <summary>Client-facing model alias (e.g. <c>ume/chat-standard</c>) mapping to targets with fallback.</summary>
@@ -293,6 +309,10 @@ public sealed class UsageRecord
     public long InputTokens { get; set; }
     public long CachedInputTokens { get; set; }
     public long OutputTokens { get; set; }
+
+    /// <summary>Seconds of audio transcribed (audio endpoints only): as reported by the provider, else estimated from the file.</summary>
+    public decimal AudioSeconds { get; set; }
+
     public decimal CostUsd { get; set; }
     public decimal CostSek { get; set; }
     public int LatencyMs { get; set; }

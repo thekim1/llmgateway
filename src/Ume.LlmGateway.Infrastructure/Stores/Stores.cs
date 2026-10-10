@@ -63,6 +63,20 @@ public interface ISpendLedger
     Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroSek, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Open realtime (WebSocket) sessions per virtual key, shared by all gateway instances. A session holds its slot for
+/// <c>timeToLive</c> and renews it while it runs, so slots of a crashed instance free themselves.
+/// </summary>
+public interface IRealtimeSessionRegistry
+{
+    /// <summary>Takes a slot unless the key already has <paramref name="maxSessions"/> open (0 = no limit).</summary>
+    Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken);
+}
+
 public enum InvalidationKind
 {
     Keys = 0,
@@ -150,6 +164,63 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
     {
         var seconds = now.ToUnixTimeSeconds();
         return (seconds / 60, TimeSpan.FromSeconds(60 - (seconds % 60)));
+    }
+}
+
+public sealed class InMemoryRealtimeSessionRegistry(TimeProvider time) : IRealtimeSessionRegistry
+{
+    private readonly Dictionary<Guid, Dictionary<string, DateTimeOffset>> _sessions = [];
+    private readonly Lock _lock = new();
+
+    public Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        lock (_lock)
+        {
+            if (!_sessions.TryGetValue(keyId, out var open))
+            {
+                _sessions[keyId] = open = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+            }
+
+            foreach (var expired in open.Where(s => s.Value <= now).Select(s => s.Key).ToList())
+            {
+                open.Remove(expired);
+            }
+
+            if (maxSessions > 0 && open.Count >= maxSessions)
+            {
+                return Task.FromResult(false);
+            }
+
+            open[sessionId] = now + timeToLive;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            if (_sessions.TryGetValue(keyId, out var open) && open.ContainsKey(sessionId))
+            {
+                open[sessionId] = time.GetUtcNow() + timeToLive;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            if (_sessions.TryGetValue(keyId, out var open) && open.Remove(sessionId) && open.Count == 0)
+            {
+                _sessions.Remove(keyId);
+            }
+        }
+
+        return Task.CompletedTask;
     }
 }
 

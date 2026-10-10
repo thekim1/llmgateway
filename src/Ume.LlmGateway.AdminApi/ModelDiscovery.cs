@@ -29,8 +29,21 @@ public static partial class ModelDiscovery
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
-    [GeneratedRegex(@"(^|[-/])(whisper|tts|dall-e|gpt-image|sora)|moderation|transcribe|realtime|audio", RegexOptions.IgnoreCase)]
-    private static partial Regex NonTextModel();
+    /// <summary>Models the gateway has no endpoint for (speech synthesis, images, video, moderation, chat with audio).</summary>
+    [GeneratedRegex(@"(^|[-/])(tts|dall-e|gpt-image|sora)|moderation|audio", RegexOptions.IgnoreCase)]
+    private static partial Regex UnsupportedModel();
+
+    /// <summary>Speech to text, served by /v1/audio/transcriptions, /v1/audio/translations and live on /v1/realtime.</summary>
+    [GeneratedRegex(@"whisper|transcribe", RegexOptions.IgnoreCase)]
+    private static partial Regex TranscriptionModel();
+
+    /// <summary>Live speech translation (interpreting), served by /v1/realtime/translations.</summary>
+    [GeneratedRegex(@"realtime-translate|live-translate", RegexOptions.IgnoreCase)]
+    private static partial Regex SpeechTranslationModel();
+
+    /// <summary>Realtime conversation models, served by /v1/realtime.</summary>
+    [GeneratedRegex(@"realtime", RegexOptions.IgnoreCase)]
+    private static partial Regex RealtimeModel();
 
     [GeneratedRegex(@"^(o\d|gpt-5)", RegexOptions.IgnoreCase)]
     private static partial Regex ReasoningModel();
@@ -46,7 +59,9 @@ public static partial class ModelDiscovery
         var anthropic = provider.Type == ProviderType.Anthropic;
         var ollama = provider.Type is ProviderType.Ollama or ProviderType.OllamaCloud;
         // Ollama's OpenAI-compatible base URL ends in /v1; model listing lives on the native /api.
-        var root = provider.BaseUrl.TrimEnd('/');
+        // A query string on the base URL (Azure's api-version) goes after the path.
+        var query = provider.BaseUrl.IndexOf('?', StringComparison.Ordinal) is var q and >= 0 ? provider.BaseUrl[q..] : string.Empty;
+        var root = provider.BaseUrl[..(provider.BaseUrl.Length - query.Length)].TrimEnd('/');
         if (ollama && root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
         {
             root = root[..^3];
@@ -83,26 +98,26 @@ public static partial class ModelDiscovery
         JsonNode? body;
         try
         {
-            using var request = CreateRequest(HttpMethod.Get, ollama ? root + "/api/tags" : root + "/models" + (anthropic ? "?limit=1000" : string.Empty));
+            using var request = CreateRequest(HttpMethod.Get, ollama ? root + "/api/tags" + query : root + "/models" + (anthropic ? "?limit=1000" : query));
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
                 var hint = (int)response.StatusCode is 401 or 403 ? "Kontrollera API-nyckeln." : "Kontrollera adressen och inloggningsmetoden.";
-                throw new AdminFaultException(502, $"Leverant�ren svarade {(int)response.StatusCode}. {hint}");
+                throw new AdminFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");
             }
             body = JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new AdminFaultException(504, "Leverant�ren svarade inte i tid.");
+            throw new AdminFaultException(504, "Leverantören svarade inte i tid.");
         }
         catch (HttpRequestException)
         {
-            throw new AdminFaultException(502, "Kunde inte ansluta till leverant�ren. Kontrollera adressen.");
+            throw new AdminFaultException(502, "Kunde inte ansluta till leverantören. Kontrollera adressen.");
         }
         catch (System.Text.Json.JsonException)
         {
-            throw new AdminFaultException(502, "Leverant�ren returnerade ett ov�ntat svar och verkar inte ha en modellista.");
+            throw new AdminFaultException(502, "Leverantören returnerade ett oväntat svar och verkar inte ha en modellista.");
         }
 
         var items = body switch
@@ -110,7 +125,7 @@ public static partial class ModelDiscovery
             JsonArray array => array,
             JsonObject obj => (obj["data"] ?? obj["models"]) as JsonArray,
             _ => null,
-        } ?? throw new AdminFaultException(502, "Leverant�ren returnerade ingen modellista.");
+        } ?? throw new AdminFaultException(502, "Leverantören returnerade ingen modellista.");
 
         if (ollama)
         {
@@ -121,7 +136,7 @@ public static partial class ModelDiscovery
         return [.. items.OfType<JsonObject>()
             .Select(item => Map(item, existing))
             .OfType<DiscoveredModel>()
-            .Where(m => !NonTextModel().IsMatch(m.Id))
+            .Where(m => !UnsupportedModel().IsMatch(m.Id) || m.Kind is ModelKind.Transcription or ModelKind.Realtime or ModelKind.SpeechTranslation)
             .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)];
     }
 
@@ -197,7 +212,11 @@ public static partial class ModelDiscovery
         }
 
         var ollamaCaps = OllamaCapabilities(item);
-        var kind = id.Contains("embed", StringComparison.OrdinalIgnoreCase) || ollamaCaps.Contains("embedding") ? ModelKind.Embedding : ModelKind.Chat;
+        var kind = TranscriptionModel().IsMatch(id) ? ModelKind.Transcription
+            : SpeechTranslationModel().IsMatch(id) ? ModelKind.SpeechTranslation
+            : RealtimeModel().IsMatch(id) ? ModelKind.Realtime
+            : id.Contains("embed", StringComparison.OrdinalIgnoreCase) || ollamaCaps.Contains("embedding") ? ModelKind.Embedding
+            : ModelKind.Chat;
         var context = Number(item, "context_length") ?? Number(item, "max_input_tokens") ?? Number(item, "context_window");
         return new DiscoveredModel(
             id,

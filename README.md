@@ -257,17 +257,27 @@ changes the (disposable) test database only.
 
 ## Attached files
 
-Applications send images, PDFs and audio inline in the request body, as content parts (`image_url`/`file`/`input_audio`
-in Chat Completions, `input_image`/`input_file` in Responses, `image`/`document` in Anthropic Messages). The gateway has
+Applications send images, PDFs, audio and video inline in the request body, as content parts
+(`image_url`/`file`/`input_audio` in Chat Completions, `input_image`/`input_file` in Responses, `image`/`document` in
+Anthropic Messages, and `video_url` for video models on vLLM and other OpenAI-compatible servers). The gateway has
 no upload endpoint: a provider `file_id` only works with the one provider account it was uploaded to, which would
 break alias routing and fallback.
+
+Bodies are limited to 16 MB (`Gateway__MaxRequestBodyBytes`, at most 100 MB); larger requests get 413
+`request_too_large`. Base64 adds a third, so this fits about 12 MB of files, enough for photos and PDFs but only short
+video clips. Send longer video as a URL the model server can fetch, or raise the limit. Whether a model accepts a given
+kind of file is up to the provider; Claude models take images, PDFs and plain text but not audio or video.
+
+Budget reservations count each image as 1 600 input tokens instead of by its base64 size (a 4 MB photo used to
+reserve about a million tokens and could hit 402 `budget_exceeded` on a small budget). Documents, audio and video are
+still estimated from their size, which over-reserves; the actual cost is settled from the provider's reported usage.
 
 Each key has an **Attached files** setting (Keys > edit key > Access):
 
 | Setting | Effect |
 |---|---|
 | **All files** (`Allowed`, default) | Everything is sent on, as before. |
-| **Images only** (`ImagesOnly`) | Images are sent on; documents, audio and `file_id` references are rejected. |
+| **Images only** (`ImagesOnly`) | Images are sent on; documents, audio, video and `file_id` references are rejected. |
 | **Text only** (`None`) | Any file is rejected. |
 
 A refused request gets 400 `attachment_not_allowed`. The PII policy reads text, not file contents, so use **Text only**
@@ -276,8 +286,91 @@ and sends it as an ordinary message is not stopped by this setting; the PII poli
 [admin-api.md](docs/admin-api.md#gateway-data-plane--for-the-developer-portal-snippets).
 
 Chat Completions requests to Claude models now carry PDF and plain-text files as Anthropic `document` blocks (they used
-to be dropped silently). Parts Claude cannot take (audio, other file types, OpenAI `file_id`) return 400
+to be dropped silently). Parts Claude cannot take (audio, video, other file types, OpenAI `file_id`) return 400
 `unsupported_content` instead of being left out of the prompt.
+
+## Speech to text
+
+Transcription models (Whisper, KB-Whisper, gpt-4o-transcribe and others with an OpenAI-compatible API, such as vLLM,
+Speaches or Azure OpenAI) are served at `POST /v1/audio/transcriptions`, and English translation at
+`POST /v1/audio/translations`. Clients use the OpenAI SDKs unchanged:
+
+```bash
+curl https://<gateway>/v1/audio/transcriptions -H "Authorization: Bearer $UME_API_KEY" \
+  -F model=ume/transcribe -F language=sv -F file=@samtal.mp3
+```
+
+**Setting it up.** Give the provider the *Speech to text* capability (`AudioTranscriptions`), add the model with kind
+*Speech to text* (`Transcription`; discovery does this for `whisper*` and `*-transcribe` models) and put it behind an
+alias with the same kind. Fallback, residency, provider allow-lists, rate limits, budgets and routing rules
+(`endpoint == "audio_transcriptions"`) work as for chat. The dev seed has `ume/transcribe` on FakeLlm.
+
+**Prices.** Whisper-style models are priced per minute of audio (*Audio (USD per minute)* in the price form,
+`audioPerMinuteUsd`); gpt-4o-transcribe per token, with audio tokens dearer than text tokens (*Audio input (USD per 1M
+tokens)*, `audioInputPerMillionUsd`; empty bills them at the input price). The duration comes from the provider
+(`usage.seconds`, or `duration` in `verbose_json`); when it is not reported, the gateway reads it from the file (exact
+for WAV and FLAC, from the bitrate for MP3, assumed 32 kbps otherwise, which over-estimates). Usage records and the
+Data API have the new `audioSeconds` field; migration `AudioTranscription` adds it.
+
+**Limits and privacy.** Uploads may be 26 MB (`Gateway__MaxAudioRequestBodyBytes`, up to 512 MB for on-prem servers
+taking longer recordings; raise the proxy's `client_max_body_size` with it). The recording is held in memory for the
+duration of the request only, never written to disk or logged, and sent again from memory on fallback. A key whose
+**Attached files** setting is *Images only* or *Text only* cannot send audio (`attachment_not_allowed`). The PII policy
+scans the `prompt` field but cannot hear the recording or read the transcript, so use *Text only*, an on-prem-only
+alias or allowed residencies for recordings with personal data.
+
+## Live audio (realtime)
+
+Live transcription, live interpreting and realtime sessions use WebSockets with the
+[OpenAI Realtime protocol](https://platform.openai.com/docs/guides/realtime), relayed to the provider:
+
+| Endpoint | Use | Model kind | Dev seed |
+|---|---|---|---|
+| `wss://<gateway>/v1/realtime?model=<alias>` | Live transcription (speech-to-text models such as gpt-realtime-whisper, gpt-4o-transcribe, Whisper on vLLM) | *Speech to text* (`Transcription`) | `ume/live-transcribe` |
+| `wss://<gateway>/v1/realtime?model=<alias>` | Realtime sessions with a model (gpt-realtime, Foundry Voice Live) | *Realtime (live)* (`Realtime`) | `ume/realtime` |
+| `wss://<gateway>/v1/realtime/translations?model=<alias>` | Live interpreting into another language (gpt-realtime-translate) | *Live interpreting* (`SpeechTranslation`) | `ume/interpret` |
+
+Connect **from a backend** with the key in the `Authorization` header (browsers cannot set it; let them talk to your
+backend). Then send events as with OpenAI: `session.update`, audio as base64 24 kHz 16-bit mono PCM in
+`input_audio_buffer.append` (`session.input_audio_buffer.append` for interpreting), and read the transcript events.
+The Getting started page has Python, .NET and Node.js examples for the selected alias.
+
+```python
+async with websockets.connect("wss://<gateway>/v1/realtime?model=ume/live-transcribe",
+                              additional_headers={"Authorization": f"Bearer {key}"}) as ws:
+    await ws.send(json.dumps({"type": "session.update", "session": {"type": "transcription",
+        "audio": {"input": {"transcription": {"model": "ume/live-transcribe", "language": "sv"}}}}}))
+    await ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": base64.b64encode(chunk).decode()}))
+```
+
+**What the gateway does.** At connect, the usual pipeline runs once: key, attachment policy (audio must be allowed),
+alias, rate limit, routing rules (`endpoint == "realtime"` / `"realtime_translations"`), residency, budget reservation,
+and the provider connection, with fallback to the next provider if it refuses. Every refusal is a plain HTTP error
+before the upgrade. During the session the gateway passes events through and only reads what it needs:
+
+- **Model names stay the gateway's.** Any `model` in `session.update` is replaced by the routed upstream model. A
+  realtime session may ask for input transcription with a speech-to-text alias; it must be served by the same provider
+  and is billed at its own price.
+- **Metering.** Audio seconds are counted from the appended audio (the session's input format gives the rate), and
+  token usage is read from `response.done` and transcription events. Audio tokens are billed at the model's audio token
+  prices when set, duration at its per-minute price. Interpreting is billed by the counted duration.
+- **Budgets.** Five minutes of audio are reserved at connect and again whenever the reservation runs low; when a budget
+  runs out the client gets an `error` event (`budget_exceeded`) and the session is closed.
+- **PII.** Text in `session.update`, `conversation.item.create` and `response.create` goes through the key's PII
+  policy: blocked or redacted as for chat, and refused (not rerouted) when it may only go on-prem but the session runs
+  elsewhere. Audio itself cannot be scanned; choose on-prem or EU aliases for conversations with personal data.
+- **Limits.** 20 open sessions per key across instances, 120 minutes per session, 4 MB per event
+  (`Gateway__Realtime__*`, see [admin-api.md](docs/admin-api.md#live-audio-realtime)). Binary frames are refused.
+
+A session is one usage record (endpoint `Realtime` or `RealtimeTranslations`): `latencyMs` is the session length and
+`audioSeconds` the audio streamed. Audio is never stored or logged.
+
+**Providers.** OpenAI (`https://api.openai.com/v1`), Azure OpenAI and Azure AI Foundry (`https://<resource>.openai.azure.com/openai/v1`
+or `…services.ai.azure.com/openai/v1`), Foundry Voice Live for other models in Sweden
+(`https://<resource>.services.ai.azure.com/voice-live?api-version=2026-04-10`; base URLs may now carry query parameters,
+never credentials), and on-prem servers with the same protocol such as vLLM and Speaches (`http://<server>/v1`). Give
+the provider the *Live audio (realtime)* capability. Behind nginx, pass the WebSocket upgrade (see
+`deploy/proxy/nginx.conf.example`).
 
 ## Security events and data for other teams
 

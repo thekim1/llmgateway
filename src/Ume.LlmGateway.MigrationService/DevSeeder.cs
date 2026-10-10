@@ -99,9 +99,9 @@ public sealed partial class DevSeeder(
         var fakeUrl = o.FakeLlmUrl ?? "http://localhost:5090/v1";
         var hasFake = !string.IsNullOrWhiteSpace(o.FakeLlmUrl);
         var fakeOnPrem = Provider("fake-onprem", "Testleverantör (on-prem)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.OnPrem,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses, hasFake);
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, hasFake);
         var fakeEu = Provider("fake-eu", "Testleverantör (EU)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.Eu,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses, hasFake);
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, hasFake);
         var fakeExternal = Provider("fake-external", "Testleverantör (extern)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.External,
             chatAll | ProviderCapabilities.Responses, hasFake);
         var fakeAnthropic = Provider("fake-anthropic", "Testleverantör (Anthropic-format)", ProviderType.Anthropic, fakeUrl, ProviderAuthMode.XApiKeyHeader, DataResidency.External,
@@ -113,7 +113,7 @@ public sealed partial class DevSeeder(
 
         bool HasCredential(string name) => !string.IsNullOrWhiteSpace(o.Credentials.GetValueOrDefault(name));
         var openai = Provider("openai", "OpenAI", ProviderType.OpenAI, "https://api.openai.com/v1", ProviderAuthMode.Bearer, DataResidency.External,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses, HasCredential("openai"));
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, HasCredential("openai"));
         var azure = Provider("azure-openai-swc", "Azure OpenAI (Sweden Central)", ProviderType.AzureOpenAI,
             o.AzureOpenAIEndpoint is { Length: > 0 } az ? az.TrimEnd('/') + "/openai/v1" : "https://example-swc.openai.azure.com/openai/v1",
             ProviderAuthMode.ApiKeyHeader, DataResidency.Eu, chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses,
@@ -130,7 +130,8 @@ public sealed partial class DevSeeder(
 
         // --- Models & prices (USD per 1M tokens; example list prices – verify before production use) ----
         ModelDeployment Model(ProviderAccount provider, string name, string upstream, decimal input, decimal cached, decimal output,
-            ModelKind kind = ModelKind.Chat, ParameterProfile profile = ParameterProfile.Standard, int? context = null)
+            ModelKind kind = ModelKind.Chat, ParameterProfile profile = ParameterProfile.Standard, int? context = null, decimal perMinute = 0,
+            decimal audioInput = 0, decimal audioOutput = 0)
         {
             var m = new ModelDeployment
             {
@@ -140,7 +141,8 @@ public sealed partial class DevSeeder(
                 Kind = kind,
                 ParameterProfile = profile,
                 ContextWindow = context,
-                Prices = [new ModelPrice { EffectiveFrom = priceDate, InputPerMillionUsd = input, CachedInputPerMillionUsd = cached, OutputPerMillionUsd = output }],
+                Prices = [new ModelPrice { EffectiveFrom = priceDate, InputPerMillionUsd = input, CachedInputPerMillionUsd = cached, OutputPerMillionUsd = output, AudioPerMinuteUsd = perMinute,
+                    AudioInputPerMillionUsd = audioInput, AudioOutputPerMillionUsd = audioOutput }],
             };
             db.Add(m);
             return m;
@@ -161,6 +163,16 @@ public sealed partial class DevSeeder(
         var sonnet = Model(anthropic, "claude-sonnet-4-5", "claude-sonnet-4-5", 3.00m, 0.30m, 15.00m, context: 200_000);
         Model(anthropic, "claude-haiku-4-5", "claude-haiku-4-5", 1.00m, 0.10m, 5.00m, context: 200_000);
         Model(ollamaCloud, "gpt-oss-120b", "gpt-oss:120b", 0m, 0m, 0m, context: 128_000);
+        // Speech to text: Whisper is priced per minute, gpt-4o-transcribe per token (audio in, text out).
+        var fakeWhisperOnPrem = Model(fakeOnPrem, "whisper-onprem", "fake-whisper", 0m, 0m, 0m, ModelKind.Transcription);
+        var fakeWhisperEu = Model(fakeEu, "whisper-eu", "fake-whisper", 0m, 0m, 0m, ModelKind.Transcription, perMinute: 0.006m);
+        Model(fakeEu, "transcribe-eu", "fake-transcribe", 2.50m, 0m, 10.00m, ModelKind.Transcription, audioInput: 6.00m);
+        Model(openai, "whisper-1", "whisper-1", 0m, 0m, 0m, ModelKind.Transcription, perMinute: 0.006m);
+        Model(openai, "gpt-4o-transcribe", "gpt-4o-transcribe", 2.50m, 0m, 10.00m, ModelKind.Transcription, audioInput: 6.00m);
+        // Live audio (/v1/realtime, /v1/realtime/translations): realtime models price audio tokens far above text tokens.
+        var fakeRealtimeEu = Model(fakeEu, "realtime-eu", "fake-realtime", 4.00m, 0.40m, 16.00m, ModelKind.Realtime, audioInput: 32.00m, audioOutput: 64.00m);
+        var fakeInterpretEu = Model(fakeEu, "interpret-eu", "fake-interpret", 0m, 0m, 0m, ModelKind.SpeechTranslation, perMinute: 0.02m);
+        Model(openai, "gpt-realtime-mini", "gpt-realtime-mini", 0.60m, 0.06m, 2.40m, ModelKind.Realtime, audioInput: 10.00m, audioOutput: 20.00m);
 
         // --- Routes (aliases with fallback chains); disabled providers are skipped at runtime -----
         static RouteTarget T(ModelDeployment m, int priority, int weight = 1) => new() { ModelDeployment = m, Priority = priority, Weight = weight };
@@ -195,6 +207,34 @@ public sealed partial class DevSeeder(
                 Kind = ModelKind.Embedding,
                 Description = "Vektorer för sökning (RAG).",
                 Targets = [T(embedSmall, 0), T(fakeEmbed, 1)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/transcribe",
+                Kind = ModelKind.Transcription,
+                Description = "Tal till text (POST /v1/audio/transcriptions). Körs i EU i första hand, med reserv on-prem.",
+                Targets = [T(fakeWhisperEu, 0), T(fakeWhisperOnPrem, 1)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/live-transcribe",
+                Kind = ModelKind.Transcription,
+                Description = "Live-transkribering (WebSocket /v1/realtime). Körs i EU i första hand, med reserv on-prem.",
+                Targets = [T(fakeWhisperEu, 0), T(fakeWhisperOnPrem, 1)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/realtime",
+                Kind = ModelKind.Realtime,
+                Description = "Realtidssamtal med en modell (WebSocket /v1/realtime), t.ex. stöd under ett samtal.",
+                Targets = [T(fakeRealtimeEu, 0)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/interpret",
+                Kind = ModelKind.SpeechTranslation,
+                Description = "Live-tolkning av tal till ett annat språk (WebSocket /v1/realtime/translations).",
+                Targets = [T(fakeInterpretEu, 0)],
             });
 
         // --- Routing rules (conditions rewrite the requested model; see docs/routing-rules.md) ------

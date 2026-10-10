@@ -47,6 +47,12 @@ public enum ProviderCapabilities
     Responses = 4,
     AnthropicMessages = 8,
     Streaming = 16,
+
+    /// <summary><c>/audio/transcriptions</c> and <c>/audio/translations</c> (speech to text).</summary>
+    AudioTranscriptions = 32,
+
+    /// <summary>Live audio over WebSocket: <c>/realtime</c> and <c>/realtime/translations</c> (OpenAI Realtime protocol).</summary>
+    Realtime = 64,
 }
 
 public enum GatewayEndpoint
@@ -58,12 +64,33 @@ public enum GatewayEndpoint
 
     /// <summary><c>GET /v1/models</c>. Never sent to a provider; only appears in authentication failures.</summary>
     Models = 4,
+
+    /// <summary><c>POST /v1/audio/transcriptions</c>: speech to text in the spoken language (multipart upload).</summary>
+    AudioTranscriptions = 5,
+
+    /// <summary><c>POST /v1/audio/translations</c>: speech to English text (multipart upload).</summary>
+    AudioTranslations = 6,
+
+    /// <summary><c>GET /v1/realtime</c> (WebSocket): live transcription and realtime conversation sessions.</summary>
+    Realtime = 7,
+
+    /// <summary><c>GET /v1/realtime/translations</c> (WebSocket): live speech translation (interpreting).</summary>
+    RealtimeTranslations = 8,
 }
 
 public enum ModelKind
 {
     Chat = 0,
     Embedding = 1,
+
+    /// <summary>Speech to text (Whisper, gpt-4o-transcribe, KB-Whisper …); used by the audio endpoints and live transcription.</summary>
+    Transcription = 2,
+
+    /// <summary>Realtime conversation models (gpt-realtime …) on <c>/v1/realtime</c>.</summary>
+    Realtime = 3,
+
+    /// <summary>Live speech translation models (gpt-realtime-translate …) on <c>/v1/realtime/translations</c>.</summary>
+    SpeechTranslation = 4,
 }
 
 /// <summary>
@@ -101,15 +128,15 @@ public enum PiiPolicy
 }
 
 /// <summary>
-/// Which inline file parts (images, documents, audio) a key may send. Files are base64 payloads the PII guard
+/// Which inline file parts (images, documents, audio, video) a key may send. Files are base64 payloads the PII guard
 /// cannot inspect, so keys for very sensitive work can refuse them outright.
 /// </summary>
 public enum AttachmentPolicy
 {
-    /// <summary>Images, documents and audio are forwarded.</summary>
+    /// <summary>Images, documents, audio and video are forwarded.</summary>
     Allowed = 0,
 
-    /// <summary>Images are forwarded; documents, audio and provider file references are rejected.</summary>
+    /// <summary>Images are forwarded; documents, audio, video and provider file references are rejected.</summary>
     ImagesOnly = 1,
 
     /// <summary>Text only: any file part is rejected.</summary>
@@ -126,6 +153,7 @@ public enum AttachmentKinds
     /// <summary>PDFs and other files, including references to files uploaded to a provider (<c>file_id</c>).</summary>
     Document = 2,
     Audio = 4,
+    Video = 8,
 }
 
 public enum PiiCategory

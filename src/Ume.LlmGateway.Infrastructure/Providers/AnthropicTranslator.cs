@@ -295,6 +295,8 @@ public static class AnthropicTranslator
                             break;
                         case "input_audio":
                             throw new NotSupportedException("Claude-modeller tar inte emot ljud. Välj en modell som stöder ljud.");
+                        case "video_url" or "input_video":
+                            throw new NotSupportedException("Claude-modeller tar inte emot video. Välj en modell som stöder video.");
                         case var other:
                             // Dropping a part would silently send a different question than the client asked.
                             throw new NotSupportedException($"Innehållstypen '{other}' kan inte skickas till en Claude-modell.");

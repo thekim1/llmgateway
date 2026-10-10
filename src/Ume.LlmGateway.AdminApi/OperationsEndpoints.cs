@@ -21,7 +21,7 @@ public static class OperationsEndpoints
             var open = await circuits.GetOpenAsync(providers.Select(p => p.Id).ToArray(), ct);
             var since = checkedAt.AddDays(-1);
             var usage = await ctx.Db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= since && u.ProviderAccountId != null)
-                .Select(u => new { u.ProviderAccountId, u.Outcome, u.FallbackCount, u.LatencyMs }).ToListAsync(ct);
+                .Select(u => new { u.ProviderAccountId, u.Outcome, u.FallbackCount, u.LatencyMs, u.Endpoint }).ToListAsync(ct);
             var report = await health.CheckHealthAsync(ct);
             var schema = (await ctx.Db.Database.GetAppliedMigrationsAsync(ct)).LastOrDefault() ?? "none";
             var gateway = await gatewayClient.ReadAsync(ct);
@@ -35,7 +35,9 @@ public static class OperationsEndpoints
                 providers = providers.Select(p =>
                 {
                     var records = usage.Where(u => u.ProviderAccountId == p.Id).ToArray();
-                    var latencies = records.Select(u => u.LatencyMs).Order().ToArray();
+                    // A live audio session's "latency" is its length; it would swamp the percentiles of ordinary requests.
+                    var latencies = records.Where(u => u.Endpoint is not (GatewayEndpoint.Realtime or GatewayEndpoint.RealtimeTranslations))
+                        .Select(u => u.LatencyMs).Order().ToArray();
                     return new
                     {
                         p.Id, p.Name, p.Type, p.Residency, p.IsEnabled, p.IsDrained,

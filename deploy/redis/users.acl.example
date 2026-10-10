@@ -1,2 +1,2 @@
 user default off
-user gateway on #REPLACE_WITH_SHA256_PASSWORD_HASH ~ume:* &ume:invalidate -@all +auth +hello +ping +echo +quit +client|setname +client|setinfo +client|id +info +get +mget +set +incr +incrby +expire +pexpire +del +eval +evalsha +script|load +publish +subscribe +unsubscribe
+user gateway on #REPLACE_WITH_SHA256_PASSWORD_HASH ~ume:* &ume:invalidate -@all +auth +hello +ping +echo +quit +client|setname +client|setinfo +client|id +info +get +mget +set +incr +incrby +expire +pexpire +del +zadd +zrem +zcard +zremrangebyscore +eval +evalsha +script|load +publish +subscribe +unsubscribe

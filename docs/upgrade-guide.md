@@ -31,6 +31,25 @@ Security events add the migrations `AuthFailures` (new table) and `FeedRecordedA
 database default on `UsageRecords`, `AuthFailures` and `AuditLog`; existing rows get the migration time). Both are
 additive. `app-roles.sql` grants the gateway role `INSERT` on `AuthFailures`; re-run the role-grant job.
 
+Speech to text and live audio add the migration `AudioTranscription`: `AudioSeconds` on `UsageRecords`, and
+`AudioPerMinuteUsd`, `AudioInputPerMillionUsd` and `AudioOutputPerMillionUsd` on `ModelPrices`, all `NOT NULL DEFAULT 0`,
+so it is additive and needs no new grants. After deploying, give the providers that serve speech models the *Speech to
+text* capability, add the models with kind *Speech to text* (or rediscover them) and their per-minute or per-token
+price, and create an alias such as `ume/transcribe`. If a proxy sits in front of the gateway, allow at least 32 MB
+bodies and turn request buffering off (see the runbook).
+
+Live audio (`/v1/realtime`, `/v1/realtime/translations`) needs three more steps:
+- **Redis ACL.** The per-key session limit uses a sorted set: add `+zadd +zrem +zcard +zremrangebyscore` to the
+  `gateway` user in `secrets/redis/users.acl` (the template `deploy/redis/users.acl.example` has them; existing
+  installations keep their generated file) and restart Redis or run `ACL LOAD`. Until then sessions work, but the
+  limit is not enforced and the gateway logs a warning per session.
+- **Proxy.** Pass the WebSocket upgrade: the `map $http_upgrade $ume_connection` block and the `Upgrade` /
+  `Connection` headers in `deploy/proxy/nginx.conf.example`. Without them, clients get 400 (not a WebSocket request).
+- **Providers.** Give the providers the *Live audio (realtime)* capability and add the models: speech-to-text models
+  for live transcription, *Realtime (live)* models, *Live interpreting* models (`gpt-realtime-translate`), with their
+  audio token or per-minute prices. Realtime models price audio tokens far above text tokens, so set the audio token
+  prices or their cost is under-reported.
+
 ### Adding the Data API to an existing installation
 
 New installations get the read-only database role `ume_data` from `init.sql`. An existing database was initialised

@@ -1,9 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 
@@ -66,6 +70,101 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         using var second = await CallAsync(secondClient);
         second.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         second.Headers.RetryAfter.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Seeded_transcription_alias_reaches_the_fake_whisper_and_is_billed_per_minute()
+    {
+        using var admin = await fixture.AdminAsync();
+        var key = await fixture.KeyAsync(admin);
+        using var gateway = fixture.GatewayClient(key.Secret);
+        using var form = new MultipartFormDataContent
+        {
+            { new StringContent("ume/transcribe"), "model" },
+            { new StringContent("verbose_json"), "response_format" },
+            { new ByteArrayContent(new byte[160_000]), "file", "möte.mp3" }, // FakeLlm treats it as 10 s at 128 kbps
+        };
+        using var response = await gateway.PostAsync("/v1/audio/transcriptions", form, Cancellation);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.GetValues("x-ume-model").Single().ShouldBe("fake-eu/whisper-eu");
+        var body = await IntegrationFixture.ReadAsync(response);
+        body["text"]!.GetValue<string>().ShouldContain("möte.mp3");
+        body["duration"]!.GetValue<double>().ShouldBe(10);
+        await fixture.FlushAsync();
+        using var scope = fixture.GatewayServices.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        var usage = await db.UsageRecords.SingleAsync(r => r.VirtualKeyId == key.Id, Cancellation);
+        usage.Endpoint.ShouldBe(Domain.GatewayEndpoint.AudioTranscriptions);
+        usage.AudioSeconds.ShouldBe(10m); // verbose_json duration
+        usage.CostUsd.ShouldBe(0.001m); // 10 s at 0.006 USD per minute
+    }
+
+    [Fact]
+    public async Task Seeded_live_transcription_session_reaches_the_fake_provider_with_redis_session_slots()
+    {
+        using var admin = await fixture.AdminAsync();
+        var key = await fixture.KeyAsync(admin);
+        using var socket = await fixture.GatewayRealtimeAsync(key.Secret, "ume/live-transcribe");
+
+        (await ReceiveAsync(socket))["type"]!.GetValue<string>().ShouldBe("session.created");
+        var chunk = Convert.ToBase64String(new byte[4800]); // 100 ms of PCM16 at 24 kHz
+        for (var i = 0; i < 20; i++)
+        {
+            await SendAsync(socket, new JsonObject { ["type"] = "input_audio_buffer.append", ["audio"] = chunk });
+        }
+
+        await SendAsync(socket, new JsonObject { ["type"] = "input_audio_buffer.commit" });
+        JsonObject completed;
+        do
+        {
+            completed = await ReceiveAsync(socket);
+        }
+        while (completed["type"]!.GetValue<string>() != "conversation.item.input_audio_transcription.completed");
+
+        completed["transcript"]!.GetValue<string>().ShouldContain("fake-whisper");
+        await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, Cancellation);
+        while ((await socket.ReceiveAsync(new byte[16 * 1024], Cancellation)).MessageType != WebSocketMessageType.Close)
+        {
+        }
+
+        UsageRecord? usage = null;
+        for (var attempt = 0; usage is null && attempt < 50; attempt++)
+        {
+            await fixture.FlushAsync();
+            using var scope = fixture.GatewayServices.CreateScope();
+            usage = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.SingleOrDefaultAsync(r => r.VirtualKeyId == key.Id, Cancellation);
+            if (usage is null)
+            {
+                await Task.Delay(100, Cancellation);
+            }
+        }
+
+        usage.ShouldNotBeNull();
+        usage.Endpoint.ShouldBe(Domain.GatewayEndpoint.Realtime);
+        usage.UpstreamModel.ShouldBe("fake-whisper");
+        usage.AudioSeconds.ShouldBe(2m);
+        usage.CostUsd.ShouldBe(0.0002m); // 2 s at 0.006 USD per minute
+    }
+
+    private static Task SendAsync(WebSocket socket, JsonObject evt) =>
+        socket.SendAsync(JsonSerializer.SerializeToUtf8Bytes(evt), WebSocketMessageType.Text, true, Cancellation);
+
+    private static async Task<JsonObject> ReceiveAsync(WebSocket socket)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var buffer = new byte[64 * 1024];
+        var length = 0;
+        WebSocketReceiveResult result;
+        do
+        {
+            result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer, length, buffer.Length - length), timeout.Token);
+            length += result.Count;
+        }
+        while (!result.EndOfMessage);
+
+        return (JsonObject)JsonNode.Parse(Encoding.UTF8.GetString(buffer, 0, length))!;
     }
 
     [Fact]

@@ -87,7 +87,17 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 - `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400).
-- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, effectiveFrom }`
+- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, effectiveFrom }`
+  (`audioPerMinuteUsd` is for models billed by duration, such as Whisper and gpt-realtime-translate; `audioInputPerMillionUsd`
+  and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
+  as text tokens; all three omitted on create = 0)
+- `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
+  (speech to text), `Realtime` (live audio over WebSocket). `ModelKind` (models and routes): `Chat`, `Embedding`,
+  `Transcription`, `Realtime`, `SpeechTranslation`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
+  `*realtime-translate*` as `SpeechTranslation` and other `*realtime*` models as `Realtime`; speech synthesis, image and
+  chat-with-audio models are still left out.
+- `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
+  gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
 - `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null }`
 - `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price }`
 - `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[] }` · `DELETE /api/models/{id}` (409 if used by a route)
@@ -146,7 +156,7 @@ and invalidate the gateway catalogue.
 - `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
 
 ## Operations (gateway-admin)
-- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs }] }`
+- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs }] }` (the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
 - Gateway status/version/queue are fetched live over `Gateway:OperationsUrl` (HTTPS; defaults to
   `Gateway:BaseUrl`) within five seconds. An unavailable, malformed or unauthenticated probe
   yields an explicit `Unhealthy` gateway component and null version/usageWriter, never fabricated
@@ -176,6 +186,17 @@ and invalidate the gateway catalogue.
 ## Gateway (data plane) – for the developer portal snippets
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
 - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `POST /v1/responses`, `POST /v1/messages` (Anthropic format).
+- `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` (speech to text, OpenAI format): `multipart/form-data`
+  with the recording in `file` and the text fields `model` (a `Transcription` alias or model), `language`, `prompt`,
+  `response_format` (`json`, `text`, `srt`, `vtt`, `verbose_json`), `temperature`, `stream`, `timestamp_granularities[]` …;
+  every field except `file` and `model` is passed on unchanged. The answer comes back in the provider's format and
+  content type. Only providers with the `AudioTranscriptions` capability are used. Uploads are limited to
+  `Gateway:MaxAudioRequestBodyBytes` (26 MB) and held in memory, never on disk. The PII policy scans `prompt`; the
+  recording itself counts as an audio attachment, so keys set to `ImagesOnly` or `None` get `attachment_not_allowed`.
+  Billing: provider-reported duration (`usage.seconds` or the `duration` of `verbose_json`) × `audioPerMinuteUsd`, plus
+  reported tokens × token prices (gpt-4o-transcribe); whatever is not reported is estimated from the file (exact for
+  WAV and FLAC, from the bitrate for MP3, 32 kbps otherwise). Usage records carry `audioSeconds`.
+- Live audio: see [below](#live-audio-realtime).
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
@@ -184,7 +205,38 @@ and invalidate the gateway catalogue.
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`.
   A provider-side refusal is passed through with the provider's status; one the gateway raises itself is
   `unsupported_content` (400): a Chat Completions request to a Claude model contains a part the Messages API cannot
-  take (audio, an OpenAI `file_id`, or a file other than PDF or plain text).
+  take (audio, video, an OpenAI `file_id`, or a file other than PDF or plain text). An audio upload with no `file`, or
+  one that is not `multipart/form-data`, gets `invalid_request` (400) or `unsupported_media_type` (415); one over the
+  limit gets `request_too_large` (413).
+
+### Live audio (realtime)
+WebSocket endpoints speaking the OpenAI Realtime protocol (JSON events, audio as base64), relayed to the provider:
+- `GET /v1/realtime?model=<alias>`: a `Transcription` alias gives a live transcription session, a `Realtime` alias a
+  realtime session. Other query parameters are passed on (e.g. `intent=transcription` for OpenAI's transcription
+  sessions with gpt-4o-transcribe, in which case the model is not put in the URL), except credentials and `model`.
+- `GET /v1/realtime/translations?model=<alias>`: live interpreting with a `SpeechTranslation` alias.
+- Upstream URL: the provider's base URL + `/realtime` or `/realtime/translations`, `ws(s)`, with `model=<upstream model>`.
+  Only providers with the `Realtime` capability are used. The `OpenAI-Beta` header is passed on; the subprotocol
+  `realtime` is accepted.
+- Authentication as for HTTP (`Authorization: Bearer …`), so server-side clients only. Everything the HTTP pipeline
+  checks is checked before the upgrade, and refusals are ordinary HTTP errors: `invalid_request` (400: not a WebSocket
+  request, no `model`, or a model of the wrong kind), `attachment_not_allowed` (the key's `attachmentPolicy` is not
+  `Allowed`), `rate_limited` (429: per-minute limit, or the key already has `Gateway:Realtime:MaxSessionsPerKey` open
+  sessions), `budget_exceeded` (402), `all_providers_failed` (502/504, after trying each candidate).
+- During the session the gateway sends OpenAI-style `error` events `{ type: "error", error: { type, code, message,
+  event_id } }` (`event_id` is the client event refused): `model_not_allowed` (an input transcription model that is
+  not a `Transcription` alias/model of the session's provider), `pii_blocked`, `invalid_request` (binary frame),
+  `request_too_large` (event over `MaxMessageBytes`; the session is closed with 1009). It ends the session with an
+  error event and a close frame on `budget_exceeded` (close 1008), `session_time_limit` (1000),
+  `gateway_shutting_down` (1001) and `provider_disconnected` (1001).
+- Usage: one record per session; `streamed` is true, `latencyMs` is the session length, `audioSeconds` the audio
+  streamed (provider-reported duration when given, otherwise counted from the appended audio at the session's input
+  format), tokens the sum of the provider's usage events. Outcomes: `Success` (closed by either side, time limit or
+  shutdown, with `errorCode` `session_time_limit` / `gateway_shutting_down`), `ClientCancelled` (connection dropped),
+  `ProviderError` (`stream_interrupted`), `BudgetExceeded`.
+- Settings (`Gateway:Realtime:`): `MaxSessionsPerKey` (20, 0 = no limit; needs the Redis ACL commands `zadd zrem zcard
+  zremrangebyscore`, otherwise the limit is not enforced and a warning is logged), `MaxSessionMinutes` (120),
+  `BudgetCheckSeconds` (30), `ReserveMinutes` (5), `MaxMessageBytes` (4 MB).
 
 **Attached files.** Files travel inline in the JSON body as content parts; the gateway has no upload endpoint.
 The key's `attachmentPolicy` is checked right after the body is parsed, before rate limiting and the PII policy:
@@ -194,9 +246,10 @@ The key's `attachmentPolicy` is checked right after the body is parsed, before r
 | Image | `image_url` | `input_image` | `image` |
 | Document | `file` (`file_data` or `file_id`) | `input_file` (`file_data`, `file_id` or `file_url`) | `document`, `container_upload` |
 | Audio | `input_audio` | — | — |
+| Video | `video_url` | `input_video` | — |
 
 Parts nested inside other content (for example an Anthropic `tool_result`) are found too. `ImagesOnly` refuses
-documents and audio; `None` refuses all three. A refused request gets 400 `attachment_not_allowed` and is recorded
+documents, audio and video; `None` refuses all four. A refused request gets 400 `attachment_not_allowed` and is recorded
 with outcome `Rejected`. The PII policy scans text only, never file contents, so a key that must not send personal
 data to a provider should use `None`. It cannot stop a client that extracts a file's text itself and sends it as an
 ordinary message (common in chat front-ends); the PII policy is what covers that text.

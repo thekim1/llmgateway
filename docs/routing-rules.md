@@ -214,9 +214,9 @@ position in the text.
 | Variable | Type | Description |
 |---|---|---|
 | `model` | text | The model name at this step (the requested name, or the rewritten one when chaining) |
-| `endpoint` | text | `chat_completions`, `embeddings`, `responses` or `anthropic_messages` |
+| `endpoint` | text | `chat_completions`, `embeddings`, `responses`, `anthropic_messages`, `audio_transcriptions`, `audio_translations`, `realtime` or `realtime_translations` |
 | `headers` | map of text | Request headers; names are case-insensitive: `headers["x-tier"]` |
-| `params` | map | Top-level request fields that are text, numbers or booleans: `params["temperature"]` |
+| `params` | map | Top-level request fields that are text, numbers or booleans: `params["temperature"]` (form fields for the audio endpoints, query parameters other than `model` for live audio) |
 | `key_id`, `key_name` | text | The virtual key |
 | `team_id`, `team_name` | text | Its team |
 | `department_id`, `department_name` | text | Its förvaltning |

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
@@ -258,6 +259,9 @@ public sealed class GatewayMetrics
     private readonly Counter<long> _fallbacks;
     private readonly Counter<long> _ruleRouted;
     private readonly Histogram<double> _latency;
+    private readonly Histogram<double> _sessionDuration;
+    private readonly UpDownCounter<long> _openSessions;
+    private readonly Counter<double> _audioSeconds;
     private readonly Meter _meter;
 
     public GatewayMetrics(IMeterFactory meterFactory)
@@ -270,7 +274,14 @@ public sealed class GatewayMetrics
         _fallbacks = _meter.CreateCounter<long>("ume.gateway.fallbacks", description: "Fallback attempts");
         _ruleRouted = _meter.CreateCounter<long>("ume.gateway.routing.rule_routed", description: "Requests routed by a routing rule (no per-rule label: rule names are unbounded)");
         _latency = _meter.CreateHistogram<double>("ume.gateway.request.duration", unit: "ms", description: "End-to-end latency");
+        _sessionDuration = _meter.CreateHistogram<double>("ume.gateway.realtime.session.duration", unit: "s", description: "Length of live audio sessions");
+        _openSessions = _meter.CreateUpDownCounter<long>("ume.gateway.realtime.sessions", description: "Live audio sessions open on this instance");
+        _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
     }
+
+    public void SessionOpened(GatewayEndpoint endpoint) => _openSessions.Add(1, new TagList { { "endpoint", endpoint.ToString() } });
+
+    public void SessionClosed(GatewayEndpoint endpoint) => _openSessions.Add(-1, new TagList { { "endpoint", endpoint.ToString() } });
 
     public void ObserveQueueDepth(Func<int> depth) =>
         _meter.CreateObservableGauge("ume.gateway.usage_queue.depth", depth, description: "Usage records waiting to be written");
@@ -285,7 +296,20 @@ public sealed class GatewayMetrics
             { "endpoint", record.Endpoint.ToString() },
         };
         _requests.Add(1, tags);
-        _latency.Record(record.LatencyMs, tags);
+        if (record.Endpoint is GatewayEndpoint.Realtime or GatewayEndpoint.RealtimeTranslations)
+        {
+            _sessionDuration.Record(record.LatencyMs / 1000d, tags); // a session's length is not request latency
+        }
+        else
+        {
+            _latency.Record(record.LatencyMs, tags);
+        }
+
+        if (record.AudioSeconds > 0)
+        {
+            _audioSeconds.Add((double)record.AudioSeconds, new TagList { { "provider", record.ProviderName ?? "none" }, { "endpoint", record.Endpoint.ToString() } });
+        }
+
         _tokens.Add(record.InputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "input" } });
         _tokens.Add(record.OutputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "output" } });
         _costSek.Add((double)record.CostSek, new TagList { { "provider", record.ProviderName ?? "none" } });

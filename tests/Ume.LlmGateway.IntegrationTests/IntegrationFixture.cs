@@ -107,6 +107,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
         return client;
     }
 
+    public Task<System.Net.WebSockets.WebSocket> GatewayRealtimeAsync(string secret, string model, string path = "/v1/realtime")
+    {
+        var client = _gateway.Server.CreateWebSocketClient();
+        client.ConfigureRequest = request => request.Headers.Authorization = "Bearer " + secret;
+        return client.ConnectAsync(new Uri($"ws://localhost{path}?model={Uri.EscapeDataString(model)}"), TestContext.Current.CancellationToken);
+    }
+
     public async Task<(Guid Id, string Secret)> KeyAsync(HttpClient admin, int? requestsPerMinute = null)
     {
         using var departments = await admin.GetAsync("/api/departments");

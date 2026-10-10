@@ -113,6 +113,22 @@ public class PiiJsonScannerTests
         body.ToJsonString().ShouldNotContain("121212-1212");
     }
 
+    [Fact]
+    public void Scan_leaves_file_payloads_alone()
+    {
+        // The base64 happens to contain a valid personnummer; redacting it would corrupt the file.
+        const string Payload = "data:application/pdf;base64,QUJD1212121212QUJD";
+        var body = JsonNode.Parse($$$"""
+            {"messages":[{"role":"user","content":[
+              {"type":"file","file":{"filename":"a.pdf","file_data":"{{{Payload}}}"}},
+              {"type":"video_url","video_url":"data:video/mp4;base64,QUJD1212121212QUJD"}]}],
+             "input":[{"role":"user","content":[{"type":"input_file","file_data":"{{{Payload}}}"}]}]}
+            """)!;
+
+        PiiJsonScanner.Scan(body, redact: true).HasPii.ShouldBeFalse();
+        body["messages"]![0]!["content"]![0]!["file"]!["file_data"]!.GetValue<string>().ShouldBe(Payload);
+    }
+
     [Theory]
     [InlineData(PiiPolicy.Allow, PiiDecision.Forward)]
     [InlineData(PiiPolicy.Redact, PiiDecision.ForwardRedacted)]

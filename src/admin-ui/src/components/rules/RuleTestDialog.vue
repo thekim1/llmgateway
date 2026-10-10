@@ -53,6 +53,10 @@ const endpointOptions = [
   { value: 'embeddings', label: 'Embeddings' },
   { value: 'responses', label: 'Responses' },
   { value: 'anthropic_messages', label: 'Anthropic messages' },
+  { value: 'audio_transcriptions', label: 'Audio transcriptions' },
+  { value: 'audio_translations', label: 'Audio translations' },
+  { value: 'realtime', label: 'Realtime (live audio)' },
+  { value: 'realtime_translations', label: 'Realtime translations (interpreting)' },
 ]
 const keyOptions = computed(() => [{ value: '', label: 'No key' }, ...keys.items.map((k) => ({ value: k.id, label: `${k.name} · ${k.prefix}` }))])
 const teamOptions = computed(() => [{ value: '', label: 'No team' }, ...teams.items.map((t) => ({ value: t.id, label: `${t.name} · ${t.departmentName}` }))])

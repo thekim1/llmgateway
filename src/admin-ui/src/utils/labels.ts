@@ -63,8 +63,8 @@ export const ATTACHMENT_LABEL: Record<AttachmentPolicy, string> = {
 }
 
 export const ATTACHMENT_HINT: Record<AttachmentPolicy, string> = {
-  Allowed: 'Images, documents and audio are sent on. The PII check cannot read file contents.',
-  ImagesOnly: 'Images are sent on; documents, audio and file references are rejected with attachment_not_allowed.',
+  Allowed: 'Images, documents, audio and video are sent on. The PII check cannot read file contents.',
+  ImagesOnly: 'Images are sent on; documents, audio, video and file references are rejected with attachment_not_allowed.',
   None: 'Any attached file is rejected with attachment_not_allowed. Use for keys handling sensitive data.',
 }
 
@@ -94,7 +94,13 @@ export const PERIOD_LABEL: Record<BudgetPeriod, string> = {
   Quarterly: 'Quarterly',
   Yearly: 'Yearly',
 }
-export const KIND_LABEL: Record<ModelKind, string> = { Chat: 'Chat', Embedding: 'Embedding' }
+export const KIND_LABEL: Record<ModelKind, string> = {
+  Chat: 'Chat',
+  Embedding: 'Embedding',
+  Transcription: 'Speech to text',
+  Realtime: 'Realtime (live)',
+  SpeechTranslation: 'Live interpreting',
+}
 
 export const PROVIDER_TYPE_LABEL: Record<import('@/api/types').ProviderType, string> = {
   OpenAI: 'OpenAI',
@@ -124,6 +130,8 @@ export const CAPABILITY_LABEL: Record<ProviderCapability, string> = {
   Responses: 'Responses',
   AnthropicMessages: 'Anthropic messages',
   Streaming: 'Streaming',
+  AudioTranscriptions: 'Speech to text',
+  Realtime: 'Live audio (realtime)',
 }
 
 export const OUTCOME_LABEL: Record<RequestOutcome, { label: string; tone: Tone }> = {

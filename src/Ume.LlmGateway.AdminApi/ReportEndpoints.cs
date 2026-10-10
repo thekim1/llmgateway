@@ -123,7 +123,7 @@ public static class ReportEndpoints
     {
         var u = row.Record;
         return new { u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName,
-            endpoint = u.Endpoint switch { GatewayEndpoint.ChatCompletions => "/v1/chat/completions", GatewayEndpoint.Embeddings => "/v1/embeddings", GatewayEndpoint.Responses => "/v1/responses", GatewayEndpoint.Models => "/v1/models", _ => "/v1/messages" },
+            endpoint = u.Endpoint switch { GatewayEndpoint.ChatCompletions => "/v1/chat/completions", GatewayEndpoint.Embeddings => "/v1/embeddings", GatewayEndpoint.Responses => "/v1/responses", GatewayEndpoint.Models => "/v1/models", GatewayEndpoint.AudioTranscriptions => "/v1/audio/transcriptions", GatewayEndpoint.AudioTranslations => "/v1/audio/translations", GatewayEndpoint.Realtime => "/v1/realtime", GatewayEndpoint.RealtimeTranslations => "/v1/realtime/translations", _ => "/v1/messages" },
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName };
     }

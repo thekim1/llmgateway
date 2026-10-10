@@ -72,6 +72,44 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
     }
 }
 
+/// <summary>Open sessions per key as a sorted set of session id → expiry (ms). Expired members are dropped on open.</summary>
+public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, TimeProvider time) : IRealtimeSessionRegistry
+{
+    private const string OpenScript = """
+        redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+        local max = tonumber(ARGV[3])
+        if max > 0 and redis.call('ZCARD', KEYS[1]) >= max then return 0 end
+        redis.call('ZADD', KEYS[1], ARGV[2], ARGV[4])
+        redis.call('PEXPIRE', KEYS[1], ARGV[5])
+        return 1
+        """;
+
+    private const string RenewScript = """
+        redis.call('ZADD', KEYS[1], 'XX', ARGV[1], ARGV[2])
+        redis.call('PEXPIRE', KEYS[1], ARGV[3])
+        return 1
+        """;
+
+    public async Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow().ToUnixTimeMilliseconds();
+        var ttl = (long)timeToLive.TotalMilliseconds;
+        var result = await redis.GetDatabase().ScriptEvaluateAsync(OpenScript, [Key(keyId)], [now, now + ttl, maxSessions, sessionId, ttl]);
+        return (long)result == 1;
+    }
+
+    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        var ttl = (long)timeToLive.TotalMilliseconds;
+        return redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [Key(keyId)], [time.GetUtcNow().ToUnixTimeMilliseconds() + ttl, sessionId, ttl]);
+    }
+
+    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) =>
+        redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), sessionId);
+
+    private static RedisKey Key(Guid keyId) => $"ume:rt:{keyId:N}";
+}
+
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
     // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.

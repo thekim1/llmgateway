@@ -24,21 +24,38 @@ public sealed record ProviderRequest(
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo) ||
-            !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) || (uri.Scheme == "http" && Residency != DataResidency.OnPrem))
+            !string.IsNullOrEmpty(uri.Fragment) || (uri.Scheme == "http" && Residency != DataResidency.OnPrem))
         {
-            yield return new ValidationResult("Ange en HTTPS-adress utan inloggningsuppgifter, frågesträng eller fragment. HTTP är endast tillåtet för on-prem.", [nameof(BaseUrl)]);
+            yield return new ValidationResult("Ange en HTTPS-adress utan inloggningsuppgifter eller fragment. HTTP är endast tillåtet för on-prem.", [nameof(BaseUrl)]);
+        }
+        else if (HasSecretParameter(uri.Query))
+        {
+            // Query parameters such as api-version are fine; credentials belong in the encrypted credential field.
+            yield return new ValidationResult("Frågesträngen får inte innehålla nycklar eller token. Ange dem som autentiseringsuppgift i stället.", [nameof(BaseUrl)]);
         }
         if (Capabilities?.Any(c => !Enum.IsDefined(c) || c == ProviderCapabilities.None) == true)
         {
             yield return new ValidationResult("Egenskapen är ogiltig.", [nameof(Capabilities)]);
         }
     }
+
+    private static bool HasSecretParameter(string query) =>
+        query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => Uri.UnescapeDataString(p.Split('=')[0]).ToLowerInvariant())
+            .Any(name => name.Contains("key", StringComparison.Ordinal) || name.Contains("token", StringComparison.Ordinal) ||
+                         name.Contains("secret", StringComparison.Ordinal) || name.Contains("password", StringComparison.Ordinal) ||
+                         name.Contains("auth", StringComparison.Ordinal) || name is "sig" or "code");
 }
 public sealed record PriceRequest(
     [property: Range(typeof(decimal), "0", "1000000")] decimal InputPerMillionUsd,
     [property: Range(typeof(decimal), "0", "1000000")] decimal CachedInputPerMillionUsd,
     [property: Range(typeof(decimal), "0", "1000000")] decimal OutputPerMillionUsd,
-    DateTimeOffset? EffectiveFrom = null) : AdminRequest;
+    DateTimeOffset? EffectiveFrom = null,
+    // Speech-to-text models billed by duration (Whisper). Omitted = 0.
+    [property: Range(typeof(decimal), "0", "1000000")] decimal AudioPerMinuteUsd = 0,
+    // Audio tokens of realtime and gpt-4o-transcribe models. Omitted = 0 (billed as text tokens).
+    [property: Range(typeof(decimal), "0", "1000000")] decimal AudioInputPerMillionUsd = 0,
+    [property: Range(typeof(decimal), "0", "1000000")] decimal AudioOutputPerMillionUsd = 0) : AdminRequest;
 public sealed record ModelRequest(
     Guid ProviderId,
     [property: Required, StringLength(200)] string Name,
@@ -86,7 +103,7 @@ public static class ConfigurationEndpoints
         capabilities = Capabilities(p.Capabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds,
         p.CreatedAt, deploymentCount = p.Deployments.Count,
     };
-    public static object PriceDto(ModelPrice p) => new { p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.EffectiveFrom };
+    public static object PriceDto(ModelPrice p) => new { p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.EffectiveFrom };
     public static object ModelDto(ModelDeployment m, DateTimeOffset now) => new
     {
         m.Id, providerId = m.ProviderAccountId, providerName = m.ProviderAccount?.Name, residency = m.ProviderAccount?.Residency,
@@ -332,7 +349,8 @@ public static class ConfigurationEndpoints
     internal static ModelPrice Price(PriceRequest input, DateTimeOffset now) => new()
     {
         InputPerMillionUsd = input.InputPerMillionUsd, CachedInputPerMillionUsd = input.CachedInputPerMillionUsd,
-        OutputPerMillionUsd = input.OutputPerMillionUsd, EffectiveFrom = (input.EffectiveFrom ?? now).ToUniversalTime(),
+        OutputPerMillionUsd = input.OutputPerMillionUsd, AudioPerMinuteUsd = input.AudioPerMinuteUsd,
+        AudioInputPerMillionUsd = input.AudioInputPerMillionUsd, AudioOutputPerMillionUsd = input.AudioOutputPerMillionUsd, EffectiveFrom = (input.EffectiveFrom ?? now).ToUniversalTime(),
     };
     internal static async Task ApplyRouteAsync(RouteAlias r, RouteRequest input, AdminContext ctx, CancellationToken ct)
     {

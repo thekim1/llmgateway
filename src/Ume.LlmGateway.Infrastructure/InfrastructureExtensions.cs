@@ -106,6 +106,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ISpendLedger, RedisSpendLedger>();
             builder.Services.TryAddSingleton<IInvalidationBus, RedisInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, RedisCircuitBreakerStore>();
+            builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
         }
         else
         {
@@ -113,6 +114,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ISpendLedger, InMemorySpendLedger>();
             builder.Services.TryAddSingleton<IInvalidationBus, InMemoryInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, InMemoryCircuitBreakerStore>();
+            builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();
         }
 
         return builder;
@@ -124,6 +126,7 @@ public static class InfrastructureExtensions
         services.TryAddSingleton(sp => new ProviderHttpClient(sp.GetRequiredService<IHostEnvironment>().IsProduction()));
         services.AddSingleton<IProviderAdapter, AnthropicAdapter>();
         services.AddSingleton<IProviderAdapter, OpenAICompatibleAdapter>();
+        services.TryAddSingleton<IRealtimeConnector, RealtimeConnector>();
         return services;
     }
 

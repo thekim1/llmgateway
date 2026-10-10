@@ -93,6 +93,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.InputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.CachedInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.OutputPerMillionUsd).HasPrecision(18, 6);
+            e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 6);
+            e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
+            e.Property(x => x.AudioOutputPerMillionUsd).HasPrecision(18, 6);
             e.HasIndex(x => new { x.ModelDeploymentId, x.EffectiveFrom }).IsUnique();
         });
 
@@ -143,6 +146,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.UpstreamModel).HasMaxLength(200);
             e.Property(x => x.CostUsd).HasPrecision(18, 8);
             e.Property(x => x.CostSek).HasPrecision(18, 6);
+            e.Property(x => x.AudioSeconds).HasPrecision(12, 3);
             e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.PiiActionApplied).HasConversion<string>().HasMaxLength(30);
