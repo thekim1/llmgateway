@@ -2,8 +2,7 @@
   <PropertyGroup>
     <UserSecretsId>ume-llm-gateway-dataapi</UserSecretsId>
     <ContainerRepository>ume-llm-gateway/dataapi</ContainerRepository>
-    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0.12-noble-chiseled-extra@sha256:00e0ad6a7ef8c0c1391b87f05c7ac757a15740455688f2bfcd146a3f4b987efd</ContainerBaseImage>
-    <ContainerUser>1654</ContainerUser>
+    <UmeServiceContainer>true</UmeServiceContainer>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
