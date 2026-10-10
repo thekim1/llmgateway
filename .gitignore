@@ -29,3 +29,4 @@ benchmarks/compare/results/
 deploy/generated/.env*
 deploy/secrets/
 deploy/certs/
+.claude/worktrees/
