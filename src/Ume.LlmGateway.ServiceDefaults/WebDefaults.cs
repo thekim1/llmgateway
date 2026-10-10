@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.ServiceDefaults;
 
@@ -34,13 +35,42 @@ public static class WebDefaults
     /// </summary>
     public static async Task<bool> ExitIfHealthProbeAsync(string[] args)
     {
-        if (await Extensions.RunHealthProbeAsync(args) is not { } exitCode)
+        ArgumentNullException.ThrowIfNull(args);
+        if (args.Length != 1 || args[0] != "--health-check")
         {
             return false;
         }
 
-        Environment.ExitCode = exitCode;
+        Environment.ExitCode = await RunHealthProbeAsync();
         return true;
+    }
+
+    private static async Task<int> RunHealthProbeAsync()
+    {
+        // Runs inside the container, so this is the container's own listener (the Kestrel URL in Compose),
+        // not the host port published to the network. Override only if that internal URL changes.
+        var url = Environment.GetEnvironmentVariable("UME_HEALTHCHECK_URL") ?? "https://localhost:8443" + HealthEndpoints.ReadyPath;
+        // The loopback name need not be in the certificate (certificates issued for the public name),
+        // so a name mismatch is accepted; an untrusted or expired certificate still fails the probe.
+        using var handler = new SocketsHttpHandler
+        {
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, errors) =>
+                errors is System.Net.Security.SslPolicyErrors.None or System.Net.Security.SslPolicyErrors.RemoteCertificateNameMismatch },
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        try
+        {
+            using var response = await client.GetAsync(new Uri(url));
+            return response.IsSuccessStatusCode ? 0 : 1;
+        }
+        catch (HttpRequestException)
+        {
+            return 1;
+        }
+        catch (OperationCanceledException)
+        {
+            return 1;
+        }
     }
 
     /// <summary>
@@ -58,12 +88,17 @@ public static class WebDefaults
             builder.Services.Configure(configureErrors);
         }
 
-        builder.WebHost.ConfigureKestrel(o =>
-        {
-            o.AddServerHeader = false;
-            o.Limits.MaxRequestBodySize = maxRequestBodySize;
-        });
+        builder.WebHost.ConfigureKestrel(o => o.UseUmeDefaults(maxRequestBodySize));
         return builder;
+    }
+
+    /// <summary>No <c>Server</c> header, and a request body limit.</summary>
+    public static KestrelServerOptions UseUmeDefaults(this KestrelServerOptions options, long maxRequestBodySize)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.AddServerHeader = false;
+        options.Limits.MaxRequestBodySize = maxRequestBodySize;
+        return options;
     }
 
     /// <summary>The exception handler registered by <see cref="AddUmeWebDefaults"/>, and HSTS outside development.</summary>
@@ -71,6 +106,13 @@ public static class WebDefaults
     {
         ArgumentNullException.ThrowIfNull(app);
         app.UseExceptionHandler();
+        return app.UseUmeHsts();
+    }
+
+    /// <summary>HSTS outside development.</summary>
+    public static WebApplication UseUmeHsts(this WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
         if (!app.Environment.IsDevelopment())
         {
             app.UseHsts();
@@ -82,53 +124,86 @@ public static class WebDefaults
     /// <summary>
     /// Sets the security headers on every response. They are applied again when the response starts, so responses
     /// written by the exception handler (which clears the headers) carry them too; a header set by an endpoint is kept.
+    /// The header sets are built once, so a request costs only the path checks (the gateway runs this on its hot path).
     /// </summary>
     public static IApplicationBuilder UseUmeSecurityHeaders(this IApplicationBuilder app, Action<SecurityHeaderOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         var options = new SecurityHeaderOptions();
         configure?.Invoke(options);
-        return app.Use(async (http, next) =>
+        var headers = new SecurityHeaderSets(options);
+        return app.Use((http, next) =>
         {
-            var headers = Headers(http.Request.Path, options);
-            foreach (var (name, value) in headers)
+            foreach (var (name, value) in headers.For(http.Request.Path))
             {
                 http.Response.Headers[name] = value;
             }
 
-            http.Response.OnStarting(() =>
+            http.Response.OnStarting(headers.ReapplyOnStarting, http);
+            return next(http);
+        });
+    }
+
+    /// <summary>The four possible header sets (with or without CSP, with or without <c>no-store</c>), built from the options once.</summary>
+    private sealed class SecurityHeaderSets
+    {
+        private readonly KeyValuePair<string, string>[][] _sets = new KeyValuePair<string, string>[4][];
+        private readonly string? _csp;
+        private readonly PathString[] _cspPrefixes;
+        private readonly PathString[] _noStorePrefixes;
+
+        public SecurityHeaderSets(SecurityHeaderOptions options)
+        {
+            _csp = options.ContentSecurityPolicy;
+            _cspPrefixes = [.. options.ContentSecurityPolicyPrefixes];
+            _noStorePrefixes = [.. options.NoStorePrefixes];
+            KeyValuePair<string, string>[] common =
+            [
+                new("X-Content-Type-Options", "nosniff"),
+                new("X-Frame-Options", options.FrameOptions),
+                new("Referrer-Policy", options.ReferrerPolicy),
+            ];
+            for (var set = 0; set < _sets.Length; set++)
             {
-                foreach (var (name, value) in headers)
+                var csp = (set & 1) != 0 && _csp is not null ? new KeyValuePair<string, string>[] { new("Content-Security-Policy", _csp) } : [];
+                var noStore = (set & 2) != 0 ? new KeyValuePair<string, string>[] { new("Cache-Control", "no-store") } : [];
+                _sets[set] = [.. common, .. csp, .. noStore];
+            }
+
+            ReapplyOnStarting = state =>
+            {
+                var http = (HttpContext)state;
+                foreach (var (name, value) in For(http.Request.Path))
                 {
                     http.Response.Headers.TryAdd(name, value);
                 }
 
                 return Task.CompletedTask;
-            });
-            await next(http);
-        });
-    }
-
-    private static List<KeyValuePair<string, string>> Headers(PathString path, SecurityHeaderOptions options)
-    {
-        var headers = new List<KeyValuePair<string, string>>(5)
-        {
-            new("X-Content-Type-Options", "nosniff"),
-            new("X-Frame-Options", options.FrameOptions),
-            new("Referrer-Policy", options.ReferrerPolicy),
-        };
-        if (options.ContentSecurityPolicy is { } csp &&
-            (options.ContentSecurityPolicyPrefixes.Count == 0 || options.ContentSecurityPolicyPrefixes.Any(path.StartsWithSegments)))
-        {
-            headers.Add(new("Content-Security-Policy", csp));
+            };
         }
 
-        if (options.NoStorePrefixes.Any(path.StartsWithSegments))
+        /// <summary>Adds the headers an endpoint or the exception handler left out; the state is the <see cref="HttpContext"/>.</summary>
+        public Func<object, Task> ReapplyOnStarting { get; }
+
+        public KeyValuePair<string, string>[] For(PathString path)
         {
-            headers.Add(new("Cache-Control", "no-store"));
+            var csp = _csp is not null && (_cspPrefixes.Length == 0 || StartsWithAny(path, _cspPrefixes)) ? 1 : 0;
+            var noStore = StartsWithAny(path, _noStorePrefixes) ? 2 : 0;
+            return _sets[csp | noStore];
         }
 
-        return headers;
+        private static bool StartsWithAny(PathString path, PathString[] prefixes)
+        {
+            foreach (var prefix in prefixes)
+            {
+                if (path.StartsWithSegments(prefix))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     /// <summary>Gives error responses that have no body (401 and 403 from authorization, 404 from routing) a problem body.</summary>

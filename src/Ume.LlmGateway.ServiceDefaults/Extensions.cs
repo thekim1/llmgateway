@@ -19,38 +19,6 @@ public static class Extensions
 {
     public const string TelemetryName = "Ume.LlmGateway";
 
-    public static async Task<int?> RunHealthProbeAsync(string[] args)
-    {
-        if (args.Length != 1 || args[0] != "--health-check")
-        {
-            return null;
-        }
-        // Runs inside the container, so this is the container's own listener (the Kestrel URL in Compose),
-        // not the host port published to the network. Override only if that internal URL changes.
-        var url = Environment.GetEnvironmentVariable("UME_HEALTHCHECK_URL") ?? "https://localhost:8443" + HealthEndpoints.ReadyPath;
-        // The loopback name need not be in the certificate (certificates issued for the public name),
-        // so a name mismatch is accepted; an untrusted or expired certificate still fails the probe.
-        using var handler = new SocketsHttpHandler
-        {
-            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, errors) =>
-                errors is System.Net.Security.SslPolicyErrors.None or System.Net.Security.SslPolicyErrors.RemoteCertificateNameMismatch },
-        };
-        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
-        try
-        {
-            using var response = await client.GetAsync(url);
-            return response.IsSuccessStatusCode ? 0 : 1;
-        }
-        catch (HttpRequestException)
-        {
-            return 1;
-        }
-        catch (OperationCanceledException)
-        {
-            return 1;
-        }
-    }
-
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();

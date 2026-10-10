@@ -7,9 +7,8 @@ using Ume.LlmGateway.Infrastructure;
 using Ume.LlmGateway.Infrastructure.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-if (await Extensions.RunHealthProbeAsync(args) is { } probeExit)
+if (await WebDefaults.ExitIfHealthProbeAsync(args))
 {
-    Environment.ExitCode = probeExit;
     return;
 }
 
@@ -53,35 +52,24 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 // From the validated options, so Kestrel's limit and the gateway's own body check never disagree.
 builder.Services.AddOptions<KestrelServerOptions>().Configure<IOptions<GatewayOptions>>((kestrel, gateway) =>
 {
-    kestrel.AddServerHeader = false;
-    kestrel.Limits.MaxRequestBodySize = gateway.Value.MaxRequestBodyBytes;
+    kestrel.UseUmeDefaults(gateway.Value.MaxRequestBodyBytes);
     kestrel.Limits.MaxRequestHeadersTotalSize = 32 * 1024;
 });
 
 var app = builder.Build();
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHsts();
-}
+app.UseUmeHsts();
 
 app.UseMiddleware<RequestIdMiddleware>();
 // Only on the live audio paths: the middleware would otherwise add a handshake object to every request.
 app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime"),
     branch => branch.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) }));
-app.Use(async (http, next) =>
+// The client API answers are JSON for programs: nothing may frame, render or cache them.
+app.UseUmeSecurityHeaders(o =>
 {
-    var headers = http.Response.Headers;
-    headers.XContentTypeOptions = "nosniff";
-    headers["Referrer-Policy"] = "no-referrer";
-    headers.XFrameOptions = "DENY";
-    if (http.Request.Path.StartsWithSegments("/v1"))
-    {
-        headers.CacheControl = "no-store";
-        headers.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
-    }
-
-    await next(http);
+    o.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
+    o.ContentSecurityPolicyPrefixes.Add("/v1");
+    o.NoStorePrefixes.Add("/v1");
 });
 
 app.MapDefaultEndpoints();
