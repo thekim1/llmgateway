@@ -15,6 +15,7 @@ public static class RouteSelector
     /// Orders targets into an attempt list: ascending priority (fallback chain); within the same priority a
     /// weighted random order (load balancing). Targets violating constraints are removed.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Load balancing between targets, not a security decision.")]
     public static IReadOnlyList<RouteTarget> Order(IEnumerable<RouteTarget> targets, RoutingConstraints constraints, Random random)
     {
         ArgumentNullException.ThrowIfNull(targets);

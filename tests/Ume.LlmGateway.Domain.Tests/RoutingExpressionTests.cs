@@ -237,7 +237,7 @@ public class RoutingExpressionTests
     public void Token_count_is_limited()
     {
         var source = string.Join(" && ", Enumerable.Repeat("a", 400));
-        var (expr, errors) = RoutingExpression.Compile(source.Replace("a", "1==1"), Schema);
+        var (expr, errors) = RoutingExpression.Compile(source.Replace("a", "1==1", StringComparison.Ordinal), Schema);
         expr.ShouldBeNull();
         errors.ShouldNotBeEmpty();
     }

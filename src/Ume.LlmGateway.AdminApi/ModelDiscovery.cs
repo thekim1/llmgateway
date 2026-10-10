@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Ume.LlmGateway.Domain;
@@ -50,7 +49,10 @@ public static partial class ModelDiscovery
     [GeneratedRegex(@"^(o\d|gpt-5)", RegexOptions.IgnoreCase)]
     private static partial Regex ReasoningModel();
 
-    /// <param name="requireHttps">Only https base URLs (production), the same rule the gateway applies to provider calls.</param>
+    /// <summary>
+    /// The provider's models. With <paramref name="requireHttps"/> (production) only an https base URL is called, the same
+    /// rule the gateway applies to provider calls.
+    /// </summary>
     public static async Task<DiscoveredModel[]> DiscoverAsync(
         ProviderAccount provider, HttpClient http, CredentialProtector protector, bool requireHttps, CancellationToken ct)
     {

@@ -91,13 +91,13 @@ public sealed partial class GatewayRequestHandler
 
         metrics.Record(record);
         LogCompleted(logger, state.RequestId, key.Prefix, record.RequestedModel, record.ProviderName ?? "-", status, record.LatencyMs, state.Fallbacks);
-        if (state.PiiAction is { } piiAction)
+        if (state.PiiAction is { } piiAction && _security.IsEnabled(LogLevel.Information))
         {
             SecurityEvents.PiiAction(_security, PiiActionName(piiAction), state.RequestId, state.Endpoint.ToString(), state.PiiCategories,
                 key.Id, key.Prefix, key.TeamId, record.DepartmentId);
         }
 
-        if (errorCode is GatewayErrorCodes.AttachmentNotAllowed or GatewayErrorCodes.ModelNotAllowed)
+        if ((errorCode is GatewayErrorCodes.AttachmentNotAllowed or GatewayErrorCodes.ModelNotAllowed) && _security.IsEnabled(LogLevel.Information))
         {
             SecurityEvents.RequestRefused(_security, state.RequestId, state.Endpoint.ToString(), errorCode, key.Id, key.Prefix, key.TeamId, record.DepartmentId);
         }

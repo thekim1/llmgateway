@@ -62,7 +62,7 @@ public static class AdminAuthentication
         app.MapGet("/bff/login", (string? returnUrl) =>
         {
             var destination = returnUrl ?? "/";
-            if (!destination.StartsWith('/') || destination.StartsWith("//", StringComparison.Ordinal) || destination.Contains('\\') ||
+            if (!destination.StartsWith('/') || destination.StartsWith("//", StringComparison.Ordinal) || destination.Contains('\\', StringComparison.Ordinal) ||
                 destination.Any(char.IsControl))
             {
                 return Results.Problem(statusCode: 400, detail: "Returadressen måste vara en lokal sökväg.");
@@ -104,7 +104,7 @@ public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext http, IAntiforgery antiforgery)
     {
-        if ((http.Request.Path.StartsWithSegments("/api") || http.Request.Path.StartsWithSegments("/bff")) &&
+        if ((http.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) || http.Request.Path.StartsWithSegments("/bff", StringComparison.OrdinalIgnoreCase)) &&
             !HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method) && !HttpMethods.IsOptions(http.Request.Method))
         {
             if (http.Request.Headers["X-Requested-With"] != "XMLHttpRequest")

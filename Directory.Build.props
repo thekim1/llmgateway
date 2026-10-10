@@ -7,13 +7,41 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Required for IDE0005 (unnecessary usings) to run on build; missing XML docs (CS1591) stay allowed. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Template-generated noise we accept in a POC: missing XML docs, ConfigureAwait in ASP.NET Core apps. -->
-    <NoWarn>$(NoWarn);CS1591;CA2007;CA1848;CA1515;CA1062;CA1716;CA1724;CA1031;CA2227;CA1002;CA1819;CA1056;CA1054;CA1305;CA1307;CA1310;CA1311;CA1304;CA1309;CA1308;CA5394;CA1711;CA1859;CA2016;CA1822;CA1873;CA1869</NoWarn>
     <Authors>Umeå kommun</Authors>
     <Product>Ume LLM Gateway</Product>
     <Version>0.1.0</Version>
     <ContainerImageTag>$(Version)</ContainerImageTag>
     <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <!--
+    Rules suppressed everywhere, one reason each. Everything else in latest-recommended is an error, and .editorconfig
+    raises some rules above it (culture, CancellationToken forwarding, logging, unnecessary usings).
+  -->
+  <PropertyGroup>
+    <!-- Missing XML docs: comments are written where they help, not for every public member. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- ConfigureAwait: ASP.NET Core and the worker host have no synchronization context. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+    <!-- Make public types internal: apps, whose types are public for WebApplicationFactory tests and benchmarks. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+    <!-- Validate public arguments: nullable reference types and minimal API binding already do. -->
+    <NoWarn>$(NoWarn);CA1062</NoWarn>
+    <!-- Names that are keywords in other .NET languages (the adapters' "call" parameter): C#-only code, not a library. -->
+    <NoWarn>$(NoWarn);CA1716</NoWarn>
+    <!-- Catching general exceptions: deliberate at best-effort and background boundaries (alerts, usage writer, discovery). -->
+    <NoWarn>$(NoWarn);CA1031</NoWarn>
+    <!-- Settable collection properties: EF Core entities and options binding need them. -->
+    <NoWarn>$(NoWarn);CA2227</NoWarn>
+    <!-- List<T> in public members: EF Core navigation properties and DTOs. -->
+    <NoWarn>$(NoWarn);CA1002</NoWarn>
+    <!-- Array properties: immutable record DTOs and JSON contracts. -->
+    <NoWarn>$(NoWarn);CA1819</NoWarn>
+    <!-- URLs as strings: configuration values, entity columns and DTO fields are strings. -->
+    <NoWarn>$(NoWarn);CA1056;CA1054</NoWarn>
+    <!-- ToLowerInvariant: lower-case names and identifiers are the intent (routing names, query values), not comparisons. -->
+    <NoWarn>$(NoWarn);CA1308</NoWarn>
   </PropertyGroup>
 </Project>

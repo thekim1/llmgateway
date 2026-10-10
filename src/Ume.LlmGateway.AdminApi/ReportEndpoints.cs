@@ -73,7 +73,9 @@ public static class ReportEndpoints
                 UsageGrouping.Key => names.GroupBy(u => new { Key = u.Record.VirtualKeyId.ToString(), Label = u.KeyName }),
                 UsageGrouping.Model => names.GroupBy(u => new { Key = u.Record.RequestedModel, Label = u.Record.RequestedModel }),
                 UsageGrouping.Provider => names.GroupBy(u => new { Key = u.Record.ProviderName ?? "-", Label = u.Record.ProviderName ?? "-" }),
+#pragma warning disable CA1305 // translated to SQL (a text cast in the database), no .NET culture is involved
                 UsageGrouping.Day => names.GroupBy(u => new { Key = u.Record.Timestamp.Date.ToString(), Label = u.Record.Timestamp.Date.ToString() }),
+#pragma warning restore CA1305
                 _ => throw new ArgumentOutOfRangeException(nameof(groupBy), grouping, "Unknown grouping."),
             };
             var rows = await groups.Select(g => new UsageSummaryRow(g.Key.Key, g.Key.Label,

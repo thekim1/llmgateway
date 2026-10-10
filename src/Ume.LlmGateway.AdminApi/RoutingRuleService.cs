@@ -295,7 +295,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     private sealed record RuleProblems(IReadOnlyList<RuleBuildError> Definition, IReadOnlyList<string> UnknownTargets, IReadOnlyList<string> UnknownFallbacks);
 
     /// <summary>Only chained rules may target names that another rule handles; fallbacks must always exist.</summary>
-    private static RuleProblems Check(Guid id, RuleInput input, IReadOnlySet<string> known) => new(
+    private static RuleProblems Check(Guid id, RuleInput input, HashSet<string> known) => new(
         RoutingRuleSet.Check(input.Definition(id)),
         input.Chain ? [] : [.. input.Targets.Where(t => !known.Contains(t.Model)).Select(t => t.Model)],
         [.. input.Fallbacks.Where(f => !known.Contains(f))]);
@@ -385,9 +385,9 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     {
         var effectiveScopeId = scope == RoutingScope.Global ? null : scopeId;
         var lower = name.ToLowerInvariant();
-#pragma warning disable CA1862 // the comparison must be translatable to SQL
+#pragma warning disable CA1862, CA1304, CA1311 // the comparison must be translatable to SQL (lower() in the database)
         if (await ctx.Db.RoutingRules.AnyAsync(r => r.Id != self && r.Scope == scope && r.ScopeId == effectiveScopeId && r.Name.ToLower() == lower, ct))
-#pragma warning restore CA1862
+#pragma warning restore CA1862, CA1304, CA1311
         {
             throw new ApiFaultException(409, "Det finns redan en regel med samma namn i detta omfång.");
         }
@@ -409,7 +409,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         return [.. rules.Select(r => View(r, names))];
     }
 
-    private static RuleView View(RoutingRule r, IReadOnlyDictionary<Owner, string> names)
+    private static RuleView View(RoutingRule r, Dictionary<Owner, string> names)
     {
         string? scopeName = Owner.Of(r.Scope, r.ScopeId) is { } owner && names.TryGetValue(owner, out var n) ? n : null;
         var orphaned = r.Scope != RoutingScope.Global && scopeName is null;

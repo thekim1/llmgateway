@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Ume.LlmGateway.AdminApi;
 
 namespace Ume.LlmGateway.AdminApi.Tests;
 

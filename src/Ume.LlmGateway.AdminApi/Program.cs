@@ -1,7 +1,6 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -93,7 +92,7 @@ builder.Services.AddAuthentication(o =>
     // identity provider would be followed by fetch and fail on CORS. Only /bff/login starts a real sign-in.
     o.Events.OnRedirectToIdentityProvider = ctx =>
     {
-        if (ctx.Request.Path.StartsWithSegments("/api"))
+        if (ctx.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             ctx.HandleResponse();

@@ -62,7 +62,7 @@ app.UseUmeHsts();
 
 app.UseMiddleware<RequestIdMiddleware>();
 // Only on the live audio paths: the middleware would otherwise add a handshake object to every request.
-app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime"),
+app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime", StringComparison.OrdinalIgnoreCase),
     branch => branch.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) }));
 // The client API answers are JSON for programs: nothing may frame, render or cache them.
 app.UseUmeSecurityHeaders(o =>

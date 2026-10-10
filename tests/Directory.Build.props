@@ -5,7 +5,23 @@
     <!-- Every project here is a test project except the shared test kit, a library the test projects reference. -->
     <IsTestProject Condition="'$(MSBuildProjectName)' != 'Ume.LlmGateway.TestKit'">true</IsTestProject>
     <OutputType Condition="'$(IsTestProject)' == 'true'">Exe</OutputType>
-    <NoWarn>$(NoWarn);CA1707;CA1515;CA2000;CA1861;CA1001;CA1063;CA1816;CA2234;CA1812;CA2201;CA1849</NoWarn>
+    <!-- Test-only suppressions, one reason each (on top of the repository-wide ones). -->
+    <!-- Underscores in test names (Does_this_when_that). -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- Disposal rules: xUnit owns fixture lifetimes, and short-lived test objects are left to the GC. -->
+    <NoWarn>$(NoWarn);CA2000;CA1001;CA1063;CA1816</NoWarn>
+    <!-- Constant arrays in InlineData-style test inputs. -->
+    <NoWarn>$(NoWarn);CA1861</NoWarn>
+    <!-- Relative URL strings for test requests, and generic exceptions thrown by fake handlers. -->
+    <NoWarn>$(NoWarn);CA2234;CA2201</NoWarn>
+    <!-- Classes instantiated by xUnit or reflection only. -->
+    <NoWarn>$(NoWarn);CA1812</NoWarn>
+    <!-- Synchronous calls with async alternatives in test setup and assertions. -->
+    <NoWarn>$(NoWarn);CA1849</NoWarn>
+    <!-- Fixture helpers are called on the injected fixture instance even when they use no instance data. -->
+    <NoWarn>$(NoWarn);CA1822</NoWarn>
+    <!-- Random test data (times, payloads), never security decisions. -->
+    <NoWarn>$(NoWarn);CA5394</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(IsTestProject)' == 'true'">
     <PackageReference Include="xunit.v3" />

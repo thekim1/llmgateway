@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Ume.LlmGateway.AdminApi;
 using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi.Tests;

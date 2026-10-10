@@ -1,4 +1,3 @@
-using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
 using Ume.LlmGateway.ServiceDefaults;
 
@@ -107,7 +106,7 @@ if (externalOidc)
     {
         if (value is not null)
         {
-            adminApi.WithEnvironment("Oidc__" + key.Replace(":", "__"), value);
+            adminApi.WithEnvironment("Oidc__" + key.Replace(":", "__", StringComparison.Ordinal), value);
         }
     }
 }
@@ -135,7 +134,7 @@ if (builder.Configuration.GetValue("DataApi:Enabled", builder.ExecutionContext.I
     {
         if (value is not null && key != "Enabled")
         {
-            dataApi.WithEnvironment("DataApi__" + key.Replace(":", "__"), value);
+            dataApi.WithEnvironment("DataApi__" + key.Replace(":", "__", StringComparison.Ordinal), value);
         }
     }
 }

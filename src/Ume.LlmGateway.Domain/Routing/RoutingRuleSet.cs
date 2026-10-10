@@ -103,7 +103,7 @@ public sealed class RoutingRuleSet
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { current };
         var appliedIds = new HashSet<Guid>();
         var applied = new List<AppliedRule>();
-        IReadOnlyList<string> models = [];
+        List<string> models = [];
         var limitReached = false;
 
         for (var step = 0; ; step++)
@@ -183,6 +183,7 @@ public sealed class RoutingRuleSet
     };
 
     /// <summary>Targets in weighted-random order (so the rest act as failover), followed by the explicit fallbacks.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Load balancing between targets, not a security decision.")]
     private static List<string> OrderModels(RoutingRuleDefinition def, Random random)
     {
         var pool = def.Targets.ToList();

@@ -25,7 +25,10 @@ public sealed partial class MigrationWorker(
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
             var strategy = db.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(() => db.Database.MigrateAsync(stoppingToken));
-            LogMigrated(logger, (await db.Database.GetAppliedMigrationsAsync(stoppingToken)).LastOrDefault());
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                LogMigrated(logger, (await db.Database.GetAppliedMigrationsAsync(stoppingToken)).LastOrDefault());
+            }
 
             var rolesPath = configuration["Migration:RolesSqlPath"];
             if (!string.IsNullOrWhiteSpace(rolesPath))
@@ -48,7 +51,7 @@ public sealed partial class MigrationWorker(
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Database schema is at migration {Migration}")]
+    [LoggerMessage(LogLevel.Information, "Database schema is at migration {Migration}")]
     private static partial void LogMigrated(ILogger logger, string? migration);
 
     [LoggerMessage(Level = LogLevel.Critical, Message = "Database migration failed")]

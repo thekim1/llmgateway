@@ -29,26 +29,27 @@ public static partial class SecurityEvents
         _ => "unknown",
     };
 
-    [LoggerMessage(EventId = 1001, EventName = "gateway.auth.failed", Level = LogLevel.Warning,
-        Message = "Authentication failed: {Reason} on {Endpoint} x{Count} from {SourceAddress} (key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}) between {FirstSeen} and {LastSeen}")]
+    // Event id and level are constructor arguments: CA1873 reads the level only from there to recognise IsEnabled guards.
+    [LoggerMessage(1001, LogLevel.Warning,
+        "Authentication failed: {Reason} on {Endpoint} x{Count} from {SourceAddress} (key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}) between {FirstSeen} and {LastSeen}", EventName = "gateway.auth.failed")]
     public static partial void AuthFailed(ILogger logger, string reason, string endpoint, int count, string? sourceAddress,
         Guid? keyId, string? keyPrefix, Guid? teamId, Guid? departmentId, DateTimeOffset firstSeen, DateTimeOffset lastSeen);
 
-    [LoggerMessage(EventId = 1002, EventName = "gateway.pii.action", Level = LogLevel.Information,
-        Message = "Personal data {Action} in request {RequestId} on {Endpoint} ({Categories}); key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}")]
+    [LoggerMessage(1002, LogLevel.Information,
+        "Personal data {Action} in request {RequestId} on {Endpoint} ({Categories}); key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}", EventName = "gateway.pii.action")]
     public static partial void PiiAction(ILogger logger, string action, string requestId, string endpoint, string? categories,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
-    [LoggerMessage(EventId = 1003, EventName = "gateway.request.refused", Level = LogLevel.Information,
-        Message = "Request {RequestId} on {Endpoint} refused by policy: {ErrorCode}; key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}")]
+    [LoggerMessage(1003, LogLevel.Information,
+        "Request {RequestId} on {Endpoint} refused by policy: {ErrorCode}; key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}", EventName = "gateway.request.refused")]
     public static partial void RequestRefused(ILogger logger, string requestId, string endpoint, string errorCode,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
-    [LoggerMessage(EventId = 3001, EventName = "data.read", Level = LogLevel.Information,
-        Message = "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}")]
+    [LoggerMessage(3001, LogLevel.Information,
+        "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}", EventName = "data.read")]
     public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);
 
-    [LoggerMessage(EventId = 2001, EventName = "admin.change", Level = LogLevel.Information,
-        Message = "Admin {Actor}: {Action} {EntityType} {EntityId}")]
+    [LoggerMessage(2001, LogLevel.Information,
+        "Admin {Actor}: {Action} {EntityType} {EntityId}", EventName = "admin.change")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);
 }

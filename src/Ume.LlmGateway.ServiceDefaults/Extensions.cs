@@ -71,7 +71,7 @@ public static class Extensions
                 .AddSource(TelemetryName)
                 .AddAspNetCoreInstrumentation(o =>
                 {
-                    o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health");
+                    o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase);
                     // Never record query strings; they could contain identifiers.
                     o.EnrichWithHttpRequest = (activity, request) => activity.SetTag("url.query", null);
                 })

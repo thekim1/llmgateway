@@ -4,6 +4,7 @@ namespace Ume.LlmGateway.Domain;
 /// What a <see cref="GatewayEndpoint"/> is: its client path, the name routing conditions see, the provider path and
 /// capability it needs, and the kinds of model it serves. One entry per enum value (see <see cref="GatewayEndpoints"/>).
 /// </summary>
+/// <param name="Endpoint">The endpoint this entry describes.</param>
 /// <param name="RoutingName">The value of the <c>endpoint</c> variable in routing conditions.</param>
 /// <param name="ClientPath">The path clients call, e.g. <c>/v1/chat/completions</c>.</param>
 /// <param name="UpstreamPath">Path appended to a provider's base URL; null when the endpoint never reaches a provider.</param>
@@ -12,6 +13,7 @@ namespace Ume.LlmGateway.Domain;
 /// <param name="IsRealtime">A live WebSocket session.</param>
 /// <param name="SupportsStreaming">A client may ask for a streamed (SSE) answer.</param>
 /// <param name="HasOutputTokens">The answer is billed for output tokens (embeddings are not).</param>
+/// <param name="ModelKinds">The kinds of model the endpoint serves; none when it never reaches a provider.</param>
 public sealed record GatewayEndpointInfo(
     GatewayEndpoint Endpoint,
     string RoutingName,

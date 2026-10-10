@@ -196,7 +196,7 @@ public static class WebDefaults
         {
             foreach (var prefix in prefixes)
             {
-                if (path.StartsWithSegments(prefix))
+                if (path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
