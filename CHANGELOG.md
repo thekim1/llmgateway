@@ -1,7 +1,8 @@
 # Changelog
 
 ## Unreleased
--
+
+**Fix:** the migration service no longer logs `42P01: relation "DataProtectionKeys" does not exist` on a fresh database. It skips ASP.NET's startup key ring load (`KeyRingStartup.LoadKeyRingOnFirstUse`), which ran before the migration created the table; the key ring now loads on first use, and the gateway or admin API creates the first key. Entity Framework's own failed `__EFMigrationsHistory` query on a fresh database is still logged.
 
 ## 0.2.0 - 2026-10-10
 
