@@ -4,6 +4,7 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Ume.LlmGateway.TestKit\Ume.LlmGateway.TestKit.csproj" />
     <ProjectReference Include="..\..\src\Ume.LlmGateway.AdminApi\Ume.LlmGateway.AdminApi.csproj" />
   </ItemGroup>
 </Project>

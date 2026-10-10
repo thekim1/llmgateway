@@ -3,17 +3,12 @@ extern alias Fake;
 extern alias Migration;
 
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Testcontainers.PostgreSql;
@@ -21,6 +16,7 @@ using Testcontainers.Redis;
 using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
+using Ume.LlmGateway.TestKit;
 
 [assembly: AssemblyFixture(typeof(Ume.LlmGateway.IntegrationTests.IntegrationFixture))]
 
@@ -28,13 +24,13 @@ namespace Ume.LlmGateway.IntegrationTests;
 
 public sealed class IntegrationFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine").Build();
-    private static readonly string RedisPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    private readonly PostgreSqlContainer _postgres = TestPostgres.Builder().Build();
+    private static readonly string RedisPassword = TestSecrets.RandomHex();
     private readonly RedisContainer _redis = new RedisBuilder("redis:8-alpine")
         .WithEnvironment("REDIS_PASSWORD", RedisPassword)
         .WithCommand("sh", "-c", "printf 'requirepass %s\\n' \"$REDIS_PASSWORD\" | exec redis-server -")
         .Build();
-    private readonly string _pepper = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    private readonly string _pepper = TestSecrets.RandomHex();
     private WebApplicationFactory<Program> _admin = null!;
     private WebApplicationFactory<Gateway::Program> _gateway = null!;
     private WebApplicationFactory<Fake::Program> _fake = null!;
@@ -45,6 +41,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync());
+        await TestPostgres.MigrateAsync(_postgres.GetConnectionString());
         _fake = new WebApplicationFactory<Fake::Program>().WithWebHostBuilder(b => b.UseEnvironment("Testing"));
         _fake.UseKestrel();
         using var fakeClient = _fake.CreateClient();
@@ -52,7 +49,6 @@ public sealed class IntegrationFixture : IAsyncLifetime
         using (var scope = GatewayServices.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            await db.Database.MigrateAsync();
             var seeder = new Migration::Ume.LlmGateway.MigrationService.DevSeeder(
                 Options.Create(new Migration::Ume.LlmGateway.MigrationService.SeedOptions
                 {
@@ -69,12 +65,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
             Configure(b);
             b.UseSetting("Oidc:Authority", "https://identity.invalid");
             b.UseSetting("Admin:RequestsPerMinute", "10000");
-            b.ConfigureTestServices(services => services.AddAuthentication(o =>
+            // Every admin request is the same administrator; no headers needed.
+            b.ConfigureTestServices(services => services.AddHeaderAuthentication(o =>
             {
-                o.DefaultScheme = "Integration";
-                o.DefaultAuthenticateScheme = "Integration";
-                o.DefaultChallengeScheme = "Integration";
-            }).AddScheme<AuthenticationSchemeOptions, IntegrationAuthentication>("Integration", _ => { }));
+                o.DefaultRole = "gateway-admin";
+                o.Subject = "integration-user";
+                o.Name = "Integration";
+            }));
         });
     }
 
@@ -91,18 +88,12 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     public async Task<HttpClient> AdminAsync()
     {
-        var client = _admin.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
-        using var user = await client.GetAsync("/bff/user");
-        user.EnsureSuccessStatusCode();
-        var token = user.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("XSRF-TOKEN=", StringComparison.Ordinal)).Split(';')[0]["XSRF-TOKEN=".Length..];
-        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", token);
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
-        return client;
+        return await _admin.CreateHttpsClient().WithXsrfTokenAsync();
     }
 
     public HttpClient GatewayClient(string secret)
     {
-        var client = _gateway.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        var client = _gateway.CreateHttpsClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", secret);
         return client;
     }
@@ -146,16 +137,5 @@ public sealed class IntegrationFixture : IAsyncLifetime
         await _fake.DisposeAsync();
         await _redis.DisposeAsync();
         await _postgres.DisposeAsync();
-    }
-}
-
-public sealed class IntegrationAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
-    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-{
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var identity = new ClaimsIdentity([new Claim("sub", "integration-user"), new Claim("name", "Integration"), new Claim("roles", "gateway-admin")],
-            Scheme.Name, "name", "roles");
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
     }
 }

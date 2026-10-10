@@ -13,6 +13,7 @@ using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Stores;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -28,7 +29,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
         var key = await fixture.CreateKeyAsync();
         await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 10);
 
-        using var client = gateway.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        using var client = gateway.CreateHttpsClient(allowAutoRedirect: true);
         using var response = await SendAsync(client, key);
 
         ((int)response.StatusCode).ShouldBe(500);
@@ -56,7 +57,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
         var key = await fixture.CreateKeyAsync();
         await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 10);
 
-        using var client = gateway.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        using var client = gateway.CreateHttpsClient(allowAutoRedirect: true);
         using var response = await SendAsync(client, key);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

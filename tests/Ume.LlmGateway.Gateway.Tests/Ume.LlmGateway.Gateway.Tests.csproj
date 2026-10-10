@@ -6,6 +6,7 @@
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Ume.LlmGateway.TestKit\Ume.LlmGateway.TestKit.csproj" />
     <ProjectReference Include="..\..\src\Ume.LlmGateway.Gateway\Ume.LlmGateway.Gateway.csproj" />
   </ItemGroup>
 </Project>

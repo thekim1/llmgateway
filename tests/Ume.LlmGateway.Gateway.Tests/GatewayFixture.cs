@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -16,6 +15,7 @@ using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
+using Ume.LlmGateway.TestKit;
 using WireMock.Matchers;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -27,7 +27,7 @@ namespace Ume.LlmGateway.Gateway.Tests;
 
 public sealed class GatewayFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine").Build();
+    private readonly PostgreSqlContainer _postgres = TestPostgres.Builder().Build();
     private readonly Dictionary<string, ModelDeployment> _models = new(StringComparer.Ordinal);
     private WebApplicationFactory<Program> _factory = null!;
     public WireMockServer Upstream { get; private set; } = null!;
@@ -36,12 +36,13 @@ public sealed class GatewayFixture : IAsyncLifetime
     public CapturingLoggerProvider Logs { get; } = new();
     public IServiceProvider Services => _factory.Services;
     public Guid DepartmentId { get; private set; }
-    private readonly string _keyPepper = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)); // fixed, so derived gateways accept the same keys
-    public string ProviderSecret { get; } = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    private readonly string _keyPepper = TestSecrets.RandomHex(); // fixed, so derived gateways accept the same keys
+    public string ProviderSecret { get; } = TestSecrets.RandomHex();
 
     public async ValueTask InitializeAsync()
     {
         await _postgres.StartAsync();
+        await TestPostgres.MigrateAsync(_postgres.GetConnectionString());
         Upstream = WireMockServer.Start();
         await Realtime.StartAsync();
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -65,7 +66,6 @@ public sealed class GatewayFixture : IAsyncLifetime
         using (var scope = Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            await db.Database.MigrateAsync();
             var department = new Department { Name = "Tests", CostCenterCode = "TEST", CreatedAt = DateTimeOffset.UtcNow };
             DepartmentId = department.Id;
             db.Departments.Add(department);
@@ -154,7 +154,7 @@ public sealed class GatewayFixture : IAsyncLifetime
 
             await db.SaveChangesAsync();
         }
-        Client = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        Client = _factory.CreateHttpsClient();
     }
 
     /// <summary>A second gateway on the same database and upstreams, with some services replaced. Dispose it.</summary>
@@ -395,19 +395,3 @@ public sealed class GatewayFixture : IAsyncLifetime
 }
 
 public sealed record TestKey(Guid Id, Guid TeamId, string Secret);
-
-public sealed class CapturingLoggerProvider : ILoggerProvider
-{
-    private readonly ConcurrentQueue<string> _messages = new();
-    public string Text => string.Join("\n", _messages);
-    public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, _messages);
-    public void Dispose() { }
-
-    private sealed class CapturingLogger(string category, ConcurrentQueue<string> messages) : ILogger
-    {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            messages.Enqueue(category + ": " + formatter(state, exception) + (exception is null ? string.Empty : "\n" + exception));
-    }
-}

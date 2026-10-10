@@ -15,6 +15,7 @@ using Testcontainers.PostgreSql;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.TestKit;
 
 [assembly: AssemblyFixture(typeof(Ume.LlmGateway.DataApi.Tests.DataApiFixture))]
 // Feeds read the whole table from a cursor; one test at a time keeps each test's rows contiguous.
@@ -26,7 +27,7 @@ namespace Ume.LlmGateway.DataApi.Tests;
 public sealed class DataApiFixture : IAsyncLifetime
 {
     public const string Issuer = "https://identity.test/realms/ume";
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("gatewaydb").Build();
+    private readonly PostgreSqlContainer _postgres = TestPostgres.Builder().WithDatabase("gatewaydb").Build();
     private readonly SymmetricSecurityKey _signingKey = new(RandomNumberGenerator.GetBytes(32));
     private WebApplicationFactory<Program> _factory = null!;
     public IServiceProvider Services => _factory.Services;
@@ -66,8 +67,7 @@ public sealed class DataApiFixture : IAsyncLifetime
     }
 
     /// <summary>A context with the database owner's rights, for migrations and test data.</summary>
-    public GatewayDbContext OwnerContext() =>
-        new(new DbContextOptionsBuilder<GatewayDbContext>().UseNpgsql(_postgres.GetConnectionString()).Options);
+    public GatewayDbContext OwnerContext() => TestPostgres.Context(_postgres.GetConnectionString());
 
     private static string RepoFile(params string[] parts)
     {
@@ -86,7 +86,7 @@ public sealed class DataApiFixture : IAsyncLifetime
     /// <summary>A client whose permissions are in <paramref name="claim"/>: "scope" (space-separated) or "roles" (Entra ID style).</summary>
     public HttpClient Client(string permissions, string claim = "scope", string audience = "ume-data-api", string client = "etl-test")
     {
-        var http = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
+        var http = _factory.CreateHttpsClient();
         var claims = new Dictionary<string, object> { ["azp"] = client };
         claims[claim] = claim == "scope" ? permissions : permissions.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
@@ -99,7 +99,7 @@ public sealed class DataApiFixture : IAsyncLifetime
         return http;
     }
 
-    public HttpClient Anonymous() => _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+    public HttpClient Anonymous() => _factory.CreateHttpsClient(allowAutoRedirect: true);
 
     public async Task<T> DbAsync<T>(Func<GatewayDbContext, Task<T>> work)
     {
@@ -130,21 +130,5 @@ public sealed class DataApiFixture : IAsyncLifetime
         }
 
         await _postgres.DisposeAsync();
-    }
-}
-
-public sealed class CapturingLoggerProvider : Microsoft.Extensions.Logging.ILoggerProvider
-{
-    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
-    public string Text => string.Join("\n", _messages);
-    public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => new Logger(categoryName, _messages);
-    public void Dispose() { }
-
-    private sealed class Logger(string category, System.Collections.Concurrent.ConcurrentQueue<string> messages) : Microsoft.Extensions.Logging.ILogger
-    {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
-        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            messages.Enqueue($"{category}|{eventId.Name}|{formatter(state, exception)}");
     }
 }

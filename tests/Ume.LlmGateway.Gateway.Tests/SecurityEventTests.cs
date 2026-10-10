@@ -31,7 +31,7 @@ public sealed class SecurityEventTests(GatewayFixture fixture)
         row.DepartmentId.ShouldBe(fixture.DepartmentId);
         row.KeyPrefix.ShouldNotBeNullOrEmpty();
         key.Secret.ShouldStartWith(row.KeyPrefix!);
-        fixture.Logs.Text.ShouldContain($"Ume.LlmGateway.Security: Authentication failed: key_revoked on ChatCompletions x3");
+        fixture.Logs.Logged("Ume.LlmGateway.Security", "Authentication failed: key_revoked on ChatCompletions x3").ShouldBeTrue(fixture.Logs.Text);
         fixture.Logs.Text.ShouldContain($"key {key.Id}");
     }
 
@@ -122,8 +122,8 @@ public sealed class SecurityEventTests(GatewayFixture fixture)
         var refusedId = refused.Headers.GetValues("x-request-id").Single();
 
         await fixture.UsageAsync(refused);
-        fixture.Logs.Text.ShouldContain($"Ume.LlmGateway.Security: Personal data blocked in request {blockedId} on ChatCompletions (Personnummer:1)");
-        fixture.Logs.Text.ShouldContain($"Ume.LlmGateway.Security: Request {refusedId} on ChatCompletions refused by policy: model_not_allowed; key {restricted.Id}");
+        fixture.Logs.Logged("Ume.LlmGateway.Security", $"Personal data blocked in request {blockedId} on ChatCompletions (Personnummer:1)").ShouldBeTrue(fixture.Logs.Text);
+        fixture.Logs.Logged("Ume.LlmGateway.Security", $"Request {refusedId} on ChatCompletions refused by policy: model_not_allowed; key {restricted.Id}").ShouldBeTrue(fixture.Logs.Text);
         fixture.Logs.Text.ShouldNotContain("19121212-1212");
     }
 

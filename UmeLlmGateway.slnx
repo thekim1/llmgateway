@@ -21,5 +21,6 @@
     <Project Path="tests/Ume.LlmGateway.Domain.Tests/Ume.LlmGateway.Domain.Tests.csproj" />
     <Project Path="tests/Ume.LlmGateway.Gateway.Tests/Ume.LlmGateway.Gateway.Tests.csproj" />
     <Project Path="tests/Ume.LlmGateway.IntegrationTests/Ume.LlmGateway.IntegrationTests.csproj" />
+    <Project Path="tests/Ume.LlmGateway.TestKit/Ume.LlmGateway.TestKit.csproj" />
   </Folder>
 </Solution>
