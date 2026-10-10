@@ -140,25 +140,10 @@ public static class ReportEndpoints
     private static UsageRequestDto UsageDto(UsageRow row)
     {
         var u = row.Record;
-        return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, EndpointPath(u.Endpoint),
+        return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName);
     }
-
-    /// <summary>The gateway path a request was sent to.</summary>
-    internal static string EndpointPath(GatewayEndpoint endpoint) => endpoint switch
-    {
-        GatewayEndpoint.ChatCompletions => "/v1/chat/completions",
-        GatewayEndpoint.Embeddings => "/v1/embeddings",
-        GatewayEndpoint.Responses => "/v1/responses",
-        GatewayEndpoint.AnthropicMessages => "/v1/messages",
-        GatewayEndpoint.Models => "/v1/models",
-        GatewayEndpoint.AudioTranscriptions => "/v1/audio/transcriptions",
-        GatewayEndpoint.AudioTranslations => "/v1/audio/translations",
-        GatewayEndpoint.Realtime => "/v1/realtime",
-        GatewayEndpoint.RealtimeTranslations => "/v1/realtime/translations",
-        _ => throw new ArgumentOutOfRangeException(nameof(endpoint), endpoint, "Unknown gateway endpoint."),
-    };
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)
     {

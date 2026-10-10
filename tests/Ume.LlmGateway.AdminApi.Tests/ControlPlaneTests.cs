@@ -164,15 +164,22 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
         validation["errors"]!["targets"].ShouldNotBeNull();
     }
 
+    // The usage report shows these paths; they are part of the admin API output.
     [Theory]
     [InlineData(GatewayEndpoint.ChatCompletions, "/v1/chat/completions")]
+    [InlineData(GatewayEndpoint.Embeddings, "/v1/embeddings")]
+    [InlineData(GatewayEndpoint.Responses, "/v1/responses")]
     [InlineData(GatewayEndpoint.AnthropicMessages, "/v1/messages")]
+    [InlineData(GatewayEndpoint.Models, "/v1/models")]
+    [InlineData(GatewayEndpoint.AudioTranscriptions, "/v1/audio/transcriptions")]
+    [InlineData(GatewayEndpoint.AudioTranslations, "/v1/audio/translations")]
+    [InlineData(GatewayEndpoint.Realtime, "/v1/realtime")]
     [InlineData(GatewayEndpoint.RealtimeTranslations, "/v1/realtime/translations")]
-    public void Every_endpoint_has_a_path(GatewayEndpoint endpoint, string path) => ReportEndpoints.EndpointPath(endpoint).ShouldBe(path);
+    public void Every_endpoint_has_a_path(GatewayEndpoint endpoint, string path) => GatewayEndpoints.Info(endpoint).ClientPath.ShouldBe(path);
 
     [Fact]
     public void No_endpoint_lacks_a_path() =>
-        Enum.GetValues<GatewayEndpoint>().ShouldAllBe(e => ReportEndpoints.EndpointPath(e).StartsWith("/v1/", StringComparison.Ordinal));
+        Enum.GetValues<GatewayEndpoint>().ShouldAllBe(e => GatewayEndpoints.Info(e).ClientPath.StartsWith("/v1/", StringComparison.Ordinal));
 
     private async Task<JsonElement> AuditAsync(Guid entityId, string action)
     {
