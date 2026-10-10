@@ -28,7 +28,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 2. **Decide:** a duplicate rule name (409) is shown as a form-level message, not on the *Name* field.
 3. **Decide:** the "Skip to main content" link is hidden from 768 px (`md:hidden`); the sidebar has about 15 tab stops before `main`. Landmarks are sufficient, but a skip link is cheap.
 4. **Fix:** `SettingsView` says theme options are in the top bar, but the theme control is in the sidebar and only visible from 1024 px.
-5. **Test gap:** model discovery (`AdminApi/ModelDiscovery.cs`, `DiscoverModelsDialog.vue`) has no automated tests (needs a fake `HttpMessageHandler`).
+5. **Test gap:** `DiscoverModelsDialog.vue` has no automated UI test (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
 6. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
 7. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Usage writer ceiling.** One gateway instance tops out at about 11 000 messages/s because the single
    usage writer (batched EF inserts) cannot write faster; its queue fills and back-pressure slows requests. Postgres `COPY`
@@ -63,7 +63,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 - **Compose:** never deploy `deploy/generated/docker-compose.yaml` without `deploy/compose.hardening.yaml`.
 - **Playwright:** artifacts (trace, screenshot, video) are off on purpose so show-once keys cannot be captured; the helper paces admin requests to stay under the 120 requests/minute limit.
 - **Packages:** central package management in `Directory.Packages.props`. Keycloak hosting exists only as a preview package. The AppHost SDK supplies `Aspire.Hosting.AppHost` implicitly (no PackageVersion for it).
-  Testcontainers: use `new PostgreSqlBuilder("postgres:17-alpine")`.
+  Testcontainers: use `TestPostgres` from `tests/Ume.LlmGateway.TestKit` (image constant, migrate before the host starts); shared test auth, XSRF clients and `CapturingLoggerProvider` live there too.
+- **Container images:** the pinned .NET base image digest and container user are in `Directory.Build.targets`; a service opts in with `<UmeServiceContainer>true</UmeServiceContainer>`.
 - **C# parser quirk:** `case "x" when a?["b"] is { } y:` fails to parse; use if/else.
 - **Icons:** after adding an icon name run `python src/admin-ui/scripts/subset-icons.py` (needs `fonttools[woff]`).
 - **Do not log or save** prompts, responses, key plaintext, provider credentials or raw environment snapshots.
