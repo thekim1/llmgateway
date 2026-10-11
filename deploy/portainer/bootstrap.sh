@@ -50,10 +50,10 @@ for role in bootstrap migrator gateway admin data; do
   [ -f "$S/postgres/${role}_password" ] || rand > "$S/postgres/${role}_password"
 done
 [ -f "$S/redis/redis_password" ] || rand > "$S/redis/redis_password"
-if [ ! -f "$S/redis/users.acl" ]; then
-  hash="$(tr -d '\n' < "$S/redis/redis_password" | openssl dgst -sha256 | awk '{print $NF}')"
-  sed "s/REPLACE_WITH_SHA256_PASSWORD_HASH/$hash/" /config/users.acl.example > "$S/redis/users.acl"
-fi
+# The ACL is derived (password hash + the template's command list), so it is rewritten on every start: an upgrade that
+# allows the gateway a new Redis command reaches existing deployments with a redeploy.
+hash="$(tr -d '\n' < "$S/redis/redis_password" | openssl dgst -sha256 | awk '{print $NF}')"
+sed "s/REPLACE_WITH_SHA256_PASSWORD_HASH/$hash/" /config/users.acl.example > "$S/redis/users.acl"
 [ -f "$S/.pepper" ] || openssl rand -hex 48 > "$S/.pepper"
 for svc in gateway adminapi migrations; do
   role="$svc"; case "$svc" in adminapi) role=admin;; migrations) role=migrator;; esac

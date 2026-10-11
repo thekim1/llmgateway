@@ -176,10 +176,10 @@ for role in bootstrap migrator gateway admin data; do
   new_file "$secrets/postgres/${role}_password" && rand > "$secrets/postgres/${role}_password"
 done
 new_file "$secrets/redis/redis_password" && rand > "$secrets/redis/redis_password"
-if new_file "$secrets/redis/users.acl"; then
-  hash="$(tr -d '\n' < "$secrets/redis/redis_password" | openssl dgst -sha256 | awk '{print $NF}')"
-  sed "s/REPLACE_WITH_SHA256_PASSWORD_HASH/$hash/" "$here/redis/users.acl.example" > "$secrets/redis/users.acl"
-fi
+# Derived from the password and the template, so rewritten on every run: an upgrade that allows the gateway a new Redis
+# command reaches existing deployments when this script is run again.
+hash="$(tr -d '\n' < "$secrets/redis/redis_password" | openssl dgst -sha256 | awk '{print $NF}')"
+sed "s/REPLACE_WITH_SHA256_PASSWORD_HASH/$hash/" "$here/redis/users.acl.example" > "$secrets/redis/users.acl"
 pepper_src="$secrets/.pepper"
 new_file "$pepper_src" && openssl rand -hex 48 > "$pepper_src"
 for svc in gateway adminapi migrations; do

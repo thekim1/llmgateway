@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Deploy: the Redis ACL follows upgrades.** `users.acl` is derived from the Redis password and `deploy/redis/users.acl.example`,
+so the Portainer stack's bootstrap and `init-deployment.sh` now rewrite it on every start/run instead of only creating it.
+An existing deployment gets new Redis permissions (such as `+decr +decrby` from 0.3.0) by redeploying the stack (or running
+`init-deployment.sh` again) and restarting Redis; no hand edit of the secrets volume. Only the stack file and scripts
+changed, not the images.
+
+**Deploy: image defaults follow the version.** The fallback image names in `compose.prod.yaml` and the Portainer stack (`${DATAAPI_IMAGE:-ume-llm-gateway/dataapi:…}` and the others; used only when the variable is unset, and replaced by the pinned images in a release bundle) still said 0.2.0. They now say 0.3.0, and CI fails when they differ from `<Version>` in `Directory.Build.props`.
+
 ## 0.3.0 - 2026-10-11
 
 **Fix: the same model from two providers.** Two models whose names differ only in case (`DeepSeek-V4.1-Flash` from Foundry, `deepseek-v4.1-flash` from Ollama) stopped the gateway from loading its catalogue ("An item with the same key has already been added"). Model names are now unique per provider (migration `ModelNamesPerProvider`), so several providers can offer a model of the same name. Clients use the *public name*: the plain name while one provider has it, `<provider>/<model>` when several do (`<provider>/<model>` always works). A plain name several providers share is refused with `400 model_ambiguous` listing the choices; the gateway never picks a provider or falls back to another one by itself: only a route an admin creates does. `GET /v1/models`, `/api/catalog` and `/api/models` (`publicName`) show public names; routing rules and config import accept public and `<provider>/<model>` names; discovery adds models under their own name and marks names other providers also offer. A key that allows the plain name may use each provider's model of that name.

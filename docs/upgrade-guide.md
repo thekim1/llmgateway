@@ -48,8 +48,10 @@ bodies and turn request buffering off (see the runbook).
 
 Live audio (`/v1/realtime`, `/v1/realtime/translations`) needs three more steps:
 - **Redis ACL.** The per-key session limit uses a sorted set: add `+zadd +zrem +zcard +zremrangebyscore` to the
-  `gateway` user in `secrets/redis/users.acl` (the template `deploy/redis/users.acl.example` has them; existing
-  installations keep their generated file) and restart Redis or run `ACL LOAD`. Until then sessions work, but the
+  `gateway` user in `secrets/redis/users.acl` (the template `deploy/redis/users.acl.example` has them). Since 0.3.1 the
+  stack's bootstrap and `init-deployment.sh` rewrite `users.acl` from the template on every start, so a redeploy (or
+  running `init-deployment.sh` again) followed by a Redis restart is enough; before, existing installations kept their
+  generated file and had to edit it by hand. Until then sessions work, but the
   limit is not enforced and the gateway logs a warning per session.
 - **Proxy.** Pass the WebSocket upgrade: the `map $http_upgrade $ume_connection` block and the `Upgrade` /
   `Connection` headers in `deploy/proxy/nginx.conf.example`. Without them, clients get 400 (not a WebSocket request).
