@@ -41,6 +41,7 @@ SQL
     test "$(cli PING)" = PONG
     test "$(cli SET ume:proof 1)" = OK
     test "$(cli EVAL "return redis.call('INCR', KEYS[1])" 1 ume:proof)" = 2
+    test "$(cli DECRBY ume:proof 1)" = 1 # the spend ledger refunds an over-reservation
     cli SET outside 1 | grep -q NOPERM
     cli FLUSHALL | grep -q NOPERM
     cli CONFIG GET '*' | grep -q NOPERM

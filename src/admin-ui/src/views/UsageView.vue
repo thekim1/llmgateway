@@ -205,7 +205,7 @@ onMounted(() => {
           <span class="font-medium">{{ row.keyName }}</span>
           <span class="block text-caption text-fg-3"><span lang="sv">{{ row.teamName }}</span> · <span lang="sv">{{ row.departmentName }}</span></span>
         </template>
-        <template #cell-costSek="{ row }">{{ formatSek(row.costSek, 2) }}</template>
+        <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
         <template #cell-outcome="{ row }">
           <UiBadge :tone="OUTCOME_LABEL[row.outcome].tone" :label="OUTCOME_LABEL[row.outcome].label" />
           <span class="ml-2 text-caption text-fg-3">{{ row.statusCode }}</span>
@@ -257,7 +257,7 @@ onMounted(() => {
         <DetailRow label="Input tokens">{{ formatNumber(selected.inputTokens) }}</DetailRow>
         <DetailRow label="Cached input">{{ formatNumber(selected.cachedInputTokens) }}</DetailRow>
         <DetailRow label="Output tokens">{{ formatNumber(selected.outputTokens) }}</DetailRow>
-        <DetailRow label="Cost">{{ formatSek(selected.costSek, 2) }}</DetailRow>
+        <DetailRow label="Cost">{{ formatSek(selected.costSek) }}</DetailRow>
         <DetailRow label="Latency">{{ formatMs(selected.latencyMs) }}</DetailRow>
       </DetailSection>
     </template>
