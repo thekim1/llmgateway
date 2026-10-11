@@ -161,6 +161,41 @@ public sealed class HotPathTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public void A_model_name_two_providers_share_needs_the_provider_and_never_picks_one()
+    {
+        var foundry = new ProviderAccount { Name = "foundry", BaseUrl = "https://f" };
+        var ollama = new ProviderAccount { Name = "ollama", BaseUrl = "https://o" };
+        var shared = new ModelDeployment { Id = Guid.CreateVersion7(), Name = "DeepSeek-V3", UpstreamModel = "DeepSeek-V3", ProviderAccount = foundry };
+        var sameName = new ModelDeployment { Id = Guid.CreateVersion7(), Name = "deepseek-v3", UpstreamModel = "deepseek-v3", ProviderAccount = ollama };
+        var own = new ModelDeployment { Id = Guid.CreateVersion7(), Name = "gpt-4.1", UpstreamModel = "gpt-4.1", ProviderAccount = foundry };
+        foundry.Deployments.AddRange([shared, own]);
+        ollama.Deployments.Add(sameName);
+
+        var snapshot = new CatalogSnapshot([foundry, ollama], [], [], 10m, DateTimeOffset.UtcNow);
+
+        snapshot.Resolve("deepseek-v3").ShouldBeNull();
+        snapshot.AmbiguousChoices("DEEPSEEK-V3").ShouldBe(["foundry/DeepSeek-V3", "ollama/deepseek-v3"]);
+        snapshot.Resolve("ollama/DeepSeek-V3")!.Targets.Single().ModelDeployment.ShouldBeSameAs(sameName);
+        snapshot.Resolve("foundry/deepseek-v3")!.Name.ShouldBe("foundry/DeepSeek-V3");
+        snapshot.Resolve("gpt-4.1")!.Name.ShouldBe("gpt-4.1");
+        snapshot.Resolve("foundry/gpt-4.1")!.Name.ShouldBe("gpt-4.1"); // provider/name always works
+        snapshot.DuplicateNames.ShouldBeEmpty();
+
+        var key = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h", AllowedModels = ["DeepSeek-V3"] };
+        snapshot.Resolve("ollama/deepseek-v3")!.IsAllowedFor(key).ShouldBeTrue(); // the plain name covers each provider's model
+        snapshot.Resolve("gpt-4.1")!.IsAllowedFor(key).ShouldBeFalse();
+
+        var route = new RouteAlias { Name = "deepseek-v3", Kind = ModelKind.Chat, Targets = [new RouteTarget { ModelDeployment = sameName, ModelDeploymentId = sameName.Id }] };
+        var routed = new CatalogSnapshot([foundry, ollama], [route], [], 10m, DateTimeOffset.UtcNow);
+        routed.Resolve("DeepSeek-V3")!.Targets.Single().ModelDeployment.ShouldBeSameAs(sameName); // an admin's route decides
+        routed.AmbiguousChoices("DeepSeek-V3").ShouldBeNull();
+
+        var rejection = new RouteResolver(null!).ResolveModel(snapshot, new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h" }, GatewayEndpoint.ChatCompletions, "deepseek-v3").Rejection!;
+        rejection.StatusCode.ShouldBe(400);
+        rejection.Code.ShouldBe(GatewayErrorCodes.ModelAmbiguous);
+        rejection.Message.ShouldContain("foundry/DeepSeek-V3, ollama/deepseek-v3");
+    }
+    [Fact]
     public void Key_lineage_follows_rotations_backwards()
     {
         Guid a = Guid.NewGuid(), b = Guid.NewGuid(), c = Guid.NewGuid(), other = Guid.NewGuid();

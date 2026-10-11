@@ -46,13 +46,16 @@ public sealed partial class GatewayRequestHandler
             });
         }
 
-        foreach (var deployment in snapshot.Deployments.Values
-                     .Where(d => key.IsModelAllowed(d.Name) && RouteSelector.IsEligibleForAnyEndpoint(d, d.Kind, constraints))
-                     .OrderBy(d => d.Name, StringComparer.Ordinal))
+        // Public names (provider/name when several providers have the name); a deployment whose name a route also has
+        // is listed under provider/name, since the plain name means the route.
+        foreach (var (id, deployment) in snapshot.Deployments
+                     .Select(d => (Id: snapshot.Routes.ContainsKey(d.Key) ? PublicModelNames.Qualified(d.Value.ProviderAccount!.Name, d.Value.Name) : d.Key, Deployment: d.Value))
+                     .Where(d => snapshot.Resolve(d.Id) is { } resolved && resolved.IsAllowedFor(key) && RouteSelector.IsEligibleForAnyEndpoint(d.Deployment, d.Deployment.Kind, constraints))
+                     .OrderBy(d => d.Id, StringComparer.Ordinal))
         {
             data.Add(new JsonObject
             {
-                ["id"] = deployment.Name,
+                ["id"] = id,
                 ["object"] = "model",
                 ["created"] = 0,
                 ["owned_by"] = deployment.ProviderAccount!.Name,

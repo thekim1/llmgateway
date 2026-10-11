@@ -96,7 +96,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.UpstreamModel).HasMaxLength(200);
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ParameterProfile).HasConversion<string>().HasMaxLength(30);
-            e.HasIndex(x => x.Name).IsUnique();
+            // Unique per provider: two providers may offer a model of the same name (see PublicModelNames).
+            e.HasIndex(x => new { x.ProviderAccountId, x.Name }).IsUnique();
             e.HasMany(x => x.Prices).WithOne().HasForeignKey(x => x.ModelDeploymentId).OnDelete(DeleteBehavior.Cascade);
         });
 

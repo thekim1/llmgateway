@@ -383,10 +383,8 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("ProviderAccountId", "Name")
                         .IsUnique();
-
-                    b.HasIndex("ProviderAccountId");
 
                     b.ToTable("ModelDeployments");
                 });

@@ -118,10 +118,12 @@ public static class ReportEndpoints
             var models = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices)
                 .Where(m => m.IsEnabled && m.ProviderAccount!.IsEnabled && !m.ProviderAccount.IsDrained).ToListAsync(ct);
             var byId = models.ToDictionary(m => m.Id);
+            // Public names over every model, as the gateway decides them (a disabled model still shares its name).
+            var names = PublicModelNames.Public(await ctx.Db.ModelDeployments.AsNoTracking().Include(m => m.ProviderAccount).ToListAsync(ct));
             var routes = await catalog.Routes().Where(r => r.IsEnabled).ToListAsync(ct);
             return TypedResults.Ok(new CatalogDto(
                 gateway.Value.PublicBaseUrl,
-                [.. models.Select(m => new CatalogModelDto(m.Name, m.Kind, m.ProviderAccount!.Residency, ProviderCatalogService.Capabilities(m.ProviderAccount.Capabilities),
+                [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.ProviderAccount!.Residency, ProviderCatalogService.Capabilities(m.ProviderAccount.Capabilities),
                     m.PriceAt(now)?.InputPerMillionUsd * rate, m.PriceAt(now)?.OutputPerMillionUsd * rate))],
                 [.. routes.Where(r => r.Targets.Any(t => byId.ContainsKey(t.ModelDeploymentId))).Select(r =>
                 {

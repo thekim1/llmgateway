@@ -50,6 +50,12 @@ const rowError = ref<{ id: string; error: unknown } | null>(null)
 const existing = (m: DiscoveredModel): Model | undefined =>
   models.items.find((x) => x.providerId === props.provider?.id && x.upstreamModel === m.id)
 
+/** Other providers with a model of the same name: clients then name the provider (provider/model); nothing falls back by itself. */
+const sharedWith = (m: DiscoveredModel): string[] =>
+  !props.provider || m.alreadyAdded
+    ? []
+    : [...new Set(models.items.filter((x) => x.providerId !== props.provider!.id && x.name.toLowerCase() === m.id.toLowerCase()).map((x) => x.providerName))]
+
 const priceToDraft = (p: DiscoveredPrice | null | undefined): PriceDraft => ({
   ...emptyPriceDraft(),
   ...(p ? { input: String(p.inputPerMillionUsd), cached: String(p.cachedInputPerMillionUsd), output: String(p.outputPerMillionUsd) } : {}),
@@ -374,6 +380,9 @@ async function addSelected(): Promise<void> {
                   <span v-if="suggestedFrom(m)" :title="suggestedFrom(m)!">Azure list price<span class="sr-only">: {{ suggestedFrom(m) }}</span></span>
                   <UiBadge v-for="f in featuresOf(m)" :key="f" tone="neutral" :label="featureLabel(f)" />
                   <UiBadge v-if="m.alreadyAdded" tone="neutral" label="Already added" />
+                  <span v-if="sharedWith(m).length">
+                    Also offered by {{ sharedWith(m).join(', ') }}: clients call <span class="font-mono">{{ provider!.name }}/{{ m.id }}</span>
+                  </span>
                   <span v-if="pendingUpdate(m)?.features.length" class="text-accent-ink">New from provider: {{ pendingUpdate(m)!.features.map(featureLabel).join(', ') }}</span>
                 </span>
               </span>

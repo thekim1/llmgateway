@@ -14,6 +14,9 @@ public static class GatewayErrorCodes
     public const string UnsupportedMediaType = "unsupported_media_type";
     public const string RequestTooLarge = "request_too_large";
     public const string ModelNotFound = "model_not_found";
+
+    /// <summary>Several providers offer the plain model name and no route has it: the client must name the provider.</summary>
+    public const string ModelAmbiguous = "model_ambiguous";
     public const string ModelNotAllowed = "model_not_allowed";
     public const string RateLimited = "rate_limited";
     public const string PiiBlocked = "pii_blocked";

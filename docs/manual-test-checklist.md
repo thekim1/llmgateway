@@ -13,11 +13,18 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 ## Foundry and prices (uncommitted)
 
 - [ ] **Foundry provider from the project URL:** create a provider of type *Azure AI Foundry* with the portal's project endpoint
-  `https://<resource>.services.ai.azure.com/api/projects/<project>` and the *API key header*. Saved base URL becomes `…/openai/v1`.
+  `https://<resource>.services.ai.azure.com/api/projects/<project>` and the *API key header*. The base URL stays as entered; a chat request to a deployment works (the gateway sends it to `…/openai/v1`).
+- [ ] **Save and discover:** edit the seeded *ai-foundry* provider, paste your URL and key and click *Save and discover models* without saving first;
+  it saves and the dialog lists your deployments.
+- [ ] **Same model on two providers:** after the upgrade the gateway starts without `An item with the same key`. Both
+  `DeepSeek-V4.1-Flash` models are listed (Providers > Models says *clients call <provider>/…*); a request to the plain name gets
+  `400 model_ambiguous` naming both; `<foundry>/DeepSeek-V4.1-Flash` and `<ollama>/deepseek-v4.1-flash` each work and go only to that
+  provider (break one provider: the request fails, no fallback). Then create a route `deepseek-v4.1-flash` with both targets:
+  the plain name works and falls back in the route's order.
 - [ ] **Discover models lists only deployments:** *Discover models* shows your deployed models (deployment names), not the whole catalogue, and no Claude.
 - [ ] **Suggested prices:** GPT/o-series/embedding deployments show *Azure list price* with the meters it came from; PTU/batch and Grok show none.
   Compare one or two with the Azure pricing page.
-- [ ] **Claude on Foundry:** a second provider of type *Anthropic* with base URL `https://<resource>.services.ai.azure.com/anthropic/v1` and the API key header;
+- [ ] **Claude on Foundry:** a second provider of type *Anthropic* with the same project endpoint as base URL and the API key header;
   *Discover models* lists only the Claude deployments; a chat completion through the gateway to a Claude deployment works (streaming too).
 - [ ] **GPT-5/6 reasoning:** a GPT-5 deployment gets the reasoning parameter profile; a request with `max_tokens` and `temperature` succeeds.
 - [ ] **Responses API:** with *Responses* ticked on the Foundry provider, `POST /v1/responses` to a GPT-5 deployment works.

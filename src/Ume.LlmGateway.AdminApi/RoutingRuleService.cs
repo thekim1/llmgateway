@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Routing.Expressions;
@@ -180,10 +181,10 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         var decision = set.Evaluate(context, random, explain);
 
         var aliases = await ctx.Db.RouteAliases.AsNoTracking().Select(a => new { a.Name, a.Kind, a.IsEnabled }).ToListAsync(ct);
-        var deployments = await ctx.Db.ModelDeployments.AsNoTracking().Select(d => new { d.Name, d.Kind, d.IsEnabled }).ToListAsync(ct);
+        var deployments = await DeploymentNamesAsync(ct);
         ModelInfoView ModelInfo(string name) =>
             aliases.FirstOrDefault(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase)) is { } a ? new ModelInfoView(name, true, "alias", a.Kind.ToString(), a.IsEnabled)
-            : deployments.FirstOrDefault(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase)) is { } d ? new ModelInfoView(name, true, "deployment", d.Kind.ToString(), d.IsEnabled)
+            : deployments.FirstOrDefault(d => d.Names.Contains(name, StringComparer.OrdinalIgnoreCase)) is { } d ? new ModelInfoView(name, true, "deployment", d.Kind.ToString(), d.IsEnabled)
             : new ModelInfoView(name, false, "unknown", null, false);
 
         return new RuleTestResult(
@@ -525,8 +526,19 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         names.UnionWith(await ctx.Db.RouteAliases.AsNoTracking().Select(a => a.Name).ToListAsync(ct));
-        names.UnionWith(await ctx.Db.ModelDeployments.AsNoTracking().Select(d => d.Name).ToListAsync(ct));
+        names.UnionWith((await DeploymentNamesAsync(ct)).SelectMany(d => d.Names));
         return names;
+    }
+
+    /// <summary>
+    /// The names a rule can use for each model: its public name and provider/name. A plain name several providers share is
+    /// not one of them; the gateway refuses it as ambiguous (<see cref="PublicModelNames"/>).
+    /// </summary>
+    private async Task<List<(string[] Names, ModelKind Kind, bool IsEnabled)>> DeploymentNamesAsync(CancellationToken ct)
+    {
+        var all = await ctx.Db.ModelDeployments.AsNoTracking().Include(d => d.ProviderAccount).ToListAsync(ct);
+        var names = PublicModelNames.Public(all);
+        return [.. all.Select(d => (new[] { names[d.Id], PublicModelNames.Qualified(d.ProviderAccount!.Name, d.Name) }, d.Kind, d.IsEnabled))];
     }
 
     private async Task<RuleView> ViewAsync(RoutingRule rule, CancellationToken ct) => (await ViewsAsync([rule], ct))[0];

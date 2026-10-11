@@ -134,15 +134,27 @@ the gateway creates them with what the provider reports:
 | Provider | Listing endpoint | Reported details |
 |---|---|---|
 | OpenAI, OpenAI-compatible | `GET {baseUrl}/models` | context size and USD prices where present (OpenRouter-style) |
-| Azure AI Foundry | `GET https://<resource>.services.ai.azure.com/api/projects/_project/deployments?api-version=v1` (only the deployed models, by deployment name) | model, version, capabilities and a suggested USD price from Azure's list prices |
-| Anthropic | `GET {baseUrl}/models`; Claude on Foundry (`…services.ai.azure.com/anthropic/v1`) lists its Claude deployments from the project API | context size and capabilities |
+| Azure AI Foundry | `GET https://<resource>.services.ai.azure.com/api/projects/<project>/deployments?api-version=v1` (only the deployed models, by deployment name) | model, version, capabilities and a suggested USD price from Azure's list prices |
+| Anthropic | `GET {baseUrl}/models`; Claude on Foundry (project endpoint as base URL) lists its Claude deployments from the project API | context size and capabilities |
 | Ollama, Ollama Cloud | `GET /api/tags` then `POST /api/show` (a trailing `/v1` is stripped from the base URL) | context size and capabilities (tools, vision, thinking, embedding, ...) |
 | Azure OpenAI | not supported (deployments are not listable via the data plane) | add models manually |
 
-For Azure AI Foundry, paste the project endpoint from the Foundry portal (`https://<resource>.services.ai.azure.com/api/projects/<project>`)
-or the resource address as the base URL: it is saved as `https://<resource>.services.ai.azure.com/openai/v1`, where requests go.
-`/openai/v1/models` would list every model the resource *could* deploy, so discovery asks the project API for the deployments instead;
-a model is added under its deployment name, the name requests use. A Foundry provider set up as *OpenAI-compatible* lists the whole catalogue.
+For Azure AI Foundry, paste the **project endpoint** from the Foundry portal (`https://<resource>.services.ai.azure.com/api/projects/<project>`)
+as the base URL. It is saved as entered, because discovery needs the project: `/openai/v1/models` would list every model the
+resource *could* deploy, so discovery asks the project API for the deployments instead, and a model is added under its deployment
+name, the name requests use. Requests go to the resource's `…/openai/v1`, which the gateway derives from the project endpoint.
+A base URL without a project (`…/openai/v1` or the bare resource address) also works for requests, but discovery then has to use
+Foundry's default project (`_project`), which not every resource has (404: enter the project endpoint). A Foundry provider set up
+as *OpenAI-compatible* lists the whole catalogue.
+
+**The same model from several providers.** A model's name is unique per provider (case-insensitively), so Foundry and
+Ollama Cloud can both offer `DeepSeek-V4.1-Flash`. Clients call a model by its *public name*: the plain name while only one
+provider has it, `<provider>/<model>` once several do (`<provider>/<model>` always works; the model list shows the public
+name). A plain name several providers share is refused with `400 model_ambiguous`, listing the choices: the gateway never
+picks a provider, and nothing falls back to another provider by itself, because providers can have different contracts and
+failing can be better than an unexpected provider. To spread or fall back between providers, create a route under
+*Routes* (it may carry the plain name; the route is then used) and order its targets. A key that allows the plain name
+may use each provider's model of that name; restrict providers with the key's provider list.
 
 **One Foundry resource, two providers.** The gateway speaks a provider's protocol by its *type*, not by the model, and
 translates between them: clients can call `/v1/chat/completions` for any model, including Claude. On Foundry, OpenAI,
@@ -151,8 +163,8 @@ add the resource twice with the same key:
 
 | Provider type | Base URL | Authentication | Discovery lists |
 |---|---|---|---|
-| Azure AI Foundry | `https://<resource>.services.ai.azure.com/openai/v1` (or the project endpoint) | API key header (`api-key`) | every deployment except Claude |
-| Anthropic | `https://<resource>.services.ai.azure.com/anthropic/v1` | API key header (`api-key`) | the Claude deployments |
+| Azure AI Foundry | the project endpoint, `https://<resource>.services.ai.azure.com/api/projects/<project>` (requests go to `…/openai/v1`) | API key header (`api-key`) | every deployment except Claude |
+| Anthropic | the same project endpoint (requests go to `…/anthropic/v1`) | API key header (`api-key`) | the Claude deployments |
 
 Tick *Responses* on the Foundry provider for GPT-5/GPT-6 and other models used through `/v1/responses`. Reasoning models
 (o-series, GPT-5 and later) are added with the reasoning parameter profile, which sends `max_completion_tokens` and drops

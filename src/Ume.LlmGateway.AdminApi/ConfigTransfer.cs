@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Routing.Expressions;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -52,13 +53,14 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
     {
         var providers = await ctx.Db.ProviderAccounts.Include(p => p.Deployments).ThenInclude(m => m.Prices).ToListAsync(ct);
         var routes = await catalog.Routes().ToListAsync(ct);
+        var names = PublicModelNames.Public(providers.SelectMany(p => p.Deployments)); // tracked: ProviderAccount is fixed up
         var globalRules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == RoutingScope.Global && !r.IsTemplate).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
         return new ConfigDocument(
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd))])))],
-            [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(t.ModelDeployment!.Name, t.Priority, t.Weight))], r.Description, r.IsEnabled))],
+            [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
             RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);
     }
 
@@ -104,7 +106,8 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             {
                 var config = item.Configuration;
                 var provider = await ctx.Db.ProviderAccounts.SingleOrDefaultAsync(p => p.Name == item.ProviderName, ct) ?? throw new ApiFaultException(400, "En modell refererar till en okänd leverantör.");
-                var m = await ctx.Db.ModelDeployments.Include(m => m.Prices).SingleOrDefaultAsync(m => m.Name == config.Name, ct);
+                // Model names are unique per provider.
+                var m = await ctx.Db.ModelDeployments.Include(m => m.Prices).SingleOrDefaultAsync(m => m.ProviderAccountId == provider.Id && m.Name == config.Name, ct);
                 if (m is null)
                 {
                     m = new ModelDeployment { Name = config.Name, UpstreamModel = config.UpstreamModel, ProviderAccountId = provider.Id };
@@ -112,7 +115,6 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 }
                 else
                 {
-                    if (m.ProviderAccountId != provider.Id) { throw new ApiFaultException(409, "En befintlig modell kan inte flyttas mellan leverantörer."); }
                     await catalog.EnsureKindCanChangeAsync(m, config.Kind, ct);
                     updated++;
                 }
@@ -136,16 +138,25 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 }
             }
             await ctx.Db.SaveChangesAsync(ct);
+            // Route targets name a model by its public name or provider/name, as clients do.
+            var allModels = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).ToListAsync(ct);
+            var publicNames = PublicModelNames.Public(allModels);
+            var byName = new Dictionary<string, ModelDeployment>(StringComparer.OrdinalIgnoreCase);
+            foreach (var model in allModels)
+            {
+                byName.TryAdd(publicNames[model.Id], model);
+                byName.TryAdd(PublicModelNames.Qualified(model.ProviderAccount!.Name, model.Name), model);
+            }
             foreach (var item in input.Routes)
             {
                 var r = await catalog.Routes().SingleOrDefaultAsync(r => r.Name == item.Name, ct);
                 if (r is null) { r = new RouteAlias { Name = item.Name }; ctx.Db.RouteAliases.Add(r); created++; }
                 else { updated++; }
-                var names = item.Targets.Select(t => t.ModelName).Distinct().ToArray();
-                var models = await ctx.Db.ModelDeployments.Where(m => names.Contains(m.Name)).ToDictionaryAsync(m => m.Name, ct);
-                if (models.Count != names.Length) { throw new ApiFaultException(400, "En rutt refererar till en okänd modell."); }
+                var models = item.Targets.Select(t => t.ModelName).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(n => n, n => byName.GetValueOrDefault(n), StringComparer.OrdinalIgnoreCase);
+                if (models.Values.Any(m => m is null)) { throw new ApiFaultException(400, "En rutt refererar till en okänd modell. Ange leverantör/modell när flera leverantörer har modellen."); }
                 await catalog.ApplyRouteAsync(r, new RouteRequest(item.Name, item.Kind,
-                    [.. item.Targets.Select(t => new TargetRequest(models[t.ModelName].Id, t.Priority, t.Weight))], item.Description, item.IsEnabled), ct);
+                    [.. item.Targets.Select(t => new TargetRequest(models[t.ModelName]!.Id, t.Priority, t.Weight))], item.Description, item.IsEnabled), ct);
             }
             var (rulesCreated, rulesUpdated) = await rules.ImportGlobalAsync(input.RoutingRules ?? [],
                 [.. input.Routes.Select(r => r.Name), .. input.Models.Select(m => m.Configuration.Name)], ct);

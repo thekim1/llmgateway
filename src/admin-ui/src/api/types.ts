@@ -346,6 +346,8 @@ export interface Model {
   isEnabled: boolean
   features: string[]
   currentPrice: Price | null
+  /** What clients call the model: its name, or provider/name when another provider has a model of the same name. */
+  publicName: string
 }
 
 export interface CreateModelRequest {

@@ -257,11 +257,16 @@ and invalidate the gateway catalogue.
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
-  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `budget_exceeded`,
+  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).
-- Fallback and circuit breaker: the next provider is tried after a transient failure (408, 409, 429, 5xx, timeout,
+- Model names: a model is addressed by its public name (the plain name while one provider has it) or `<provider>/<model>`
+  (always). A plain name several providers share, with no route of that name, is refused with 400 `model_ambiguous`
+  listing the `<provider>/<model>` choices; the gateway never picks a provider by itself. `GET /api/models` returns each
+  model's `publicName`; model names are unique per provider (409 otherwise).
+- Fallback and circuit breaker: only to what an admin set up (a route's targets, a routing rule's targets and fallbacks;
+  never to another provider's model of the same name). The next one is tried after a transient failure (408, 409, 429, 5xx, timeout,
   connection error, invalid JSON) or a provider configuration failure (upstream 401/403/404, `https_required`,
   `credential_unavailable`, `endpoint_not_supported`). Only transient failures count toward the provider's circuit
   breaker. Other client errors (e.g. 400) are returned as they are.
