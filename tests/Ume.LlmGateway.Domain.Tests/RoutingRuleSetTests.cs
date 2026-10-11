@@ -20,8 +20,9 @@ public class RoutingRuleSetTests
         bool chain = false,
         bool enabled = true,
         string[]? fallbacks = null,
+        Guid[]? scopeIds = null,
         params RuleTarget[] targets) => new(
-            Guid.NewGuid(), name, enabled, priority, scope, scopeId, condition, chain,
+            Guid.NewGuid(), name, enabled, priority, scope, scopeIds ?? (scopeId is { } id ? [id] : []), condition, chain,
             targets.Length > 0 ? targets : [new RuleTarget(target)], fallbacks ?? []);
 
     private static RoutingRuleSet Build(params RoutingRuleDefinition[] rules)
@@ -106,6 +107,54 @@ public class RoutingRuleSetTests
         Run(set, Ctx() with { KeyId = Guid.NewGuid(), KeyLineage = new HashSet<Guid> { oldKey } }).PrimaryModel.ShouldBe("kept");
         Run(set, Ctx() with { KeyId = Guid.NewGuid(), KeyLineage = new HashSet<Guid> { Guid.NewGuid() } }).Matched.ShouldBeFalse();
         Run(set, Ctx() with { KeyId = Guid.NewGuid() }).Matched.ShouldBeFalse(); // no lineage supplied: only the key itself counts
+    }
+
+    [Fact]
+    public void A_rule_shared_by_several_owners_applies_to_each_of_them_only()
+    {
+        Guid teamB = Guid.NewGuid(), keyB = Guid.NewGuid();
+        var set = Build(
+            Rule("teams", scope: RoutingScope.Team, scopeIds: [TeamA, teamB], target: "teams"),
+            Rule("keys", """headers["x-k"] == "1" """, scope: RoutingScope.VirtualKey, scopeIds: [KeyA, keyB], target: "keys"));
+
+        Run(set, Ctx()).PrimaryModel.ShouldBe("teams");
+        Run(set, Ctx() with { TeamId = teamB }).PrimaryModel.ShouldBe("teams");
+        Run(set, Ctx() with { TeamId = Guid.NewGuid() }).Matched.ShouldBeFalse();
+        Run(set, Ctx(headers: new() { ["x-k"] = "1" }) with { KeyId = keyB, TeamId = Guid.NewGuid() }).PrimaryModel.ShouldBe("keys");
+        Run(set, Ctx(headers: new() { ["x-k"] = "1" }) with { KeyId = Guid.NewGuid(), TeamId = Guid.NewGuid() }).Matched.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Shared_and_single_owner_rules_are_checked_by_priority_within_the_scope()
+    {
+        var set = Build(
+            Rule("single", "true", priority: 5, scope: RoutingScope.Team, scopeId: TeamA, target: "single"),
+            Rule("shared", "true", priority: 1, scope: RoutingScope.Team, scopeIds: [Guid.NewGuid(), TeamA], target: "shared"));
+        var explain = new List<RuleEvaluation>();
+        set.Evaluate(Ctx() with { KeyId = null }, new Random(1), explain).PrimaryModel.ShouldBe("shared");
+        explain.Select(e => e.Name).ShouldBe(["shared"]);
+    }
+
+    [Fact]
+    public void Key_rules_from_several_rotated_keys_are_merged_in_order_without_duplicates()
+    {
+        Guid oldest = Guid.NewGuid(), older = Guid.NewGuid();
+        var set = Build(
+            Rule("b", "false", priority: 2, scope: RoutingScope.VirtualKey, scopeIds: [oldest, older]),
+            Rule("a", "false", priority: 1, scope: RoutingScope.VirtualKey, scopeId: older),
+            Rule("c", "false", priority: 3, scope: RoutingScope.VirtualKey, scopeId: KeyA));
+        var explain = new List<RuleEvaluation>();
+        set.Evaluate(Ctx() with { KeyLineage = new HashSet<Guid> { KeyA, older, oldest } }, new Random(1), explain);
+        explain.Select(e => e.Name).ShouldBe(["a", "b", "c"]);
+    }
+
+    [Fact]
+    public void A_disabled_scoped_rule_may_wait_without_owners_but_an_enabled_one_needs_one()
+    {
+        RoutingRuleSet.Check(Rule("waiting", scope: RoutingScope.Team, enabled: false)).ShouldBeEmpty();
+        RoutingRuleSet.Check(Rule("live", scope: RoutingScope.Team)).Single().Message.ShouldContain("owner");
+        RoutingRuleSet.Check(Rule("too many", scope: RoutingScope.Team, scopeIds: [.. Enumerable.Range(0, RoutingRuleSet.MaxOwners + 1).Select(_ => Guid.NewGuid())]))
+            .Single().Message.ShouldContain("at most");
     }
 
     [Fact]
@@ -303,9 +352,12 @@ public class RoutingRuleSetTests
             Rule("dup", target: "2"),
             Rule("Dup", scope: RoutingScope.Team, scopeId: TeamA, target: "3"),
             Rule("Dup", scope: RoutingScope.Team, scopeId: Guid.NewGuid(), target: "4"),
+            Rule("DUP", scope: RoutingScope.Team, scopeIds: [Guid.NewGuid(), TeamA], target: "5"), // shares TeamA with "3"
+            Rule("Dup", scope: RoutingScope.Department, scopeIds: [DeptA, Guid.NewGuid()], target: "6"),
         ]);
-        errors.Single().Message.ShouldContain("already exists");
-        set.Count.ShouldBe(3);
+        errors.Select(e => e.RuleName).ShouldBe(["dup", "DUP"]);
+        errors.ShouldAllBe(e => e.Message.Contains("already exists"));
+        set.Count.ShouldBe(4);
     }
 
     [Fact]

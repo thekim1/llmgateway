@@ -73,8 +73,8 @@ test('move buttons stay focusable and say they are unavailable at the ends', asy
   const s = suffix()
   const teamId = (await testTeam(page)).teamId
   const ids = [
-    await createRule(page, { name: `Browser first ${s}`, scope: 'Team', scopeId: teamId, condition: 'model == "none"' }),
-    await createRule(page, { name: `Browser second ${s}`, scope: 'Team', scopeId: teamId, condition: 'model == "none"' }),
+    await createRule(page, { name: `Browser first ${s}`, scope: 'Team', scopeIds: [teamId], condition: 'model == "none"' }),
+    await createRule(page, { name: `Browser second ${s}`, scope: 'Team', scopeIds: [teamId], condition: 'model == "none"' }),
   ]
   try {
     await ready(page, '/routing-rules')

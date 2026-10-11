@@ -10,6 +10,10 @@ public sealed class AdminOptions
     /// <summary>Requests per minute per signed-in user (or client address before sign-in).</summary>
     [Range(1, 10_000)]
     public int RequestsPerMinute { get; set; } = 120;
+
+    /// <summary>The Azure region (<c>armRegionName</c>) whose list prices are suggested for Azure AI Foundry deployments.</summary>
+    [RegularExpression("^[a-z0-9]{2,40}$")]
+    public string AzurePriceRegion { get; set; } = "swedencentral";
 }
 
 /// <summary>Bound from the <c>Gateway</c> configuration section: where the admin API finds the gateway.</summary>
@@ -39,6 +43,25 @@ public sealed class GatewayLinkOptions : IValidatableObject
             {
                 yield return new ValidationResult($"Gateway:{name} must be an absolute http(s) URL.", [name]);
             }
+        }
+    }
+}
+
+/// <summary>Bound from the <c>DataApi</c> configuration section of the admin API: where integrations reach the Data API.</summary>
+public sealed class DataApiLinkOptions : IValidatableObject
+{
+    public const string SectionName = "DataApi";
+
+    /// <summary>The Data API's public address, shown with a new Data API key. Empty when the Data API is not deployed.</summary>
+    public string? PublicUrl { get; set; }
+
+    public string? Address => string.IsNullOrWhiteSpace(PublicUrl) ? null : PublicUrl.TrimEnd('/');
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (Address is { } value && (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http")))
+        {
+            yield return new ValidationResult("DataApi:PublicUrl must be an absolute http(s) URL.", [nameof(PublicUrl)]);
         }
     }
 }

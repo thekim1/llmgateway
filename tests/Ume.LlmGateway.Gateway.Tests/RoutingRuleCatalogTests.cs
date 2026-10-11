@@ -23,7 +23,7 @@ public sealed class RoutingRuleCatalogTests(GatewayFixture fixture)
             Name = name,
             Condition = condition,
             Scope = RoutingScope.Team,
-            ScopeId = _team,
+            ScopeIds = [_team],
             Targets = [new RoutingRuleTarget { Model = target, Weight = 3 }],
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,

@@ -230,6 +230,62 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("Budgets");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.DataApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.PrimitiveCollection<List<string>>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("DataApiKeys");
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Department", b =>
                 {
                     b.Property<Guid>("Id")
@@ -527,6 +583,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsTemplate")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -540,15 +599,16 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
-                    b.Property<Guid?>("ScopeId")
-                        .HasColumnType("uuid");
+                    b.PrimitiveCollection<List<Guid>>("ScopeIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Scope", "ScopeId", "Priority");
+                    b.HasIndex("Scope", "Priority");
 
                     b.ToTable("RoutingRules");
                 });
@@ -731,6 +791,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.HasIndex("TeamId", "Timestamp");
 
                     b.HasIndex("VirtualKeyId", "Timestamp");
+
+                    b.HasIndex(new[] { "Timestamp" }, "IX_UsageRecords_Timestamp_Pii")
+                        .HasFilter("\"PiiCategories\" IS NOT NULL");
 
                     b.ToTable("UsageRecords");
                 });

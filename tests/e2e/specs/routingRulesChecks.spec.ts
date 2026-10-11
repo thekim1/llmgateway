@@ -24,14 +24,14 @@ test('server errors land on the right fields', async ({ page }) => {
   const create = drawer.getByRole('button', { name: 'Create rule' })
 
   // Duplicate name for the same owner: the 409 is shown at the top of the form and the drawer stays open.
-  await drawer.getByLabel('Name', { exact: true }).fill('Premium via header')
+  await drawer.getByLabel('Title', { exact: true }).fill('Premium via header')
   await drawer.locator('#rule-target-0').fill('ume/chat-onprem')
   await create.click()
   await expect(drawer.getByText('Det finns redan en regel med samma namn i detta omfång.')).toBeVisible()
   await expect(drawer).toBeVisible()
 
   // Unknown model: the targets field.
-  await drawer.getByLabel('Name', { exact: true }).fill(`Browser rule ${suffix()}`)
+  await drawer.getByLabel('Title', { exact: true }).fill(`Browser rule ${suffix()}`)
   await drawer.locator('#rule-target-0').fill('no/such-model')
   await create.click()
   await expect(drawer.getByText(/Okänd modell eller alias: no\/such-model/)).toBeVisible()
@@ -59,23 +59,22 @@ test('edit a rule and change its scope', async ({ page }) => {
     await (await rulesNav(page)).getByRole('button', { name: `Browser rule ${s}` }).click()
     await page.getByRole('button', { name: 'Edit' }).click()
     const drawer = page.getByRole('dialog', { name: 'Edit rule' })
-    await drawer.getByLabel('Name', { exact: true }).fill(`Browser renamed ${s}`)
+    await drawer.getByLabel('Title', { exact: true }).fill(`Browser renamed ${s}`)
     await drawer.getByRole('button', { name: 'Save changes' }).click()
     await expect(drawer).toBeHidden()
     await expect(page.getByRole('heading', { level: 2, name: `Browser renamed ${s}`, exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: 'Change scope' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Change owner' })
+    const dialog = page.getByRole('dialog', { name: 'Change owners' })
     await dialog.getByRole('radio', { name: 'Department' }).click()
-    const option = dialog.locator('#reassign-owner option', { hasText: department.departmentName })
-    await dialog.getByLabel('Department', { exact: true }).selectOption((await option.getAttribute('value'))!)
+    await dialog.getByRole('checkbox', { name: department.departmentName, exact: true }).check()
     await dialog.getByRole('button', { name: 'Assign' }).click()
     await expect(dialog).toBeHidden()
     await expect(page.getByText(/^Department rule · /)).toBeVisible()
     const rule = await (await page.request.get(`/api/routing-rules/${id}`)).json()
     expect(rule.name).toBe(`Browser renamed ${s}`)
     expect(rule.scope).toBe('Department')
-    expect(rule.scopeId).toBe(department.departmentId)
+    expect(rule.scopeIds).toEqual([department.departmentId])
   } finally { await remove(page, `/api/routing-rules/${id}`) }
 })
 
@@ -117,7 +116,7 @@ test('a key scoped rule keeps working after the key is rotated', async ({ page }
   await login(page)
   const s = suffix()
   const key = await testKey(page)
-  const id = await createRule(page, { name: `Browser key rule ${s}`, scope: 'VirtualKey', scopeId: key.id, condition: marker(s) })
+  const id = await createRule(page, { name: `Browser key rule ${s}`, scope: 'VirtualKey', scopeIds: [key.id], condition: marker(s) })
   let replacement: string | undefined
   try {
     await expect.poll(() => appliedRule(page, key.secret, s)).toBe(id)
@@ -167,7 +166,7 @@ test('deleting a department with rules: delete them or keep them switched off, b
     const response = await mutate(page, '/api/departments', { name, costCenterCode: `e2e-${label}-${s}` })
     expect(response.status()).toBe(201)
     const departmentId = (await response.json()).id
-    const ruleId = await createRule(page, { name: `Browser ${label} rule ${s}`, scope: 'Department', scopeId: departmentId, condition: marker(s) })
+    const ruleId = await createRule(page, { name: `Browser ${label} rule ${s}`, scope: 'Department', scopeIds: [departmentId], condition: marker(s) })
     return { name, departmentId, ruleId }
   }
   const remover = await make('delete')

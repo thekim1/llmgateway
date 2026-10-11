@@ -87,7 +87,10 @@ onMounted(() => {
       </UiCard>
 
       <section aria-labelledby="ops-providers" class="flex flex-col gap-3">
-        <h2 id="ops-providers" class="text-heading">Provider circuits</h2>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="ops-providers" class="text-heading">Providers</h2>
+          <router-link :to="{ name: 'provider-stability' }" class="text-small font-medium text-accent-ink underline">Provider stability over time</router-link>
+        </div>
         <ProviderCircuitTable :providers="health.providers" @toggle="reviewCircuit" />
       </section>
 

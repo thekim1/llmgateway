@@ -8,7 +8,9 @@ using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi;
 
-public sealed record DiscoveredPrice(decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd);
+public sealed record DiscoveredPrice(
+    decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd,
+    decimal AudioInputPerMillionUsd = 0, decimal AudioOutputPerMillionUsd = 0);
 
 public sealed record DiscoveredModel(
     string Id,
@@ -18,7 +20,8 @@ public sealed record DiscoveredModel(
     int? ContextWindow,
     string[] Features,
     DiscoveredPrice? Price,
-    bool AlreadyAdded);
+    bool AlreadyAdded,
+    string? PriceSource = null);
 
 /// <summary>
 /// Lists the models an upstream provider exposes, using the provider's stored credential. Doubles as a
@@ -46,15 +49,17 @@ public static partial class ModelDiscovery
     [GeneratedRegex(@"realtime", RegexOptions.IgnoreCase)]
     private static partial Regex RealtimeModel();
 
-    [GeneratedRegex(@"^(o\d|gpt-5)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(o\d|gpt-[5-9])", RegexOptions.IgnoreCase)]
     private static partial Regex ReasoningModel();
 
     /// <summary>
     /// The provider's models. With <paramref name="requireHttps"/> (production) only an https base URL is called, the same
-    /// rule the gateway applies to provider calls.
+    /// rule the gateway applies to provider calls. Foundry deployments get a price from <paramref name="azurePrices"/>, the
+    /// Azure list prices, when it is given and the list is unambiguous.
     /// </summary>
     public static async Task<DiscoveredModel[]> DiscoverAsync(
-        ProviderAccount provider, HttpClient http, CredentialProtector protector, bool requireHttps, CancellationToken ct)
+        ProviderAccount provider, HttpClient http, CredentialProtector protector, bool requireHttps, CancellationToken ct,
+        Func<CancellationToken, Task<IReadOnlyList<AzurePriceMeter>>>? azurePrices = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(http);
@@ -66,10 +71,13 @@ public static partial class ModelDiscovery
 
         var anthropic = provider.Type == ProviderType.Anthropic;
         var ollama = provider.Type is ProviderType.Ollama or ProviderType.OllamaCloud;
+        // Foundry's /openai/v1/models lists every model the resource could deploy; the project API lists the deployments.
+        // Claude on Foundry is an Anthropic provider (…services.ai.azure.com/anthropic/v1) listed from the same project API.
+        var foundry = provider.Type == ProviderType.AzureAIFoundry || (anthropic && FoundryEndpoint.IsFoundryHost(provider.BaseUrl));
         // Ollama's OpenAI-compatible base URL ends in /v1; model listing lives on the native /api.
         var baseUrl = ollama ? WithoutVersionSegment(provider.BaseUrl) : provider.BaseUrl;
-        var listUri = Build(baseUrl, ollama ? "api/tags" : "models");
-        if (anthropic)
+        var listUri = foundry ? FoundryDeployments(baseUrl) : Build(baseUrl, ollama ? "api/tags" : "models");
+        if (anthropic && !foundry)
         {
             listUri = WithQueryParameter(listUri, "limit=1000");
         }
@@ -82,23 +90,44 @@ public static partial class ModelDiscovery
         HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)
         {
             var request = new HttpRequestMessage(method, uri);
+            if (foundry && provider.AuthMode == ProviderAuthMode.XApiKeyHeader)
+            {
+                // Claude on Foundry takes x-api-key or api-key; the project API only api-key.
+                request.Headers.TryAddWithoutValidation("api-key", credential);
+                return request;
+            }
             ProviderAuth.Apply(request, provider, credential);
             return request;
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(Timeout);
-        JsonNode? body;
-        try
+        async Task<JsonNode?> GetAsync(Uri uri)
         {
-            using var request = CreateRequest(HttpMethod.Get, listUri);
+            using var request = CreateRequest(HttpMethod.Get, uri);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
-                var hint = (int)response.StatusCode is 401 or 403 ? "Kontrollera API-nyckeln." : "Kontrollera adressen och inloggningsmetoden.";
+                var hint = ((int)response.StatusCode, foundry) switch
+                {
+                    (401 or 403, true) => "Kontrollera att API-nyckeln hör till Foundry-resursen och att den tillåter projektets API.",
+                    (401 or 403, false) => "Kontrollera API-nyckeln.",
+                    (404, true) => "Ange Foundry-resursens adress (https://<resurs>.services.ai.azure.com/openai/v1) eller projektets adress.",
+                    _ => "Kontrollera adressen och inloggningsmetoden.",
+                };
                 throw new ApiFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");
             }
-            body = JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+            return JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        }
+
+        JsonNode? body;
+        try
+        {
+            body = await GetAsync(listUri);
+            if (foundry)
+            {
+                body = await FoundryAllPagesAsync(body, GetAsync, listUri);
+            }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -116,7 +145,7 @@ public static partial class ModelDiscovery
         var items = body switch
         {
             JsonArray array => array,
-            JsonObject obj => (obj["data"] ?? obj["models"]) as JsonArray,
+            JsonObject obj => (obj["data"] ?? obj["models"] ?? obj["value"]) as JsonArray,
             _ => null,
         } ?? throw new ApiFaultException(502, "Leverantören returnerade ingen modellista.");
 
@@ -126,8 +155,10 @@ public static partial class ModelDiscovery
         }
 
         var existing = provider.Deployments.Select(d => d.UpstreamModel).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<AzurePriceMeter> meters = foundry && azurePrices is not null ? await azurePrices(ct) : [];
         return [.. items.OfType<JsonObject>()
-            .Select(item => Map(item, existing))
+            .Where(item => !foundry || IsAnthropic(item) == anthropic)
+            .Select(item => foundry ? MapDeployment(item, existing, meters) : Map(item, existing))
             .OfType<DiscoveredModel>()
             .Where(m => !UnsupportedModel().IsMatch(m.Id) || m.Kind is ModelKind.Transcription or ModelKind.Realtime or ModelKind.SpeechTranslation)
             .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)];
@@ -144,6 +175,85 @@ public static partial class ModelDiscovery
         {
             throw new ApiFaultException(400, "Leverantörens adress är ogiltig.");
         }
+    }
+
+    private static Uri FoundryDeployments(string baseUrl)
+    {
+        try
+        {
+            return FoundryEndpoint.DeploymentsUri(baseUrl);
+        }
+        catch (UriFormatException)
+        {
+            throw new ApiFaultException(400, "Leverantörens adress är ogiltig.");
+        }
+    }
+
+    /// <summary>
+    /// The project API pages its deployments (<c>value</c>, <c>nextLink</c>); returns them as one <c>value</c> array.
+    /// Only links on the same host are followed, so the credential never leaves the resource.
+    /// </summary>
+    private static async Task<JsonNode?> FoundryAllPagesAsync(JsonNode? first, Func<Uri, Task<JsonNode?>> get, Uri listUri)
+    {
+        const int MaxPages = 20;
+        var page = first;
+        var all = new JsonArray();
+        for (var i = 0; i < MaxPages && page is JsonObject obj && obj["value"] is JsonArray value; i++)
+        {
+            foreach (var item in value.ToArray())
+            {
+                value.Remove(item);
+                all.Add(item);
+            }
+            if (Text(obj, "nextLink") is not { Length: > 0 } next || !Uri.TryCreate(listUri, next, out var nextUri) ||
+                !string.Equals(nextUri.Host, listUri.Host, StringComparison.OrdinalIgnoreCase) || nextUri.Scheme != listUri.Scheme)
+            {
+                break;
+            }
+            page = await get(nextUri);
+        }
+        return first is JsonObject ? new JsonObject { ["value"] = all } : first;
+    }
+
+    /// <summary>Claude deployments are served by Foundry's Anthropic API, every other model by its OpenAI v1 API.</summary>
+    private static bool IsAnthropic(JsonObject deployment) =>
+        string.Equals(Text(deployment, "modelPublisher"), "Anthropic", StringComparison.OrdinalIgnoreCase) ||
+        (Text(deployment, "modelName") ?? string.Empty).StartsWith("claude", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A Foundry deployment: requests name the deployment, so it is the model id; the model behind it decides the kind,
+    /// and its model, version and SKU find the Azure list price.
+    /// </summary>
+    private static DiscoveredModel? MapDeployment(JsonObject item, HashSet<string> existing, IReadOnlyList<AzurePriceMeter> meters)
+    {
+        var name = Text(item, "name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var model = Text(item, "modelName") ?? name;
+        var capabilities = item["capabilities"] is JsonObject caps
+            ? caps.Where(c => c.Value is JsonValue v && (v.TryGetValue<bool>(out var b) ? b : v.TryGetValue<string>(out var s) && bool.TryParse(s, out var p) && p))
+                .Select(c => c.Key.Replace('_', ' ').ToLowerInvariant())
+                .ToArray()
+            : [];
+        var mapped = Map(new JsonObject { ["id"] = model }, existing)!;
+        var embedding = mapped.Kind == ModelKind.Embedding || capabilities.Any(c => c.Contains("embed", StringComparison.Ordinal));
+        var version = Text(item, "modelVersion");
+        var suggestion = AzurePriceMatcher.Suggest(meters, model, version, item["sku"] is JsonObject sku ? Text(sku, "name") : null);
+        var display = string.Equals(name, model, StringComparison.OrdinalIgnoreCase) ? name : $"{name} ({model})";
+        return mapped with
+        {
+            Id = name,
+            DisplayName = version is { Length: > 0 } ? $"{display}, version {version}" : display,
+            Kind = embedding && mapped.Kind == ModelKind.Chat ? ModelKind.Embedding : mapped.Kind,
+            Features = [.. capabilities.Where(c => !c.Contains("completion", StringComparison.Ordinal) && !c.Contains("embed", StringComparison.Ordinal))
+                .Select(Normalize).Distinct().Order()],
+            AlreadyAdded = existing.Contains(name),
+            Price = suggestion?.Price,
+            PriceSource = suggestion is { } s ? $"Azure list price: {string.Join(", ", s.Meters)}" : null,
+        };
     }
 
     /// <summary>The base URL without a trailing <c>/v1</c> path segment (its query string is kept).</summary>

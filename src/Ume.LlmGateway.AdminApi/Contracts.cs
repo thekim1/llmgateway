@@ -45,6 +45,22 @@ public sealed record KeyRotatedDto(KeyDto Key, string Secret, KeyDto PreviousKey
 
 public sealed record KeySecretDto(string Secret);
 
+// ---- Data API access -------------------------------------------------------------------------------------
+
+/// <summary>Where integrations reach the Data API (null when not configured) and the permissions a key can hold.</summary>
+public sealed record DataAccessDto(string? DataApiUrl, IReadOnlyList<string> Permissions);
+
+public sealed record DataApiKeyDto(
+    Guid Id, string Name, string? Description, string Prefix, IReadOnlyList<string> Permissions, KeyStatus Status,
+    DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, DateTimeOffset? LastUsedAt)
+{
+    public static DataApiKeyDto Of(DataApiKey k, DateTimeOffset now) => new(
+        k.Id, k.Name, k.Description, k.Prefix, k.Permissions, k.GetStatus(now), k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.LastUsedAt);
+}
+
+/// <summary>A new Data API key with its secret, which is shown this once and never stored.</summary>
+public sealed record DataApiKeyCreatedDto(DataApiKeyDto Key, string Secret);
+
 // ---- providers, models, routes ---------------------------------------------------------------------------
 
 public sealed record ProviderDto(
@@ -104,13 +120,18 @@ public sealed record AlertDto(
 // ---- routing rules ---------------------------------------------------------------------------------------
 
 /// <summary>
-/// <c>IsOrphaned</c>: the key, team or department the rule is scoped to no longer exists. Such a rule never applies
-/// (and cannot be enabled) until it is reassigned. <c>ValidationErrors</c> lists why the gateway ignores an enabled rule.
+/// <c>ScopeIds</c>/<c>Owners</c>: the keys, teams or departments a non-global rule is shared by (an owner's name is null
+/// when it no longer exists). <c>IsOrphaned</c>: none of them exists any more. Such a rule never applies (and cannot be
+/// enabled) until it is reassigned. <c>IsTemplate</c>: a shipped example, disabled until adopted. <c>MissingModels</c>:
+/// targets or fallbacks that do not exist; the rule cannot be enabled until they do. <c>ValidationErrors</c> lists why
+/// the gateway ignores an enabled rule.
 /// </summary>
 public sealed record RuleView(
-    Guid Id, string Name, string? Description, bool IsEnabled, int Priority, string Scope, Guid? ScopeId, string? ScopeName,
-    bool IsOrphaned, string Condition, bool Chain, IReadOnlyList<RuleTargetView> Targets, IReadOnlyList<string> Fallbacks,
-    IReadOnlyList<RuleProblem> ValidationErrors, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+    Guid Id, string Name, string? Description, bool IsEnabled, bool IsTemplate, int Priority, string Scope, IReadOnlyList<Guid> ScopeIds,
+    IReadOnlyList<RuleOwnerView> Owners, bool IsOrphaned, string Condition, bool Chain, IReadOnlyList<RuleTargetView> Targets, IReadOnlyList<string> Fallbacks,
+    IReadOnlyList<string> MissingModels, IReadOnlyList<RuleProblem> ValidationErrors, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+public sealed record RuleOwnerView(Guid Id, string? Name);
 
 public sealed record RuleTargetView(string Model, int Weight);
 
@@ -159,6 +180,28 @@ public sealed record UsageSummaryDto(
     DateTimeOffset From, DateTimeOffset To, decimal TotalCostSek, long TotalRequests, long TotalInputTokens, long TotalOutputTokens,
     long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows);
 
+/// <summary>A request in which PII was detected (any policy except <c>Off</c>: <c>Allow</c> counts as "detected and forwarded").</summary>
+public sealed record PiiIncidentDto(
+    string RequestId, DateTimeOffset Timestamp, Guid KeyId, string KeyPrefix, string KeyName, Guid TeamId, string TeamName, Guid DepartmentId,
+    string DepartmentName, string Endpoint, string RequestedModel, string? ProviderName, PiiPolicy Action, IReadOnlyList<PiiFindingDto> Categories,
+    RequestOutcome Outcome, int StatusCode, string? RoutingRuleName);
+
+/// <summary>How many values of one category a request contained.</summary>
+public sealed record PiiFindingDto(PiiCategory Category, int Count);
+
+/// <summary>Requests (and values found) per category; a request with several categories counts once in each.</summary>
+public sealed record PiiCategoryCountDto(PiiCategory Category, long Requests, long Occurrences);
+
+public sealed record PiiActionCountDto(PiiPolicy Action, long Requests);
+
+/// <summary>
+/// One page of incidents matching every filter, plus the breakdown per category and action for the period and owner
+/// filters only (so the tiles still show every category while one is selected).
+/// </summary>
+public sealed record PiiIncidentReportDto(
+    DateTimeOffset From, DateTimeOffset To, IReadOnlyList<PiiIncidentDto> Items, int Total, long TotalIncidents,
+    IReadOnlyList<PiiCategoryCountDto> Categories, IReadOnlyList<PiiActionCountDto> Actions);
+
 public sealed record AuditEntryDto(long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details);
 
 public sealed record CatalogDto(string GatewayBaseUrl, IReadOnlyList<CatalogModelDto> Models, IReadOnlyList<CatalogRouteDto> Routes);
@@ -178,8 +221,25 @@ public sealed record ComponentHealthDto(string Name, string Status, string Descr
 
 public sealed record VersionsDto(string? AdminApi, string? Gateway, string Schema);
 
+/// <summary>
+/// A provider's status (from the last hour, see <see cref="ProviderStabilityService.Classify"/>) and its last 24 hours.
+/// <c>ErrorRate24h</c> counts every request that did not succeed; <c>ProviderErrorRate24h</c> only the provider's own failures.
+/// </summary>
 public sealed record ProviderHealthDto(
     Guid Id, string Name, ProviderType Type, DataResidency Residency, bool IsEnabled, bool IsDrained, CircuitState CircuitState,
-    long Requests24h, double ErrorRate24h, double FallbackRate24h, int? P50LatencyMs, int? P95LatencyMs);
+    long Requests24h, double ErrorRate24h, double FallbackRate24h, int? P50LatencyMs, int? P95LatencyMs,
+    double ProviderErrorRate24h, ProviderStatus Status, string StatusReason, long RecentRequests, long RecentProviderErrors);
+
+/// <summary>Provider figures per bucket and a ranking over the whole period (<c>GET /api/ops/providers/stats</c>).</summary>
+public sealed record ProviderStabilityDto(
+    DateTimeOffset From, DateTimeOffset To, StatsBucket Bucket, string TimeZone, IReadOnlyList<ProviderRankDto> Providers, IReadOnlyList<ProviderBucketDto> Buckets);
+
+/// <summary>A provider over the whole period; <c>Availability</c> is 1 minus its provider error rate.</summary>
+public sealed record ProviderRankDto(
+    Guid ProviderId, string Name, bool Exists, long Requests, long ProviderErrors, double Availability, double FallbackRate, int? P50LatencyMs, int? P95LatencyMs);
+
+/// <summary>One provider in one bucket that had traffic (buckets without traffic are left out).</summary>
+public sealed record ProviderBucketDto(
+    Guid ProviderId, DateTimeOffset Start, long Requests, long ProviderErrors, double ErrorRate, long Fallbacks, int? P50LatencyMs, int? P95LatencyMs);
 
 public sealed record ConfigImportResult(int Created, int Updated, int Skipped);

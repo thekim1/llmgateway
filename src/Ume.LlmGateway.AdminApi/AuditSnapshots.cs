@@ -34,6 +34,7 @@ public static class AuditEntities
     public const string Department = "Department";
     public const string Team = "Team";
     public const string VirtualKey = "VirtualKey";
+    public const string DataApiKey = "DataApiKey";
     public const string Provider = "Provider";
     public const string Model = "Model";
     public const string Route = "Route";
@@ -82,6 +83,12 @@ public sealed record KeyRotationAudit(KeyAudit PreviousKey, KeyAudit Key);
 /// <summary>A reveal or copy of a key's secret: which key, never the secret.</summary>
 public sealed record KeyAccessAudit(string Name, string Prefix);
 
+public sealed record DataApiKeyAudit(
+    Guid Id, string Name, string? Description, string Prefix, IReadOnlyList<string> Permissions, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)
+{
+    public static DataApiKeyAudit Of(DataApiKey k) => new(k.Id, k.Name, k.Description, k.Prefix, [.. k.Permissions], k.ExpiresAt, k.RevokedAt);
+}
+
 public sealed record ProviderAudit(
     Guid Id, string Name, string? DisplayName, ProviderType Type, string BaseUrl, ProviderAuthMode AuthMode, bool HasCredential,
     DataResidency Residency, ProviderCapabilities[] Capabilities, bool IsEnabled, bool IsDrained, int TimeoutSeconds)
@@ -111,18 +118,21 @@ public sealed record RouteAudit(Guid Id, string Name, string? Description, Model
 public sealed record RouteTargetAudit(Guid ModelId, int Priority, int Weight);
 
 public sealed record RoutingRuleAudit(
-    Guid Id, string Name, bool IsEnabled, int Priority, RoutingScope Scope, Guid? ScopeId, string Condition, bool Chain,
+    Guid Id, string Name, bool IsEnabled, bool IsTemplate, int Priority, RoutingScope Scope, IReadOnlyList<Guid> ScopeIds, string Condition, bool Chain,
     IReadOnlyList<RuleTargetView> Targets, IReadOnlyList<string> Fallbacks)
 {
     public static RoutingRuleAudit Of(RoutingRule r) => new(
-        r.Id, r.Name, r.IsEnabled, r.Priority, r.Scope, r.ScopeId, r.Condition, r.Chain,
+        r.Id, r.Name, r.IsEnabled, r.IsTemplate, r.Priority, r.Scope, [.. r.ScopeIds], r.Condition, r.Chain,
         [.. r.Targets.Select(t => new RuleTargetView(t.Model, t.Weight))], [.. r.Fallbacks]);
 }
 
 public sealed record RulePriorityAudit(Guid Id, int Priority);
 
-/// <summary>Why a rule was deleted or deactivated along with its team or department.</summary>
-public sealed record RuleScopeRemovalAudit(string Reason, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsEnabled = null);
+/// <summary>Why a rule was deleted, deactivated or lost an owner along with its team or department; <c>ScopeIds</c> are the owners left.</summary>
+public sealed record RuleScopeRemovalAudit(
+    string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsEnabled = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<Guid>? ScopeIds = null);
 
 public sealed record BudgetAudit(BudgetScope Scope, Guid ScopeId, decimal LimitSek, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds, bool IsActive)
 {

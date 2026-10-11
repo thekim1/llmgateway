@@ -68,6 +68,7 @@ renamed or removed, within a major version.
 | 1003 | `gateway.request.refused` | Gateway | A request was refused by policy: attachment not allowed, model or provider not allowed for the key | `RequestId`, `ErrorCode`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
 | 2001 | `admin.change` | Admin API | Every audit log entry (key created, revoked, rotated or revealed; provider, budget, rule or config changed) | `Actor`, `Action`, `EntityType`, `EntityId` |
 | 3001 | `data.read` | Data API | Every authenticated read | `Client`, `Path`, `Status`, `Cursor` |
+| 3002 | `data.auth.failed` | Data API | A revoked or expired Data API key was used (at most once a minute per key) | `Reason`, `KeyId`, `KeyPrefix` |
 
 `Reason` for `gateway.auth.failed` is one of `missing_key`, `invalid_key`, `key_revoked`, `key_expired`,
 `key_disabled`, `owner_inactive`. `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
@@ -138,8 +139,9 @@ are in the [runbook](runbook.md#data-api-optional); the contract is the OpenAPI 
   credentials or base URLs, or the Data Protection key ring. A bug in the API cannot leak them. The tests run as this
   role with the real `app-roles.sql`.
 - **Machine authentication.** OAuth 2.0 client-credentials access tokens from the adopter's IdP
-  (`DataApi:Authority`, audience `DataApi:Audience`, default `ume-data-api`). Each integration is its own client,
-  with its own audit trail (`data.read` events), rate limit (`DataApi:RequestsPerMinute`, default 600) and revocation.
+  (`DataApi:Authority`, audience `DataApi:Audience`, default `ume-data-api`), or Data API keys created by gateway
+  admins in the admin UI (see [Data API keys](#data-api-keys)). Each integration is its own client or key, with its
+  own audit trail (`data.read` events), rate limit (`DataApi:RequestsPerMinute`, default 600) and revocation.
 - **Permissions are consumer classes**, read from the claims in `DataApi:PermissionClaims` (default `scope`, `scp`
   and `roles`). This covers Keycloak (realm roles or client scopes), AD FS and Entra ID, which puts application
   permissions in `roles`.
@@ -150,6 +152,31 @@ are in the [runbook](runbook.md#data-api-optional); the contract is the OpenAPI 
 | `usage.detail` | `GET /v1/usage/records` (feed) | One row per request with key, team and department ids, model, provider, tokens, audio seconds (speech to text), cost, latency, outcome, routing rule. A live audio session (endpoint `Realtime` or `RealtimeTranslations`) is one row; its latency is the session length. PII categories only if `DataApi:Detail:IncludePiiCategories`. |
 | `security.read` | `GET /v1/security/auth-failures`, `/requests`, `/audit` (feeds); `GET /v1/security/keys` | Refused keys; requests with a PII action or a policy refusal (with PII categories); the admin audit log with its masked before/after details; every key's status, expiry, last use and policies. |
 | `catalog.read` | `GET /v1/catalog/departments`, `teams`, `keys`, `providers`, `models`, `prices`, `budgets`, `exchange-rates` | Dimensions for joining. Keys are id, team, name and prefix only. |
+
+### Data API keys
+
+For integrations that cannot get OAuth tokens (or adopters without an IdP client for them), a gateway admin creates a
+**Data API key** under *Access → Data API access* in the admin UI (`/api/data-access/keys`, gateway-admin only): a
+name, the permissions from the table above (ticked per key) and an optional expiry date. The key (`ume-dk-` + 43
+characters, distinct from gateway keys `ume-sk-`) is shown once, with a curl and PowerShell example against
+`DataApi:PublicUrl` of the admin API.
+
+- **Use:** `Authorization: Bearer ume-dk-…` or `X-Api-Key: ume-dk-…`. A request presenting a key is authenticated by
+  the key handler; anything else goes to OIDC token validation. A token can never gain permissions through the key
+  claim, and a key never through `scope`/`roles`.
+- **Identity:** the caller is `key:<name>` in `data.read` events and in the per-client rate limit, so names are unique.
+- **Storage:** only the SHA-256 of the key is stored. No pepper is used (unlike gateway keys): the Data API may run in
+  another network zone and should not hold the gateway's pepper, and a pepper adds nothing for a 256-bit random
+  secret. `ume_data` may read the hash columns of `DataApiKeys` (and update `LastUsedAt` only); it still cannot read
+  gateway key hashes.
+- **Revocation and expiry:** the Data API caches each lookup for `DataApi:KeyCacheSeconds` (default 30, 0–300) per
+  instance, so a revoked key keeps working for at most that long; expiry is checked on every request. Use of a revoked
+  or expired key is logged as the security event `data.auth.failed` (id 3002, `Reason` `key_revoked`/`key_expired`,
+  `KeyId`, `KeyPrefix`; at most once a minute per key). Unknown keys are refused without logging anything derived from
+  them. `LastUsedAt` is written at most every 5 minutes per key.
+- **Only keys, no IdP:** `DataApi:Authority` is optional while `DataApi:AllowKeys` is on (default); without it only
+  keys are accepted. `DataApi:AllowKeys=false` turns keys off; the service then refuses to start without an authority.
+- Revoked or expired keys can be deleted; every create, change, revoke and delete is in the audit log.
 
 ### Incremental feeds
 

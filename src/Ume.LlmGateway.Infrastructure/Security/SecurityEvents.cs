@@ -49,6 +49,10 @@ public static partial class SecurityEvents
         "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}", EventName = "data.read")]
     public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);
 
+    [LoggerMessage(3002, LogLevel.Warning,
+        "Data API key refused: {Reason} (key {KeyId} {KeyPrefix})", EventName = "data.auth.failed")]
+    public static partial void DataKeyRefused(ILogger logger, string reason, Guid keyId, string keyPrefix);
+
     [LoggerMessage(2001, LogLevel.Information,
         "Admin {Actor}: {Action} {EntityType} {EntityId}", EventName = "admin.change")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);

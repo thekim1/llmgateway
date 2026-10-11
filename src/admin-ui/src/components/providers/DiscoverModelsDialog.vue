@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api } from '@/api'
-import type { DiscoveredModel, Model, Provider } from '@/api/types'
+import type { DiscoveredModel, DiscoveredPrice, Model, Provider } from '@/api/types'
 import { useModelsStore } from '@/stores/models'
 import { formatNumber, formatUsd } from '@/utils/format'
 import { KIND_LABEL, MODEL_FEATURES, featureLabel } from '@/utils/labels'
@@ -50,10 +50,19 @@ const rowError = ref<{ id: string; error: unknown } | null>(null)
 const existing = (m: DiscoveredModel): Model | undefined =>
   models.items.find((x) => x.providerId === props.provider?.id && x.upstreamModel === m.id)
 
-const priceToDraft = (p: { inputPerMillionUsd: number; cachedInputPerMillionUsd: number; outputPerMillionUsd: number } | null | undefined): PriceDraft => ({
+const priceToDraft = (p: DiscoveredPrice | null | undefined): PriceDraft => ({
   ...emptyPriceDraft(),
   ...(p ? { input: String(p.inputPerMillionUsd), cached: String(p.cachedInputPerMillionUsd), output: String(p.outputPerMillionUsd) } : {}),
+  ...(p?.audioInputPerMillionUsd ? { audioIn: String(p.audioInputPerMillionUsd) } : {}),
+  ...(p?.audioOutputPerMillionUsd ? { audioOut: String(p.audioOutputPerMillionUsd) } : {}),
 })
+
+/** Audio token prices only apply to speech models; others leave them out of the form. */
+const hasAudioTokens = (m: DiscoveredModel): boolean =>
+  m.kind === 'Realtime' || m.kind === 'Transcription' || m.kind === 'SpeechTranslation' || !!priceOf(m)?.audioInputPerMillionUsd
+
+/** A suggested price is shown until the model is added with a price of its own. */
+const suggestedFrom = (m: DiscoveredModel): string | null => (existing(m)?.currentPrice ? null : m.priceSource)
 
 const featuresOf = (m: DiscoveredModel): string[] => drafts.value[m.id]?.features ?? existing(m)?.features ?? m.features
 const priceOf = (m: DiscoveredModel) => existing(m)?.currentPrice ?? m.price
@@ -214,7 +223,7 @@ function setFeature(m: DiscoveredModel, f: string, on: boolean): void {
   const d = draftFor(m)
   d.features = on ? [...d.features, f] : d.features.filter((x) => x !== f)
 }
-function setPrice(m: DiscoveredModel, key: 'input' | 'cached' | 'output', value: string): void {
+function setPrice(m: DiscoveredModel, key: 'input' | 'cached' | 'output' | 'audioIn' | 'audioOut', value: string): void {
   draftFor(m).price[key] = value
 }
 const featureChoices = (m: DiscoveredModel): string[] => [...new Set([...MODEL_FEATURES, ...m.features, ...peek(m).features])]
@@ -232,7 +241,8 @@ function resolvePrice(m: DiscoveredModel): ReturnType<typeof toNewPrice> | null 
 }
 
 const samePrice = (a: ReturnType<typeof toNewPrice>, b: Model['currentPrice']): boolean =>
-  !!b && a.inputPerMillionUsd === b.inputPerMillionUsd && a.cachedInputPerMillionUsd === b.cachedInputPerMillionUsd && a.outputPerMillionUsd === b.outputPerMillionUsd
+  !!b && a.inputPerMillionUsd === b.inputPerMillionUsd && a.cachedInputPerMillionUsd === b.cachedInputPerMillionUsd && a.outputPerMillionUsd === b.outputPerMillionUsd &&
+  a.audioInputPerMillionUsd === b.audioInputPerMillionUsd && a.audioOutputPerMillionUsd === b.audioOutputPerMillionUsd
 
 async function saveExisting(m: DiscoveredModel): Promise<void> {
   const current = existing(m)
@@ -319,6 +329,7 @@ async function addSelected(): Promise<void> {
       <p class="flex items-center gap-2 text-ok"><AppIcon name="check_circle" />Connection works. {{ found.length }} models found.</p>
       <p v-if="found.length" class="text-small text-fg-3">
         Context size, capabilities and prices are only filled in when the provider reports them. Most do not report prices, so use Edit to correct capabilities and set prices before you route traffic.
+        Azure AI Foundry prices are suggested from Azure's public list prices for the deployment's model and type (Global, Data Zone or Regional); check them against your agreement, and Claude, provisioned and batch deployments are left without a price.
       </p>
       <template v-if="found.length">
         <div class="flex flex-wrap items-center gap-3">
@@ -360,6 +371,7 @@ async function addSelected(): Promise<void> {
                   <span v-if="m.contextWindow">{{ formatNumber(m.contextWindow) }} tokens</span>
                   <span v-if="priceOf(m)">{{ formatUsd(priceOf(m)!.inputPerMillionUsd) }} in / {{ formatUsd(priceOf(m)!.outputPerMillionUsd) }} out per 1M</span>
                   <span v-else>No price</span>
+                  <span v-if="suggestedFrom(m)" :title="suggestedFrom(m)!">Azure list price<span class="sr-only">: {{ suggestedFrom(m) }}</span></span>
                   <UiBadge v-for="f in featuresOf(m)" :key="f" tone="neutral" :label="featureLabel(f)" />
                   <UiBadge v-if="m.alreadyAdded" tone="neutral" label="Already added" />
                   <span v-if="pendingUpdate(m)?.features.length" class="text-accent-ink">New from provider: {{ pendingUpdate(m)!.features.map(featureLabel).join(', ') }}</span>
@@ -386,7 +398,12 @@ async function addSelected(): Promise<void> {
                   <TextField :model-value="peek(m).price.input" label="Input" inputmode="decimal" :error="priceErrors[m.id]?.input" @update:model-value="setPrice(m, 'input', $event)" />
                   <TextField :model-value="peek(m).price.cached" label="Cached input" inputmode="decimal" hint="Defaults to input." :error="priceErrors[m.id]?.cached" @update:model-value="setPrice(m, 'cached', $event)" />
                   <TextField :model-value="peek(m).price.output" label="Output" inputmode="decimal" :error="priceErrors[m.id]?.output" @update:model-value="setPrice(m, 'output', $event)" />
+                  <template v-if="hasAudioTokens(m)">
+                    <TextField :model-value="peek(m).price.audioIn" label="Audio input" inputmode="decimal" hint="Empty bills audio as text." :error="priceErrors[m.id]?.audioIn" @update:model-value="setPrice(m, 'audioIn', $event)" />
+                    <TextField :model-value="peek(m).price.audioOut" label="Audio output" inputmode="decimal" hint="Empty bills audio as text." :error="priceErrors[m.id]?.audioOut" @update:model-value="setPrice(m, 'audioOut', $event)" />
+                  </template>
                 </div>
+                <p v-if="suggestedFrom(m)" class="text-caption text-fg-3">Suggested from {{ suggestedFrom(m) }}.</p>
                 <p v-if="m.alreadyAdded" class="text-caption text-fg-3">A changed price is added as a new price from now. Earlier requests keep their old price.</p>
                 <p v-else class="text-caption text-fg-3">Leave empty to add the model without a price.</p>
               </fieldset>

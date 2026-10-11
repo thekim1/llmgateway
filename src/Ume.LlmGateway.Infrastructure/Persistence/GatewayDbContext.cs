@@ -10,6 +10,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<VirtualKey> VirtualKeys => Set<VirtualKey>();
+    public DbSet<DataApiKey> DataApiKeys => Set<DataApiKey>();
     public DbSet<ProviderAccount> ProviderAccounts => Set<ProviderAccount>();
     public DbSet<ModelDeployment> ModelDeployments => Set<ModelDeployment>();
     public DbSet<ModelPrice> ModelPrices => Set<ModelPrice>();
@@ -65,6 +66,17 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.AttachmentPolicy).HasConversion<string>().HasMaxLength(20);
         });
 
+        modelBuilder.Entity<DataApiKey>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.Prefix).HasMaxLength(20);
+            e.Property(x => x.KeyHash).HasMaxLength(64);
+            e.Property(x => x.CreatedBy).HasMaxLength(200);
+            e.HasIndex(x => x.KeyHash).IsUnique();
+            e.HasIndex(x => x.Name).IsUnique();
+        });
+
         modelBuilder.Entity<ProviderAccount>(e =>
         {
             e.Property(x => x.Name).HasMaxLength(100);
@@ -117,7 +129,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.Condition).HasMaxLength(2000);
             e.Property(x => x.Scope).HasConversion<string>().HasMaxLength(20);
-            e.HasIndex(x => new { x.Scope, x.ScopeId, x.Priority });
+            e.HasIndex(x => new { x.Scope, x.Priority });
             e.HasMany(x => x.Targets).WithOne().HasForeignKey(x => x.RoutingRuleId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -159,6 +171,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.HasIndex(x => new { x.VirtualKeyId, x.Timestamp });
             e.HasIndex(x => new { x.TeamId, x.Timestamp });
             e.HasIndex(x => new { x.DepartmentId, x.Timestamp });
+            // PII incidents report: only the few requests in which PII was found.
+            e.HasIndex(x => x.Timestamp, "IX_UsageRecords_Timestamp_Pii").HasFilter("\"PiiCategories\" IS NOT NULL");
         });
 
         modelBuilder.Entity<AuditLogEntry>(e =>

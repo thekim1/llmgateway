@@ -29,10 +29,13 @@ builder.AddUmeWebDefaults(maxRequestBodySize: 1024 * 1024, errors =>
 });
 builder.Services.AddOptions<AdminOptions>().BindConfiguration(AdminOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<GatewayLinkOptions>().BindConfiguration(GatewayLinkOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddOptions<DataApiLinkOptions>().BindConfiguration(DataApiLinkOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOptions<OidcOptions>().BindConfiguration(OidcOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOpenApi();
 builder.Services.AddAdminServices();
 builder.Services.AddSingleton<GatewayOperationsClient>();
+builder.Services.AddSingleton<AzureRetailPrices>();
+builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 // One attempt within discovery's own 20 s timeout: an admin testing a connection should not sit through retries.
 builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
@@ -151,6 +154,7 @@ api.MapConfiguration();
 api.MapRoutingRules();
 api.MapReports();
 api.MapOperations();
+api.MapDataAccess();
 app.MapOpenApi().RequireAuthorization("admin");
 app.MapScalarApiReference().RequireAuthorization("admin");
 app.UseDefaultFiles();

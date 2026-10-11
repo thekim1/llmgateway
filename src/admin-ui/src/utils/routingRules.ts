@@ -1,54 +1,34 @@
 import type { RoutingRule, RoutingRuleRequest, RoutingScope } from '@/api/types'
 import { ROUTING_SCOPES } from '@/api/types'
 
-/** The rules of one scope that belong to the same owner (a team, a department, a key, or "everyone" for global). Order is the checking order. */
-export interface RuleGroup {
-  /** Stable key: scope + owner. */
-  key: string
-  scope: RoutingScope
-  scopeId: string | null
-  /** Owner name; null for global rules and for owners that no longer exist. */
-  ownerName: string | null
-  orphaned: boolean
-  rules: RoutingRule[]
-}
-
+/** The rules of one scope, in checking order. A request is only checked against the rules that apply to its own key, team and department. */
 export interface ScopeSection {
   scope: RoutingScope
-  groups: RuleGroup[]
+  rules: RoutingRule[]
 }
 
 const byOrder = (a: RoutingRule, b: RoutingRule) => a.priority - b.priority || a.name.localeCompare(b.name, 'sv')
 
 /**
- * Groups rules the way the gateway checks them: scope by scope (key, team, department, global), and within a scope per owner,
- * because only an owner's own rules compete with each other. Rules without an owner come last in their scope.
+ * Groups rules the way the gateway checks them: scope by scope (key, team, department, global), each scope by priority then name.
+ * A rule can be shared by several keys, teams or departments, so the order is kept per scope, not per owner.
  */
 export function groupRules(rules: readonly RoutingRule[]): ScopeSection[] {
   const sections: ScopeSection[] = []
   for (const scope of ROUTING_SCOPES) {
     const ofScope = rules.filter((r) => r.scope === scope)
-    if (ofScope.length === 0) continue
-    const groups = new Map<string, RuleGroup>()
-    for (const rule of ofScope) {
-      const key = `${scope}:${rule.scopeId ?? ''}`
-      const group = groups.get(key) ?? {
-        key,
-        scope,
-        scopeId: rule.scopeId,
-        ownerName: rule.scopeName,
-        orphaned: rule.isOrphaned,
-        rules: [],
-      }
-      group.rules.push(rule)
-      groups.set(key, group)
-    }
-    const ordered = [...groups.values()]
-      .map((g) => ({ ...g, rules: [...g.rules].sort(byOrder) }))
-      .sort((a, b) => Number(a.orphaned) - Number(b.orphaned) || (a.ownerName ?? '').localeCompare(b.ownerName ?? '', 'sv'))
-    sections.push({ scope, groups: ordered })
+    if (ofScope.length > 0) sections.push({ scope, rules: [...ofScope].sort(byOrder) })
   }
   return sections
+}
+
+/** Who a rule applies to, in a few words: "Everyone", "Kundtjänst", "Kundtjänst, Ekonomi +2", "No owner". */
+export function ownerSummary(rule: RoutingRule, shown = 2): string {
+  if (rule.scope === 'Global') return 'Every request'
+  const names = rule.owners.map((o) => o.name).filter((n): n is string => !!n)
+  if (names.length === 0) return 'No owner'
+  const more = names.length - shown
+  return names.slice(0, shown).join(', ') + (more > 0 ? ` +${more}` : '')
 }
 
 /** The request that re-saves a rule unchanged (used to flip a single field, such as enabled). */
@@ -57,7 +37,7 @@ export function toRequest(rule: RoutingRule, patch: Partial<RoutingRuleRequest> 
     name: rule.name,
     description: rule.description,
     scope: rule.scope,
-    scopeId: rule.scopeId,
+    scopeIds: [...rule.scopeIds],
     isEnabled: rule.isEnabled,
     priority: rule.priority,
     condition: rule.condition,

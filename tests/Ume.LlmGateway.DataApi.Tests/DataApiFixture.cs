@@ -54,6 +54,8 @@ public sealed class DataApiFixture : IAsyncLifetime
             builder.UseSetting("DataApi:Authority", Issuer);
             builder.UseSetting("DataApi:SettleSeconds", "0");
             builder.UseSetting("DataApi:MinimumGroupSize", "2");
+            // Revocation in the tests takes effect at once; production caches keys for DataApi:KeyCacheSeconds.
+            builder.UseSetting("DataApi:KeyCacheSeconds", "0");
             builder.ConfigureLogging(logging => logging.AddProvider(Logs));
             builder.ConfigureTestServices(services => services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
             {
@@ -97,6 +99,32 @@ public sealed class DataApiFixture : IAsyncLifetime
         });
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return http;
+    }
+
+    /// <summary>A client that presents a Data API key, in the Authorization header (Bearer) or in X-Api-Key.</summary>
+    public HttpClient KeyClient(string key, bool apiKeyHeader = false)
+    {
+        var http = _factory.CreateHttpsClient();
+        if (apiKeyHeader)
+        {
+            http.DefaultRequestHeaders.Add("X-Api-Key", key);
+        }
+        else
+        {
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        }
+
+        return http;
+    }
+
+    /// <summary>Stores a new Data API key and returns it with its plaintext.</summary>
+    public async Task<(DataApiKey Key, string Secret)> CreateKeyAsync(string[] permissions, Action<DataApiKey>? configure = null)
+    {
+        var generated = Domain.Services.DataApiKeyHasher.Generate();
+        var key = new DataApiKey { Name = "integration-" + Guid.NewGuid().ToString("N")[..8], Prefix = generated.Prefix, KeyHash = generated.Hash, Permissions = [.. permissions], CreatedAt = DateTimeOffset.UtcNow };
+        configure?.Invoke(key);
+        await DbAsync(db => { db.DataApiKeys.Add(key); return db.SaveChangesAsync(TestContext.Current.CancellationToken); });
+        return (key, generated.PlainText);
     }
 
     public HttpClient Anonymous() => _factory.CreateHttpsClient(allowAutoRedirect: true);

@@ -36,6 +36,15 @@
   --res-ext: #9A4A00;
   --chart: #3446DB;
   --chart-muted: #C7CCF4;
+  /* Categorical series (provider lines), fixed order; validated for colour-vision deficiency on light surfaces. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
   --focus: #3446DB;
   --scrim: rgba(16, 16, 20, 0.36);
   --shadow-1: 0 1px 2px rgba(20, 20, 30, 0.05), 0 0 0 1px rgba(20, 20, 30, 0.05);
@@ -77,6 +86,15 @@
   --res-ext: #F5A661;
   --chart: #8C98FF;
   --chart-muted: #2B3166;
+  /* The same eight hues, stepped for the dark surface. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
   --focus: #A5AEFF;
   --scrim: rgba(0, 0, 0, 0.6);
   --shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -124,6 +142,15 @@
   --res-ext: #964600;
   --chart: #5236F0;
   --chart-muted: rgba(82, 54, 240, 0.2);
+  /* Categorical series (provider lines), fixed order; validated for colour-vision deficiency on light surfaces. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
   --focus: #5236F0;
   --scrim: rgba(30, 34, 60, 0.28);
   --shadow-1: 0 1px 1px rgba(15, 18, 34, 0.04), 0 10px 30px -14px rgba(15, 18, 34, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(15, 18, 34, 0.06);

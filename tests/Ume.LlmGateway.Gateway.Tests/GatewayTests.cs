@@ -104,6 +104,13 @@ public sealed class GatewayTests(GatewayFixture fixture)
         var route = await fixture.CreateRouteAsync("eu/fail503", "external/fail429");
         using var response = await fixture.SendAsync(await fixture.CreateKeyAsync(), route);
         await AssertErrorAsync(response, 502, "all_providers_failed");
+        // Recorded on the last provider tried (nothing charged), so provider statistics see the failure.
+        var usage = await fixture.UsageAsync(response);
+        usage.Outcome.ShouldBe(RequestOutcome.ProviderError);
+        usage.StatusCode.ShouldBe(502);
+        usage.ProviderName.ShouldBeOneOf("eu", "external"); // the last candidate tried; an open circuit moves a provider last
+        usage.FallbackCount.ShouldBe(1);
+        usage.CostSek.ShouldBe(0);
     }
 
     [Theory]

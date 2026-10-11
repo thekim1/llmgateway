@@ -42,8 +42,8 @@ describe('routing rule endpoints', () => {
 
   it('posts reassign, reorder, validate and test to their own paths', async () => {
     const fetch = stubFetch({})
-    await api.routingRules.reassign('r/1', { scope: 'Team', scopeId: 't2', enable: true })
-    await api.routingRules.reorder({ scope: 'Global', scopeId: null, ruleIds: ['a', 'b'] })
+    await api.routingRules.reassign('r/1', { scope: 'Team', scopeIds: ['t2'], enable: true })
+    await api.routingRules.reorder({ scope: 'Global', ruleIds: ['a', 'b'] })
     await api.routingRules.validate('budget_used > 90')
     await api.routingRules.test({ model: 'ume/chat' })
     expect(fetch.mock.calls.map((c) => [c[1]?.method, c[0]])).toEqual([

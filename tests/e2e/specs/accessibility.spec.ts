@@ -41,7 +41,7 @@ for (const theme of themes) {
     const { teamId, teamName, departmentName } = await testTeam(page)
     const ruleName = `Browser a11y rule ${crypto.randomUUID().slice(0, 8)}`
     const rule = await (await mutate(page, '/api/routing-rules', {
-      name: ruleName, scope: 'Team', scopeId: teamId, condition: 'headers["x-e2e"] == "a11y"', targets: [{ model: 'ume/chat-onprem', weight: 1 }],
+      name: ruleName, scope: 'Team', scopeIds: [teamId], condition: 'headers["x-e2e"] == "a11y"', targets: [{ model: 'ume/chat-onprem', weight: 1 }],
     })).json()
     const open = async (label: string, trigger: () => Promise<void>, dialogName: string | RegExp) => {
       await trigger()
@@ -66,7 +66,7 @@ for (const theme of themes) {
       await open('new rule drawer', () => page.getByRole('button', { name: 'New rule' }).click(), 'New rule')
       await open('test a request dialog', () => page.getByRole('button', { name: 'Test a request' }).click(), 'Test a request')
       await page.getByRole('navigation', { name: 'Routing rules' }).getByRole('button', { name: ruleName }).click()
-      await open('change owner dialog', () => page.getByRole('button', { name: 'Change owner' }).click(), 'Change owner')
+      await open('change owner dialog', () => page.getByRole('button', { name: 'Change owners' }).click(), 'Change owners')
       await open('delete rule dialog', () => page.getByRole('button', { name: 'Delete', exact: true }).click(), 'Delete rule?')
 
       await ready(page, '/organisation')

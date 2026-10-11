@@ -38,6 +38,9 @@ function mountForm(existing = null as ReturnType<typeof rule> | null) {
   return { pinia, wrapper: mount(RuleFormDrawer, { props: { open: true, rule: existing }, global: { plugins: [pinia], stubs: { UiDrawer: inlineOverlay } } }) }
 }
 
+const ownerBox = (wrapper: ReturnType<typeof mountForm>['wrapper'], name: string) =>
+  wrapper.findAll('label').find((l) => l.text().includes(name))!.find('input[type="checkbox"]')
+
 async function fillBasics(wrapper: ReturnType<typeof mountForm>['wrapper'], name = 'Premium', model = 'ume/chat-advanced') {
   await wrapper.find('#rule-name').setValue(name)
   await wrapper.find('#rule-target-0').setValue(model)
@@ -54,7 +57,7 @@ describe('RuleFormDrawer', () => {
     const { wrapper } = mountForm()
     await flushPromises()
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.text()).toContain('Give the rule a name.')
+    expect(wrapper.text()).toContain('Give the rule a title.')
     expect(wrapper.text()).toContain('Choose a model or route for target 1.')
     expect(create).not.toHaveBeenCalled()
   })
@@ -67,7 +70,7 @@ describe('RuleFormDrawer', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(create).toHaveBeenCalledWith({
-      name: 'Premium', description: null, scope: 'Global', scopeId: null, isEnabled: true, priority: 0, condition: '', chain: false,
+      name: 'Premium', description: null, scope: 'Global', scopeIds: [], isEnabled: true, priority: 0, condition: '', chain: false,
       targets: [{ model: 'ume/chat-advanced', weight: 1 }], fallbacks: [],
     })
     expect(wrapper.emitted('saved')).toHaveLength(1)
@@ -77,19 +80,19 @@ describe('RuleFormDrawer', () => {
 
   it('needs an owner for a team rule and puts the new rule after that team’s existing ones', async () => {
     const { wrapper, pinia } = mountForm()
-    useRoutingRulesStore(pinia).items = [rule({ scope: 'Team', scopeId: 't1', scopeName: 'Service desk', priority: 20 })]
+    useRoutingRulesStore(pinia).items = [rule({ scope: 'Team', scopeIds: ['t1'], owners: [{ id: 't1', name: 'Service desk' }], priority: 20 })]
     await flushPromises()
     await wrapper.findAll('[role="radio"]').find((r) => r.text() === 'Team')!.trigger('click')
     await fillBasics(wrapper)
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.text()).toContain('Choose the team this rule applies to.')
+    expect(wrapper.text()).toContain('Choose at least one team this rule applies to.')
     expect(create).not.toHaveBeenCalled()
 
-    await wrapper.find('#rule-owner').setValue('t1')
+    await ownerBox(wrapper, 'Service desk').setValue(true)
     create.mockResolvedValue(rule())
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ scope: 'Team', scopeId: 't1', priority: 30 }))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ scope: 'Team', scopeIds: ['t1'], priority: 30 }))
   })
 
   it('does not save while the condition is known to be invalid', async () => {
@@ -126,9 +129,9 @@ describe('RuleFormDrawer', () => {
     const { wrapper } = mountForm()
     await flushPromises()
     await wrapper.find('#rule-target-0').setValue('gpt-4-turbo')
-    expect(wrapper.text()).toContain('Not an existing model or route.')
+    expect(wrapper.text()).toContain('Not an existing model or route yet.')
     await wrapper.findAll('label').find((l) => l.text().startsWith('Chain'))!.find('input').setValue(true)
-    expect(wrapper.text()).not.toContain('Not an existing model or route.')
+    expect(wrapper.text()).not.toContain('Not an existing model or route yet.')
   })
 
   it('keeps the order of fallbacks and can move them', async () => {
@@ -182,20 +185,34 @@ describe('RuleFormDrawer', () => {
   })
 
   it('cannot enable a rule that has no owner until a new owner is chosen', async () => {
-    const orphan = rule({ scope: 'Team', scopeId: 'gone', scopeName: null, isOrphaned: true, isEnabled: false })
+    const orphan = rule({ scope: 'Team', scopeIds: [], isOrphaned: true, isEnabled: false })
     const { wrapper } = mountForm(orphan)
     await flushPromises()
-    const enabled = wrapper.findAll('label').find((l) => l.text().startsWith('Enabled'))!.find('input')
+    const enabled = wrapper.find('[role="switch"]')
     expect(enabled.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('Choose a new owner above to enable it.')
+    expect(wrapper.text()).toContain('Choose new owners below to enable it.')
 
     update.mockResolvedValue(orphan)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(update).toHaveBeenLastCalledWith(orphan.id, expect.objectContaining({ isEnabled: false, scopeId: 'gone' }))
+    expect(update).toHaveBeenLastCalledWith(orphan.id, expect.objectContaining({ isEnabled: false, scopeIds: [] }))
 
-    await wrapper.find('#rule-owner').setValue('t2')
+    await ownerBox(wrapper, 'Ny grupp').setValue(true)
     expect(enabled.attributes('disabled')).toBeUndefined()
-    expect((enabled.element as HTMLInputElement).checked).toBe(true)
+    expect(enabled.attributes('aria-checked')).toBe('true')
+  })
+
+  it('fills a new rule from a template', async () => {
+    const { wrapper, pinia } = mountForm()
+    const template = rule({
+      name: 'Personal data to a local model', description: 'Template.', isTemplate: true, isEnabled: false,
+      condition: 'pii_detected', targets: [{ model: 'local', weight: 1 }],
+    })
+    useRoutingRulesStore(pinia).items = [template]
+    await flushPromises()
+    await wrapper.find('#rule-template').setValue(template.id)
+    expect((wrapper.find('#rule-name').element as HTMLInputElement).value).toBe('Personal data to a local model')
+    expect((wrapper.find('#rule-target-0').element as HTMLInputElement).value).toBe('local')
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('pii_detected')
   })
 })

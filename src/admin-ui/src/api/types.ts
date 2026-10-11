@@ -73,6 +73,9 @@ export type CircuitState = (typeof CIRCUIT_STATES)[number]
 export const HEALTH_STATUSES = ['Healthy', 'Degraded', 'Unhealthy'] as const
 export type HealthStatus = (typeof HEALTH_STATUSES)[number]
 
+export const PROVIDER_STATUSES = ['Healthy', 'Degraded', 'Unhealthy', 'CircuitOpen', 'NoRecentTraffic', 'Disabled'] as const
+export type ProviderStatus = (typeof PROVIDER_STATUSES)[number]
+
 export const ROLES = ['gateway-admin', 'department-admin', 'viewer'] as const
 export type Role = (typeof ROLES)[number]
 
@@ -227,6 +230,46 @@ export interface RotateKeyResponse {
   key: VirtualKey
   secret: string
   previousKey: VirtualKey
+}
+
+// ---------- Data API access ----------
+/** Data API permissions (consumer classes); the order is the canonical one the API stores them in. */
+export const DATA_PERMISSIONS = ['usage.aggregate', 'usage.detail', 'security.read', 'catalog.read'] as const
+export type DataPermission = (typeof DATA_PERMISSIONS)[number]
+
+export interface DataAccessSettings {
+  /** The Data API's public address; null when the admin API has no DataApi:PublicUrl. */
+  dataApiUrl: string | null
+  permissions: DataPermission[]
+}
+
+/** A key for the read-only Data API. Status is Active, Expired or Revoked. */
+export interface DataApiKey {
+  id: string
+  name: string
+  description: string | null
+  prefix: string
+  permissions: DataPermission[]
+  status: KeyStatus
+  createdAt: IsoDateTime
+  createdBy: string | null
+  expiresAt: IsoDateTime | null
+  revokedAt: IsoDateTime | null
+  /** Approximate: the Data API records use at most every five minutes. */
+  lastUsedAt: IsoDateTime | null
+}
+
+export interface DataApiKeyRequest {
+  name: string
+  description?: string | null
+  permissions: DataPermission[]
+  expiresAt?: IsoDateTime | null
+}
+
+export interface CreateDataApiKeyResponse {
+  key: DataApiKey
+  /** Shown once, never retrievable again. */
+  secret: string
 }
 
 // ---------- Providers, models, routes ----------
@@ -490,6 +533,58 @@ export interface Paged<T> {
   total: number
 }
 
+// ---------- PII incidents ----------
+export const PII_CATEGORIES = ['Personnummer', 'Samordningsnummer', 'Email', 'Phone', 'Iban'] as const
+export type PiiCategory = (typeof PII_CATEGORIES)[number]
+/** The policies that can be applied to a request with PII (a key with `Off` is never scanned). */
+export type PiiAction = Exclude<PiiPolicy, 'Off'>
+
+export interface PiiIncidentsQuery {
+  from?: string
+  to?: string
+  keyId?: string
+  teamId?: string
+  departmentId?: string
+  category?: PiiCategory
+  action?: PiiAction
+  page?: number
+  pageSize?: number
+}
+
+export interface PiiFinding {
+  category: PiiCategory
+  count: number
+}
+
+export interface PiiIncident {
+  requestId: string
+  timestamp: IsoDateTime
+  keyId: string
+  keyPrefix: string
+  keyName: string
+  teamId: string
+  teamName: string
+  departmentId: string
+  departmentName: string
+  endpoint: string
+  requestedModel: string
+  providerName: string | null
+  action: PiiAction
+  categories: PiiFinding[]
+  outcome: RequestOutcome
+  statusCode: number
+  routingRuleName: string | null
+}
+
+/** One page of incidents (all filters) plus counts per category and action (period, department, team and key filters only). */
+export interface PiiIncidentReport extends Paged<PiiIncident> {
+  from: IsoDateTime
+  to: IsoDateTime
+  totalIncidents: number
+  categories: { category: PiiCategory; requests: number; occurrences: number }[]
+  actions: { action: PiiAction; requests: number }[]
+}
+
 // ---------- Catalogue ----------
 export interface CatalogRoute {
   name: string
@@ -536,6 +631,56 @@ export interface OpsProviderHealth {
   fallbackRate24h: number
   p50LatencyMs: number | null
   p95LatencyMs: number | null
+  /** Share of the last 24 h's requests that failed at the provider (5xx, timeouts, broken streams). */
+  providerErrorRate24h: number
+  /** Computed by the admin API from the last hour; see `statusReason`. */
+  status: ProviderStatus
+  statusReason: string
+  recentRequests: number
+  recentProviderErrors: number
+}
+
+export type StatsBucket = 'Hour' | 'Day'
+
+export interface ProviderStatsQuery {
+  from?: IsoDateTime
+  to?: IsoDateTime
+  bucket?: 'hour' | 'day'
+}
+
+export interface ProviderRank {
+  providerId: string
+  name: string
+  exists: boolean
+  requests: number
+  providerErrors: number
+  /** 1 − provider error rate over the period. */
+  availability: number
+  fallbackRate: number
+  p50LatencyMs: number | null
+  p95LatencyMs: number | null
+}
+
+export interface ProviderBucket {
+  providerId: string
+  start: IsoDateTime
+  requests: number
+  providerErrors: number
+  errorRate: number
+  fallbacks: number
+  p50LatencyMs: number | null
+  p95LatencyMs: number | null
+}
+
+export interface ProviderStability {
+  from: IsoDateTime
+  to: IsoDateTime
+  bucket: StatsBucket
+  timeZone: string
+  /** Most stable first. */
+  providers: ProviderRank[]
+  /** Only buckets with traffic. */
+  buckets: ProviderBucket[]
 }
 
 export interface OpsHealth {
@@ -597,22 +742,34 @@ export interface RuleProblem {
   length: number | null
 }
 
+/** A key, team or department a rule applies to; `name` is null when it no longer exists. */
+export interface RuleOwner {
+  id: string
+  name: string | null
+}
+
 export interface RoutingRule {
   id: string
+  /** The rule's title. */
   name: string
   description: string | null
   isEnabled: boolean
-  /** Lower is checked first within a scope and owner. */
+  /** A shipped example rule, off until someone adopts it. Editing or enabling it makes it an ordinary rule. */
+  isTemplate: boolean
+  /** Lower is checked first within a scope. */
   priority: number
   scope: RoutingScope
-  scopeId: string | null
-  scopeName: string | null
-  /** The key/team/department the rule belongs to no longer exists: the rule never applies until it is reassigned. */
+  /** The keys, teams or departments (of the scope's kind) the rule is shared by; empty for global rules. */
+  scopeIds: string[]
+  owners: RuleOwner[]
+  /** None of the rule's keys/teams/departments exists any more: the rule never applies until it is reassigned. */
   isOrphaned: boolean
   condition: string
   chain: boolean
   targets: RuleTarget[]
   fallbacks: string[]
+  /** Targets or fallbacks that do not exist; the rule cannot be enabled until they do. */
+  missingModels: string[]
   validationErrors: RuleProblem[]
   createdAt: IsoDateTime
   updatedAt: IsoDateTime
@@ -622,7 +779,7 @@ export interface RoutingRuleRequest {
   name: string
   description?: string | null
   scope: RoutingScope
-  scopeId?: string | null
+  scopeIds: string[]
   isEnabled: boolean
   priority: number
   condition?: string | null
@@ -639,14 +796,13 @@ export interface RoutingRuleFilter {
 
 export interface RoutingRuleReassignRequest {
   scope: RoutingScope
-  scopeId?: string | null
+  scopeIds: string[]
   /** Enable the rule again (default). */
   enable: boolean
 }
 
 export interface RoutingRuleReorderRequest {
   scope: RoutingScope
-  scopeId?: string | null
   /** Rule ids in the order they should be checked. */
   ruleIds: string[]
 }
@@ -743,6 +899,16 @@ export interface DiscoveredModel {
   parameterProfile: ParameterProfile
   contextWindow: number | null
   features: string[]
-  price: { inputPerMillionUsd: number; cachedInputPerMillionUsd: number; outputPerMillionUsd: number } | null
+  price: DiscoveredPrice | null
   alreadyAdded: boolean
+  /** Where a suggested price came from, e.g. the Azure list price meters of a Foundry deployment. */
+  priceSource: string | null
+}
+
+export interface DiscoveredPrice {
+  inputPerMillionUsd: number
+  cachedInputPerMillionUsd: number
+  outputPerMillionUsd: number
+  audioInputPerMillionUsd?: number
+  audioOutputPerMillionUsd?: number
 }

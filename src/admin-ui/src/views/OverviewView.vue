@@ -6,7 +6,7 @@ import type { UsageSummary } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useOpsStore } from '@/stores/ops'
-import { CIRCUIT_LABEL, HEALTH_STATUS, SCOPE_LABEL, plural } from '@/utils/labels'
+import { PROVIDER_STATUS, SCOPE_LABEL, plural } from '@/utils/labels'
 import { formatMs, formatNumber, formatPercent, formatSek, startOfMonthIso } from '@/utils/format'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import AttentionCard from '@/components/ui/AttentionCard.vue'
@@ -89,8 +89,6 @@ const providerColumns: Column[] = [
   { key: 'p95', label: 'p95', align: 'right' },
 ]
 const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnabled) ?? [])
-const providerStatus = (circuit: 'Open' | 'Closed', errorRate24h: number) =>
-  circuit === 'Open' ? CIRCUIT_LABEL.Open : errorRate24h >= 0.5 ? HEALTH_STATUS.Unhealthy : errorRate24h >= 0.05 ? HEALTH_STATUS.Degraded : HEALTH_STATUS.Healthy
 </script>
 
 <template>
@@ -164,12 +162,19 @@ const providerStatus = (circuit: 'Open' | 'Closed', errorRate24h: number) =>
           >
             <template #cell-name="{ row }"><span class="font-mono font-medium">{{ row.name }}</span></template>
             <template #cell-status="{ row }">
-              <UiBadge :tone="providerStatus(row.circuitState, row.errorRate24h).tone" :label="providerStatus(row.circuitState, row.errorRate24h).label" />
+              <span :title="row.statusReason">
+                <UiBadge :tone="PROVIDER_STATUS[row.status].tone" :label="PROVIDER_STATUS[row.status].label" />
+                <span class="sr-only">. {{ row.statusReason }}</span>
+              </span>
             </template>
             <template #cell-p95="{ row }">
               <span :title="row.p95LatencyMs === null ? 'No traffic in 24 h' : undefined">{{ formatMs(row.p95LatencyMs) }}</span>
             </template>
           </DataTable>
+          <p class="mt-2 text-small text-fg-3">
+            Status: provider failures in the last hour. p95: whole requests over 24 h.
+            <router-link :to="{ name: 'provider-stability' }" class="font-medium text-accent-ink underline">Provider stability</router-link>
+          </p>
         </AsyncState>
       </UiCard>
     </div>

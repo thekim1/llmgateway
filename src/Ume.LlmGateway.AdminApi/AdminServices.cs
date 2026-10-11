@@ -9,8 +9,11 @@ public static class AdminServices
         services.AddScoped<OwnerScopeResolver>();
         services.AddScoped<RoutingRuleService>();
         services.AddScoped<ProviderCatalogService>();
+        services.AddScoped<ProviderStabilityService>();
         services.AddScoped<BudgetAdminService>();
         services.AddScoped<ConfigTransferService>();
+        services.AddScoped<PiiIncidentService>();
+        services.AddScoped<DataAccessService>();
         return services;
     }
 }

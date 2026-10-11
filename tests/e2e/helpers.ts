@@ -131,7 +131,7 @@ export const themes = ['light', 'dark', 'lumen'] as const
 export const themeStorageKey = 'ume-theme'
 
 /** Every page in src/admin-ui/src/router/index.ts, plus the 404 page. Keep in sync with the router. */
-export const pages = ['/', '/usage', '/operations', '/keys', '/organisation', '/catalog', '/getting-started',
+export const pages = ['/', '/usage', '/pii-incidents', '/operations', '/keys', '/organisation', '/catalog', '/getting-started',
   '/routes', '/routing-rules', '/providers', '/budgets', '/audit', '/settings', '/forbidden', '/no-such-page']
 
 export async function ready(page: Page, path: string): Promise<void> {

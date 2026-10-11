@@ -19,7 +19,7 @@ test('create, validate, test, reorder, disable and delete a rule, and see it app
     await ready(page, '/routing-rules')
     await page.getByRole('button', { name: 'New rule' }).click()
     const drawer = page.getByRole('dialog', { name: 'New rule' })
-    await drawer.getByLabel('Name', { exact: true }).fill(name)
+    await drawer.getByLabel('Title', { exact: true }).fill(name)
 
     // Live validation: a broken condition is explained in the live region, a fixed one is confirmed.
     await drawer.locator('#rule-condition').fill('headers["x-e2e" ==')
@@ -56,10 +56,10 @@ test('create, validate, test, reorder, disable and delete a rule, and see it app
     expect(await appliedRule(page, key.secret, 'not-the-marker')).toBeNull()
 
     // Move it earlier and announce the new position.
-    const before = await page.getByText(/Checked \d+ of \d+/).first().textContent()
+    const before = await page.getByText(/Number \d+ of \d+/).first().textContent()
     await page.getByRole('button', { name: 'Check earlier' }).click()
     await expect(page.getByRole('status').filter({ hasText: `${name} is now checked` })).toHaveCount(1)
-    expect(await page.getByText(/Checked \d+ of \d+/).first().textContent()).not.toBe(before)
+    expect(await page.getByText(/Number \d+ of \d+/).first().textContent()).not.toBe(before)
 
     // Disable: the gateway stops applying it. Enable: it applies again.
     await page.getByRole('button', { name: 'Disable', exact: true }).click()
@@ -92,7 +92,7 @@ test('deleting a team keeps its rules switched off until they are given a new ow
   expect(keyResponse.status()).toBe(201)
   const key = await keyResponse.json()
   const ruleResponse = await mutate(page, '/api/routing-rules', {
-    name, scope: 'Team', scopeId: oldTeam.teamId, condition: `headers["x-e2e"] == "${suffix}"`, targets: [{ model: 'ume/chat-onprem', weight: 1 }],
+    name, scope: 'Team', scopeIds: [oldTeam.teamId], condition: `headers["x-e2e"] == "${suffix}"`, targets: [{ model: 'ume/chat-onprem', weight: 1 }],
   })
   expect(ruleResponse.status()).toBe(201)
   const rule = await ruleResponse.json()
@@ -117,11 +117,10 @@ test('deleting a team keeps its rules switched off until they are given a new ow
     expect(await appliedRule(page, key.secret, suffix)).toBeNull()
 
     // Give it to the other team: it is enabled and applies again.
-    await page.getByRole('button', { name: 'Change owner' }).click()
+    await page.getByRole('button', { name: 'Change owners' }).click()
     const reassign = page.getByRole('dialog', { name: 'Assign a new owner' })
     await reassign.getByRole('radio', { name: 'Team' }).click()
-    const option = reassign.locator('#reassign-owner option', { hasText: newTeam.teamName })
-    await reassign.getByLabel('Team', { exact: true }).selectOption((await option.getAttribute('value'))!)
+    await reassign.getByRole('checkbox', { name: new RegExp(`^${newTeam.teamName} · `) }).check()
     await reassign.getByRole('button', { name: 'Assign' }).click()
     await expect(reassign).toBeHidden()
     await expect(page.getByText('This rule has no owner')).toHaveCount(0)

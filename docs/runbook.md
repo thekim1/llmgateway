@@ -303,10 +303,14 @@ and column by column on tables that hold secrets), so it can be deployed in a di
      mapped to a `roles` claim (see the `ume-data-dev` client in `dev/keycloak/ume-realm.json`); Entra ID: app roles
      granted to the client as application permissions.
    - Tokens are accepted from `UME_DATA_AUTHORITY` (defaults to `UME_OIDC_AUTHORITY`).
+   Alternatively (or for integrations that cannot do client credentials) a gateway admin creates a **Data API key** in
+   the admin UI (*Access → Data API access*). Set `UME_DATA_PUBLIC_URL` (admin API `DataApi__PublicUrl`) to the
+   Data API's public address so the UI can show a ready-made example request.
 3. **Settings** (`DataApi__*` in the service environment; the Compose files expose `UME_DATA_AUTHORITY`,
    `UME_DATA_AUDIENCE`, `UME_DATA_MINIMUM_GROUP_SIZE` and `UME_DATA_TIME_ZONE`): `MinimumGroupSize` (5; departments with fewer active keys in a period
    are reported without their department), `TimeZone` (Europe/Stockholm; day and month boundaries), `SettleSeconds`
-   (60), `MaxPageSize` (10 000), `RequestsPerMinute` per client (600), `Detail__IncludePiiCategories` (false).
+   (60), `MaxPageSize` (10 000), `RequestsPerMinute` per client (600), `Detail__IncludePiiCategories` (false), `AllowKeys` (true; Data API keys),
+   `KeyCacheSeconds` (30; how long a revoked key may still work).
 
 Every read is logged as a `data.read` security event (client, path, status, cursor), so the SIEM sees who pulled what.
 
@@ -357,6 +361,8 @@ does not deploy/expose a public Aspire dashboard.
 | No providers | Residency/capability/enable/drain/circuit settings; inspect request_id metadata, not content |
 | Gateway readiness Degraded, check `exchange-rate` | No USD exchange rate is in effect, so costs use `Gateway:FallbackSekPerUsd` (default 10); enter the rate under Settings (`PUT /api/settings/exchange-rate`) |
 | 500 `internal_error` from the gateway | Unexpected failure after acceptance; the request is in the usage records (outcome `ProviderError`, error `internal_error`, nothing charged). Find the logged exception type by `request_id` |
+| Provider shows Degraded or Down but answers | The status covers only the last hour and only provider errors (5xx, timeouts, broken streams), so it clears an hour after a burst. Read the reason next to the status ("7 of 40 requests failed…"), then **Operations > Provider stability** for when it started; find the failed requests in Usage (outcome `ProviderError`, status 5xx, error code e.g. `stream_interrupted`) |
+| p95 latency of several seconds | `latencyMs` is the whole request including fallback attempts and the full stream, so long streamed answers raise it. Compare p50/p95 per hour on **Provider stability**, and the provider's fallback rate |
 | Provider keeps failing but its circuit stays closed | Upstream 401/403/404, `https_required` and `credential_unavailable` are configuration errors: requests fall back but the circuit breaker ignores them. Fix the credential, URL or model name |
 | A service exits at startup with an options validation error | A required or out-of-range setting, e.g. `Oidc:Authority` missing, `Admin:RequestsPerMinute` outside 1–10000, `Gateway:BaseUrl`/`OperationsUrl` not an absolute http(s) URL (admin API), or invalid `Seed:*` settings (migration service) |
 | Budget alert webhook not received | Each alert is posted once (5 s timeout, no retries) and is still stored (`GET /api/alerts`); a warning is logged when the post fails or the 1 000-alert queue is full |

@@ -33,7 +33,7 @@ test('routing example screenshots', async ({ page }) => {
   await ready(page, '/routing-rules')
   await page.getByRole('button', { name: 'New rule' }).click()
   let drawer = page.getByRole('dialog', { name: 'New rule' })
-  await drawer.getByLabel('Name', { exact: true }).fill(FALLBACK)
+  await drawer.getByLabel('Title', { exact: true }).fill(FALLBACK)
   await drawer.getByLabel('Description').fill('If ume/chat-advanced does not answer, use ume/chat-standard.')
   await drawer.locator('#rule-condition').fill('model == "ume/chat-advanced"')
   await drawer.locator('#rule-target-0').fill('ume/chat-advanced')
@@ -53,7 +53,7 @@ test('routing example screenshots', async ({ page }) => {
   // 2. Personal data stays on-prem.
   await page.getByRole('button', { name: 'New rule' }).click()
   drawer = page.getByRole('dialog', { name: 'New rule' })
-  await drawer.getByLabel('Name', { exact: true }).fill(PII)
+  await drawer.getByLabel('Title', { exact: true }).fill(PII)
   await drawer.getByLabel('Description').fill('Chats that contain personal data only go to our own servers. No fallbacks, so they never leave.')
   await drawer.locator('#rule-condition').fill('pii_detected && endpoint == "chat_completions"')
   await drawer.locator('#rule-target-0').fill('ume/chat-onprem')
