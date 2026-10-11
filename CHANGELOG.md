@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-10-11
+
 **Fix: the same model from two providers.** Two models whose names differ only in case (`DeepSeek-V4.1-Flash` from Foundry, `deepseek-v4.1-flash` from Ollama) stopped the gateway from loading its catalogue ("An item with the same key has already been added"). Model names are now unique per provider (migration `ModelNamesPerProvider`), so several providers can offer a model of the same name. Clients use the *public name*: the plain name while one provider has it, `<provider>/<model>` when several do (`<provider>/<model>` always works). A plain name several providers share is refused with `400 model_ambiguous` listing the choices; the gateway never picks a provider or falls back to another one by itself: only a route an admin creates does. `GET /v1/models`, `/api/catalog` and `/api/models` (`publicName`) show public names; routing rules and config import accept public and `<provider>/<model>` names; discovery adds models under their own name and marks names other providers also offer. A key that allows the plain name may use each provider's model of that name.
 
 **Fix:** *Discover models* in the provider form used the saved provider, so a URL or key typed but not yet saved was ignored (a seeded placeholder such as `example-swc.services.ai.azure.com` gave "No such host is known"). With unsaved changes the button now reads *Save and discover models*: it saves first and opens discovery only if the save succeeds.
