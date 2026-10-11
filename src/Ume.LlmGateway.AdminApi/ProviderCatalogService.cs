@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -65,7 +66,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     /// <summary>Copies the request onto the provider. A <c>null</c> credential keeps the stored one; an empty one removes it.</summary>
     public void Apply(ProviderAccount p, ProviderRequest input)
     {
-        p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.Type == ProviderType.AzureAIFoundry ? FoundryEndpoint.InferenceBaseUrl(input.BaseUrl).TrimEnd('/') : input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
+        p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
         p.Residency = input.Residency; p.Capabilities = input.Capabilities.Aggregate(ProviderCapabilities.None, (a, b) => a | b); p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
         if (input.Credential is not null) { p.EncryptedCredential = input.Credential.Length == 0 ? null : protector.Protect(input.Credential); }
     }
@@ -73,7 +74,8 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     // ---- models and prices -------------------------------------------------------------------------------
 
     public async Task<List<ModelDto>> ModelsAsync(CancellationToken ct) =>
-        [.. (await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).OrderBy(m => m.Name).ToListAsync(ct)).Select(m => ModelDto.Of(m, ctx.Now))];
+        await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).OrderBy(m => m.Name).ToListAsync(ct) is var all
+            && PublicModelNames.Public(all) is var names ? [.. all.Select(m => ModelDto.Of(m, ctx.Now, names[m.Id]))] : [];
 
     public async Task<ModelDeployment> ModelAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).SingleOrDefaultAsync(m => m.Id == id, ct)
@@ -82,23 +84,25 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     public async Task<ModelDto> CreateModelAsync(ClaimsPrincipal user, ModelRequest input, CancellationToken ct)
     {
         var provider = await ProviderAsync(input.ProviderId, ct);
+        await EnsureModelNameFreeAsync(input.Name.Trim(), null, provider.Id, ct);
         var m = new ModelDeployment { Name = input.Name.Trim(), UpstreamModel = input.UpstreamModel, ProviderAccount = provider, ProviderAccountId = provider.Id };
         Apply(m, input);
         if (input.Price is { } price) { m.Prices.Add(NewPrice(price)); }
         ctx.Db.ModelDeployments.Add(m);
         await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.Model, m.Id, null, ModelAudit.Of(m), InvalidationKind.Config, ct);
-        return ModelDto.Of(m, ctx.Now);
+        return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
     }
 
     public async Task<ModelDto> UpdateModelAsync(ClaimsPrincipal user, Guid id, ModelRequest input, CancellationToken ct)
     {
         var m = await ModelAsync(id, ct);
         await EnsureKindCanChangeAsync(m, input.Kind, ct);
+        await EnsureModelNameFreeAsync(input.Name.Trim(), id, m.ProviderAccountId, ct);
         if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(m.Name, "byta namn", ct); }
         var before = ModelAudit.Of(m);
         Apply(m, input);
         await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Model, id, before, ModelAudit.Of(m), InvalidationKind.Config, ct);
-        return ModelDto.Of(m, ctx.Now);
+        return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
     }
 
     public async Task DeleteModelAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
@@ -127,6 +131,27 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         {
             m.Features = [.. input.Features.Select(f => f.Trim().ToLowerInvariant()).Where(f => f.Length is > 0 and <= 40).Distinct().Take(20).Order()];
         }
+    }
+
+    /// <summary>
+    /// A model's name is unique per provider, compared case-insensitively as the gateway does. Other providers may use the
+    /// same name: clients then name the provider (<see cref="PublicModelNames"/>).
+    /// </summary>
+    private async Task EnsureModelNameFreeAsync(string name, Guid? id, Guid providerId, CancellationToken ct)
+    {
+        var pattern = LikeLiteral(name);
+        if (await ctx.Db.ModelDeployments.AnyAsync(x => x.Id != id && x.ProviderAccountId == providerId && EF.Functions.ILike(x.Name, pattern, LikeEscape), ct))
+        {
+            throw new ApiFaultException(409, $"Leverantören har redan en modell som heter {name}.");
+        }
+    }
+
+    /// <summary>The model's public name: provider/name when another provider has a model of the same name.</summary>
+    public async Task<string> PublicNameAsync(ModelDeployment m, CancellationToken ct)
+    {
+        var pattern = LikeLiteral(m.Name);
+        var shared = await ctx.Db.ModelDeployments.AnyAsync(x => x.Id != m.Id && EF.Functions.ILike(x.Name, pattern, LikeEscape), ct);
+        return shared ? PublicModelNames.Qualified(m.ProviderAccount?.Name ?? (await ProviderAsync(m.ProviderAccountId, ct)).Name, m.Name) : m.Name;
     }
 
     public async Task<List<PriceDto>> PricesAsync(Guid id, CancellationToken ct) =>
@@ -167,6 +192,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     public async Task<RouteDto> CreateRouteAsync(ClaimsPrincipal user, RouteRequest input, CancellationToken ct)
     {
         var r = new RouteAlias { Name = input.Name.Trim() };
+        await EnsureRouteNameFreeAsync(r.Name, null, ct);
         await ApplyRouteAsync(r, input, ct);
         ctx.Db.RouteAliases.Add(r);
         await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.Route, r.Id, null, RouteAudit.Of(r), InvalidationKind.Config, ct);
@@ -177,6 +203,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     {
         var r = await RouteAsync(id, ct);
         if (!string.Equals(r.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(r.Name, "byta namn", ct); }
+        await EnsureRouteNameFreeAsync(input.Name.Trim(), id, ct);
         var before = RouteAudit.Of(r);
         await ApplyRouteAsync(r, input, ct);
         await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Route, id, before, RouteAudit.Of(r), InvalidationKind.Config, ct);
@@ -189,6 +216,23 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         await rules.EnsureNotUsedByRulesAsync(r.Name, "tas bort", ct);
         ctx.Db.RouteAliases.Remove(r);
         await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.Route, id, RouteAudit.Of(r), null, InvalidationKind.Config, ct);
+    }
+
+    private const string LikeEscape = "\\";
+
+    /// <summary>A name as an ILIKE pattern that matches only itself (case-insensitively): wildcards are escaped.</summary>
+    private static string LikeLiteral(string name) =>
+        name.Replace(LikeEscape, LikeEscape + LikeEscape, StringComparison.Ordinal)
+            .Replace("%", LikeEscape + "%", StringComparison.Ordinal).Replace("_", LikeEscape + "_", StringComparison.Ordinal);
+
+    /// <summary>Route names are matched case-insensitively. A route may share a model's name: the route is used (fallback).</summary>
+    private async Task EnsureRouteNameFreeAsync(string name, Guid? id, CancellationToken ct)
+    {
+        var pattern = LikeLiteral(name);
+        if (await ctx.Db.RouteAliases.AnyAsync(x => x.Id != id && EF.Functions.ILike(x.Name, pattern, LikeEscape), ct))
+        {
+            throw new ApiFaultException(409, $"Det finns redan en rutt som heter {name}.");
+        }
     }
 
     /// <summary>Copies the request onto the route and replaces its targets. The targets' models must exist and be of the route's kind.</summary>

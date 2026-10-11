@@ -84,11 +84,12 @@ public sealed record PriceDto(
 
 public sealed record ModelDto(
     Guid Id, Guid ProviderId, string? ProviderName, DataResidency? Residency, string Name, string UpstreamModel, ModelKind Kind,
-    ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice)
+    ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice, string PublicName)
 {
-    public static ModelDto Of(ModelDeployment m, DateTimeOffset now) => new(
+    /// <summary>The model; <c>publicName</c> is what clients call it: its name, or provider/name when another provider has the same name.</summary>
+    public static ModelDto Of(ModelDeployment m, DateTimeOffset now, string publicName) => new(
         m.Id, m.ProviderAccountId, m.ProviderAccount?.Name, m.ProviderAccount?.Residency, m.Name, m.UpstreamModel, m.Kind,
-        m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null);
+        m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null, publicName);
 }
 
 public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, RouteTargetDto[] Targets)

@@ -37,7 +37,7 @@ export function useModelOptions() {
           residencies: [...new Set(r.targets.map((t) => t.residency))],
           providers: [...new Set(r.targets.map((t) => t.providerName))],
         })),
-        ...models.items.map((m) => ({ name: m.name, source: 'model' as const, residencies: [m.residency], providers: [m.providerName] })),
+        ...models.items.map((m) => ({ name: m.publicName, source: 'model' as const, residencies: [m.residency], providers: [m.providerName] })),
       ]
     }
     const data = catalog.catalog

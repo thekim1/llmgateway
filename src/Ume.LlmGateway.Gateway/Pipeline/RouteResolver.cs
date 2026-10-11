@@ -56,11 +56,13 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
         var resolved = snapshot.Resolve(model);
         if (resolved is null)
         {
-            // A rule may rewrite an unknown (e.g. legacy) name; without rules it is simply not found.
-            return snapshot.Rules.Count > 0 ? new ModelResolution(null, null) : Reject(404, GatewayErrorCodes.ModelNotFound, NotFound(model));
+            // A rule may rewrite an unknown (e.g. legacy) or ambiguous name; without rules it is refused.
+            return snapshot.Rules.Count > 0 ? new ModelResolution(null, null)
+                : snapshot.AmbiguousChoices(model) is { } choices ? Reject(400, GatewayErrorCodes.ModelAmbiguous, Ambiguous(model, choices))
+                : Reject(404, GatewayErrorCodes.ModelNotFound, NotFound(model));
         }
 
-        if (!key.IsModelAllowed(resolved.Name))
+        if (!resolved.IsAllowedFor(key))
         {
             return Reject(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(resolved.Name));
         }
@@ -87,9 +89,9 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
 
         if (!decision.Matched)
         {
-            return requested is null
-                ? Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel))
-                : new RoutePlan([requested], null);
+            return requested is not null ? new RoutePlan([requested], null)
+                : snapshot.AmbiguousChoices(requestedModel) is { } choices ? Rejected(400, GatewayErrorCodes.ModelAmbiguous, Ambiguous(requestedModel, choices))
+                : Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel));
         }
 
         if (requested is null)
@@ -102,7 +104,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
                 return Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel));
             }
 
-            if (!key.IsModelAllowed(entitled.Name))
+            if (!entitled.IsAllowedFor(key))
             {
                 return Rejected(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(entitled.Name));
             }
@@ -176,6 +178,10 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
 
     private static string NotFound(string model) =>
         $"Modellen '{ModelNames.Truncate(model)}' finns inte. Se GET /v1/models för tillgängliga modeller.";
+
+    private static string Ambiguous(string model, IReadOnlyList<string> choices) =>
+        $"Flera leverantörer har modellen '{ModelNames.Truncate(model)}'. Ange leverantören: {string.Join(", ", choices)}. " +
+        "En administratör kan också skapa en rutt med namnet för att välja leverantör eller reserv.";
 
     private static string ModelNotAllowed(string name) => $"Nyckeln får inte använda modellen '{name}'.";
 

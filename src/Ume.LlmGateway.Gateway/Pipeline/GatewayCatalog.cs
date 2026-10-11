@@ -24,8 +24,35 @@ public sealed class CatalogSnapshot
         bool usesFallbackRate = false)
     {
         Providers = providers;
-        Routes = routes.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
-        Deployments = providers.SelectMany(p => p.Deployments).ToDictionary(d => d.Name, StringComparer.OrdinalIgnoreCase);
+        var duplicates = new List<string>();
+        Routes = ByName(routes, r => r.Name, duplicates);
+
+        // Names are unique per provider; see PublicModelNames for how clients address a model several providers offer.
+        var owned = providers.SelectMany(p => p.Deployments.Select(d => (Provider: p.Name, Deployment: d))).OrderBy(x => x.Deployment.Id).ToList();
+        var shared = PublicModelNames.SharedNames(owned.Select(x => x.Deployment.Name));
+        var byPublic = new Dictionary<string, ModelDeployment>(StringComparer.OrdinalIgnoreCase);
+        var ambiguous = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (provider, deployment) in owned)
+        {
+            var qualified = PublicModelNames.Qualified(provider, deployment.Name);
+            var publicName = shared.Contains(deployment.Name) ? qualified : deployment.Name;
+            _names[deployment.Id] = (publicName, qualified);
+            if (!byPublic.TryAdd(publicName, deployment))
+            {
+                duplicates.Add(publicName);
+            }
+
+            _qualified.TryAdd(qualified, deployment);
+
+            if (shared.Contains(deployment.Name))
+            {
+                (ambiguous.TryGetValue(deployment.Name, out var choices) ? choices : ambiguous[deployment.Name] = []).Add(qualified);
+            }
+        }
+
+        Deployments = byPublic;
+        _ambiguous = ambiguous.ToDictionary(a => a.Key, a => (IReadOnlyList<string>)[.. a.Value.Order(StringComparer.OrdinalIgnoreCase)], StringComparer.OrdinalIgnoreCase);
+        DuplicateNames = duplicates;
         Budgets = budgets.ToLookup(b => (b.Scope, b.ScopeId));
         SekPerUsd = sekPerUsd;
         LoadedAt = loadedAt;
@@ -37,8 +64,28 @@ public sealed class CatalogSnapshot
     }
 
     public IReadOnlyList<ProviderAccount> Providers { get; }
+
+    /// <summary>
+    /// Model or route names that differ only in case from one already loaded (names are matched case-insensitively, the
+    /// database's unique index is case-sensitive). The earlier entry is used; the admin API refuses new duplicates.
+    /// </summary>
+    public IReadOnlyList<string> DuplicateNames { get; }
     public IReadOnlyDictionary<string, RouteAlias> Routes { get; }
+    /// <summary>Deployments by public name (see <see cref="PublicModelNames"/>).</summary>
     public IReadOnlyDictionary<string, ModelDeployment> Deployments { get; }
+
+    private readonly Dictionary<Guid, (string Public, string Qualified)> _names = [];
+    private readonly Dictionary<string, ModelDeployment> _qualified = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<string>> _ambiguous;
+
+    /// <summary>The deployment's public name (the plain name, or provider/name when several providers have it).</summary>
+    public string PublicName(ModelDeployment deployment) => _names.TryGetValue(deployment.Id, out var n) ? n.Public : deployment.Name;
+
+    /// <summary>
+    /// For a plain name several providers offer (and no route has), the provider/name choices the client can use; the
+    /// gateway refuses to pick one. <c>null</c> when the name is not ambiguous.
+    /// </summary>
+    public IReadOnlyList<string>? AmbiguousChoices(string model) => Routes.ContainsKey(model) ? null : _ambiguous.GetValueOrDefault(model);
     public ILookup<(BudgetScope Scope, Guid ScopeId), Budget> Budgets { get; }
     public decimal SekPerUsd { get; }
 
@@ -61,6 +108,20 @@ public sealed class CatalogSnapshot
     /// <summary>Decrypted provider credentials, cached for this snapshot's lifetime (see <see cref="ProviderCredentials"/>).</summary>
     internal ProviderCredentials Credentials { get; } = new();
 
+    private static Dictionary<string, T> ByName<T>(IEnumerable<T> items, Func<T, string> name, List<string> duplicates)
+    {
+        var byName = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (!byName.TryAdd(name(item), item))
+            {
+                duplicates.Add(name(item));
+            }
+        }
+
+        return byName;
+    }
+
     /// <summary>Resolves a requested model name to candidate targets: a route alias, or a concrete deployment.</summary>
     public ResolvedModel? Resolve(string model)
     {
@@ -69,17 +130,30 @@ public sealed class CatalogSnapshot
             return route.IsEnabled ? new ResolvedModel(route.Name, route.Kind, route.Targets) : null;
         }
 
-        if (Deployments.TryGetValue(model, out var deployment))
+        if (Deployments.TryGetValue(model, out var deployment) || _qualified.TryGetValue(model, out deployment))
         {
-            return new ResolvedModel(deployment.Name, deployment.Kind,
-                [new RouteTarget { ModelDeployment = deployment, ModelDeploymentId = deployment.Id, Priority = 0, Weight = 1 }]);
+            var (publicName, qualified) = _names.TryGetValue(deployment.Id, out var n) ? n : (deployment.Name, deployment.Name);
+            return new ResolvedModel(publicName, deployment.Kind,
+                [new RouteTarget { ModelDeployment = deployment, ModelDeploymentId = deployment.Id, Priority = 0, Weight = 1 }],
+                deployment.Name, qualified);
         }
 
         return null;
     }
 }
 
-public sealed record ResolvedModel(string Name, ModelKind Kind, IReadOnlyList<RouteTarget> Targets);
+/// <summary>
+/// A requested name resolved to a route or one deployment. For a deployment, <see cref="PlainName"/> and
+/// <see cref="QualifiedName"/> are its other names; a key that allows any of them may use it.
+/// </summary>
+public sealed record ResolvedModel(string Name, ModelKind Kind, IReadOnlyList<RouteTarget> Targets, string? PlainName = null, string? QualifiedName = null)
+{
+    public bool IsAllowedFor(VirtualKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return key.IsModelAllowed(Name) || (PlainName is { } plain && key.IsModelAllowed(plain)) || (QualifiedName is { } qualified && key.IsModelAllowed(qualified));
+    }
+}
 
 /// <summary>
 /// Loads and caches the routing catalogue. An admin change (via <see cref="IInvalidationBus"/>) drops the snapshot, so
@@ -211,6 +285,9 @@ public sealed partial class GatewayCatalog : IDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "No {Currency} exchange rate is in effect; costs are calculated with Gateway:FallbackSekPerUsd = {SekPerUsd}. Enter a rate in the admin API.")]
     private static partial void LogFallbackRate(ILogger logger, string currency, decimal sekPerUsd);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Model or route name '{Name}' differs only in case from another one and is ignored; rename it in the admin UI")]
+    private static partial void LogDuplicateName(ILogger logger, string name);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Routing rule '{Rule}' ({RuleId}) is ignored: {Error}")]
     private static partial void LogRuleIgnored(ILogger logger, string rule, Guid ruleId, string error);
 
@@ -237,6 +314,9 @@ public sealed partial class GatewayCatalog : IDisposable
         var deployments = new Dictionary<Guid, ModelDeployment>();
         foreach (var provider in providers)
         {
+            // A Foundry provider keeps the project endpoint the admin entered (it names the project for discovery);
+            // requests go to the resource's /openai/v1 or /anthropic/v1. Derived once per snapshot, not per request.
+            provider.BaseUrl = FoundryEndpoint.RequestBaseUrl(provider.Type, provider.BaseUrl);
             foreach (var deployment in provider.Deployments)
             {
                 deployment.ProviderAccount = provider;
@@ -261,8 +341,14 @@ public sealed partial class GatewayCatalog : IDisposable
             LogRuleIgnored(_logger, error.RuleName, error.RuleId, error.Message);
         }
 
-        return new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
+        var snapshot = new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
             usesFallbackRate: rate is null);
+        foreach (var name in snapshot.DuplicateNames)
+        {
+            LogDuplicateName(_logger, name);
+        }
+
+        return snapshot;
     }
 
     public void Dispose()

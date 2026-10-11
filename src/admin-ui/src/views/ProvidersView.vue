@@ -278,6 +278,9 @@ onMounted(load)
           <span class="flex flex-col">
             <span class="font-mono font-medium">{{ row.name }}</span>
             <span class="font-mono text-caption text-fg-3">{{ row.upstreamModel }}</span>
+            <span v-if="row.publicName !== row.name" class="text-caption text-fg-3">
+              Other providers have this name; clients call <span class="font-mono">{{ row.publicName }}</span>
+            </span>
           </span>
         </template>
         <template #cell-provider="{ row }">

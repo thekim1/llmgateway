@@ -55,6 +55,41 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Two_providers_may_offer_a_model_of_the_same_name_and_clients_then_name_the_provider()
+    {
+        using var client = await fixture.ClientAsync();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        async Task<Guid> ProviderAsync(string name)
+        {
+            using var response = await client.PostAsJsonAsync("/api/providers", new
+            {
+                name, baseUrl = "https://provider.invalid/v1", type = "OpenAICompatible", authMode = "None",
+                residency = "Eu", capabilities = new[] { "ChatCompletions" }, timeoutSeconds = 10, isEnabled = true,
+            }, Ct);
+            return (await AdminFixture.ReadAsync(response, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+        }
+        Task<HttpResponseMessage> ModelAsync(Guid providerId, string name) => client.PostAsJsonAsync("/api/models", new
+        {
+            providerId, name, upstreamModel = name, kind = "Chat", parameterProfile = "Standard", isEnabled = true,
+        }, Ct);
+        var foundry = await ProviderAsync("foundry-" + suffix);
+        var ollama = await ProviderAsync("ollama-" + suffix);
+        var model = $"DeepSeek-{suffix}_x";
+
+        using var first = await ModelAsync(foundry, model);
+        (await AdminFixture.ReadAsync(first, HttpStatusCode.Created))["publicName"]!.GetValue<string>().ShouldBe(model);
+        using var second = await ModelAsync(ollama, model.ToLowerInvariant());
+        (await AdminFixture.ReadAsync(second, HttpStatusCode.Created))["publicName"]!.GetValue<string>().ShouldBe($"ollama-{suffix}/{model.ToLowerInvariant()}");
+        using var sameProviderOtherCase = await ModelAsync(ollama, model.ToUpperInvariant());
+        sameProviderOtherCase.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        using var underscoreIsNotAWildcard = await ModelAsync(ollama, $"DeepSeek-{suffix}-x");
+        underscoreIsNotAWildcard.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        using var list = await client.GetAsync("/api/models", Ct);
+        var mine = (await AdminFixture.ReadAsync(list, HttpStatusCode.OK)).AsArray().Where(m => m!["name"]!.GetValue<string>().Contains(suffix, StringComparison.Ordinal)).ToList();
+        mine.Select(m => m!["publicName"]!.GetValue<string>()).ShouldBe([$"foundry-{suffix}/{model}", $"ollama-{suffix}/{model.ToLowerInvariant()}", $"DeepSeek-{suffix}-x"], ignoreOrder: true);
+    }
+    [Fact]
     public async Task Audit_details_are_snapshots_of_stored_settings()
     {
         using var client = await fixture.ClientAsync();

@@ -383,7 +383,7 @@ public sealed partial class GatewayRequestHandler
     private static ModelDeployment? SameProviderTranscription(CatalogSnapshot snapshot, VirtualKey key, ProviderAccount provider, RoutingConstraints constraints, string name)
     {
         var resolved = snapshot.Resolve(name);
-        if (resolved is not { Kind: ModelKind.Transcription } || !key.IsModelAllowed(resolved.Name))
+        if (resolved is not { Kind: ModelKind.Transcription } || !resolved.IsAllowedFor(key))
         {
             return null;
         }

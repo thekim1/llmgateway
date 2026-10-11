@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.ServiceDefaults;
 
@@ -185,13 +186,28 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
     }
 
     [Theory]
-    [InlineData("https://res.services.ai.azure.com/api/projects/umea", "https://res.services.ai.azure.com/openai/v1")]
-    [InlineData("https://res.services.ai.azure.com/api/projects/umea/", "https://res.services.ai.azure.com/openai/v1")]
-    [InlineData("https://res.services.ai.azure.com", "https://res.services.ai.azure.com/openai/v1")]
-    [InlineData("https://res.services.ai.azure.com/openai/v1", "https://res.services.ai.azure.com/openai/v1")]
-    [InlineData("https://res.openai.azure.com/openai/v1", "https://res.openai.azure.com/openai/v1")]
-    public void A_Foundry_project_endpoint_is_saved_as_the_inference_address(string entered, string saved) =>
-        FoundryEndpoint.InferenceBaseUrl(entered).ShouldBe(saved);
+    [InlineData(ProviderType.AzureAIFoundry, "https://res.services.ai.azure.com/api/projects/umea", "https://res.services.ai.azure.com/openai/v1")]
+    [InlineData(ProviderType.AzureAIFoundry, "https://res.services.ai.azure.com/api/projects/umea/", "https://res.services.ai.azure.com/openai/v1")]
+    [InlineData(ProviderType.AzureAIFoundry, "https://res.services.ai.azure.com", "https://res.services.ai.azure.com/openai/v1")]
+    [InlineData(ProviderType.AzureAIFoundry, "https://res.services.ai.azure.com/openai/v1", "https://res.services.ai.azure.com/openai/v1")]
+    [InlineData(ProviderType.AzureAIFoundry, "https://res.openai.azure.com/openai/v1", "https://res.openai.azure.com/openai/v1")]
+    [InlineData(ProviderType.Anthropic, "https://res.services.ai.azure.com/api/projects/umea", "https://res.services.ai.azure.com/anthropic/v1")]
+    [InlineData(ProviderType.Anthropic, "https://res.services.ai.azure.com/anthropic/v1", "https://res.services.ai.azure.com/anthropic/v1")]
+    [InlineData(ProviderType.Anthropic, "https://api.anthropic.com/v1", "https://api.anthropic.com/v1")]
+    [InlineData(ProviderType.OpenAICompatible, "https://res.services.ai.azure.com/api/projects/umea", "https://res.services.ai.azure.com/api/projects/umea")]
+    public void Requests_go_to_the_resource_address_of_a_saved_project_endpoint(ProviderType type, string saved, string requests) =>
+        FoundryEndpoint.RequestBaseUrl(type, saved).ShouldBe(requests);
+
+    [Fact]
+    public async Task A_404_without_a_project_asks_for_the_project_endpoint()
+    {
+        using var list = new FakeProvider("{}", HttpStatusCode.NotFound);
+
+        var fault = await Should.ThrowAsync<ApiFaultException>(() =>
+            DiscoverAsync(Provider("https://res.services.ai.azure.com/openai/v1", ProviderType.AzureAIFoundry, ProviderAuthMode.ApiKeyHeader), list));
+
+        fault.Message.ShouldContain("/api/projects/<projekt>");
+    }
 
     [Fact]
     public async Task Anthropic_asks_for_the_whole_list_and_keeps_a_base_query_string()

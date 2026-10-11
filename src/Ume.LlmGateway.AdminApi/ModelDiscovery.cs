@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;
 
@@ -112,7 +113,9 @@ public static partial class ModelDiscovery
                 {
                     (401 or 403, true) => "Kontrollera att API-nyckeln hör till Foundry-resursen och att den tillåter projektets API.",
                     (401 or 403, false) => "Kontrollera API-nyckeln.",
-                    (404, true) => "Ange Foundry-resursens adress (https://<resurs>.services.ai.azure.com/openai/v1) eller projektets adress.",
+                    (404, true) => FoundryEndpoint.ProjectName(provider.BaseUrl) is null
+                        ? "Ange projektets adress från Foundry-portalen (https://<resurs>.services.ai.azure.com/api/projects/<projekt>) som bas-URL, så att modellerna kan listas."
+                        : "Kontrollera projektnamnet i bas-URL:en (https://<resurs>.services.ai.azure.com/api/projects/<projekt>).",
                     _ => "Kontrollera adressen och inloggningsmetoden.",
                 };
                 throw new ApiFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");

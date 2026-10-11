@@ -50,7 +50,7 @@ const timeoutSeconds = ref('120')
 const isEnabled = ref(true)
 const baseUrlHint = computed(() =>
   type.value === 'AzureAIFoundry'
-    ? 'The project endpoint from the Foundry portal (…services.ai.azure.com/api/projects/<project>) is saved as the resource’s …/openai/v1 address. Discover models lists the project’s deployments.'
+    ? 'Paste the project endpoint from the Foundry portal (…services.ai.azure.com/api/projects/<project>). Discover models lists that project’s deployments; requests go to the resource’s …/openai/v1.'
     : undefined,
 )
 const busy = ref(false)
@@ -63,28 +63,49 @@ const typeOptions = PROVIDER_TYPES.map((v) => ({ value: v, label: PROVIDER_TYPE_
 const authOptions = PROVIDER_AUTH_MODES.map((v) => ({ value: v, label: AUTH_MODE_LABEL[v] }))
 const residencyOptions = DATA_RESIDENCIES.map((v) => ({ value: v, label: `${RESIDENCY[v].glyph} ${RESIDENCY[v].label}` }))
 const deleteBlocked = computed(() => (props.provider?.deploymentCount ?? 0) > 0)
+/** Discovery uses the saved provider, so unsaved edits (a new URL or key) are saved first. */
+const dirty = computed(() => {
+  const p = props.provider
+  if (!p) return false
+  return (
+    name.value.trim() !== p.name ||
+    (displayName.value.trim() || null) !== (p.displayName ?? null) ||
+    type.value !== p.type ||
+    baseUrl.value.trim() !== p.baseUrl ||
+    authMode.value !== p.authMode ||
+    credential.value !== '' ||
+    clearCredential.value ||
+    residency.value !== p.residency ||
+    [...capabilities.value].sort().join() !== [...p.capabilities].sort().join() ||
+    Number(timeoutSeconds.value) !== p.timeoutSeconds ||
+    isEnabled.value !== p.isEnabled
+  )
+})
 
 watch(
   () => props.open,
   (open) => {
     if (!open) return
     clear()
-    const p = props.provider
-    name.value = p?.name ?? ''
-    displayName.value = p?.displayName ?? ''
-    type.value = p?.type ?? 'OpenAICompatible'
-    baseUrl.value = p?.baseUrl ?? ''
-    authMode.value = p?.authMode ?? 'None'
-    credential.value = ''
-    clearCredential.value = false
-    residency.value = p?.residency ?? 'OnPrem'
-    capabilities.value = p ? [...p.capabilities] : ['ChatCompletions', 'Streaming']
-    timeoutSeconds.value = String(p?.timeoutSeconds ?? 120)
-    isEnabled.value = p?.isEnabled ?? true
+    fill(props.provider)
     drainError.value = null
   },
   { immediate: true },
 )
+
+function fill(p: Provider | null): void {
+  name.value = p?.name ?? ''
+  displayName.value = p?.displayName ?? ''
+  type.value = p?.type ?? 'OpenAICompatible'
+  baseUrl.value = p?.baseUrl ?? ''
+  authMode.value = p?.authMode ?? 'None'
+  credential.value = ''
+  clearCredential.value = false
+  residency.value = p?.residency ?? 'OnPrem'
+  capabilities.value = p ? [...p.capabilities] : ['ChatCompletions', 'Streaming']
+  timeoutSeconds.value = String(p?.timeoutSeconds ?? 120)
+  isEnabled.value = p?.isEnabled ?? true
+}
 
 function toggleCapability(capability: ProviderCapability, on: boolean): void {
   capabilities.value = on ? [...capabilities.value, capability] : capabilities.value.filter((c) => c !== capability)
@@ -105,7 +126,7 @@ function timeoutProblem(): string | false {
   return timeoutSeconds.value.trim() !== '' && Number.isFinite(value) && value >= 1 && value <= 900 ? false : 'Enter a timeout between 1 and 900 seconds.'
 }
 
-async function submit(): Promise<void> {
+async function submit(thenDiscover = false): Promise<void> {
   if (busy.value) return
   const ok = validate({
     name: !name.value.trim() && 'Give the provider a name.',
@@ -127,10 +148,14 @@ async function submit(): Promise<void> {
       isEnabled: isEnabled.value,
       ...(clearCredential.value ? { credential: '' } : credential.value ? { credential: credential.value } : {}),
     }
-    if (props.provider) await providers.update(props.provider.id, body)
-    else await providers.create(body)
+    const saved = props.provider ? await providers.update(props.provider.id, body) : await providers.create(body)
     ui.notify('Provider saved')
-    emit('update:open', false)
+    if (thenDiscover) {
+      fill(saved) // the server may rewrite the URL (a Foundry project endpoint becomes …/openai/v1)
+      discoverOpen.value = true
+    } else {
+      emit('update:open', false)
+    }
   } catch (e) {
     applyServerError(e)
   } finally {
@@ -169,7 +194,7 @@ async function remove(): Promise<void> {
         <UiBadge v-if="provider.isDrained" tone="neutral" label="Drained" />
       </span>
     </template>
-    <form id="provider-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit">
+    <form id="provider-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit()">
       <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
       <TextField id="prov-name" v-model="name" label="Name" mono :error="errors.name" hint="Shown in routes and reports." />
       <TextField id="prov-display" v-model="displayName" label="Display name" hint="Optional." :error="errors.displayName" />
@@ -207,8 +232,13 @@ async function remove(): Promise<void> {
 
     <section v-if="provider" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="prov-discover">
       <h3 id="prov-discover" class="text-heading">Models</h3>
-      <p class="text-fg-2">Fetch the models this provider offers and add them in one go. This also tests the connection with the saved credential.</p>
-      <div><UiButton icon="search" @click="discoverOpen = true">Discover models</UiButton></div>
+      <p class="text-fg-2">Fetch the models this provider offers and add them in one go. This also tests the connection with the saved URL and credential.</p>
+      <p v-if="dirty" id="prov-discover-unsaved" class="text-small text-fg-2">You have unsaved changes; they are saved before the models are fetched.</p>
+      <div>
+        <UiButton icon="search" :loading="busy" :aria-describedby="dirty ? 'prov-discover-unsaved' : undefined" @click="dirty ? submit(true) : (discoverOpen = true)">
+          {{ dirty ? 'Save and discover models' : 'Discover models' }}
+        </UiButton>
+      </div>
     </section>
 
     <section v-if="provider" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="prov-traffic">

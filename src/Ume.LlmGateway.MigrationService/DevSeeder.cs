@@ -124,7 +124,7 @@ public sealed partial class DevSeeder(
             ProviderAuthMode.ApiKeyHeader, DataResidency.Eu, chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses,
             HasCredential("azure-openai-swc") && !string.IsNullOrWhiteSpace(o.AzureOpenAIEndpoint));
         var foundry = Provider("ai-foundry", "Azure AI Foundry (Sweden Central)", ProviderType.AzureAIFoundry,
-            o.AIFoundryEndpoint is { Length: > 0 } af ? af.TrimEnd('/') + "/openai/v1" : "https://example-swc.services.ai.azure.com/openai/v1",
+            o.AIFoundryEndpoint is { Length: > 0 } af ? af.TrimEnd('/') : "https://example-swc.services.ai.azure.com/openai/v1",
             ProviderAuthMode.ApiKeyHeader, DataResidency.Eu, chatAll | ProviderCapabilities.Embeddings,
             HasCredential("ai-foundry") && !string.IsNullOrWhiteSpace(o.AIFoundryEndpoint));
         var anthropic = Provider("anthropic", "Anthropic", ProviderType.Anthropic, "https://api.anthropic.com/v1", ProviderAuthMode.XApiKeyHeader, DataResidency.External,
