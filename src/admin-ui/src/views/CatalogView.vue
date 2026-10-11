@@ -32,8 +32,8 @@ const modelColumns: Column[] = [
   { key: 'output', label: 'Output, SEK per 1M', align: 'right' },
 ]
 
-const capabilities = (list: ProviderCapability[]): string => list.map((c) => CAPABILITY_LABEL[c]).join(', ') || '�'
-const price = (value: number | null): string => (value === null ? '—' : formatSek(value, 2))
+const capabilities = (list: ProviderCapability[]): string => list.map((c) => CAPABILITY_LABEL[c]).join(', ') || '—'
+const price = (value: number | null): string => (value === null ? '—' : formatSek(value))
 </script>
 
 <template>

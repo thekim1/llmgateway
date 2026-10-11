@@ -3,7 +3,7 @@ const NUMBER_LOCALE = 'sv-SE'
 
 const numberFormatter = new Intl.NumberFormat(NUMBER_LOCALE)
 const decimalFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { maximumFractionDigits: 1 })
-const sekFractionFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const sekFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const usdFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 const dayFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' })
 const shortDayFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, day: 'numeric', month: 'short' })
@@ -28,11 +28,10 @@ function nbsp(text: string): string {
   return text.replace(/[\u00A0\u202F]/g, NBSP).replace(/\u2212/g, '-')
 }
 
-/** SEK amount with `kr` suffix, e.g. `48 210 kr`. */
-export function formatSek(value: number | null | undefined, fractionDigits = 0): string {
+/** SEK amount in öre precision with `kr` suffix, e.g. `48 210,35 kr`. */
+export function formatSek(value: number | null | undefined): string {
   if (isMissing(value)) return DASH
-  const text = fractionDigits > 0 ? sekFractionFormatter.format(value) : numberFormatter.format(Math.round(value))
-  return `${nbsp(text)}${NBSP}kr`
+  return `${nbsp(sekFormatter.format(value))}${NBSP}kr`
 }
 
 export function formatUsd(value: number | null | undefined): string {
