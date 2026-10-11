@@ -65,7 +65,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     /// <summary>Copies the request onto the provider. A <c>null</c> credential keeps the stored one; an empty one removes it.</summary>
     public void Apply(ProviderAccount p, ProviderRequest input)
     {
-        p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
+        p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.Type == ProviderType.AzureAIFoundry ? FoundryEndpoint.InferenceBaseUrl(input.BaseUrl).TrimEnd('/') : input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
         p.Residency = input.Residency; p.Capabilities = input.Capabilities.Aggregate(ProviderCapabilities.None, (a, b) => a | b); p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
         if (input.Credential is not null) { p.EncryptedCredential = input.Credential.Length == 0 ? null : protector.Protect(input.Credential); }
     }

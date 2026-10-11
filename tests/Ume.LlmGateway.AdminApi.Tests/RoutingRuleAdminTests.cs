@@ -33,9 +33,9 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
     }
 
     private static object Body(string name, string[] targets, string condition = "", string scope = "Global", Guid? scopeId = null, int priority = 0,
-        bool chain = false, bool enabled = true, string[]? fallbacks = null) => new
+        bool chain = false, bool enabled = true, string[]? fallbacks = null, Guid[]? scopeIds = null) => new
         {
-            name, scope, scopeId, condition, priority, chain, isEnabled = enabled,
+            name, scope, scopeIds = scopeIds ?? (scopeId is { } id ? new[] { id } : Array.Empty<Guid>()), condition, priority, chain, isEnabled = enabled,
             targets = targets.Select(t => new { model = t, weight = 1 }).ToArray(), fallbacks = fallbacks ?? [],
         };
 
@@ -130,9 +130,10 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         await Rejected(Body("Bad " + Unique(), [model.Name], "budget_used"), "condition"); // not true/false
         await Rejected(Body("Bad " + Unique(), ["no/such-model"]), "targets");
         await Rejected(Body("Bad " + Unique(), [model.Name], fallbacks: ["no/such-model"]), "fallbacks");
-        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Global", scopeId: Guid.NewGuid()), "scopeId");
-        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Team"), "scopeId");
-        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Team", scopeId: Guid.NewGuid()), "scopeId"); // team does not exist
+        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Global", scopeId: Guid.NewGuid()), "scopeIds");
+        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Team"), "scopeIds");
+        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Team", scopeId: Guid.NewGuid()), "scopeIds"); // team does not exist
+        await Rejected(Body("Bad " + Unique(), [model.Name], scope: "Team", scopeIds: [org.Team, Guid.NewGuid()]), "scopeIds"); // one of them does not exist
         await Rejected(new { name = "Bad", scope = "Global", targets = new[] { new { model = model.Name, weight = 0 } } }, "Targets[0].weight");
         await Rejected(new { name = "", scope = "Global", targets = new[] { new { model = model.Name, weight = 1 } } }, "name");
         await Rejected(new { name = "Bad", scope = "Global", targets = Array.Empty<object>() }, "targets");
@@ -153,6 +154,12 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         using var duplicate = await client.PostAsJsonAsync("/api/routing-rules", Body(name.ToUpperInvariant(), [model.Name], scope: "Team", scopeId: org.Team), Ct);
         duplicate.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         await CreateAsync(client, Body(name, [model.Name], scope: "Department", scopeId: org.Department));
+
+        // Shared rules: the same name may not apply twice to one owner, but may to different owners.
+        var other = await fixture.OrganisationAsync(client);
+        using var overlapping = await client.PostAsJsonAsync("/api/routing-rules", Body(name, [model.Name], scope: "Team", scopeIds: [other.Team, org.Team]), Ct);
+        overlapping.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        await CreateAsync(client, Body(name, [model.Name], scope: "Team", scopeIds: [other.Team]));
     }
 
     [Fact]
@@ -186,7 +193,7 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         var b = Id(await CreateAsync(client, Body("B", [model.Name], scope: "Team", scopeId: org.Team, priority: 1)));
         var c = Id(await CreateAsync(client, Body("C", [model.Name], scope: "Team", scopeId: org.Team, priority: 2)));
 
-        using var reorder = await client.PostAsJsonAsync("/api/routing-rules/reorder", new { scope = "Team", scopeId = org.Team, ruleIds = new[] { c, a, b } }, Ct);
+        using var reorder = await client.PostAsJsonAsync("/api/routing-rules/reorder", new { scope = "Team", ruleIds = new[] { c, a, b } }, Ct);
         var result = (await AdminFixture.ReadAsync(reorder)).AsArray();
         result.Select(r => (r!["name"]!.GetValue<string>(), r["priority"]!.GetValue<int>())).ShouldBe([("C", 0), ("A", 10), ("B", 20)]);
 
@@ -195,7 +202,7 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
 
         using var wrongScope = await client.PostAsJsonAsync("/api/routing-rules/reorder", new { scope = "Global", ruleIds = new[] { a } }, Ct);
         wrongScope.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        using var duplicated = await client.PostAsJsonAsync("/api/routing-rules/reorder", new { scope = "Team", scopeId = org.Team, ruleIds = new[] { a, a } }, Ct);
+        using var duplicated = await client.PostAsJsonAsync("/api/routing-rules/reorder", new { scope = "Team", ruleIds = new[] { a, a } }, Ct);
         duplicated.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -373,7 +380,8 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         var parked = await GetAsync(client, id);
         parked["isEnabled"]!.GetValue<bool>().ShouldBeFalse();
         parked["isOrphaned"]!.GetValue<bool>().ShouldBeTrue();
-        parked["scopeName"].ShouldBeNull();
+        parked["owners"]!.AsArray().ShouldBeEmpty(); // its only owner is gone
+        parked["scopeIds"]!.AsArray().ShouldBeEmpty();
         parked["condition"]!.GetValue<string>().ShouldBe("headers['x-a'] == '1'"); // everything else is kept
         parked["priority"]!.GetValue<int>().ShouldBe(3);
         parked["targets"]!.AsArray().Count.ShouldBe(1);
@@ -385,19 +393,21 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
 
         // It cannot be switched on while it has no owner...
         using var enable = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body("Keep me", [model.Name], "headers['x-a'] == '1'", scope: "Team", scopeId: org.Team, priority: 3, enabled: true), Ct);
-        (await AdminFixture.ReadAsync(enable, HttpStatusCode.BadRequest))["errors"]!["scopeId"].ShouldNotBeNull();
+        (await AdminFixture.ReadAsync(enable, HttpStatusCode.BadRequest))["errors"]!["scopeIds"].ShouldNotBeNull();
+        using var toggle = await client.PutAsJsonAsync($"/api/routing-rules/{id}/enabled", new { isEnabled = true }, Ct);
+        (await AdminFixture.ReadAsync(toggle, HttpStatusCode.BadRequest))["detail"]!.GetValue<string>().ShouldContain("kan inte aktiveras");
 
         // ...but can still be edited while it waits.
-        using var edit = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body("Keep me", [model.Name], "headers['x-a'] == '2'", scope: "Team", scopeId: org.Team, priority: 3, enabled: false), Ct);
+        using var edit = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body("Keep me", [model.Name], "headers['x-a'] == '2'", scope: "Team", priority: 3, enabled: false), Ct);
         (await AdminFixture.ReadAsync(edit))["condition"]!.GetValue<string>().ShouldBe("headers['x-a'] == '2'");
 
         // Assigning a new team activates it again.
-        using var reassign = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Team", scopeId = other.Team }, Ct);
+        using var reassign = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Team", scopeIds = new[] { other.Team } }, Ct);
         var back = await AdminFixture.ReadAsync(reassign);
         back["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
         back["isOrphaned"]!.GetValue<bool>().ShouldBeFalse();
-        back["scopeName"]!.GetValue<string>().ShouldBe("Team");
-        back["scopeId"]!.GetValue<Guid>().ShouldBe(other.Team);
+        back["owners"]![0]!["name"]!.GetValue<string>().ShouldBe("Team");
+        back["scopeIds"]!.AsArray().Select(x => x!.GetValue<Guid>()).ShouldBe([other.Team]);
 
         await using var scope = fixture.Services.CreateAsyncScope();
         var actions = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().AuditLog
@@ -414,12 +424,12 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         var other = await fixture.OrganisationAsync(client);
         var id = Id(await CreateAsync(client, Body("Move", [model.Name], scope: "Team", scopeId: org.Team)));
 
-        using var missing = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Team", scopeId = Guid.NewGuid() }, Ct);
+        using var missing = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Team", scopeIds = new[] { Guid.NewGuid() } }, Ct);
         missing.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         using var noId = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Department" }, Ct);
         noId.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
-        using var toDepartment = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Department", scopeId = other.Department, enable = false }, Ct);
+        using var toDepartment = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Department", scopeIds = new[] { other.Department }, enable = false }, Ct);
         var moved = await AdminFixture.ReadAsync(toDepartment);
         moved["scope"]!.GetValue<string>().ShouldBe("Department");
         moved["isEnabled"]!.GetValue<bool>().ShouldBeFalse();
@@ -427,7 +437,7 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         // A rule with the same name already lives in the target scope.
         await CreateAsync(client, Body("Clash", [model.Name], scope: "Team", scopeId: other.Team));
         var clash = Id(await CreateAsync(client, Body("Clash", [model.Name], scope: "Team", scopeId: org.Team)));
-        using var conflict = await client.PostAsJsonAsync($"/api/routing-rules/{clash}/reassign", new { scope = "Team", scopeId = other.Team }, Ct);
+        using var conflict = await client.PostAsJsonAsync($"/api/routing-rules/{clash}/reassign", new { scope = "Team", scopeIds = new[] { other.Team } }, Ct);
         conflict.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
 
@@ -449,10 +459,10 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetAsync(client, id))["isOrphaned"]!.GetValue<bool>().ShouldBeTrue();
 
-        using var reassign = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Department", scopeId = newDept }, Ct);
+        using var reassign = await client.PostAsJsonAsync($"/api/routing-rules/{id}/reassign", new { scope = "Department", scopeIds = new[] { newDept } }, Ct);
         var moved = await AdminFixture.ReadAsync(reassign);
         moved["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
-        moved["scopeName"]!.GetValue<string>().ShouldBe("New department " + code2);
+        moved["owners"]![0]!["name"]!.GetValue<string>().ShouldBe("New department " + code2);
     }
 
     [Fact]
@@ -475,6 +485,141 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         using var delete = await client.DeleteAsync($"/api/teams/{org.Team}", Ct);
         delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await GetAsync(client, id))["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_rule_shared_by_several_teams_applies_to_each_and_survives_losing_one()
+    {
+        using var client = await fixture.ClientAsync();
+        var model = await ModelAsync(client);
+        var org = await fixture.OrganisationAsync(client);
+        var other = await fixture.OrganisationAsync(client);
+        var header = "x-" + Unique();
+        var shared = await CreateAsync(client, Body("Shared", [model.Name], $"headers['{header}'] == '1'", scope: "Team", scopeIds: [org.Team, other.Team, org.Team]));
+        var id = Id(shared);
+        shared["scopeIds"]!.AsArray().Count.ShouldBe(2); // duplicates dropped
+        shared["owners"]!.AsArray().Select(o => o!["name"]!.GetValue<string>()).ShouldBe(["Team", "Team"]);
+        var sole = Id(await CreateAsync(client, Body("Only mine", [model.Name], scope: "Team", scopeId: org.Team, enabled: false)));
+
+        using (var filtered = await client.GetAsync($"/api/routing-rules?scope=Team&scopeId={other.Team}", Ct))
+        {
+            (await AdminFixture.ReadAsync(filtered)).AsArray().Select(r => Id(r!)).ShouldBe([id]);
+        }
+
+        foreach (var team in new[] { org.Team, other.Team })
+        {
+            using var response = await client.PostAsJsonAsync("/api/routing-rules/test", new { model = "any", teamId = team, headers = new Dictionary<string, string> { [header] = "1" } }, Ct);
+            (await AdminFixture.ReadAsync(response))["primaryModel"]!.GetValue<string>().ShouldBe(model.Name);
+        }
+
+        // Deleting one team only asks about the rules it is the sole owner of; the shared rule just loses it.
+        var conflict = await ConflictAsync(client, $"/api/teams/{org.Team}");
+        conflict["rules"]!.AsArray().Select(r => r!["name"]!.GetValue<string>()).ShouldBe(["Only mine"]);
+        using var delete = await client.DeleteAsync($"/api/teams/{org.Team}?routingRules=delete", Ct);
+        delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        var after = await GetAsync(client, id);
+        after["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
+        after["scopeIds"]!.AsArray().Select(x => x!.GetValue<Guid>()).ShouldBe([other.Team]);
+        using var gone = await client.GetAsync($"/api/routing-rules/{sole}", Ct);
+        gone.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var actions = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().AuditLog
+            .Where(a => a.EntityType == "RoutingRule" && a.EntityId == id).OrderBy(a => a.Id).Select(a => a.Action).ToListAsync(Ct);
+        actions.ShouldBe(["create", "update"]);
+    }
+
+    // ---- templates and the on/off switch ---------------------------------------------------------------------
+
+    private const string PiiTemplate = "0199d2a0-7e00-7000-8000-000000000001";
+
+    [Fact]
+    public async Task Templates_are_seeded_disabled_and_cannot_be_enabled_until_their_models_exist()
+    {
+        using var client = await fixture.ClientAsync();
+        using var list = await client.GetAsync("/api/routing-rules?scope=Global", Ct);
+        var templates = (await AdminFixture.ReadAsync(list)).AsArray().Where(r => r!["isTemplate"]!.GetValue<bool>()).ToList();
+        templates.Count.ShouldBeGreaterThanOrEqualTo(4);
+        templates.ShouldAllBe(t => !t!["isEnabled"]!.GetValue<bool>());
+        templates.ShouldAllBe(t => t!["validationErrors"]!.AsArray().Count == 0); // their conditions are valid
+        templates.ShouldAllBe(t => !string.IsNullOrEmpty(t!["description"]!.GetValue<string>()));
+
+        var pii = await GetAsync(client, PiiTemplate);
+        pii["condition"]!.GetValue<string>().ShouldContain("pii_detected");
+        pii["missingModels"]!.AsArray().Select(m => m!.GetValue<string>()).ShouldBe(["local"]);
+
+        using var enable = await client.PutAsJsonAsync($"/api/routing-rules/{PiiTemplate}/enabled", new { isEnabled = true }, Ct);
+        var problem = await AdminFixture.ReadAsync(enable, HttpStatusCode.BadRequest);
+        problem["detail"]!.GetValue<string>().ShouldContain("local");
+        (await GetAsync(client, PiiTemplate))["isEnabled"]!.GetValue<bool>().ShouldBeFalse();
+
+        // Templates exist in every environment, so they are not exported.
+        using var export = await client.GetAsync("/api/ops/config/export", Ct);
+        (await AdminFixture.ReadAsync(export))["routingRules"]!.AsArray().Select(r => r!["name"]!.GetValue<string>()).ShouldNotContain(pii["name"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_disabled_rule_may_name_a_missing_model_and_the_switch_enables_it_once_the_model_exists()
+    {
+        using var client = await fixture.ClientAsync();
+        var alias = "later-" + Unique();
+        var created = await CreateAsync(client, Body("Waits for " + alias, [alias], enabled: false));
+        var id = Id(created);
+        created["missingModels"]!.AsArray().Select(m => m!.GetValue<string>()).ShouldBe([alias]);
+
+        using var early = await client.PutAsJsonAsync($"/api/routing-rules/{id}/enabled", new { isEnabled = true }, Ct);
+        var problem = await AdminFixture.ReadAsync(early, HttpStatusCode.BadRequest);
+        problem["detail"]!.GetValue<string>().ShouldContain(alias);
+        problem["errors"]!["targets"].ShouldNotBeNull();
+
+        var model = await ModelAsync(client);
+        using var route = await client.PostAsJsonAsync("/api/routes", new
+        {
+            name = alias, kind = "Chat", isEnabled = true, targets = new[] { new { modelId = model.Id, priority = 0, weight = 1 } },
+        }, Ct);
+        route.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        using var on = await client.PutAsJsonAsync($"/api/routing-rules/{id}/enabled", new { isEnabled = true }, Ct);
+        var enabled = await AdminFixture.ReadAsync(on);
+        enabled["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
+        enabled["missingModels"]!.AsArray().ShouldBeEmpty();
+        using var off = await client.PutAsJsonAsync($"/api/routing-rules/{id}/enabled", new { isEnabled = false }, Ct);
+        (await AdminFixture.ReadAsync(off))["isEnabled"]!.GetValue<bool>().ShouldBeFalse();
+
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var actions = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().AuditLog
+            .Where(a => a.EntityType == "RoutingRule" && a.EntityId == id).OrderBy(a => a.Id).Select(a => a.Action).ToListAsync(Ct);
+        actions.ShouldBe(["create", "update", "update"]);
+    }
+
+    [Fact]
+    public async Task Editing_a_template_makes_it_an_ordinary_rule()
+    {
+        using var client = await fixture.ClientAsync();
+        var model = await ModelAsync(client);
+        var name = "Template " + Unique();
+        Guid id;
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            var rule = new Ume.LlmGateway.Domain.Entities.RoutingRule
+            {
+                Name = name, IsEnabled = false, IsTemplate = true, Targets = [new() { Model = "nowhere-" + Unique() }],
+                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            db.RoutingRules.Add(rule);
+            await db.SaveChangesAsync(Ct);
+            id = rule.Id;
+        }
+
+        (await GetAsync(client, id.ToString()))["isTemplate"]!.GetValue<bool>().ShouldBeTrue();
+        using var update = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body(name, [model.Name], enabled: true), Ct);
+        var adopted = await AdminFixture.ReadAsync(update);
+        adopted["isTemplate"]!.GetValue<bool>().ShouldBeFalse();
+        adopted["isEnabled"]!.GetValue<bool>().ShouldBeTrue();
+        using var delete = await client.DeleteAsync($"/api/routing-rules/{id}", Ct);
+        delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
 
     // ---- names used by rules cannot disappear --------------------------------------------------------------

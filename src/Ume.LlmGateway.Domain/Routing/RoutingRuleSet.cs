@@ -16,15 +16,35 @@ public sealed class RoutingRuleSet
     public const int MaxTargets = 20;
     public const int MaxWeight = 1_000_000;
 
+    /// <summary>How many keys, teams or departments one rule can be shared by.</summary>
+    public const int MaxOwners = 1000;
+
     private readonly CompiledRule[] _rules;
+
+    // Enabled rules indexed by owner at build time, each array in evaluation order (priority, name, id), so a request
+    // only looks at the rules that can apply to it instead of scanning every rule.
+    private readonly Dictionary<Guid, CompiledRule[]> _keyRules;
+    private readonly Dictionary<Guid, CompiledRule[]> _teamRules;
+    private readonly Dictionary<Guid, CompiledRule[]> _departmentRules;
+    private readonly CompiledRule[] _globalRules;
 
     private readonly HashSet<string> _variables;
 
     private RoutingRuleSet(CompiledRule[] rules)
     {
         _rules = rules;
+        _keyRules = Index(rules, RoutingScope.VirtualKey);
+        _teamRules = Index(rules, RoutingScope.Team);
+        _departmentRules = Index(rules, RoutingScope.Department);
+        _globalRules = [.. rules.Where(r => r.Definition.Scope == RoutingScope.Global)];
         _variables = new HashSet<string>(rules.SelectMany(r => r.Condition.Variables), StringComparer.Ordinal);
     }
+
+    private static Dictionary<Guid, CompiledRule[]> Index(CompiledRule[] ordered, RoutingScope scope) => ordered
+        .Where(r => r.Definition.Scope == scope)
+        .SelectMany(r => r.Definition.ScopeIds.Distinct().Select(id => (Id: id, Rule: r)))
+        .GroupBy(x => x.Id)
+        .ToDictionary(g => g.Key, g => g.Select(x => x.Rule).ToArray());
 
     public static RoutingRuleSet Empty { get; } = new([]);
 
@@ -45,7 +65,8 @@ public sealed class RoutingRuleSet
         ArgumentNullException.ThrowIfNull(definitions);
         var errors = new List<RuleBuildError>();
         var rules = new List<CompiledRule>();
-        var names = new HashSet<(RoutingScope, Guid?, string)>();
+        // A name is unique among the rules of a scope that share an owner (or among global rules).
+        var names = new HashSet<(RoutingScope, Guid, string)>();
 
         foreach (var d in definitions)
         {
@@ -59,7 +80,7 @@ public sealed class RoutingRuleSet
                 errors.AddRange(exprErrors.Select(e => new RuleBuildError(d.Id, d.Name, e.Message, e)));
             }
 
-            if (errors.Count == before && !names.Add((d.Scope, d.ScopeId, d.Name.Trim().ToUpperInvariant())))
+            if (errors.Count == before && !AddNames(names, d))
             {
                 errors.Add(new RuleBuildError(d.Id, d.Name, $"A rule named '{d.Name}' already exists in this scope."));
             }
@@ -75,8 +96,26 @@ public sealed class RoutingRuleSet
             .ThenBy(r => r.Definition.Priority)
             .ThenBy(r => r.Definition.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r.Definition.Id)
+            .Select((r, i) => r with { Order = i })
             .ToArray();
         return (new RoutingRuleSet(ordered), errors);
+    }
+
+    private static bool AddNames(HashSet<(RoutingScope, Guid, string)> names, RoutingRuleDefinition d)
+    {
+        var name = d.Name.Trim().ToUpperInvariant();
+        if (d.Scope == RoutingScope.Global)
+        {
+            return names.Add((d.Scope, Guid.Empty, name));
+        }
+
+        var free = true;
+        foreach (var id in d.ScopeIds.Distinct())
+        {
+            free &= names.Add((d.Scope, id, name));
+        }
+
+        return free;
     }
 
     /// <summary>Validates a rule definition without compiling it into a set (for the admin API).</summary>
@@ -99,6 +138,7 @@ public sealed class RoutingRuleSet
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(random);
 
+        var keyRules = KeyRules(context);
         var current = context.Model;
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { current };
         var appliedIds = new HashSet<Guid>();
@@ -115,7 +155,7 @@ public sealed class RoutingRuleSet
             }
 
             var variables = context.ToVariables(current);
-            var rule = FindMatch(context, variables, current, step, appliedIds, explain);
+            var rule = FindMatch(keyRules, context, variables, current, step, appliedIds, explain);
             if (rule is null)
             {
                 break;
@@ -137,16 +177,19 @@ public sealed class RoutingRuleSet
         return new RoutingDecision(models, applied, limitReached);
     }
 
-    private CompiledRule? FindMatch(RoutingContext context, ExpressionVariables variables, string model, int step, HashSet<Guid> appliedIds, List<RuleEvaluation>? explain)
+    /// <summary>Checks the rules that can apply to the request, most specific scope first: key, team, department, global.</summary>
+    private CompiledRule? FindMatch(CompiledRule[] keyRules, RoutingContext context, ExpressionVariables variables, string model, int step, HashSet<Guid> appliedIds,
+        List<RuleEvaluation>? explain) =>
+        Scan(keyRules, variables, model, step, appliedIds, explain)
+        ?? Scan(Lookup(_teamRules, context.TeamId), variables, model, step, appliedIds, explain)
+        ?? Scan(Lookup(_departmentRules, context.DepartmentId), variables, model, step, appliedIds, explain)
+        ?? Scan(_globalRules, variables, model, step, appliedIds, explain);
+
+    private static CompiledRule? Scan(CompiledRule[] rules, ExpressionVariables variables, string model, int step, HashSet<Guid> appliedIds, List<RuleEvaluation>? explain)
     {
-        foreach (var rule in _rules)
+        foreach (var rule in rules)
         {
             var def = rule.Definition;
-            if (!InScope(def, context))
-            {
-                continue;
-            }
-
             if (appliedIds.Contains(def.Id))
             {
                 explain?.Add(new RuleEvaluation(def.Id, def.Name, def.Scope, def.Priority, step, model, RuleOutcome.Skipped, []));
@@ -174,13 +217,57 @@ public sealed class RoutingRuleSet
         return null;
     }
 
-    private static bool InScope(RoutingRuleDefinition def, RoutingContext context) => def.Scope switch
+    private static CompiledRule[] Lookup(Dictionary<Guid, CompiledRule[]> index, Guid? id) =>
+        id is { } value && index.TryGetValue(value, out var rules) ? rules : [];
+
+    /// <summary>
+    /// The key-scoped rules for the key and the keys it replaced through rotation (a rule keeps applying to the key that
+    /// replaced its key, like budgets do). Usually one key: the indexed array is used as is; otherwise the rules are merged
+    /// in evaluation order without duplicates.
+    /// </summary>
+    private CompiledRule[] KeyRules(RoutingContext context)
     {
-        RoutingScope.VirtualKey => def.ScopeId is { } id && (id == context.KeyId || context.KeyLineage?.Contains(id) == true),
-        RoutingScope.Team => def.ScopeId is { } id && id == context.TeamId,
-        RoutingScope.Department => def.ScopeId is { } id && id == context.DepartmentId,
-        _ => true,
-    };
+        if (_keyRules.Count == 0)
+        {
+            return [];
+        }
+
+        if (context.KeyLineage is not { Count: > 0 } lineage)
+        {
+            return Lookup(_keyRules, context.KeyId);
+        }
+
+        CompiledRule[]? single = null;
+        List<CompiledRule>? merged = null;
+        foreach (var id in lineage)
+        {
+            if (!_keyRules.TryGetValue(id, out var rules))
+            {
+                continue;
+            }
+
+            if (single is null && merged is null)
+            {
+                single = rules;
+                continue;
+            }
+
+            merged ??= [.. single!];
+            merged.AddRange(rules);
+        }
+
+        if (merged is null)
+        {
+            return single ?? Lookup(_keyRules, context.KeyId);
+        }
+
+        if (context.KeyId is { } keyId && !lineage.Contains(keyId) && _keyRules.TryGetValue(keyId, out var own))
+        {
+            merged.AddRange(own);
+        }
+
+        return [.. merged.DistinctBy(r => r.Definition.Id).OrderBy(r => r.Order)];
+    }
 
     /// <summary>Targets in weighted-random order (so the rest act as failover), followed by the explicit fallbacks.</summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Load balancing between targets, not a security decision.")]
@@ -218,14 +305,20 @@ public sealed class RoutingRuleSet
             Fail("A rule needs a name.");
         }
 
-        if (d.Scope != RoutingScope.Global && d.ScopeId is null)
+        var owners = d.ScopeIds?.Count ?? 0;
+        if (d.Scope != RoutingScope.Global && owners == 0 && d.IsEnabled)
         {
-            Fail($"A {d.Scope} rule needs a scope id.");
+            Fail($"A {d.Scope} rule needs at least one owner.");
         }
 
-        if (d.Scope == RoutingScope.Global && d.ScopeId is not null)
+        if (d.Scope == RoutingScope.Global && owners > 0)
         {
-            Fail("A global rule must not have a scope id.");
+            Fail("A global rule must not have owners.");
+        }
+
+        if (owners > MaxOwners)
+        {
+            Fail($"A rule can have at most {MaxOwners} owners.");
         }
 
         if (d.Targets is null || d.Targets.Count == 0)
@@ -255,5 +348,6 @@ public sealed class RoutingRuleSet
         }
     }
 
-    private sealed record CompiledRule(RoutingRuleDefinition Definition, RoutingExpression Condition);
+    /// <summary><c>Order</c> is the rule's position in the evaluation order across all scopes.</summary>
+    private sealed record CompiledRule(RoutingRuleDefinition Definition, RoutingExpression Condition, int Order = 0);
 }

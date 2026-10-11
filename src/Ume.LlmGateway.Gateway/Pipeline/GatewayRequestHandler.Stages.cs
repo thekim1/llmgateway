@@ -202,13 +202,18 @@ public sealed partial class GatewayRequestHandler
         await AccountAsync(state, null, default, status, outcome, code, null);
     }
 
-    /// <summary>Every candidate failed: 504 when the last one timed out, else 502.</summary>
-    private Task RejectAllFailedAsync(HttpContext http, RequestState state, int candidates, string modelName, ProviderFailure? lastFailure)
+    /// <summary>
+    /// Every candidate failed: 504 when the last one timed out, else 502. The usage record names the last provider tried
+    /// (nothing is charged), so a provider that is down shows up in the provider statistics instead of only in its circuit.
+    /// </summary>
+    private async Task RejectAllFailedAsync(HttpContext http, RequestState state, int candidates, string modelName, ProviderFailure? lastFailure)
     {
         state.Fallbacks = Math.Max(0, candidates - 1);
         http.Response.Headers[GatewayHeaders.Fallbacks] = state.Fallbacks.ToString(CultureInfo.InvariantCulture);
-        return RejectAsync(http, state, lastFailure?.StatusCode == 504 ? 504 : 502, GatewayErrorCodes.AllProvidersFailed,
-            $"Alla {candidates} leverantörer för '{modelName}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.", RequestOutcome.ProviderError);
+        var status = lastFailure?.StatusCode == 504 ? 504 : 502;
+        await GatewayErrors.WriteAsync(http, state.Endpoint, status, GatewayErrorCodes.AllProvidersFailed,
+            $"Alla {candidates} leverantörer för '{modelName}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.", options.CurrentValue.DocsUrl);
+        await AccountAsync(state, state.Deployment, default, status, RequestOutcome.ProviderError, GatewayErrorCodes.AllProvidersFailed, null);
     }
 
     /// <summary>

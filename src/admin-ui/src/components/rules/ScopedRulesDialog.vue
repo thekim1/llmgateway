@@ -53,7 +53,7 @@ async function confirm(): Promise<void> {
 <template>
   <UiDialog :open="open" :title="`${plural(rules.length, 'routing rule')} belong${rules.length === 1 ? 's' : ''} to this ${noun}`" icon="rule" tone="warn" @update:open="emit('update:open', $event)">
     <template #description>
-      <span lang="sv" class="font-medium">{{ name }}</span> has routing rules. Rules often belong to a service, so if the organisation only changed you can keep them and give them a new {{ noun }} later.
+      <span lang="sv" class="font-medium">{{ name }}</span> is the only owner of these routing rules. Rules often belong to a service, so if the organisation only changed you can keep them and give them a new {{ noun }} later. Rules shared with other owners simply stop applying to this {{ noun }}.
     </template>
     <ul class="m-0 flex list-none flex-col gap-1 p-0">
       <li v-for="rule in rules" :key="rule.id" class="rounded-chip bg-surface-2 px-3 py-1.5">

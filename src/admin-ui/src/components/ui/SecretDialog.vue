@@ -6,7 +6,9 @@ import CheckField from './CheckField.vue'
 import UiButton from './UiButton.vue'
 import UiDialog from './UiDialog.vue'
 
-const props = defineProps<{ open: boolean; secret: string }>()
+const props = withDefaults(defineProps<{ open: boolean; secret: string; description?: string }>(), {
+  description: "This is the only time it's shown. If you lose it, rotate the key.",
+})
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'done'): void }>()
 
 const stored = ref(false)
@@ -35,7 +37,7 @@ function onOpenChange(value: boolean): void {
   <UiDialog
     :open="open"
     title="Copy your secret now"
-    description="This is the only time it's shown. If you lose it, rotate the key."
+    :description="description"
     icon="key"
     tone="accent"
     :dismissible="stored"
@@ -46,6 +48,7 @@ function onOpenChange(value: boolean): void {
       <UiButton size="sm" :icon="copied ? 'check' : 'content_copy'" @click="copy(secret)">{{ copied ? 'Copied' : 'Copy' }}</UiButton>
     </div>
     <span class="sr-only" role="status">{{ copied ? 'Secret copied to clipboard' : '' }}</span>
+    <slot />
     <CheckField v-model="stored" label="I've stored the secret somewhere safe" />
     <p v-if="!stored" class="-mt-2 flex items-center gap-1 text-small text-fg-3"><AppIcon name="info" :size="16" />Tick the box to enable Done.</p>
     <template #actions>

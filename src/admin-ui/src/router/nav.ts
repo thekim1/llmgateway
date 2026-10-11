@@ -24,6 +24,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { name: 'overview', label: 'Overview', icon: 'space_dashboard' },
       { name: 'usage', label: 'Usage', icon: 'monitoring' },
+      { name: 'pii-incidents', label: 'PII incidents', icon: 'visibility_off' },
       { name: 'ops', label: 'Operations', icon: 'monitor_heart', roles: GATEWAY_ADMIN, badge: 'circuits' },
     ],
   },
@@ -33,6 +34,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { name: 'keys', label: 'Keys', icon: 'key', roles: ADMIN_ROLES },
       { name: 'organisation', label: 'Organisation', icon: 'account_tree', roles: ADMIN_ROLES },
+      { name: 'data-access', label: 'Data API access', icon: 'data_object', roles: GATEWAY_ADMIN },
       { name: 'catalog', label: 'Catalogue', icon: 'menu_book' },
       { name: 'getting-started', label: 'Getting started', icon: 'rocket_launch' },
     ],

@@ -24,6 +24,7 @@
 #   UME_FORWARDED_HEADERS     true behind a reverse proxy that is the only way to reach the gateway
 #   COMPOSE_PROFILES=data     also start the read-only Data API (DATAAPI_IMAGE, UME_DATA_PORT 10443, UME_DATA_HOST,
 #                             UME_DATA_AUTHORITY defaults to UME_OIDC_AUTHORITY; see docs/data-access.md)
+#   UME_DATA_PUBLIC_URL       the Data API's public URL, shown with new Data API keys in the admin UI
 #
 # The data lives in the volumes <stack>_postgres-data, <stack>_ume-certs and <stack>_ume-secrets
 # (<stack>_ume-config holds static configuration and is rewritten on every start).
@@ -203,6 +204,7 @@ services:
       Oidc__RoleGroups__department-admin: ${UME_OIDC_GROUPS_DEPARTMENT_ADMIN:-}
       Oidc__RoleGroups__viewer: ${UME_OIDC_GROUPS_VIEWER:-}
       Gateway__BaseUrl: ${UME_GATEWAY_PUBLIC_URL:?Set UME_GATEWAY_PUBLIC_URL (https URL)}
+      DataApi__PublicUrl: ${UME_DATA_PUBLIC_URL:-}
       Gateway__OperationsUrl: https://gateway:8443
       SSL_CERT_FILE: /run/certs/ca.pem
     volumes:
@@ -413,7 +415,7 @@ configs:
       GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
       GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-        "Budgets", "ExchangeRates" TO ume_admin;
+        "Budgets", "ExchangeRates", "DataApiKeys" TO ume_admin;
       GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
       GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
       -- Data API (optional): read-only, and column by column where a table holds secrets, so the role cannot
@@ -430,6 +432,10 @@ configs:
             "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
             "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute") ON "VirtualKeys" TO ume_data;
           GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
+          -- Its own credentials: the key hash (SHA-256 of a 256-bit random key) to authenticate Data API keys, and the
+          -- only column it may write, the approximate last use.
+          GRANT SELECT ("Id", "Name", "Prefix", "KeyHash", "Permissions", "ExpiresAt", "RevokedAt", "LastUsedAt") ON "DataApiKeys" TO ume_data;
+          GRANT UPDATE ("LastUsedAt") ON "DataApiKeys" TO ume_data;
         END IF;
       END $$$$;
 

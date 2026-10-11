@@ -22,7 +22,7 @@ public sealed record RoutingRuleRequest(
     [property: Required, StringLength(RoutingRuleLimits.MaxNameLength)] string Name,
     [property: EnumDataType(typeof(RoutingScope))] RoutingScope Scope,
     [property: Required, MinLength(1), MaxLength(RoutingRuleSet.MaxTargets)] RuleTargetRequest[] Targets,
-    Guid? ScopeId = null,
+    [property: MaxLength(RoutingRuleSet.MaxOwners)] Guid[]? ScopeIds = null,
     [property: StringLength(RoutingRuleLimits.MaxDescriptionLength)] string? Description = null,
     bool IsEnabled = true,
     [property: Range(-RoutingRuleLimits.MaxPriority, RoutingRuleLimits.MaxPriority)] int Priority = 0,
@@ -32,13 +32,16 @@ public sealed record RoutingRuleRequest(
 
 public sealed record RoutingRuleReassignRequest(
     [property: EnumDataType(typeof(RoutingScope))] RoutingScope Scope,
-    Guid? ScopeId,
+    [property: MaxLength(RoutingRuleSet.MaxOwners)] Guid[]? ScopeIds = null,
     bool Enable = true) : AdminRequest;
 
+/// <summary>Order within one scope (all key rules, all team rules, ...); rules shared by several owners keep one priority.</summary>
 public sealed record RoutingRuleReorderRequest(
     [property: EnumDataType(typeof(RoutingScope))] RoutingScope Scope,
-    Guid? ScopeId,
     [property: Required, MinLength(1), MaxLength(1000)] Guid[] RuleIds) : AdminRequest;
+
+/// <summary>The on/off switch of a rule.</summary>
+public sealed record RoutingRuleEnabledRequest(bool IsEnabled) : AdminRequest;
 
 public sealed record ConditionCheckRequest([property: StringLength(5000)] string? Condition) : AdminRequest;
 
@@ -81,13 +84,16 @@ public static class RoutingRuleEndpoints
             await service.DeleteAsync(user, id, ct);
             return TypedResults.NoContent();
         }).WithName("DeleteRoutingRule");
+        rules.MapPut("/{id:guid}/enabled", async (Guid id, RoutingRuleEnabledRequest input, RoutingRuleService service, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await service.SetEnabledAsync(user, id, input.IsEnabled, ct)))
+            .WithName("SetRoutingRuleEnabled").WithSummary("Turns a rule on or off; turning it on checks that its owners and models exist");
         rules.MapPost("/{id:guid}/reassign", async (Guid id, RoutingRuleReassignRequest input, RoutingRuleService service, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await service.ReassignAsync(user, id, input, ct)))
-            .WithName("ReassignRoutingRule").WithSummary("Attaches a rule (typically one deactivated with its team or department) to a new owner")
+            .WithName("ReassignRoutingRule").WithSummary("Attaches a rule (typically one deactivated with its last team or department) to new owners")
             .ProducesValidationProblem();
         rules.MapPost("/reorder", async (RoutingRuleReorderRequest input, RoutingRuleService service, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await service.ReorderAsync(user, input, ct)))
-            .WithName("ReorderRoutingRules").WithSummary("Sets the evaluation order within one scope (priorities 0, 10, 20, ...)");
+            .WithName("ReorderRoutingRules").WithSummary("Sets the evaluation order within one scope type (priorities 0, 10, 20, ...)");
         rules.MapPost("/validate", (ConditionCheckRequest input) => TypedResults.Ok(RoutingRuleService.CheckCondition(input.Condition)))
             .WithName("ValidateRoutingCondition").WithSummary("Live validation of a condition while it is being typed");
         rules.MapPost("/test", async (RoutingRuleTestRequest input, RoutingRuleService service, CancellationToken ct) =>

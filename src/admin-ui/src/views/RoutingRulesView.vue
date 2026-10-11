@@ -29,6 +29,10 @@ const selectedId = ref<string | null>(null)
 const detail = ref<InstanceType<typeof RuleDetail> | null>(null)
 const drawer = ref(false)
 const editing = ref<RoutingRule | null>(null)
+const template = ref<RoutingRule | null>(null)
+const pendingId = ref<string | null>(null)
+/** A switch the server refused, shown above the list with the rule's name. */
+const toggleError = ref<{ name: string; error: unknown } | null>(null)
 const deleting = ref(false)
 const reassigning = ref(false)
 const testing = ref(false)
@@ -50,12 +54,11 @@ const filterOptions = computed(() => [
   ...(orphaned.value.length > 0 ? [{ value: 'orphaned' as Filter, label: 'Needs owner', count: orphaned.value.length }] : []),
 ])
 
-/** The selected rule's neighbours: the rules of the same scope and owner, in checking order. */
+/** The selected rule's neighbours: the rules of the same scope, in checking order. */
 const siblings = computed(() => {
   const rule = selected.value
   if (!rule) return []
-  for (const section of groupRules(rules.items)) for (const group of section.groups) if (group.rules.some((r) => r.id === rule.id)) return group.rules
-  return []
+  return groupRules(rules.items).find((s) => s.scope === rule.scope)?.rules ?? []
 })
 const position = computed(() => siblings.value.findIndex((r) => r.id === selectedId.value) + 1)
 
@@ -63,7 +66,7 @@ watch(
   [() => rules.items, filter],
   () => {
     if (filtered.value.some((r) => r.id === selectedId.value)) return
-    selectedId.value = sections.value[0]?.groups[0]?.rules[0]?.id ?? null
+    selectedId.value = sections.value[0]?.rules[0]?.id ?? null
   },
 )
 
@@ -79,10 +82,17 @@ function select(id: string): void {
 
 function create(): void {
   editing.value = null
+  template.value = null
+  drawer.value = true
+}
+function createFromTemplate(): void {
+  editing.value = null
+  template.value = selected.value
   drawer.value = true
 }
 function edit(): void {
   editing.value = selected.value
+  template.value = null
   drawer.value = true
 }
 
@@ -98,13 +108,27 @@ async function guarded(action: () => Promise<void>): Promise<void> {
   }
 }
 
-const toggle = () =>
-  guarded(async () => {
-    const rule = selected.value
-    if (!rule) return
-    await rules.setEnabled(rule, !rule.isEnabled)
-    ui.notify(rule.isEnabled ? 'Rule disabled' : 'Rule enabled')
-  })
+/**
+ * The on/off switch (in the list and in the detail). The switch only moves when the server agrees; when it refuses (for
+ * example a template whose route does not exist yet) the switch stays where it was and the reason is shown.
+ */
+async function setEnabled(rule: RoutingRule, enabled: boolean): Promise<void> {
+  if (pendingId.value) return
+  pendingId.value = rule.id
+  toggleError.value = null
+  actionError.value = null
+  try {
+    await rules.setEnabled(rule, enabled)
+    ui.notify(enabled ? `${rule.name} enabled` : `${rule.name} disabled`)
+  } catch (e) {
+    toggleError.value = { name: rule.name, error: e }
+    live.value = `${rule.name} could not be ${enabled ? 'enabled' : 'disabled'}.`
+  } finally {
+    pendingId.value = null
+  }
+}
+
+const toggle = () => (selected.value ? setEnabled(selected.value, !selected.value.isEnabled) : Promise.resolve())
 
 const move = (delta: -1 | 1) =>
   guarded(async () => {
@@ -114,7 +138,7 @@ const move = (delta: -1 | 1) =>
     if (!rule || target < 0 || target >= siblings.value.length) return
     const ids = siblings.value.map((r) => r.id)
     ;[ids[at], ids[target]] = [ids[target]!, ids[at]!]
-    await rules.reorder(rule.scope, rule.scopeId, ids)
+    await rules.reorder(rule.scope, ids)
     live.value = `${rule.name} is now checked ${target + 1} of ${ids.length}.`
   })
 
@@ -131,7 +155,7 @@ function saved(rule: RoutingRule): void {
 
 onMounted(async () => {
   await load()
-  if (!selectedId.value) selectedId.value = sections.value[0]?.groups[0]?.rules[0]?.id ?? null
+  if (!selectedId.value) selectedId.value = sections.value[0]?.rules[0]?.id ?? null
 })
 </script>
 
@@ -160,8 +184,10 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div class="grid grid-cols-[minmax(260px,320px)_1fr] items-start gap-6 max-lg:grid-cols-1">
-        <RuleList :sections="sections" :selected-id="selectedId" @select="select" />
+      <InlineError v-if="toggleError" :title="`Could not switch “${toggleError.name}”`" :message="problemMessage(toggleError.error)" :lang="problemLang(toggleError.error)" />
+
+      <div class="grid grid-cols-[minmax(280px,360px)_1fr] items-start gap-6 max-lg:grid-cols-1">
+        <RuleList :sections="sections" :selected-id="selectedId" :pending-id="pendingId" @select="select" @toggle="setEnabled" />
 
         <div v-if="selected" class="flex min-w-0 flex-col gap-4">
           <InlineError v-if="actionError" :message="problemMessage(actionError)" :lang="problemLang(actionError)" />
@@ -170,8 +196,9 @@ onMounted(async () => {
             :rule="selected"
             :position="position"
             :count="siblings.length"
-            :busy="busy"
+            :busy="busy || pendingId === selected.id"
             @edit="edit"
+            @copy="createFromTemplate"
             @toggle="toggle"
             @delete="deleting = true"
             @reassign="reassigning = true"
@@ -182,7 +209,7 @@ onMounted(async () => {
     </div>
   </AsyncState>
 
-  <RuleFormDrawer v-model:open="drawer" :rule="editing" @saved="saved" />
+  <RuleFormDrawer v-model:open="drawer" :rule="editing" :template="template" @saved="saved" />
   <ReassignRuleDialog v-model:open="reassigning" :rule="selected" />
   <RuleTestDialog v-model:open="testing" />
   <ConfirmDialog v-model:open="deleting" title="Delete rule?" confirm-label="Delete rule" danger :action="remove">

@@ -14,14 +14,18 @@ public enum RoutingScope
 /// <summary>A weighted destination: a route alias or a concrete deployment name. Weights are relative (1..1000000).</summary>
 public sealed record RuleTarget(string Model, int Weight = 1);
 
-/// <summary>A routing rule as configured by an administrator.</summary>
+/// <summary>
+/// A routing rule as configured by an administrator. A non-global rule applies to every key, team or department in
+/// <paramref name="ScopeIds"/> (all of the kind <paramref name="Scope"/> names), so one rule can be shared by several owners.
+/// A global rule has no owners.
+/// </summary>
 public sealed record RoutingRuleDefinition(
     Guid Id,
     string Name,
     bool IsEnabled,
     int Priority,
     RoutingScope Scope,
-    Guid? ScopeId,
+    IReadOnlyList<Guid> ScopeIds,
     string Condition,
     bool Chain,
     IReadOnlyList<RuleTarget> Targets,

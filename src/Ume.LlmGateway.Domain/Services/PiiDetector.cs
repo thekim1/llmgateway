@@ -8,12 +8,12 @@ public readonly record struct PiiMatch(PiiCategory Category, int Start, int Leng
 
 /// <summary>
 /// Lightweight, deterministic PII detector tuned for Swedish public-sector data. Matches are validated
-/// (Luhn for personnummer, real calendar dates, mod-97 for IBAN) to keep false positives low.
+/// (real calendar dates and, for bare 10-digit personnummer, Luhn; mod-97 for IBAN) to keep false positives low.
 /// Pluggable: a future NER/Presidio based detector can implement the same contract.
 /// </summary>
 public static partial class PiiDetector
 {
-    [GeneratedRegex(@"(?<![\d])(?<century>(?:18|19|20))?(?<yy>\d{2})(?<mm>\d{2})(?<dd>\d{2})(?<sep>[-+]?)(?<num>\d{3})(?<check>\d)(?![\d])", RegexOptions.CultureInvariant, 250)]
+    [GeneratedRegex(@"(?<![\d])(?<century>(?:18|19|20))?(?<yy>\d{2})(?<mm>\d{2})(?<dd>\d{2})(?<sep>[-+ ]?)(?<num>\d{3})(?<check>\d)(?![\d])", RegexOptions.CultureInvariant, 250)]
     private static partial Regex PersonnummerRegex();
 
     [GeneratedRegex(@"(?<![\w.%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}(?![\w])", RegexOptions.CultureInvariant, 250)]
@@ -149,12 +149,21 @@ public static partial class PiiDetector
         var dd = int.Parse(m.Groups["dd"].ValueSpan, CultureInfo.InvariantCulture);
         var hasCentury = m.Groups["century"].Success;
 
-        // A bare 10-digit number without separator is ambiguous (could be a phone number) – still accept
-        // when Luhn and date validate; the combination makes accidental matches unlikely (~1/10 * date odds).
-        var tenDigits = string.Concat(m.Groups["yy"].Value, m.Groups["mm"].Value, m.Groups["dd"].Value, m.Groups["num"].Value, m.Groups["check"].Value);
-        if (!LuhnValid(tenDigits))
+        // A century (12 digits) or a separator makes the shape unmistakable, so the check digit is not required: people
+        // paste made-up or mistyped numbers and those must be caught too. A bare 10-digit number without separator is
+        // ambiguous (0701234567 is a mobile number), so it also needs a valid Luhn check digit.
+        if (!hasCentury && m.Groups["sep"].Length == 0)
         {
-            return null;
+            Span<char> tenDigits = stackalloc char[10];
+            m.Groups["yy"].ValueSpan.CopyTo(tenDigits);
+            m.Groups["mm"].ValueSpan.CopyTo(tenDigits[2..]);
+            m.Groups["dd"].ValueSpan.CopyTo(tenDigits[4..]);
+            m.Groups["num"].ValueSpan.CopyTo(tenDigits[6..]);
+            m.Groups["check"].ValueSpan.CopyTo(tenDigits[9..]);
+            if (!LuhnValid(tenDigits))
+            {
+                return null;
+            }
         }
 
         var category = PiiCategory.Personnummer;
@@ -169,18 +178,13 @@ public static partial class PiiDetector
             return null;
         }
 
-        int[] centuries = hasCentury
-            ? [int.Parse(m.Groups["century"].ValueSpan, CultureInfo.InvariantCulture) * 100]
-            : [1900, 2000];
-        var validDate = centuries.Any(c => dd <= DateTime.DaysInMonth(c + yy, mm));
-        if (!validDate)
-        {
-            return null;
-        }
-        return category;
+        var validDate = hasCentury
+            ? dd <= DateTime.DaysInMonth((int.Parse(m.Groups["century"].ValueSpan, CultureInfo.InvariantCulture) * 100) + yy, mm)
+            : dd <= DateTime.DaysInMonth(1900 + yy, mm) || dd <= DateTime.DaysInMonth(2000 + yy, mm);
+        return validDate ? category : null;
     }
 
-    internal static bool LuhnValid(string digits)
+    internal static bool LuhnValid(ReadOnlySpan<char> digits)
     {
         var sum = 0;
         for (var i = 0; i < digits.Length; i++)

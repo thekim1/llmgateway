@@ -52,7 +52,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
     {
         var providers = await ctx.Db.ProviderAccounts.Include(p => p.Deployments).ThenInclude(m => m.Prices).ToListAsync(ct);
         var routes = await catalog.Routes().ToListAsync(ct);
-        var globalRules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == RoutingScope.Global).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
+        var globalRules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == RoutingScope.Global && !r.IsTemplate).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
         return new ConfigDocument(
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,

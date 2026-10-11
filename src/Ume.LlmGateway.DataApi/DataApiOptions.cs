@@ -8,8 +8,18 @@ public sealed class DataApiOptions
 {
     public const string SectionName = "DataApi";
 
-    /// <summary>OIDC issuer whose access tokens are accepted (the organisation's Keycloak realm, AD FS or Entra ID tenant).</summary>
+    /// <summary>
+    /// OIDC issuer whose access tokens are accepted (the organisation's Keycloak realm, AD FS or Entra ID tenant). Optional
+    /// when <see cref="AllowKeys"/> is on: without it only Data API keys are accepted.
+    /// </summary>
     public string? Authority { get; set; }
+
+    /// <summary>Whether Data API keys (<c>ume-dk-…</c>, created by gateway admins in the admin UI) are accepted.</summary>
+    public bool AllowKeys { get; set; } = true;
+
+    /// <summary>How long a Data API key lookup is cached per instance; a revoked key keeps working for at most this long.</summary>
+    [Range(0, 300)]
+    public int KeyCacheSeconds { get; set; } = 30;
 
     /// <summary>Required <c>aud</c> of access tokens.</summary>
     [Required]
@@ -54,15 +64,4 @@ public sealed class DataApiOptions
         /// <summary>Whether <c>usage.detail</c> includes PII category counts (<c>security.read</c> always has them).</summary>
         public bool IncludePiiCategories { get; set; }
     }
-}
-
-/// <summary>Permissions a client can be granted; each is one consumer class.</summary>
-public static class DataPermissions
-{
-    public const string UsageAggregate = "usage.aggregate";
-    public const string UsageDetail = "usage.detail";
-    public const string SecurityRead = "security.read";
-    public const string CatalogRead = "catalog.read";
-
-    public static readonly string[] All = [UsageAggregate, UsageDetail, SecurityRead, CatalogRead];
 }

@@ -24,7 +24,7 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
     doc.Info.Title = "LLM Gateway Data API";
     doc.Info.Description = "Read-only usage, security and catalogue data for BI, management and security teams. "
-        + "Authenticate with an OAuth 2.0 client-credentials access token. Feeds are incremental: pass nextCursor as 'after'. "
+        + "Authenticate with an OAuth 2.0 client-credentials access token or a Data API key (Authorization: Bearer ume-dk-..., or X-Api-Key). Feeds are incremental: pass nextCursor as 'after'. "
         + "Add format=csv or format=ndjson (or the matching Accept header) for bulk loads. See docs/data-access.md.";
     return Task.CompletedTask;
 }));

@@ -1,48 +1,71 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.DataApi;
 
 /// <summary>
-/// OAuth 2.0 client credentials: every integration (ETL job, SIEM connector) is its own client at the organisation's
-/// identity provider and gets only the permissions it needs. Works with Keycloak, AD FS and Entra ID.
+/// Two ways in, both per integration: OAuth 2.0 client credentials (every ETL job or SIEM connector is its own client at
+/// the organisation's identity provider; Keycloak, AD FS, Entra ID) and Data API keys created by gateway admins in the
+/// admin UI. A request presenting a key (<c>Bearer ume-dk-…</c> or <c>X-Api-Key</c>) goes to the key handler, anything
+/// else to JWT validation.
 /// </summary>
 public static class DataApiAuthentication
 {
+    /// <summary>The default scheme: forwards to <see cref="DataApiKeyHandler.SchemeName"/> or JWT bearer per request.</summary>
+    public const string SchemeName = "DataApi";
+
     public static IHostApplicationBuilder AddDataApiAuthentication(this IHostApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
         var options = builder.Configuration.GetSection(DataApiOptions.SectionName).Get<DataApiOptions>() ?? new DataApiOptions();
-        if (string.IsNullOrWhiteSpace(options.Authority) && !builder.Environment.IsEnvironment("Testing"))
+        var testing = builder.Environment.IsEnvironment("Testing");
+        var useTokens = !string.IsNullOrWhiteSpace(options.Authority) || testing;
+        if (!useTokens && !options.AllowKeys)
         {
-            throw new InvalidOperationException("DataApi:Authority must be set to the OIDC issuer that signs the clients' access tokens.");
+            throw new InvalidOperationException(
+                "The Data API accepts no credentials: set DataApi:Authority to the OIDC issuer that signs the clients' access tokens, or leave DataApi:AllowKeys on.");
         }
 
-        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
+        var authentication = builder.Services.AddAuthentication(SchemeName)
+            .AddPolicyScheme(SchemeName, "Data API key or access token", o => o.ForwardDefaultSelector = http =>
+                !useTokens || (options.AllowKeys && DataApiKeyHandler.PresentsKey(http.Request)) ? DataApiKeyHandler.SchemeName : JwtBearerDefaults.AuthenticationScheme);
+        if (useTokens)
         {
-            o.Authority = options.Authority;
-            o.Audience = options.Audience;
-            o.MapInboundClaims = false;
-            o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-            o.TokenValidationParameters.ValidateAudience = true;
-            o.TokenValidationParameters.ValidateIssuer = true;
-            o.TokenValidationParameters.ValidateLifetime = true;
-        });
+            authentication.AddJwtBearer(o =>
+            {
+                o.Authority = options.Authority;
+                o.Audience = options.Audience;
+                o.MapInboundClaims = false;
+                o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+                o.TokenValidationParameters.ValidateAudience = true;
+                o.TokenValidationParameters.ValidateIssuer = true;
+                o.TokenValidationParameters.ValidateLifetime = true;
+            });
+        }
 
+        // With keys off the selector never picks this scheme, so a presented key goes to JWT validation and is refused there.
+        authentication.AddScheme<AuthenticationSchemeOptions, DataApiKeyHandler>(DataApiKeyHandler.SchemeName, null);
+        builder.Services.AddSingleton<DataApiKeyStore>();
         builder.Services.AddAuthorization(o =>
         {
             foreach (var permission in DataPermissions.All)
             {
                 o.AddPolicy(permission, p => p.RequireAuthenticatedUser().RequireAssertion(ctx =>
-                    HasPermission(ctx.User, permission, ctx.Resource is HttpContext http
+                    HasPermission(ctx.User, permission, PermissionClaims(ctx.User, ctx.Resource is HttpContext http
                         ? http.RequestServices.GetRequiredService<IOptions<DataApiOptions>>().Value.PermissionClaims
-                        : options.PermissionClaims)));
+                        : options.PermissionClaims))));
             }
         });
         return builder;
     }
+
+    /// <summary>A key's permissions are in its own claim; a token's in the configured claims. Neither can borrow the other's.</summary>
+    private static IEnumerable<string> PermissionClaims(ClaimsPrincipal user, IEnumerable<string> tokenClaims) =>
+        user.Identity?.AuthenticationType == DataApiKeyHandler.SchemeName ? [DataApiKeyHandler.PermissionClaim] : tokenClaims;
 
     /// <summary>True when any configured claim grants the permission. Scope claims are space-separated lists.</summary>
     public static bool HasPermission(ClaimsPrincipal user, string permission, IEnumerable<string> claimTypes)

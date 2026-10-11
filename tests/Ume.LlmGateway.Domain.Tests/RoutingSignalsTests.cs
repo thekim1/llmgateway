@@ -20,7 +20,7 @@ public class RoutingSignalsTests
         BudgetEvaluator.UtilisationPercent((decimal)spent, (decimal)limit).ShouldBe(expected, 1e-9);
 
     private static RoutingRuleDefinition Rule(string condition, bool enabled = true) =>
-        new(Guid.NewGuid(), Guid.NewGuid().ToString("N"), enabled, 0, RoutingScope.Global, null, condition, false, [new RuleTarget("m")], []);
+        new(Guid.NewGuid(), Guid.NewGuid().ToString("N"), enabled, 0, RoutingScope.Global, [], condition, false, [new RuleTarget("m")], []);
 
     [Fact]
     public void Expression_reports_the_variables_it_uses()

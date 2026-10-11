@@ -3,12 +3,10 @@ import { computed, ref, watch } from 'vue'
 import type { RoutingRule, RoutingScope } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelOptions } from '@/composables/useModelOptions'
-import { useDepartmentsStore } from '@/stores/departments'
-import { useKeysStore } from '@/stores/keys'
+import { useRuleOwners } from '@/composables/useRuleOwners'
 import { useRoutingRulesStore } from '@/stores/routingRules'
-import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
-import { ROUTING_SCOPE_HINT, ROUTING_SCOPE_LABEL } from '@/utils/labels'
+import { ROUTING_SCOPE_HINT, ROUTING_SCOPE_LABEL, ROUTING_SCOPE_PLURAL } from '@/utils/labels'
 import { targetShares } from '@/utils/routingRules'
 import { isBlank, parseInteger } from '@/utils/validation'
 import CheckField from '../ui/CheckField.vue'
@@ -20,7 +18,9 @@ import SelectField from '../ui/SelectField.vue'
 import TextField from '../ui/TextField.vue'
 import UiButton from '../ui/UiButton.vue'
 import UiDrawer from '../ui/UiDrawer.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import ConditionEditor, { type ConditionStatus } from './ConditionEditor.vue'
+import OwnerPicker from './OwnerPicker.vue'
 
 interface TargetDraft {
   uid: number
@@ -32,18 +32,16 @@ interface FallbackDraft {
   model: string
 }
 
-const props = defineProps<{ open: boolean; rule: RoutingRule | null }>()
+/** `rule` is edited; without it a new rule is created, prefilled from `template` when given. */
+const props = defineProps<{ open: boolean; rule: RoutingRule | null; template?: RoutingRule | null }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'saved', rule: RoutingRule): void }>()
 
 const rules = useRoutingRulesStore()
-const departments = useDepartmentsStore()
-const teams = useTeamsStore()
-const keys = useKeysStore()
 const ui = useUiStore()
 const models = useModelOptions()
 const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
   name: 'rule-name',
-  scopeId: 'rule-owner',
+  scopeIds: 'rule-owner',
   condition: 'rule-condition',
   targets: 'rule-target-0',
   fallbacks: 'rule-fallback-0',
@@ -52,7 +50,8 @@ const { errors, formError, formErrorLang, clear, validate, applyServerError } = 
 const name = ref('')
 const description = ref('')
 const scope = ref<RoutingScope>('Global')
-const scopeId = ref('')
+const scopeIds = ref<string[]>([])
+const templateId = ref('')
 const isEnabled = ref(true)
 const chain = ref(false)
 const condition = ref('')
@@ -68,33 +67,34 @@ const modelNames = computed(() => models.options.value.map((o) => o.name))
 const known = computed(() => new Set(modelNames.value.map((n) => n.toLowerCase())))
 const shares = computed(() => targetShares(targets.value.map((t) => parseInteger(t.weight) ?? 0)))
 
-const ownerOptions = computed(() => {
-  const options =
-    scope.value === 'Department'
-      ? departments.items.map((d) => ({ value: d.id, label: d.name }))
-      : scope.value === 'Team'
-        ? teams.items.map((t) => ({ value: t.id, label: `${t.name} · ${t.departmentName}` }))
-        : keys.items.map((k) => ({ value: k.id, label: `${k.name} · ${k.prefix}` }))
-  // An orphaned rule still points at the removed owner: keep that value selectable so saving does not silently change it.
-  if (props.rule?.isOrphaned && props.rule.scope === scope.value && props.rule.scopeId && !options.some((o) => o.value === props.rule!.scopeId)) {
-    options.unshift({ value: props.rule.scopeId, label: 'No owner (removed)' })
-  }
-  return options
+const owners = useRuleOwners(scope)
+const ownerChanged = computed(() => {
+  const rule = props.rule
+  if (!rule || scope.value !== rule.scope) return true
+  return scopeIds.value.length !== rule.scopeIds.length || scopeIds.value.some((id) => !rule.scopeIds.includes(id))
 })
-const ownerChanged = computed(() => !props.rule || scope.value !== props.rule.scope || scopeId.value !== (props.rule.scopeId ?? ''))
 /** A rule without an owner cannot be switched on until it has a new one. */
 const enableLocked = computed(() => !!props.rule?.isOrphaned && !ownerChanged.value)
-
-async function loadOwners(next: RoutingScope): Promise<void> {
-  if (next === 'Department') await departments.load()
-  else if (next === 'Team') await teams.load()
-  else if (next === 'VirtualKey') await keys.load()
-}
+const templates = computed(() => rules.items.filter((r) => r.isTemplate))
+const templateOptions = computed(() => templates.value.map((t) => ({ value: t.id, label: t.name })))
 
 function setScope(next: RoutingScope): void {
   scope.value = next
-  scopeId.value = ''
-  void loadOwners(next)
+  scopeIds.value = []
+  void owners.load(next)
+}
+
+/** Fills the form from an example rule; the owners and the on/off state stay as they are. */
+function applyTemplate(id: string): void {
+  templateId.value = id
+  const template = templates.value.find((t) => t.id === id) ?? (props.template?.id === id ? props.template : null)
+  if (!template) return
+  name.value = template.name
+  description.value = template.description ?? ''
+  condition.value = template.condition
+  chain.value = template.chain
+  targets.value = template.targets.map((t) => ({ uid: nextUid++, model: t.model, weight: String(t.weight) }))
+  fallbacks.value = template.fallbacks.map((m) => ({ uid: nextUid++, model: m }))
 }
 
 function addTarget(): void {
@@ -116,17 +116,19 @@ watch(
     if (!open) return
     clear()
     const rule = props.rule
+    templateId.value = ''
     name.value = rule?.name ?? ''
     description.value = rule?.description ?? ''
     scope.value = rule?.scope ?? 'Global'
-    scopeId.value = rule?.scopeId ?? ''
+    scopeIds.value = [...(rule?.scopeIds ?? [])]
     isEnabled.value = rule ? rule.isEnabled : true
     chain.value = rule?.chain ?? false
     condition.value = rule?.condition ?? ''
     targets.value = (rule?.targets ?? []).map((t) => ({ uid: nextUid++, model: t.model, weight: String(t.weight) }))
     fallbacks.value = (rule?.fallbacks ?? []).map((m) => ({ uid: nextUid++, model: m }))
     if (!rule) addTarget()
-    void loadOwners(scope.value)
+    if (!rule && props.template) applyTemplate(props.template.id)
+    void owners.load(scope.value)
   },
   { immediate: true },
 )
@@ -145,16 +147,18 @@ function targetsProblem(): string | false {
   return false
 }
 
+/** New rules, and rules moved to another scope, are checked last in their scope. */
 function nextPriority(): number {
-  const sameOwner = rules.items.filter((r) => r.scope === scope.value && (r.scopeId ?? '') === (scope.value === 'Global' ? '' : scopeId.value))
-  return sameOwner.length === 0 ? 0 : Math.max(...sameOwner.map((r) => r.priority)) + 10
+  const sameScope = rules.items.filter((r) => r.scope === scope.value && r.id !== props.rule?.id)
+  return sameScope.length === 0 ? 0 : Math.max(...sameScope.map((r) => r.priority)) + 10
 }
 
 async function submit(): Promise<void> {
   if (busy.value) return
   const ok = validate({
-    name: isBlank(name.value) && 'Give the rule a name.',
-    scopeId: scope.value !== 'Global' && !scopeId.value && `Choose the ${ROUTING_SCOPE_LABEL[scope.value].toLowerCase()} this rule applies to.`,
+    name: isBlank(name.value) && 'Give the rule a title.',
+    scopeIds:
+      scope.value !== 'Global' && scopeIds.value.length === 0 && !(props.rule?.isOrphaned && !isEnabled.value) && `Choose at least one ${ROUTING_SCOPE_LABEL[scope.value].toLowerCase()} this rule applies to.`,
     condition: conditionStatus.value === 'invalid' && 'Fix the condition first. The problem is shown under the field.',
     targets: targetsProblem(),
     fallbacks: fallbacks.value.some((f) => isBlank(f.model)) && 'Fill in or remove the empty fallback.',
@@ -166,9 +170,9 @@ async function submit(): Promise<void> {
       name: name.value.trim(),
       description: description.value.trim() || null,
       scope: scope.value,
-      scopeId: scope.value === 'Global' ? null : scopeId.value,
+      scopeIds: scope.value === 'Global' ? [] : [...scopeIds.value],
       isEnabled: enableLocked.value ? false : isEnabled.value,
-      priority: props.rule && !ownerChanged.value ? props.rule.priority : nextPriority(),
+      priority: props.rule && props.rule.scope === scope.value ? props.rule.priority : nextPriority(),
       condition: condition.value.trim(),
       chain: chain.value,
       targets: targets.value.map((t) => ({ model: t.model.trim(), weight: parseInteger(t.weight) ?? 1 })),
@@ -190,19 +194,38 @@ async function submit(): Promise<void> {
   <UiDrawer wide :open="open" :title="rule ? 'Edit rule' : 'New rule'" @update:open="emit('update:open', $event)">
     <form id="rule-form" class="flex flex-col gap-6" novalidate @submit.prevent="submit">
       <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
-      <TextField id="rule-name" v-model="name" label="Name" :error="errors.name" hint="Shown in lists, the audit log and usage. Must be unique for the same owner." />
-      <TextField id="rule-desc" v-model="description" label="Description" hint="Optional. Say why the rule exists." />
+      <SelectField
+        v-if="!rule && templateOptions.length > 0"
+        id="rule-template"
+        :model-value="templateId"
+        label="Start from a template"
+        :options="templateOptions"
+        placeholder="Blank rule"
+        hint="Optional. Fills in the title, description, condition and targets of an example rule. Adjust them before you enable the rule."
+        @update:model-value="applyTemplate"
+      />
+      <TextField id="rule-name" v-model="name" label="Title" :error="errors.name" hint="Shown in lists, the audit log and usage. Must be unique for each key, team or department." />
+      <TextField id="rule-desc" v-model="description" label="Short description" hint="Optional. One sentence on what the rule is for." />
+      <div class="flex items-start justify-between gap-4 rounded-tile bg-surface-2 p-4">
+        <span class="flex flex-col">
+          <span id="rule-enabled-label" class="font-medium">Enabled</span>
+          <span id="rule-enabled-hint" class="text-small text-fg-3">{{
+            enableLocked ? 'This rule has no owner. Choose new owners below to enable it.' : 'Turn off to keep the rule without applying it. A rule can only be on when its models and owners exist.'
+          }}</span>
+        </span>
+        <UiSwitch v-model="isEnabled" labelledby="rule-enabled-label" describedby="rule-enabled-hint" :disabled="enableLocked" />
+      </div>
 
       <FieldGroup legend="Applies to" :hint="ROUTING_SCOPE_HINT[scope]">
         <SegmentedControl :model-value="scope" label="Scope" mode="radio" :options="scopeOptions" @update:model-value="setScope($event)" />
-        <SelectField
+        <OwnerPicker
           v-if="scope !== 'Global'"
           id="rule-owner"
-          v-model="scopeId"
-          :label="ROUTING_SCOPE_LABEL[scope]"
-          :options="ownerOptions"
-          :placeholder="`Choose a ${ROUTING_SCOPE_LABEL[scope].toLowerCase()}`"
-          :error="errors.scopeId"
+          v-model="scopeIds"
+          :label="ROUTING_SCOPE_PLURAL[scope]"
+          :options="owners.options.value"
+          :error="errors.scopeIds"
+          hint="Choose one or more. The rule is shared: changing it changes it for all of them."
         />
       </FieldGroup>
 
@@ -212,7 +235,7 @@ async function submit(): Promise<void> {
         <datalist id="rule-model-names"><option v-for="n in modelNames" :key="n" :value="n" /></datalist>
         <ul class="m-0 flex list-none flex-col gap-3 p-0">
           <li v-for="(t, i) in targets" :key="t.uid"><div role="group" :aria-label="`Target ${i + 1}`" class="flex flex-col gap-3 rounded-tile bg-surface-2 p-4">
-            <FormField :id="`rule-target-${i}`" v-slot="{ id: fieldId }" label="Model or route" :hint="!chain && t.model.trim() && !known.has(t.model.trim().toLowerCase()) ? 'Not an existing model or route. Only a chained rule may point at a name another rule handles.' : undefined">
+            <FormField :id="`rule-target-${i}`" v-slot="{ id: fieldId }" label="Model or route" :hint="!chain && t.model.trim() && !known.has(t.model.trim().toLowerCase()) ? 'Not an existing model or route yet. The rule can be saved switched off, and enabled once the name exists (or as a chained rule that another rule handles).' : undefined">
               <input :id="fieldId" v-model="t.model" list="rule-model-names" class="field-input font-mono" autocomplete="off" spellcheck="false" />
             </FormField>
             <div class="grid grid-cols-[1fr_auto] items-end gap-3">
@@ -225,7 +248,7 @@ async function submit(): Promise<void> {
         <div><UiButton icon="add" @click="addTarget">Add target</UiButton></div>
       </FieldGroup>
 
-      <FieldGroup legend="Fallbacks" hint="Optional. Tried in this order after all targets fail. A fallback must be an existing model or route.">
+      <FieldGroup legend="Fallbacks" hint="Optional. Tried in this order after all targets fail. A fallback must be an existing model or route before the rule is enabled.">
         <ol class="m-0 flex list-none flex-col gap-2 p-0">
           <li v-for="(f, i) in fallbacks" :key="f.uid" class="flex items-end gap-2">
             <FormField :id="`rule-fallback-${i}`" v-slot="{ id: fieldId }" :label="`Fallback ${i + 1}`" class="min-w-0 flex-1">
@@ -241,7 +264,6 @@ async function submit(): Promise<void> {
       </FieldGroup>
 
       <CheckField v-model="chain" label="Chain" description="After this rule, send the new model name through the rules again. Use it to rename a model before routing it." />
-      <CheckField v-model="isEnabled" label="Enabled" :disabled="enableLocked" :description="enableLocked ? 'This rule has no owner. Choose a new owner above to enable it.' : 'Turn off to keep the rule without applying it.'" />
     </form>
     <template #footer>
       <UiButton variant="primary" type="submit" form="rule-form" :loading="busy">{{ rule ? 'Save changes' : 'Create rule' }}</UiButton>

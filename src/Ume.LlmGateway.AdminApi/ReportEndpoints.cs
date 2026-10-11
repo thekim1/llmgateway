@@ -84,6 +84,9 @@ public static class ReportEndpoints
             return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
                 rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
+        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
+            .WithName("ListPiiIncidents").WithSummary("Requests in which PII was detected, newest first, with counts per category and action");
         reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var (start, end) = Range(from, to, ctx.Now);
@@ -132,7 +135,7 @@ public static class ReportEndpoints
 
     private const char CsvDelimiter = ';';
 
-    private static IQueryable<UsageRow> WithNames(IQueryable<UsageRecord> query, GatewayDbContext db) =>
+    internal static IQueryable<UsageRow> WithNames(IQueryable<UsageRecord> query, GatewayDbContext db) =>
         from u in query
         join key in db.VirtualKeys on u.VirtualKeyId equals key.Id
         join team in db.Teams on u.TeamId equals team.Id
@@ -153,7 +156,7 @@ public static class ReportEndpoints
         if (number is < 1 or > 100000 || size is < 1 or > 200) { throw new ApiFaultException(400, "Sidnummer eller sidstorlek är ogiltig."); }
         return ((number - 1) * size, size);
     }
-    private static (DateTimeOffset From, DateTimeOffset To) Range(DateTimeOffset? from, DateTimeOffset? to, DateTimeOffset now)
+    internal static (DateTimeOffset From, DateTimeOffset To) Range(DateTimeOffset? from, DateTimeOffset? to, DateTimeOffset now)
     {
         var start = from?.ToUniversalTime() ?? now.AddDays(-30);
         var end = to?.ToUniversalTime() ?? now;

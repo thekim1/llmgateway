@@ -48,6 +48,11 @@ const residency = ref<DataResidency>('OnPrem')
 const capabilities = ref<ProviderCapability[]>(['ChatCompletions', 'Streaming'])
 const timeoutSeconds = ref('120')
 const isEnabled = ref(true)
+const baseUrlHint = computed(() =>
+  type.value === 'AzureAIFoundry'
+    ? 'The project endpoint from the Foundry portal (…services.ai.azure.com/api/projects/<project>) is saved as the resource’s …/openai/v1 address. Discover models lists the project’s deployments.'
+    : undefined,
+)
 const busy = ref(false)
 const drainBusy = ref(false)
 const drainError = ref<unknown>(null)
@@ -169,7 +174,7 @@ async function remove(): Promise<void> {
       <TextField id="prov-name" v-model="name" label="Name" mono :error="errors.name" hint="Shown in routes and reports." />
       <TextField id="prov-display" v-model="displayName" label="Display name" hint="Optional." :error="errors.displayName" />
       <SelectField id="prov-type" v-model="type" label="Type" :options="typeOptions" :error="errors.type" />
-      <TextField id="prov-url" v-model="baseUrl" label="Base URL" type="url" inputmode="url" mono :error="errors.baseUrl" />
+      <TextField id="prov-url" v-model="baseUrl" label="Base URL" type="url" inputmode="url" mono :error="errors.baseUrl" :hint="baseUrlHint" />
       <SelectField id="prov-auth" v-model="authMode" label="Authentication" :options="authOptions" :error="errors.authMode" />
       <div class="flex flex-col gap-2">
         <TextField

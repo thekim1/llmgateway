@@ -32,6 +32,7 @@ A malformed request (unreadable body) → 400; an unexpected failure → 500 wit
   `Gateway:BaseUrl` is the public gateway address shown in the catalogue (default `https://localhost:5140`).
 - API rate limit: 120 requests/minute per authenticated subject (`Admin:RequestsPerMinute`, 1–10000).
   Exceeded → 429 ProblemDetails with `Retry-After`.
+- Suggested Azure AI Foundry prices come from the Azure retail price list of `Admin:AzurePriceRegion` (default `swedencentral`).
 
 Roles (OIDC `roles` claim):
 | Role | Can |
@@ -83,6 +84,20 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 - Rotation retains the predecessor's key budgets and spend across the full rotation lineage, including
   the grace-period key. It does not reset the remaining budget. Concurrent conflicting mutations → 409.
 
+## Data API access (gateway-admin)
+Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys)), for integrations that cannot use OAuth client credentials.
+`DataApiKey = { id, name, description, prefix, permissions: DataPermission[], status: "Active"|"Expired"|"Revoked", createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }`
+(`DataPermission` = `usage.aggregate` | `usage.detail` | `security.read` | `catalog.read`, stored in that order; `lastUsedAt` is written by the Data API at most every 5 minutes per key)
+
+- `GET /api/data-access` → `{ dataApiUrl: string|null, permissions: DataPermission[] }` (`dataApiUrl` from the admin API's `DataApi:PublicUrl`)
+- `GET /api/data-access/keys` → `DataApiKey[]` (sorted by name; never the secret or hash)
+- `GET /api/data-access/keys/{id}` → `DataApiKey`
+- `POST /api/data-access/keys` `{ name, description?, permissions: DataPermission[] (1+), expiresAt? }` → 201 `{ key: DataApiKey, secret: "ume-dk-…" }` — **secret is shown once, only its SHA-256 is stored**
+- `PUT /api/data-access/keys/{id}` (same body) → `DataApiKey`; 409 for a revoked key
+- `POST /api/data-access/keys/{id}/revoke` → `DataApiKey`; 409 if already revoked. The Data API refuses the key within `DataApi:KeyCacheSeconds` (30 s).
+- `DELETE /api/data-access/keys/{id}` → 204; 409 for an active key (revoke it first)
+- Names are unique (400 with a field error on `name`); `expiresAt` must be in the future. Every change is audited (entity type `DataApiKey`, actions `create`, `update`, `revoke`, `delete`; details never hold the secret or hash).
+
 ## Providers, models, routes
 - Plain HTTP is accepted only for on-prem local/test configuration. Production gateway
   invocation requires HTTPS even for on-prem targets and never follows upstream redirects.
@@ -115,20 +130,28 @@ allowedResidencies: DataResidency[], allowedProviders: string[] (provider names,
 Concepts, condition language and evaluation order: [routing rules](routing-rules.md). All endpoints require
 `gateway-admin`. Mutations are audited (`RoutingRule`: `create`, `update`, `delete`, `reassign`, `reorder`, `deactivate`)
 and invalidate the gateway catalogue.
-- `RoutingRule = { id, name, description, isEnabled, priority, scope: "Global"|"Department"|"Team"|"VirtualKey", scopeId|null,
-  scopeName|null, isOrphaned, condition, chain, targets: [{ model, weight }], fallbacks: string[],
+- `RoutingRule = { id, name, description, isEnabled, isTemplate, priority, scope: "Global"|"Department"|"Team"|"VirtualKey", scopeIds: Guid[],
+  owners: [{ id, name|null }], isOrphaned, condition, chain, targets: [{ model, weight }], fallbacks: string[], missingModels: string[],
   validationErrors: [{ message, position|null, length|null }], createdAt, updatedAt }`
-  - `isOrphaned`: the key/team/department the rule is scoped to no longer exists. Such a rule never applies and cannot be enabled until reassigned.
+  - `name` is the rule's title (the UI labels it *Title*); `description` a short description.
+  - `scopeIds`/`owners`: the keys, teams or departments (all of the kind `scope` names) the rule is **shared by**; empty for a global rule. An owner's
+    `name` is `null` when it no longer exists.
+  - `isOrphaned`: none of the rule's owners exists any more. Such a rule never applies and cannot be enabled until reassigned.
+  - `isTemplate`: a shipped example rule (seeded disabled). Editing, enabling or reassigning it makes it an ordinary rule (`isTemplate: false`).
+  - `missingModels`: targets or fallbacks that are neither a route alias nor a model. A disabled rule may have them; it cannot be enabled until they exist.
   - `validationErrors`: why the gateway ignores an enabled rule (empty when valid).
-- `GET /api/routing-rules?scope=&scopeId=&orphaned=` (ordered by scope, then priority) · `GET /api/routing-rules/{id}`
+- `GET /api/routing-rules?scope=&scopeId=&orphaned=` (ordered by scope, then priority; `scopeId` returns the rules whose owners include it) · `GET /api/routing-rules/{id}`
 - `POST /api/routing-rules` · `PUT /api/routing-rules/{id}` body
-  `{ name, description?, scope, scopeId?, isEnabled, priority, condition?, chain, targets: [{ model, weight (1..1000000) }] (1..20), fallbacks?: string[] }`
+  `{ name, description?, scope, scopeIds?: Guid[] (≤1000), isEnabled, priority, condition?, chain, targets: [{ model, weight (1..1000000) }] (1..20), fallbacks?: string[] }`
   → `RoutingRule`. `model` is a route alias or model name. Validation → 400 with field errors (`condition` messages include the character position,
-  `targets`, `fallbacks`, `scopeId`); a non-chained rule may only target existing names, fallbacks must always exist; name unique per scope (409, case-insensitive);
-  the scope owner must exist (an already disabled orphaned rule may still be edited while it stays disabled).
+  `targets`, `fallbacks`, `scopeIds`). An **enabled** rule needs at least one owner (all existing), a non-chained enabled rule may only target existing
+  names and its fallbacks must exist; a **disabled** rule may name models that do not exist yet and may keep an owner that has been removed (new owners must exist).
+  Duplicate owner ids are dropped. Names are unique among global rules, and among rules of one scope that share an owner (409, case-insensitive).
+- `PUT /api/routing-rules/{id}/enabled` `{ isEnabled }` → `RoutingRule`. The on/off switch. Turning a rule on checks it as a save would (owners and
+  models must exist); otherwise **400** with `detail` "Regeln kan inte aktiveras. …" and the field `errors`. Audited as `update`.
 - `DELETE /api/routing-rules/{id}` → 204
-- `POST /api/routing-rules/{id}/reassign` `{ scope, scopeId?, enable = true }` → `RoutingRule`. Attaches the rule to a new team, department or key (or makes it global) and, by default, enables it.
-- `POST /api/routing-rules/reorder` `{ scope, scopeId?, ruleIds: Guid[] }` → `RoutingRule[]`. Sets priorities 0, 10, 20, … in the given order; every id must belong to that scope.
+- `POST /api/routing-rules/{id}/reassign` `{ scope, scopeIds?: Guid[], enable = true }` → `RoutingRule`. Attaches the rule to new teams, departments or keys (at least one, all existing) or makes it global and, by default, enables it (then its models must exist).
+- `POST /api/routing-rules/reorder` `{ scope, ruleIds: Guid[] }` → `RoutingRule[]`. Sets priorities 0, 10, 20, … in the given order; every id must belong to that scope (the order is kept per scope, since rules can be shared by several owners).
 - `POST /api/routing-rules/validate` `{ condition }` → `{ valid, errors: [{ position, length, message }], variables: string[], available: [{ name, type }] }` (live validation while typing).
 - `POST /api/routing-rules/test` (dry run) `{ model, endpoint?, headers?, params?, keyId?, teamId?, departmentId?, budgetUsed?, tokensUsed?, piiDetected?, promptTokens?, seed? }`
   → `{ matched, primaryModel, models: [{ name, exists, type, kind, enabled }], applied: [{ ruleId, name, fromModel, toModel }], chainLimitReached,
@@ -136,9 +159,10 @@ and invalidate the gateway catalogue.
   ignoredRules, note }`. Evaluates the **stored, enabled** rules. `keyId` fills in team, department and key name (and the key's rotation lineage);
   usage values that are not supplied are unknown, so conditions using them do not match. `seed` makes weighted choices repeatable.
 - **Deleting a team or department that has rules.** `DELETE /api/teams/{id}` and `DELETE /api/departments/{id}` take an optional query parameter
-  `routingRules=delete|deactivate`. If rules are scoped to the team/department and the parameter is missing, the call fails with **409** and
-  `{ code: "routing_rules_scoped", choices: ["delete","deactivate"], rules: [{ id, name, isEnabled }], detail }` so the client can ask the user.
-  `delete` removes the rules; `deactivate` disables them and keeps everything else, so they can be attached to a new team/department with
+  `routingRules=delete|deactivate`. The team/department is removed from every rule shared with other owners (audited as `update`; those rules keep
+  applying to the rest). If it is the **only** owner of some rules and the parameter is missing, the call fails with **409** and
+  `{ code: "routing_rules_scoped", choices: ["delete","deactivate"], rules: [{ id, name, isEnabled }], detail }` (only those rules) so the client can ask the user.
+  `delete` removes them; `deactivate` disables them with no owners and keeps everything else, so they can be attached to new owners with
   `reassign`. The choice and the delete are saved in one transaction and audited per rule. Any other value → 400.
 - **Names in use.** A route alias or model that a rule uses as target or fallback cannot be deleted or renamed (409 naming the rule). Conditions that compare `model` with a name are not checked.
 - Key rotation: a rule scoped to a key keeps applying to the key that replaced it, like budgets.
@@ -161,6 +185,13 @@ and invalidate the gateway catalogue.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
   → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
+- `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
+  → `{ from, to, items: PiiIncident[], total, totalIncidents, categories: [{ category, requests, occurrences }], actions: [{ action, requests }] }`
+  where `PiiIncident = { requestId, timestamp, keyId, keyPrefix, keyName, teamId, teamName, departmentId, departmentName, endpoint, requestedModel, providerName, action, categories: [{ category, count }], outcome, statusCode, routingRuleName }`.
+  An incident is a usage record with PII found (`piiCategories` set), newest first; this includes policy `Allow` (detected and sent on).
+  `category` is `Personnummer|Samordningsnummer|Email|Phone|Iban`, `action` is `Allow|Redact|Block|RerouteToOnPrem` (case-insensitive;
+  anything else is 400). `items`/`total` honour every filter; `categories`, `actions` and `totalIncidents` cover the period and the
+  department/team/key filters only. Default period: the last 30 days, at most one year. Keys with PII policy `Off` are not scanned and have no incidents.
 - `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad SEK.
   Semicolon-separated; cells are quoted only when they contain a semicolon, a quote or a line break. A text cell a spreadsheet would run as
   a formula (starting with a tab or line break, or with `=`, `+`, `-` or `@` after any leading spaces) is prefixed with `'`;
@@ -170,7 +201,12 @@ and invalidate the gateway catalogue.
 - `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
 
 ## Operations (gateway-admin)
-- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
+- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
+  - `errorRate24h`: share of the last 24 h's requests that did not succeed (client errors and cancellations included). `providerErrorRate24h`: only *provider errors*, i.e. outcome `ProviderError` with status ≥ 500 and an error code other than `internal_error` (upstream 5xx, timeouts, broken streams).
+  - `status`: `"Healthy"|"Degraded"|"Unhealthy"|"CircuitOpen"|"NoRecentTraffic"|"Disabled"`, computed on every call: `Disabled` if the provider is disabled, else `CircuitOpen` if its circuit is open, else from the last hour (`recentRequests`, `recentProviderErrors`): no requests → `NoRecentTraffic`; fewer than 10 → `Healthy` (too few to judge); otherwise provider error rate ≥ 50 % → `Unhealthy`, ≥ 5 % → `Degraded`, else `Healthy`. `statusReason` is an English sentence for the UI, e.g. `"4 of 40 requests failed at the provider in the last hour (10 %)."`.
+- `GET /api/ops/providers/stats?from=&to=&bucket=hour|day` → `{ from, to, bucket: "Hour"|"Day", timeZone, providers: [{ providerId, name, exists, requests, providerErrors, availability, fallbackRate, p50LatencyMs, p95LatencyMs }], buckets: [{ providerId, start, requests, providerErrors, errorRate, fallbacks, p50LatencyMs, p95LatencyMs }] }`
+  - `bucket` (case-insensitive) defaults to `hour`; `to` defaults to now and `from` to 24 hours (hour) or 30 days (day) before `to`. `from` is moved back to the start of its bucket and returned. Hour buckets are UTC hours (Stockholm's offset is whole hours, so they are also local hours) and allow at most 7 days; day buckets are Europe/Stockholm days and allow at most 90. Otherwise 400 (`"Timvis indelning tillåter högst 7 dygn. Välj day för längre perioder."`, `"Välj ett tidsintervall på högst 90 dygn."`, `"Tidsintervallets slut måste ligga efter dess början."`, `"Indelningen måste vara hour eller day."`).
+  - `buckets` holds only buckets with traffic (no row means no requests). `providers` is the whole period, most stable first: `availability` (1 − provider error rate) descending, then `p95LatencyMs` ascending, then requests. A provider deleted since has `exists: false` and the name recorded with its requests. Provider errors are counted as for `/api/ops/health`; percentiles leave out live audio sessions; `fallbacks`/`fallbackRate` count requests this provider answered after an earlier candidate failed.
 - Gateway status/version/queue are fetched live over `Gateway:OperationsUrl` (HTTPS; defaults to
   `Gateway:BaseUrl`) within five seconds. An unavailable, malformed or unauthenticated probe
   yields an explicit `Unhealthy` gateway component and null version/usageWriter, never fabricated
@@ -190,7 +226,7 @@ and invalidate the gateway catalogue.
   prices: Price[] }], routes: [{ name, description, kind, isEnabled,
   targets: [{ modelName, priority, weight }] }], routingRules?: [{ name, description?, isEnabled, priority, condition?, chain,
   targets: [{ model, weight }], fallbacks?: string[] }] }`. Only **global** routing rules are transferred (key/team/department ids differ between
-  environments); rules are matched by name, created or updated, never deleted by import, and each is validated like one saved through the API (an invalid rule fails the whole import).
+  environments), and not untouched templates (every installation has them); rules are matched by name, created or updated, never deleted by import, and each is validated like one saved through the API (an invalid rule fails the whole import).
   Documents without `routingRules` (older exports) still import. Changing the kind of a model that a route uses → 409
   "Modelltypen kan inte ändras när modellen används i en rutt." (same as `PUT /api/models/{id}`).
   References use stable names; database IDs in model configuration are ignored on import.

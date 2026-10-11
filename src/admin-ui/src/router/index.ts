@@ -16,9 +16,17 @@ declare module 'vue-router' {
 export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: 'Overview' } },
   { path: '/usage', name: 'usage', component: () => import('@/views/UsageView.vue'), meta: { title: 'Usage' } },
+  {
+    path: '/operations/stability',
+    name: 'provider-stability',
+    component: () => import('@/views/ProviderStabilityView.vue'),
+    meta: { title: 'Provider stability', roles: GATEWAY_ADMIN },
+  },
+  { path: '/pii-incidents', name: 'pii-incidents', component: () => import('@/views/PiiIncidentsView.vue'), meta: { title: 'PII incidents' } },
   { path: '/operations', name: 'ops', component: () => import('@/views/OpsView.vue'), meta: { title: 'Operations', roles: GATEWAY_ADMIN } },
   { path: '/keys', name: 'keys', component: () => import('@/views/KeysView.vue'), meta: { title: 'Keys', roles: ADMIN_ROLES } },
   { path: '/organisation', name: 'organisation', component: () => import('@/views/OrganisationView.vue'), meta: { title: 'Organisation', roles: ADMIN_ROLES } },
+  { path: '/data-access', name: 'data-access', component: () => import('@/views/DataAccessView.vue'), meta: { title: 'Data API access', roles: GATEWAY_ADMIN } },
   { path: '/catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Catalogue' } },
   { path: '/getting-started', name: 'getting-started', component: () => import('@/views/GettingStartedView.vue'), meta: { title: 'Getting started' } },
   { path: '/routes', name: 'routes', component: () => import('@/views/RoutesView.vue'), meta: { title: 'Routes', roles: GATEWAY_ADMIN } },

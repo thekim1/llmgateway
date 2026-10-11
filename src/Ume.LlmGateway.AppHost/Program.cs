@@ -122,6 +122,8 @@ if (builder.Configuration.GetValue("DataApi:Enabled", builder.ExecutionContext.I
         .WaitFor(database)
         .WaitForCompletion(migrations)
         .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https");
+    // Shown in the admin UI with a new Data API key.
+    adminApi.WithEnvironment("DataApi__PublicUrl", dataApi.GetEndpoint("https"));
 
     if (keycloak is not null)
     {

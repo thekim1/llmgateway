@@ -23,13 +23,13 @@ describe('RuleDetail', () => {
   })
 
   it('explains an empty condition and a chain', () => {
-    const wrapper = mountDetail(rule({ condition: '  ', chain: true, scope: 'Team', scopeId: 't', scopeName: 'Service desk' }))
-    expect(wrapper.text()).toContain('No condition: it matches every request from Service desk.')
+    const wrapper = mountDetail(rule({ condition: '  ', chain: true, scope: 'Team', scopeIds: ['t'], owners: [{ id: 't', name: 'Service desk' }] }))
+    expect(wrapper.text()).toContain('No condition: it matches every request from its teams.')
     expect(wrapper.text()).toContain('Chain: after this rule')
   })
 
   it('tells the user a rule without an owner is switched off and offers a new owner', async () => {
-    const wrapper = mountDetail(rule({ scope: 'Team', scopeId: 'gone', isOrphaned: true, isEnabled: false }))
+    const wrapper = mountDetail(rule({ scope: 'Team', scopeIds: [], isOrphaned: true, isEnabled: false }))
     expect(wrapper.text()).toContain('This rule has no owner')
     expect(wrapper.text()).toContain('is switched off and never applies')
     const enable = button(wrapper, 'Enable')
@@ -46,11 +46,12 @@ describe('RuleDetail', () => {
   })
 
   it('emits the actions and moves one place at a time', async () => {
-    const wrapper = mountDetail(rule({ scope: 'Team', scopeId: 't', scopeName: 'Service desk' }), { position: 2, count: 3 })
-    expect(wrapper.text()).toContain('Checked 2 of 3 for Service desk')
+    const wrapper = mountDetail(rule({ scope: 'Team', scopeIds: ['t'], owners: [{ id: 't', name: 'Service desk' }] }), { position: 2, count: 3 })
+    expect(wrapper.text()).toContain('Number 2 of 3 among the team rules')
+    expect(wrapper.text()).toContain('Service desk')
     await button(wrapper, 'Edit').trigger('click')
     await button(wrapper, 'Disable').trigger('click')
-    await button(wrapper, 'Change owner').trigger('click')
+    await button(wrapper, 'Change owners').trigger('click')
     await button(wrapper, 'Delete').trigger('click')
     await buttonByLabel(wrapper, 'Check earlier').trigger('click')
     await buttonByLabel(wrapper, 'Check later').trigger('click')
@@ -66,6 +67,15 @@ describe('RuleDetail', () => {
     expect(buttonByLabel(last, 'Check later').attributes('aria-disabled')).toBe('true')
     const only = mountDetail(rule(), { position: 1, count: 1 })
     expect(only.find('button[aria-label="Check earlier"]').exists()).toBe(false)
+  })
+
+  it('marks a template, offers a copy and says which models are missing', async () => {
+    const wrapper = mountDetail(rule({ isTemplate: true, isEnabled: false, missingModels: ['local'] }))
+    expect(wrapper.text()).toContain('Template')
+    expect(wrapper.text()).toContain('Can’t be enabled yet')
+    expect(wrapper.text()).toContain('local is not an existing model or route')
+    await button(wrapper, 'New rule from template').trigger('click')
+    expect(wrapper.emitted('copy')).toHaveLength(1)
   })
 
   it('offers to change the scope of a global rule', () => {

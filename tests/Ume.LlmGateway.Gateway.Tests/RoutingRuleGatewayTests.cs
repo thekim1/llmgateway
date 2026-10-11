@@ -33,7 +33,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
             Name = name,
             Condition = condition,
             Scope = RoutingScope.VirtualKey,
-            ScopeId = key.Id,
+            ScopeIds = [key.Id],
             Targets = [.. targets.Select(t => new RoutingRuleTarget { Model = t })],
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -96,7 +96,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
     public async Task Team_scoped_rule_applies_to_the_teams_keys()
     {
         var key = await fixture.CreateKeyAsync();
-        await AddRuleAsync(key, "Team rule", "", ["external/ok"], r => { r.Scope = RoutingScope.Team; r.ScopeId = key.TeamId; });
+        await AddRuleAsync(key, "Team rule", "", ["external/ok"], r => { r.Scope = RoutingScope.Team; r.ScopeIds = [key.TeamId]; });
         using var response = await fixture.SendAsync(key, "eu/ok");
         Provider(response).ShouldBe("external");
     }
@@ -126,7 +126,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
     public async Task Key_rule_wins_over_team_rule_regardless_of_priority()
     {
         var key = await fixture.CreateKeyAsync();
-        await AddRuleAsync(key, "Team", "", ["external/ok"], r => { r.Scope = RoutingScope.Team; r.ScopeId = key.TeamId; r.Priority = -50; });
+        await AddRuleAsync(key, "Team", "", ["external/ok"], r => { r.Scope = RoutingScope.Team; r.ScopeIds = [key.TeamId]; r.Priority = -50; });
         await AddRuleAsync(key, "Key", "", ["onprem/ok"], r => r.Priority = 50);
         using var response = await fixture.SendAsync(key, "eu/ok");
         Provider(response).ShouldBe("onprem");

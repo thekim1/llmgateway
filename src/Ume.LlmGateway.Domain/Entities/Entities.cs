@@ -133,6 +133,40 @@ public sealed class VirtualKey
     }
 }
 
+/// <summary>
+/// A key for the read-only Data API (docs/data-access.md), for integrations that cannot use OAuth client credentials.
+/// Managed by gateway admins; holds only the hash of the key (<see cref="Services.DataApiKeyHasher"/>), never the key.
+/// </summary>
+public sealed class DataApiKey
+{
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+
+    /// <summary>Non-secret identifying prefix, e.g. <c>ume-dk-AbC1</c>, shown in the UI.</summary>
+    public required string Prefix { get; set; }
+
+    /// <summary>Hex SHA-256 of the full key.</summary>
+    public required string KeyHash { get; set; }
+
+    /// <summary>Granted Data API permissions (<see cref="DataPermissions"/>).</summary>
+    public List<string> Permissions { get; set; } = [];
+
+    public DateTimeOffset CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>Written by the Data API at most every few minutes per key, so it is approximate.</summary>
+    public DateTimeOffset? LastUsedAt { get; set; }
+
+    /// <summary>Active, Expired or Revoked.</summary>
+    public KeyStatus GetStatus(DateTimeOffset now) =>
+        RevokedAt is { } revoked && revoked <= now ? KeyStatus.Revoked
+        : ExpiresAt is { } expires && expires <= now ? KeyStatus.Expired
+        : KeyStatus.Active;
+}
+
 public sealed class ProviderAccount
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -244,8 +278,8 @@ public sealed class RouteTarget
 /// <summary>
 /// An administrator-defined routing rule: when <see cref="Condition"/> matches a request, it is sent to
 /// <see cref="Targets"/> (weighted) with <see cref="Fallbacks"/> instead of the alias it asked for. Evaluated by
-/// <see cref="Routing.RoutingRuleSet"/>. <see cref="ScopeId"/> refers to a key, team or department (no foreign key:
-/// a rule whose scope no longer exists simply never matches).
+/// <see cref="Routing.RoutingRuleSet"/>. <see cref="ScopeIds"/> are the keys, teams or departments (of the kind
+/// <see cref="Scope"/> names) the rule is shared by; no foreign keys: an owner that no longer exists simply never matches.
 /// </summary>
 public sealed class RoutingRule
 {
@@ -258,7 +292,12 @@ public sealed class RoutingRule
     public int Priority { get; set; }
 
     public Routing.RoutingScope Scope { get; set; } = Routing.RoutingScope.Global;
-    public Guid? ScopeId { get; set; }
+
+    /// <summary>The owners the rule applies to (empty for a global rule, or for a disabled rule waiting for a new owner).</summary>
+    public List<Guid> ScopeIds { get; set; } = [];
+
+    /// <summary>A shipped example (disabled until an administrator adopts it). Editing or enabling it makes it an ordinary rule.</summary>
+    public bool IsTemplate { get; set; }
 
     /// <summary>Condition in the routing expression language; empty always matches.</summary>
     public string Condition { get; set; } = "";
@@ -275,7 +314,7 @@ public sealed class RoutingRule
     public DateTimeOffset UpdatedAt { get; set; }
 
     public Routing.RoutingRuleDefinition ToDefinition() => new(
-        Id, Name, IsEnabled, Priority, Scope, ScopeId, Condition, Chain,
+        Id, Name, IsEnabled, Priority, Scope, [.. ScopeIds], Condition, Chain,
         [.. Targets.Select(t => new Routing.RuleTarget(t.Model, t.Weight))], [.. Fallbacks]);
 }
 

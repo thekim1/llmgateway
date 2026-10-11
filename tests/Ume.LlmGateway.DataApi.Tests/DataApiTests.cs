@@ -200,6 +200,9 @@ public sealed class DataApiTests(DataApiFixture fixture)
     [InlineData("SELECT \"EncryptedCredential\" FROM \"ProviderAccounts\"")]
     [InlineData("SELECT \"BaseUrl\" FROM \"ProviderAccounts\"")]
     [InlineData("SELECT * FROM \"DataProtectionKeys\"")]
+    [InlineData("SELECT \"CreatedBy\" FROM \"DataApiKeys\"")]
+    [InlineData("UPDATE \"DataApiKeys\" SET \"RevokedAt\" = NULL")]
+    [InlineData("UPDATE \"DataApiKeys\" SET \"Permissions\" = '{security.read}'")]
     [InlineData("INSERT INTO \"AuditLog\" (\"Timestamp\", \"Actor\", \"Action\", \"EntityType\") VALUES (now(), 'x', 'x', 'x')")]
     public async Task The_data_role_cannot_read_secrets_or_write(string sql)
     {

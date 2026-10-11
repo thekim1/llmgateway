@@ -12,6 +12,7 @@ const list = vi.fn()
 const update = vi.fn()
 const remove = vi.fn()
 const reorder = vi.fn()
+const setEnabled = vi.fn()
 vi.mock('@/api', () => ({
   api: {
     routingRules: {
@@ -19,6 +20,7 @@ vi.mock('@/api', () => ({
       update: (...a: unknown[]) => update(...a),
       remove: (...a: unknown[]) => remove(...a),
       reorder: (...a: unknown[]) => reorder(...a),
+      setEnabled: (...a: unknown[]) => setEnabled(...a),
     },
   },
 }))
@@ -39,11 +41,11 @@ async function mountView(rules: RoutingRule[]) {
 }
 
 beforeEach(() => {
-  for (const fn of [list, update, remove, reorder]) fn.mockReset()
-  first = rule({ name: 'Premium via header', priority: 0, scope: 'Team', scopeId: 't1', scopeName: 'Service desk', condition: 'headers["x-tier"] == "premium"' })
-  second = rule({ name: 'Budget guard', priority: 10, scope: 'Team', scopeId: 't1', scopeName: 'Service desk', condition: 'budget_used > 90' })
+  for (const fn of [list, update, remove, reorder, setEnabled]) fn.mockReset()
+  first = rule({ name: 'Premium via header', priority: 0, scope: 'Team', scopeIds: ['t1'], owners: [{ id: 't1', name: 'Service desk' }], condition: 'headers["x-tier"] == "premium"' })
+  second = rule({ name: 'Budget guard', priority: 10, scope: 'Team', scopeIds: ['t1'], owners: [{ id: 't1', name: 'Service desk' }], condition: 'budget_used > 90' })
   global = rule({ name: 'Everyone', scope: 'Global' })
-  orphan = rule({ name: 'Left behind', scope: 'Department', scopeId: 'gone', scopeName: null, isOrphaned: true, isEnabled: false })
+  orphan = rule({ name: 'Left behind', scope: 'Department', scopeIds: [], isOrphaned: true, isEnabled: false })
 })
 
 describe('RoutingRulesView', () => {
@@ -52,7 +54,8 @@ describe('RoutingRulesView', () => {
     expect(wrapper.find('h1').text()).toBe('Routing rules')
     expect(wrapper.findAll('nav h2').map((h) => h.text())).toEqual(['Team rules', 'Global rules'])
     expect(wrapper.find('#rule-title').text()).toBe('Premium via header')
-    expect(wrapper.text()).toContain('Checked 1 of 2 for Service desk')
+    expect(wrapper.text()).toContain('Number 1 of 2 among the team rules')
+    expect(wrapper.find('nav').text()).toContain('Service desk')
   })
 
   it('says what to do when there are no rules yet', async () => {
@@ -92,12 +95,41 @@ describe('RoutingRulesView', () => {
 
   it('switches a rule off and confirms', async () => {
     const wrapper = await mountView([first, second])
-    update.mockResolvedValue({ ...first, isEnabled: false })
+    setEnabled.mockResolvedValue({ ...first, isEnabled: false })
     await button(wrapper, 'Disable').trigger('click')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(first.id, expect.objectContaining({ isEnabled: false, name: first.name, condition: first.condition, priority: 0 }))
-    expect(useUiStore().toasts.map((t) => t.message)).toContain('Rule disabled')
-    expect(wrapper.find('nav').text()).toContain('Disabled')
+    expect(setEnabled).toHaveBeenCalledWith(first.id, false)
+    expect(update).not.toHaveBeenCalled()
+    expect(useUiStore().toasts.map((t) => t.message)).toContain('Premium via header disabled')
+    expect(wrapper.find('nav').text()).toContain('Off')
+  })
+
+  it('has an accessible on/off switch for every rule in the list', async () => {
+    const wrapper = await mountView([first, second, orphan])
+    const switches = wrapper.findAll('nav [role="switch"]')
+    expect(switches.map((s) => [s.attributes('aria-label'), s.attributes('aria-checked')])).toEqual([
+      ['Enable Premium via header', 'true'],
+      ['Enable Budget guard', 'true'],
+      ['Enable Left behind', 'false'],
+    ])
+    expect(switches.every((s) => s.element.tagName === 'BUTTON' && s.attributes('type') === 'button')).toBe(true)
+    setEnabled.mockResolvedValue({ ...second, isEnabled: false })
+    await switches[1]!.trigger('click')
+    await flushPromises()
+    expect(setEnabled).toHaveBeenCalledWith(second.id, false)
+    expect(wrapper.findAll('nav [role="switch"]')[1]!.attributes('aria-checked')).toBe('false')
+  })
+
+  it('leaves the switch off and says why when the server refuses to enable a rule', async () => {
+    const template = rule({ name: 'Personal data to a local model', isTemplate: true, isEnabled: false, missingModels: ['local'] })
+    const wrapper = await mountView([template])
+    setEnabled.mockRejectedValue(new ApiError(400, 'PUT', { detail: 'Regeln kan inte aktiveras. Okänd modell eller alias: local.' }))
+    await wrapper.find('nav [role="switch"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').text()).toContain('Could not switch “Personal data to a local model”')
+    expect(wrapper.find('[role="alert"]').text()).toContain('local')
+    expect(wrapper.find('nav [role="switch"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.text()).toContain('Template')
   })
 
   it('moves a rule one place by sending the whole new order', async () => {
@@ -106,19 +138,19 @@ describe('RoutingRulesView', () => {
     reorder.mockResolvedValue([{ ...second, priority: 0 }, { ...first, priority: 10 }])
     await buttonByLabel(wrapper, 'Check earlier').trigger('click')
     await flushPromises()
-    expect(reorder).toHaveBeenCalledWith({ scope: 'Team', scopeId: 't1', ruleIds: [second.id, first.id] })
+    expect(reorder).toHaveBeenCalledWith({ scope: 'Team', ruleIds: [second.id, first.id] })
     expect(wrapper.findAll('nav li').map((li) => li.text())[0]).toContain('Budget guard')
     expect(wrapper.find('[role="status"]').text()).toBe('Budget guard is now checked 1 of 2.')
-    expect(wrapper.text()).toContain('Checked 1 of 2')
+    expect(wrapper.text()).toContain('Number 1 of 2')
   })
 
   it('shows a failed action as an inline message and keeps the rule as it was', async () => {
     const wrapper = await mountView([first])
-    update.mockRejectedValue(new ApiError(409, 'PUT', { detail: 'Ändringen krockar med befintliga uppgifter.' }))
+    setEnabled.mockRejectedValue(new ApiError(409, 'PUT', { detail: 'Ändringen krockar med befintliga uppgifter.' }))
     await button(wrapper, 'Disable').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toContain('krockar')
-    expect(wrapper.find('nav').text()).not.toContain('Disabled')
+    expect(wrapper.find('nav').text()).not.toContain('Off')
   })
 
   it('deletes a rule after confirmation', async () => {

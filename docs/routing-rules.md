@@ -83,7 +83,8 @@ Notes:
 - If you only need "personal data stays on-prem" for specific keys, the key's PII policy **Reroute to on-prem** does the same without a rule.
   Use a rule when you want it per team or department, per model, with a chosen on-prem model, or combined with other conditions
   (for example `pii_detected && department_name == "Individ- och familjeomsorgen"`).
-- Detection covers Swedish personnummer and samordningsnummer (with checksum), email addresses, Swedish phone numbers and IBANs (not bankgiro numbers).
+- Detection covers Swedish personnummer and samordningsnummer, email addresses, Swedish phone numbers and IBANs (not bankgiro numbers);
+  see *Personal data (PII)* in the README for the formats.
   It is a safety net, not a guarantee that no personal data reaches a provider.
 
 The same two examples are on the **Getting started** page of the admin UI:
@@ -94,13 +95,41 @@ To regenerate the screenshots after a UI change, start the test stack (`.\script
 `npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
 changes the (disposable) test database only.
 
+## Templates: example rules to start from
+
+Every installation gets four **template** rules, created once by the database migration and **switched off**. They show
+how typical rules are written; nothing happens until an administrator switches one on. Each is marked *Template* in the list.
+
+| Template | Condition | Sends to |
+|---|---|---|
+| Personal data to a local model | `pii_detected && endpoint == "chat_completions"` | `local` (no fallbacks, checked first among global rules) |
+| Opt in to the local model with a header | `headers["x-ume-route"] == "local"` | `local` |
+| Large prompts to a long-context model | `prompt_tokens > 30000` | `long-context` |
+| Budget nearly used: cheaper model | `budget_used > 90` | `cheap` |
+
+The targets are placeholder route aliases. **A disabled rule may name a model or route that does not exist yet, but it
+cannot be switched on until it does**: the switch answers "Regeln kan inte aktiveras. Okänd modell eller alias: local. …".
+Either create a route alias with that name under **Routing > Routes** (for example `local` pointing at your on-prem
+model), or edit the rule to point at an existing one, then switch it on.
+
+Two ways to use a template:
+
+- **Adopt it**: edit it (or just switch it on). It becomes an ordinary rule and loses the *Template* mark.
+- **Copy it**: **New rule from template** (or *Start from a template* in the new-rule form) fills a new rule with the
+  template's title, description, condition and targets, for example to apply it to a few keys only. The template stays as it is.
+
+A deleted template is not created again. Templates are not part of the configuration export (every installation has them),
+and the migration skips a template if a global rule with the same name already exists.
+
 ## How a rule works
 
 | Field | Meaning |
 |---|---|
-| Name | Unique within its scope |
-| Enabled | Disabled rules are validated but never evaluated |
-| Scope | `VirtualKey`, `Team`, `Department` or `Global`; non-global rules also carry the id of the key/team/department |
+| Title (`name`) | Shown in lists, the audit log and usage. Unique among global rules, and among the rules of one scope that share a key, team or department |
+| Description | Optional short description, shown under the title in the list |
+| Enabled | The on/off switch. Disabled rules are validated but never evaluated. Switching a rule on requires its models and owners to exist |
+| Scope | `VirtualKey`, `Team`, `Department` or `Global` |
+| Owners (`scopeIds`) | For a non-global rule: **one or more** keys, teams or departments of that kind. The rule is shared: it applies to each of them, and changing it changes it for all |
 | Priority | Lower is checked first within a scope (default 0) |
 | Condition | An expression, see below. Empty = always matches |
 | Targets | One or more model names (a route alias such as `ume/chat-advanced`, or a deployment such as `azure-swc/gpt-4o-mini`) with a relative weight (1-1,000,000) |
@@ -109,8 +138,10 @@ changes the (disposable) test database only.
 
 ### Evaluation order
 
-1. Scopes are checked most specific first: key, team, department, global.
-2. Within a scope, by ascending priority, then by name.
+1. Scopes are checked most specific first: key, team, department, global. Only the rules whose owners include the
+   request's key (or a key it replaced), its team or its department take part.
+2. Within a scope, by ascending priority, then by name. The order is kept per scope, not per owner, so a rule shared
+   by several teams has the same place relative to the other team rules for each of them.
 3. **The first rule whose condition is true wins.** Nothing else is evaluated.
 4. If no rule matches, the request is routed exactly as before.
 
@@ -158,21 +189,26 @@ applies to the model the client asks for.
 
 Open **Routing > Routing rules** (gateway-admin only).
 
-- **List.** Rules are grouped by scope in the order the gateway checks them (key, team, department, global); within an owner
-  they are numbered in checking order. A line under each name says where it sends traffic and flags anything unusual
-  (*Chain*, *Disabled*, *Needs an owner*, *Ignored: invalid*). Filter by scope, or show only the rules that need an owner.
-- **Detail.** The selected rule's condition, its targets with each one's share of the traffic, its fallbacks and its place in the
-  order. You can edit, enable or disable, **move it earlier or later** (buttons, keyboard accessible), change its owner or scope,
-  and delete it.
-- **New rule / Edit.** Name, who it applies to (global, a department, a team or a key), the condition, the targets with weights, the
-  fallbacks, **Chain** and **Enabled**. The condition is checked against the server as you type: a problem is shown with the character
+- **List.** Rules are grouped by scope in the order the gateway checks them (key, team, department, global) and numbered
+  in checking order. Each shows its title, its short description, a line that says where it sends traffic, who it applies to
+  and anything unusual (*Template*, *Chain*, *Off*, *Needs an owner*, *Ignored: invalid*), and an **on/off switch**
+  (a keyboard-operable `role="switch"`). The switch only moves when the server accepts the change; if switching a rule on
+  is refused (for example a template whose route does not exist yet) it stays off and the reason is shown above the list.
+  Filter by scope, or show only the rules that need an owner.
+- **Detail.** The selected rule's owners, condition, its targets with each one's share of the traffic, its fallbacks and its place in the
+  order, and a warning listing models that do not exist. You can edit, enable or disable, **move it earlier or later** (buttons,
+  keyboard accessible), change its owners or scope, delete it, and for a template create a new rule from it.
+- **New rule / Edit.** Optionally *Start from a template*, then **Title**, **Short description**, the **Enabled** switch, who it applies to
+  (global, or any number of departments, teams or keys, picked from a filterable checkbox list), the condition, the targets with weights, the
+  fallbacks and **Chain**. The condition is checked against the server as you type: a problem is shown with the character
   position and the offending text, and **Variables and examples** inserts variable names or complete examples. Model names are
   suggested from your routes and models.
 - **Test a request.** Pick the model a client would ask for and, if you like, a key or team, headers, request parameters and usage values.
   The result says which rule applies, the models the request is tried against in order (and whether any do not exist), and for every
   rule that was checked which comparisons were true, false or could not be evaluated (for example a header that was not sent).
-- **Deleting a team or department that has rules** (in **Organisation**) opens a question: **Deactivate** the rules (the recommended
-  default; they wait under *Needs owner* until you assign a new team, department or key) or **Delete** them.
+- **Deleting a team or department that has rules** (in **Organisation**): rules it shares with other teams or departments just
+  stop applying to it. For rules it is the only owner of, a question opens: **Deactivate** them (the recommended default; they
+  wait under *Needs owner* until you assign new teams, departments or keys) or **Delete** them.
 - **Usage** shows the rule that routed a request in the request details.
 
 ## Managing rules through the API
@@ -181,20 +217,22 @@ Only `gateway-admin` can manage rules in either place: they redirect traffic and
 reorder, validate a condition while it is typed, and **dry-run** a sample request against the stored rules to see which
 rule applies and, for every rule checked, which comparisons were true, false or impossible to evaluate (for example a
 missing header). Saving validates the condition (with the character position of a problem), that targets and
-fallbacks exist (a chained rule may point at a name another rule handles), that the owner exists and that the name is
-unique in its scope. Global rules can be exported and imported with the rest of the configuration; scoped rules cannot,
+fallbacks exist (a chained rule may point at a name another rule handles; a disabled rule may name models that do not
+exist yet), that the owners exist and that the name is unique. `PUT /api/routing-rules/{id}/enabled` is the on/off switch.
+Global rules can be exported and imported with the rest of the configuration (templates are not exported); scoped rules cannot,
 because key/team/department ids differ between environments.
 
 ### When a team or department is removed, and when a key is rotated
 
 Rules often belong to a service, not to the organisation chart: when a reorganisation removes a team or department
-the same rules usually still apply, they just need a new owner. So deleting a team or department that has rules
-**asks what to do** (the API answers 409 with the list of rules until the client sends `routingRules=delete` or
+the same rules usually still apply, they just need a new owner. Deleting a team or department removes it from every
+rule it shares with other owners (those keep applying to the rest). For rules it is the **only** owner of, the delete
+**asks what to do** (the API answers 409 with the list of those rules until the client sends `routingRules=delete` or
 `routingRules=deactivate`):
 
 - **Delete** removes the rules.
-- **Deactivate** switches them off and keeps everything else. They show as *orphaned* (no owner) and cannot be
-  enabled until they are **reassigned** to a new team, department or key (or made global), which enables them again.
+- **Deactivate** switches them off, with no owners, and keeps everything else. They show as *orphaned* (no owner) and cannot be
+  enabled until they are **reassigned** to new teams, departments or keys (or made global), which enables them again.
   While they wait they can still be edited.
 
 Both choices are saved together with the delete and written to the audit log for every rule. A rule scoped to a key
@@ -293,8 +331,8 @@ The seeded demo environment (see the README) contains three global rules:
 | Part | Location |
 |---|---|
 | Expression engine | `src/Ume.LlmGateway.Domain/Routing/Expressions/` |
-| Rule evaluation | `src/Ume.LlmGateway.Domain/Routing/RoutingRuleSet.cs` |
-| Rule storage | `RoutingRule` / `RoutingRuleTarget` entities, migration `RoutingRules` |
+| Rule evaluation | `src/Ume.LlmGateway.Domain/Routing/RoutingRuleSet.cs` (enabled rules are indexed by owner id when the set is built, so a request only looks at the rules of its own key, team and department plus the global ones) |
+| Rule storage | `RoutingRule` / `RoutingRuleTarget` entities, migrations `RoutingRules` and `RoutingRuleScopeSets` (owner sets `ScopeIds uuid[]`, `IsTemplate`, the templates) |
 | Budget and token signals | `BudgetService.PeekUsedPercentAsync`, `IRateLimiter.PeekTokensUsedPercentAsync`; `RoutingRuleSet.References(variable)` tells the gateway which ones to fetch |
 | Loading and caching | `GatewayCatalog` compiles the rules once per catalogue snapshot; invalid rules are skipped and logged as warnings |
 | Admin API | `src/Ume.LlmGateway.AdminApi/RoutingRuleEndpoints.cs` |

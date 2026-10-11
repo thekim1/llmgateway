@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/api'
 import type { RoutingRule, RoutingRuleReassignRequest, RoutingRuleRequest, RoutingScope } from '@/api/types'
-import { toRequest } from '@/utils/routingRules'
 import { removeById, replaceById, useLoadable } from './loadable'
 
 export const useRoutingRulesStore = defineStore('routingRules', () => {
@@ -21,8 +20,11 @@ export const useRoutingRulesStore = defineStore('routingRules', () => {
     return updated
   }
 
+  /** The on/off switch. Nothing changes locally until the server agrees, so a rejected switch stays where it was. */
   async function setEnabled(rule: RoutingRule, isEnabled: boolean): Promise<RoutingRule> {
-    return update(rule.id, toRequest(rule, { isEnabled }))
+    const updated = await api.routingRules.setEnabled(rule.id, isEnabled)
+    items.value = replaceById(items.value, updated)
+    return updated
   }
 
   async function remove(id: string): Promise<void> {
@@ -36,9 +38,9 @@ export const useRoutingRulesStore = defineStore('routingRules', () => {
     return updated
   }
 
-  /** Saves a new checking order for one scope and owner; the server answers with the rules and their new priorities. */
-  async function reorder(scope: RoutingScope, scopeId: string | null, ruleIds: string[]): Promise<void> {
-    const reordered = await api.routingRules.reorder({ scope, scopeId, ruleIds })
+  /** Saves a new checking order for one scope; the server answers with the rules and their new priorities. */
+  async function reorder(scope: RoutingScope, ruleIds: string[]): Promise<void> {
+    const reordered = await api.routingRules.reorder({ scope, ruleIds })
     for (const rule of reordered) items.value = replaceById(items.value, rule)
   }
 

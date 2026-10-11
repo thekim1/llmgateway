@@ -14,13 +14,70 @@ public class PiiDetectorTests
     public void Detects_valid_personnummer(string text) =>
         PiiDetector.Detect(text).ShouldContain(m => m.Category == PiiCategory.Personnummer);
 
+    // Made-up numbers (wrong check digit) are what people paste when testing, so every unambiguous shape is caught
+    // without Luhn: a separator ('-', '+' or one space) or a four-digit year.
     [Theory]
-    [InlineData("121212-1213")] // bad check digit
+    [InlineData("pnr 900101-1234")] // YYMMDD-NNNN
+    [InlineData("pnr 900101+1234")]
+    [InlineData("pnr 900101 1234")]
+    [InlineData("pnr 19900101-1234")] // YYYYMMDD-NNNN
+    [InlineData("pnr 19900101 1234")]
+    [InlineData("pnr 199001011234")] // YYYYMMDDNNNN
+    [InlineData("pnr 200512241234 tack")]
+    [InlineData("pnr 18991231-0000")]
+    public void Detects_personnummer_with_separator_or_century_without_luhn(string text) =>
+        PiiDetector.Detect(text).ShouldContain(m => m.Category == PiiCategory.Personnummer);
+
+    [Fact]
+    public void Redacts_whole_personnummer_in_every_format()
+    {
+        foreach (var value in new[] { "900101-1234", "9001011239", "19900101-1234", "199001011234", "900101 1234" })
+        {
+            var text = $"Patienten har {value}.";
+            var matches = PiiDetector.Detect(text);
+            PiiDetector.Redact(text, matches).ShouldBe("Patienten har [PERSONNUMMER].", value);
+        }
+    }
+
+    [Theory]
+    [InlineData("9001011234")] // YYMMDDNNNN with bad check digit: too ambiguous without Luhn
     [InlineData("121312-1212")] // month 13
+    [InlineData("900230-1234")] // 30 February
+    [InlineData("19900132-1234")] // day 32
+    [InlineData("19901301 1234")] // month 13
+    [InlineData("210001011234")] // century 21
+    [InlineData("1990010112345")] // 13 digits
     [InlineData("Ärende 2026-1234 gäller")]
     [InlineData("Summa 1000000 kr")]
     public void Rejects_invalid_personnummer(string text) =>
-        PiiDetector.Detect(text).ShouldNotContain(m => m.Category == PiiCategory.Personnummer);
+        PiiDetector.Detect(text).ShouldNotContain(m => m.Category == PiiCategory.Personnummer || m.Category == PiiCategory.Samordningsnummer);
+
+    [Theory]
+    [InlineData("Ring 0701234567")]
+    [InlineData("Ring 070-1234567")]
+    [InlineData("Ring 070-123 45 67")]
+    [InlineData("Ring 0907123456")]
+    public void Phone_numbers_are_not_personnummer(string text)
+    {
+        var matches = PiiDetector.Detect(text);
+        matches.ShouldNotContain(m => m.Category == PiiCategory.Personnummer || m.Category == PiiCategory.Samordningsnummer);
+        matches.ShouldContain(m => m.Category == PiiCategory.Phone);
+    }
+
+    [Theory]
+    [InlineData("samordningsnr 900161-1234")]
+    [InlineData("samordningsnr 199001611234")]
+    public void Detects_samordningsnummer_without_luhn(string text) =>
+        PiiDetector.Detect(text).ShouldContain(m => m.Category == PiiCategory.Samordningsnummer);
+
+    [Fact]
+    public void Bare_ten_digit_samordningsnummer_needs_luhn()
+    {
+        var body = "900161123";
+        var check = Enumerable.Range(0, 10).First(d => PiiDetector.LuhnValid(body + d));
+        PiiDetector.Detect(body + check).ShouldContain(m => m.Category == PiiCategory.Samordningsnummer);
+        PiiDetector.Detect(body + ((check + 1) % 10)).ShouldBeEmpty();
+    }
 
     [Fact]
     public void Detects_samordningsnummer()
@@ -136,6 +193,22 @@ public class PiiJsonScannerTests
     [InlineData(PiiPolicy.RerouteToOnPrem, PiiDecision.ForwardOnPremOnly)]
     public void Decide_maps_policy_when_pii_found(PiiPolicy policy, PiiDecision expected) =>
         PiiJsonScanner.Decide(policy, PiiJsonScanner.Scan(ChatBody(), false)).ShouldBe(expected);
+
+    [Fact]
+    public void Scan_redacts_personnummer_in_string_and_content_part_chat_messages()
+    {
+        var body = JsonNode.Parse("""
+            {"model":"ume/chat","messages":[
+              {"role":"user","content":"Mitt pnr är 900101-1234"},
+              {"role":"user","content":[{"type":"text","text":"och hans är 199001011234"}]}]}
+            """)!;
+
+        var result = PiiJsonScanner.Scan(body, redact: true);
+
+        result.Counts[PiiCategory.Personnummer].ShouldBe(2);
+        body["messages"]![0]!["content"]!.GetValue<string>().ShouldBe("Mitt pnr är [PERSONNUMMER]");
+        body["messages"]![1]!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("och hans är [PERSONNUMMER]");
+    }
 
     [Fact]
     public void Decide_forwards_when_no_pii() =>

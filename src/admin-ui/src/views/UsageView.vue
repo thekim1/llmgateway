@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest } from '@/api/types'
 import { useUsageStore } from '@/stores/usage'
 import { useDepartmentsStore } from '@/stores/departments'
@@ -31,6 +32,7 @@ const GROUP_LABEL: Record<UsageGroupBy, string> = {
   day: 'Day',
 }
 
+const route = useRoute()
 const usage = useUsageStore()
 const departments = useDepartmentsStore()
 const teams = useTeamsStore()
@@ -151,6 +153,11 @@ onMounted(() => {
   void teams.load()
   void keys.load()
   void load()
+  // Other pages (PII incidents) link to a request as /usage?request=<id>.
+  if (typeof route.query.request === 'string' && route.query.request) {
+    lookupId.value = route.query.request
+    void lookup()
+  }
 })
 </script>
 
@@ -240,6 +247,10 @@ onMounted(() => {
         <DetailRow label="Endpoint"><span class="font-mono">{{ selected.endpoint }}</span></DetailRow>
         <DetailRow label="Streamed">{{ selected.streamed ? 'Yes' : 'No' }}</DetailRow>
         <DetailRow v-if="selected.errorCode" label="Error code"><span class="font-mono">{{ selected.errorCode }}</span></DetailRow>
+        <DetailRow v-if="selected.piiCategories" label="PII found">
+          <span class="font-mono">{{ selected.piiCategories }}</span>
+          <span v-if="selected.piiActionApplied" class="ml-2 text-fg-3">{{ selected.piiActionApplied }}</span>
+        </DetailRow>
       </DetailSection>
       <DetailSection title="Owner">
         <DetailRow label="Key">{{ selected.keyName }} <span class="font-mono text-fg-3">{{ selected.keyPrefix }}</span></DetailRow>

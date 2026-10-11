@@ -236,7 +236,7 @@ Checked in the eneo v2.2.1 source and tested live on 2026-10-09 with the compare
 
 | Safeguard | Ume gateway | eneo v2.2.1 |
 |---|---|---|
-| Scans message content for personal data | Yes: personnummer and samordningsnummer (Luhn and date checked), e-mail, phone, IBAN | No. Its "redaction" only masks secrets, tokens and e-mail addresses in its own logs (`observability/redaction.py`). Tested: a message with Skatteverket's test personnummer 19121212-1212, an e-mail and a phone number reached the model unchanged |
+| Scans message content for personal data | Yes: personnummer and samordningsnummer (date checked; Luhn for bare 10 digits), e-mail, phone, IBAN | No. Its "redaction" only masks secrets, tokens and e-mail addresses in its own logs (`observability/redaction.py`). Tested: a message with Skatteverket's test personnummer 19121212-1212, an e-mail and a phone number reached the model unchanged |
 | Acts on it | Per key: block, redact, keep on-premises, or log only | No |
 | Limits which models can be used | Per key: model and provider allow-lists, data residency | Per space: security classification level; a space only accepts models with at least its level (`spaces/space.py`, `validate_model_security_compatibility`). Set by an administrator in advance, not based on content |
 | Fallback when a provider fails | Ordered fallback within the allowed residencies; circuit breaker moves failing providers last | No. Tested: provider down gives HTTP 503 "AI service is temporarily unavailable" |

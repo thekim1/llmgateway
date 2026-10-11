@@ -3,12 +3,16 @@ import type {
   BudgetPeriod,
   BudgetScope,
   CircuitState,
+  DataPermission,
   DataResidency,
   HealthStatus,
   KeyStatus,
   ModelKind,
+  PiiAction,
+  PiiCategory,
   PiiPolicy,
   ProviderCapability,
+  ProviderStatus,
   RequestOutcome,
   RoutingScope,
 } from '@/api/types'
@@ -23,10 +27,40 @@ export const KEY_STATUS: Record<KeyStatus, { label: string; tone: Tone }> = {
   Disabled: { label: 'Disabled', tone: 'neutral' },
 }
 
+/** What each Data API permission gives access to (docs/data-access.md). */
+export const DATA_PERMISSION: Record<DataPermission, { label: string; description: string }> = {
+  'usage.aggregate': {
+    label: 'Usage totals',
+    description: 'Totals per day or month by department, model, provider and residency. No key or team rows; small departments are grouped. For management reporting.',
+  },
+  'usage.detail': {
+    label: 'Usage records',
+    description: 'One row per request with key, team, department, model, tokens, cost, latency and outcome. For BI and chargeback.',
+  },
+  'security.read': {
+    label: 'Security data',
+    description: 'Refused keys, requests with a PII action or policy refusal, the admin audit log and every key’s status. For the security team’s SIEM.',
+  },
+  'catalog.read': {
+    label: 'Catalogue',
+    description: 'Departments, teams, keys (name and prefix only), providers, models, prices, budgets and exchange rates, for joining the other data.',
+  },
+}
+
 export const HEALTH_STATUS: Record<HealthStatus, { label: string; tone: Tone }> = {
   Healthy: { label: 'Healthy', tone: 'ok' },
   Degraded: { label: 'Degraded', tone: 'warn' },
   Unhealthy: { label: 'Down', tone: 'danger' },
+}
+
+/** The provider status computed by the admin API (`GET /api/ops/health`). */
+export const PROVIDER_STATUS: Record<ProviderStatus, { label: string; tone: Tone }> = {
+  Healthy: { label: 'Healthy', tone: 'ok' },
+  Degraded: { label: 'Degraded', tone: 'warn' },
+  Unhealthy: { label: 'Down', tone: 'danger' },
+  CircuitOpen: { label: 'Circuit open', tone: 'danger' },
+  NoRecentTraffic: { label: 'No recent traffic', tone: 'neutral' },
+  Disabled: { label: 'Disabled', tone: 'neutral' },
 }
 
 export const CIRCUIT_LABEL: Record<CircuitState, { label: string; tone: Tone }> = {
@@ -46,6 +80,22 @@ export const PII_LABEL: Record<PiiPolicy, string> = {
   Redact: 'Redact',
   Block: 'Block',
   RerouteToOnPrem: 'On-prem',
+}
+
+export const PII_CATEGORY_LABEL: Record<PiiCategory, string> = {
+  Personnummer: 'Personal identity number',
+  Samordningsnummer: 'Coordination number',
+  Email: 'Email address',
+  Phone: 'Phone number',
+  Iban: 'IBAN',
+}
+
+/** What happened to a request with PII, by the key's policy. */
+export const PII_ACTION_LABEL: Record<PiiAction, { label: string; tone: Tone }> = {
+  Allow: { label: 'Detected, sent on', tone: 'neutral' },
+  Redact: { label: 'Redacted', tone: 'ok' },
+  Block: { label: 'Blocked', tone: 'warn' },
+  RerouteToOnPrem: { label: 'Sent on-prem', tone: 'ok' },
 }
 
 export const PII_HINT: Record<PiiPolicy, string> = {
@@ -74,6 +124,7 @@ export const ATTACHMENT_LIMIT_NOTE =
 
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }
+export const ROUTING_SCOPE_PLURAL: Record<RoutingScope, string> = { VirtualKey: 'Keys', Team: 'Teams', Department: 'Departments', Global: 'Everyone' }
 export const ROUTING_SCOPE_HEADING: Record<RoutingScope, string> = {
   VirtualKey: 'Key rules',
   Team: 'Team rules',
@@ -81,9 +132,9 @@ export const ROUTING_SCOPE_HEADING: Record<RoutingScope, string> = {
   Global: 'Global rules',
 }
 export const ROUTING_SCOPE_HINT: Record<RoutingScope, string> = {
-  VirtualKey: 'Apply to one key (and the keys that replace it when it is rotated).',
-  Team: 'Apply to every key in one team.',
-  Department: 'Apply to every key in one department.',
+  VirtualKey: 'Apply to the chosen keys (and the keys that replace them when they are rotated).',
+  Team: 'Apply to every key in the chosen teams.',
+  Department: 'Apply to every key in the chosen departments.',
   Global: 'Apply to every request.',
 }
 export const PERIOD_LABEL: Record<BudgetPeriod, string> = {

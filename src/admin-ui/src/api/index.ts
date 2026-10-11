@@ -12,11 +12,15 @@ import type {
   ConditionCheck,
   ConfigDocument,
   ConfigImportResult,
+  CreateDataApiKeyResponse,
   CreateDepartmentRequest,
   CreateKeyRequest,
   CreateKeyResponse,
   CreateModelRequest,
   CreateTeamRequest,
+  DataAccessSettings,
+  DataApiKey,
+  DataApiKeyRequest,
   Department,
   DiscoveredModel,
   ExchangeRate,
@@ -26,9 +30,13 @@ import type {
   NewPrice,
   OpsHealth,
   Paged,
+  PiiIncidentReport,
+  PiiIncidentsQuery,
   Price,
   Provider,
   ProviderRequest,
+  ProviderStability,
+  ProviderStatsQuery,
   RotateKeyResponse,
   Route,
   RouteRequest,
@@ -89,6 +97,16 @@ export const api = {
     reveal: (keyId: string, purpose: 'Reveal' | 'Copy') =>
       http.post<{ secret: string }>(`/api/keys/${id(keyId)}/reveal`, { purpose }),
   },
+  /** gateway-admin only. Data API keys; the secret is only in the create response. */
+  dataAccess: {
+    settings: () => http.get<DataAccessSettings>('/api/data-access'),
+    list: () => http.get<DataApiKey[]>('/api/data-access/keys'),
+    create: (body: DataApiKeyRequest) => http.post<CreateDataApiKeyResponse>('/api/data-access/keys', body),
+    update: (keyId: string, body: DataApiKeyRequest) => http.put<DataApiKey>(`/api/data-access/keys/${id(keyId)}`, body),
+    revoke: (keyId: string) => http.post<DataApiKey>(`/api/data-access/keys/${id(keyId)}/revoke`),
+    /** Only revoked or expired keys can be deleted. */
+    remove: (keyId: string) => http.del(`/api/data-access/keys/${id(keyId)}`),
+  },
   providers: {
     list: () => http.get<Provider[]>('/api/providers'),
     create: (body: ProviderRequest) => http.post<Provider>('/api/providers', body),
@@ -119,9 +137,11 @@ export const api = {
     create: (body: RoutingRuleRequest) => http.post<RoutingRule>('/api/routing-rules', body),
     update: (ruleId: string, body: RoutingRuleRequest) => http.put<RoutingRule>(`/api/routing-rules/${id(ruleId)}`, body),
     remove: (ruleId: string) => http.del(`/api/routing-rules/${id(ruleId)}`),
-    /** Attach a rule (for example one deactivated when its team was deleted) to a new owner. */
+    /** The on/off switch. Turning a rule on fails (400, with the reason) while its owners or models do not exist. */
+    setEnabled: (ruleId: string, isEnabled: boolean) => http.put<RoutingRule>(`/api/routing-rules/${id(ruleId)}/enabled`, { isEnabled }),
+    /** Attach a rule (for example one deactivated when its last team was deleted) to new owners. */
     reassign: (ruleId: string, body: RoutingRuleReassignRequest) => http.post<RoutingRule>(`/api/routing-rules/${id(ruleId)}/reassign`, body),
-    /** Sets the checking order within one scope and owner; returns the reordered rules. */
+    /** Sets the checking order within one scope (all key rules, all team rules, ...); returns the reordered rules. */
     reorder: (body: RoutingRuleReorderRequest) => http.post<RoutingRule[]>('/api/routing-rules/reorder', body),
     /** Live validation of a condition while it is typed. */
     validate: (condition: string) => http.post<ConditionCheck>('/api/routing-rules/validate', { condition }),
@@ -148,12 +168,14 @@ export const api = {
     requests: (query: UsageRequestsQuery) => http.get<Paged<UsageRequest>>('/api/usage/requests', { ...query }),
     request: (requestId: string) => http.get<UsageRequest>(`/api/usage/requests/${id(requestId)}`),
     exportCsvUrl: (from?: string, to?: string) => buildUrl('/api/usage/export.csv', { from, to }),
+    piiIncidents: (query: PiiIncidentsQuery) => http.get<PiiIncidentReport>('/api/usage/pii-incidents', { ...query }),
   },
   catalog: {
     get: () => http.get<Catalog>('/api/catalog'),
   },
   ops: {
     health: () => http.get<OpsHealth>('/api/ops/health'),
+    providerStats: (query: ProviderStatsQuery) => http.get<ProviderStability>('/api/ops/providers/stats', { ...query }),
     setCircuit: (providerId: string, state: CircuitState) =>
       http.post<void>(`/api/ops/providers/${id(providerId)}/circuit`, { state }),
     invalidateKeyCache: () => http.post<void>('/api/ops/cache/invalidate-keys'),

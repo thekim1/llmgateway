@@ -84,12 +84,42 @@ with `Section__Key` environment variables (for example `Ollama__Enabled=true`, d
 `src/components/layout`, and pages in `src/views`. Icons are a subset of Material Symbols; after
 adding an icon name run `python src/admin-ui/scripts/subset-icons.py` (it needs the Python package `fonttools[woff]`).
 
+#### Provider status and stability
+
+The **Providers** card on Overview and the provider table on **Operations** show each provider's status. The admin API
+computes it each time the page loads (Operations has *Refresh*; nothing is cached or stored):
+
+- **Circuit open** while the gateway's circuit breaker is open (by default 5 transient failures within 60 s open it for 30 s; an
+  admin can open or close it for 15 minutes), **Disabled** for a disabled provider.
+- Otherwise from the **last hour**: with no requests *No recent traffic*; with fewer than 10 *Healthy* (too few to judge);
+  otherwise **Degraded** when 5 % or more of the requests failed at the provider and **Down** from 50 %. The reason
+  ("4 of 40 requests failed at the provider in the last hour (10 %).") is shown next to the status.
+- Only **provider errors** count: 5xx answers, timeouts and streams that broke off. Client errors the provider rejected
+  (4xx), cancelled requests, the gateway's own internal errors and requests the gateway refused (budget, rate limit, PII)
+  do not. A burst of failures therefore stops affecting the status an hour later.
+
+The 24-hour columns (requests, provider errors, all failed requests, p50, p95) come from the same usage records. Every
+request's latency is stored (`UsageRecords.LatencyMs`): the whole request as the client saw it, from acceptance to the
+last byte, so it includes failed fallback attempts and the full length of a streamed answer (a p95 of several seconds
+usually means long streamed answers, not a slow first token). The gateway writes one record per request, on the provider
+that answered (or failed last); a provider that failed and was replaced by a fallback is not charged with that failure
+in the statistics (only its circuit breaker sees it); a request on which every provider failed (502/504
+`all_providers_failed`) is recorded on the last provider tried, so a provider that is down shows up as failing.
+
+**Operations > Provider stability** shows p95 latency and the provider error rate per provider over the last 24 hours or
+7 days (per hour) or 30 days (per day, Swedish time), plus a ranking with the most stable provider first (availability,
+then p95). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
+([docs/admin-api.md](docs/admin-api.md)).
+
 #### Routing rules page
 
 **Routing > Routing rules** (gateway-admin) manages [routing rules](docs/routing-rules.md): rules are listed by
-scope in the order the gateway checks them, with the selected rule's condition, weighted targets and fallbacks on the
-right. From there you can create and edit rules (the condition is validated as you type), switch a rule off, move it
-earlier or later, change its owner and delete it. **Test a request** runs a sample request against the stored rules and
+scope in the order the gateway checks them, each with its title, short description and an on/off switch, and the selected
+rule's owners, condition, weighted targets and fallbacks on the right. A rule can be shared by several keys, teams or
+departments, so the same rule does not have to be set up for each key. Four disabled **template** rules (personal data to a
+local model, header opt-in, large prompts, budget nearly used) show how rules are written; switch one on once its target route
+exists, or start a new rule from it. From there you can create and edit rules (the condition is validated as you type), switch a rule on or off, move it
+earlier or later, change its owners and delete it. **Test a request** runs a sample request against the stored rules and
 shows which rule applies and why. When you delete a team or department in **Organisation** that has routing rules, the UI asks
 whether to delete the rules or deactivate them until a new team or department is assigned; deactivated rules show up under
 **Needs owner**. Usage shows which rule routed a request.
@@ -103,10 +133,39 @@ the gateway creates them with what the provider reports:
 
 | Provider | Listing endpoint | Reported details |
 |---|---|---|
-| OpenAI, OpenAI-compatible, Azure AI Foundry | `GET {baseUrl}/models` | context size and USD prices where present (OpenRouter-style) |
-| Anthropic | `GET {baseUrl}/models` | context size and capabilities |
+| OpenAI, OpenAI-compatible | `GET {baseUrl}/models` | context size and USD prices where present (OpenRouter-style) |
+| Azure AI Foundry | `GET https://<resource>.services.ai.azure.com/api/projects/_project/deployments?api-version=v1` (only the deployed models, by deployment name) | model, version, capabilities and a suggested USD price from Azure's list prices |
+| Anthropic | `GET {baseUrl}/models`; Claude on Foundry (`…services.ai.azure.com/anthropic/v1`) lists its Claude deployments from the project API | context size and capabilities |
 | Ollama, Ollama Cloud | `GET /api/tags` then `POST /api/show` (a trailing `/v1` is stripped from the base URL) | context size and capabilities (tools, vision, thinking, embedding, ...) |
 | Azure OpenAI | not supported (deployments are not listable via the data plane) | add models manually |
+
+For Azure AI Foundry, paste the project endpoint from the Foundry portal (`https://<resource>.services.ai.azure.com/api/projects/<project>`)
+or the resource address as the base URL: it is saved as `https://<resource>.services.ai.azure.com/openai/v1`, where requests go.
+`/openai/v1/models` would list every model the resource *could* deploy, so discovery asks the project API for the deployments instead;
+a model is added under its deployment name, the name requests use. A Foundry provider set up as *OpenAI-compatible* lists the whole catalogue.
+
+**One Foundry resource, two providers.** The gateway speaks a provider's protocol by its *type*, not by the model, and
+translates between them: clients can call `/v1/chat/completions` for any model, including Claude. On Foundry, OpenAI,
+DeepSeek, Grok, Llama, Mistral and other models are served by the OpenAI v1 API, but Claude only by the Anthropic API. So
+add the resource twice with the same key:
+
+| Provider type | Base URL | Authentication | Discovery lists |
+|---|---|---|---|
+| Azure AI Foundry | `https://<resource>.services.ai.azure.com/openai/v1` (or the project endpoint) | API key header (`api-key`) | every deployment except Claude |
+| Anthropic | `https://<resource>.services.ai.azure.com/anthropic/v1` | API key header (`api-key`) | the Claude deployments |
+
+Tick *Responses* on the Foundry provider for GPT-5/GPT-6 and other models used through `/v1/responses`. Reasoning models
+(o-series, GPT-5 and later) are added with the reasoning parameter profile, which sends `max_completion_tokens` and drops
+the sampling parameters they reject.
+
+**Suggested Foundry prices.** Azure's deployment list has no prices, so discovery looks the model up in Azure's public
+retail price list (`https://prices.azure.com`, no key; the admin API needs outbound HTTPS to it) for the region in
+`Admin:AzurePriceRegion` (default `swedencentral`, i.e. `Admin__AzurePriceRegion`). The list names meters in free text
+(`gpt 4.1 cached Inp glbl Tokens`, `GPT 5 Mini Inpt DZone 1M Tokens`), so a price is suggested only when the meters for
+the deployment's model, version and type (Global, Data Zone or Regional standard) agree on one input, output and, where
+listed, cached-input and audio-token price. Provisioned and batch deployments, Claude (billed through Azure Marketplace)
+and models the list names differently get no suggestion. A suggested price shows *Azure list price* and the meters it
+came from; it is a list price, so check it against your agreement before you add the model. The list is cached for 12 hours.
 
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
 edited in the model drawer. Most providers, including Ollama Cloud, do not publish prices, so
@@ -248,7 +307,8 @@ Notes:
 - If you only need "personal data stays on-prem" for specific keys, the key's PII policy **Reroute to on-prem** does the same without a rule.
   Use a rule when you want it per team or department, per model, with a chosen on-prem model, or combined with other conditions
   (for example `pii_detected && department_name == "Individ- och familjeomsorgen"`).
-- Detection covers Swedish personnummer and samordningsnummer (with checksum), email addresses, Swedish phone numbers and IBANs (not bankgiro numbers).
+- Detection covers Swedish personnummer and samordningsnummer, email addresses, Swedish phone numbers and IBANs (not bankgiro numbers);
+  see [Personal data (PII)](#personal-data-pii) for the formats.
   It is a safety net, not a guarantee that no personal data reaches a provider.
 
 The same two examples are on the **Getting started** page of the admin UI:
@@ -258,6 +318,37 @@ The same two examples are on the **Getting started** page of the admin UI:
 To regenerate the screenshots after a UI change, start the test stack (`.\scripts\Start-E2E.ps1`) and run
 `npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
 changes the (disposable) test database only.
+
+## Personal data (PII)
+
+Each key has a **PII policy**; the default is **Off**, which means the key's requests are **not scanned at all**. To test
+detection, set the key's policy (*Keys*, edit the key) to one of:
+
+| Policy | What happens when the gateway finds personal data in the text |
+|---|---|
+| Off | Nothing; no scanning. |
+| Allow | Detected and recorded (category and count), sent on unchanged. Response header `x-ume-pii: detected`. |
+| Redact | Values are replaced with `[PERSONNUMMER]`, `[SAMORDNINGSNUMMER]`, `[E-POST]`, `[TELEFON]` or `[IBAN]` before the request leaves the gateway. |
+| Block | The request is refused with `pii_blocked`. |
+| On-prem (`RerouteToOnPrem`) | The request may only go to on-prem models. |
+
+What is detected, in all text a client sends (chat messages as a string or as content parts, Responses input, Anthropic
+messages, the transcription `prompt`, realtime text events; not file contents):
+
+- **Personnummer and samordningsnummer** (day + 60) with a real calendar date, as `YYMMDD-NNNN`, `YYMMDD+NNNN`, `YYMMDD NNNN`,
+  `YYYYMMDD-NNNN`, `YYYYMMDD NNNN` or `YYYYMMDDNNNN` (century 18, 19 or 20). These are caught even when the check digit is
+  wrong, because people paste made-up and mistyped numbers. A bare 10-digit number (`YYMMDDNNNN`) must also have a valid
+  check digit (Luhn): without it, a mobile number such as `0701234567` would look like a personnummer.
+- **Email addresses, Swedish phone numbers and IBANs** (mod-97 checked).
+
+Detection is a safety net, not a guarantee that no personal data reaches a provider. The values themselves are never
+stored or logged, only the categories and counts (`Personnummer:2,Email:1`).
+
+**PII incidents** (admin UI, *Monitor > PII incidents*; `GET /api/usage/pii-incidents`) lists every request in which
+personal data was found, newest first: when, which key, team and department, endpoint and model, what was found and what
+the gateway did (detected and sent on, redacted, blocked, sent on-prem). Filter by period, department, team, key, category
+and action; tiles show the number of requests per category and per action for the period. Each row links to the request on
+the *Usage* page. Department admins and viewers see their own departments. A key with policy Off never has incidents.
 
 ## Attached files
 
@@ -412,12 +503,15 @@ management dashboard, a SIEM connector. It never gives anyone database access.
   permissions it needs: `usage.aggregate` (totals per day or month and department, model, provider), `usage.detail`
   (one row per request), `security.read` (refused keys, PII actions, audit log, key inventory) or `catalog.read`
   (departments, teams, keys, models, prices, budgets). Works with Keycloak, AD FS and Entra ID.
+- **Or a Data API key**: a gateway admin creates one under *Access → Data API access* in the admin UI, ticks the
+  permissions and gets the key (`ume-dk-…`) once, with an example request. Send it as `Authorization: Bearer` or
+  `X-Api-Key`. Revoking takes effect within 30 seconds (`DataApi:KeyCacheSeconds`).
 - **Incremental feeds**: pass the `nextCursor` of one page as `after` on the next call. JSON, or `format=csv` /
   `format=ndjson` for bulk loads.
 - **Privacy by default**: departments with fewer than 5 active keys in a period are reported together without a
   department, and per-request PII categories are left out of `usage.detail`.
-- **Read-only by database role**: it connects as `ume_data`, which cannot read key hashes, encrypted secrets or
-  provider credentials at all. Every read is logged as a `data.read` security event.
+- **Read-only by database role**: it connects as `ume_data`, which cannot read gateway key hashes, encrypted secrets
+  or provider credentials at all (it reads only the hashes of Data API keys and writes only their last use). Every read is logged as a `data.read` security event.
 
 Locally it starts with the rest of the stack (resource `dataapi`, `https://localhost:7311/scalar`). Get a token from the
 bundled Keycloak with the `ume-data-dev` client (all four permissions); its secret is the AppHost parameter
