@@ -492,7 +492,18 @@ public sealed class UsageRecord
 
     public decimal CostUsd { get; set; }
     public decimal CostSek { get; set; }
+    /// <summary>End to end: from the gateway receiving the request until its answer was sent (a live session's length).</summary>
     public int LatencyMs { get; set; }
+
+    /// <summary>
+    /// Time spent waiting on providers: every attempt (failed fallbacks included) and reading a streamed answer.
+    /// <see cref="LatencyMs"/> minus this is the gateway's own overhead. Null when no provider was called and for live sessions.
+    /// </summary>
+    public int? UpstreamMs { get; set; }
+
+    /// <summary>Streamed answers: from the gateway receiving the request until the first event reached the client.</summary>
+    public int? TimeToFirstTokenMs { get; set; }
+
     public int StatusCode { get; set; }
     public RequestOutcome Outcome { get; set; }
     public int FallbackCount { get; set; }

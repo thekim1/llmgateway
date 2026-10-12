@@ -39,6 +39,21 @@ export function formatUsd(value: number | null | undefined): string {
   return nbsp(usdFormatter.format(value))
 }
 
+const usdCostFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const smallUsdCostFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+/** A cost in USD with its currency, e.g. `24,32 US$`; amounts under one dollar keep up to four decimals. */
+export function formatUsdCost(value: number | null | undefined): string {
+  if (isMissing(value)) return DASH
+  return nbsp((Math.abs(value) > 0 && Math.abs(value) < 1 ? smallUsdCostFormatter : usdCostFormatter).format(value))
+}
+
+/** Tokens per second, e.g. `38,8 tok/s`. */
+export function formatTokensPerSecond(value: number | null | undefined): string {
+  if (isMissing(value)) return DASH
+  return `${nbsp(decimalFormatter.format(value))}${NBSP}tok/s`
+}
+
 export function formatNumber(value: number | null | undefined): string {
   if (isMissing(value)) return DASH
   return nbsp(numberFormatter.format(value))

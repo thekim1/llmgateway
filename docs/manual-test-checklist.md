@@ -125,6 +125,26 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
 - [ ] **Data API:** `/v1/usage/aggregate?granularity=month` for a period before the oldest kept record returns the monthly totals.
 - [ ] **Upgrade:** set the periods from the records-retention decision before the first night, or start with `Retention__Enabled=false`.
 
+## Usage dashboard (uncommitted)
+
+- [ ] **Upgrade:** the migration `RequestTimings` runs once; existing usage still shows on *Usage*.
+- [ ] **Timings recorded:** send a non-streamed and a streamed chat request through the gateway. *Usage > Requests and costs*,
+  open each: *Provider time* and *Gateway overhead* are shown (overhead a few ms); the streamed one also has *Time to first
+  token*, below its latency. A request refused by a rate limit or budget shows neither.
+- [ ] **Fallback counts as provider time:** with a route whose first target fails (e.g. a drained or wrong-URL provider),
+  the request's provider time includes the failed attempt; overhead stays small.
+- [ ] **Dashboard against real traffic:** *Usage* opens on *Dashboard* with *7 days*. The totals match the *Requests and costs*
+  summary for the same days (requests, tokens; cost now in US$). Hover a bar: the tooltip lists the series and a total.
+- [ ] **Time ranges:** *24 hours* shows hourly bars with times on the axis; *30 days* and *90 days* daily; *Custom* with dates
+  and *Apply*. Days follow Swedish midnight.
+- [ ] **Filters:** pick a department, model, *Outcome: Provider error* and *Endpoint*; each reloads at once and *Clear filters*
+  resets them. A department viewer sees only their department and no *Provider* filter.
+- [ ] **Views:** switch a card between bar, line and table; the table lists every period.
+- [ ] **Themes and size:** check Light, Dark and Lumen, and a phone-width window (cards stack, no sideways scrolling).
+- [ ] **Speed:** the 30- and 90-day views of the production database load within a few seconds (see docs/performance.md).
+- [ ] **Link from PII incidents:** a request link from *PII incidents* opens the *Requests and costs* tab with the drawer.
+- [ ] **OpenTelemetry:** the Aspire dashboard (or your collector) has `ume.gateway.overhead` and `ume.gateway.time_to_first_token`.
+
 ## Whole release
 
 - [ ] **Portainer upgrade to 0.3.0:** new stack file pasted, image variables at 0.3.0, Redis restarted after the redeploy;

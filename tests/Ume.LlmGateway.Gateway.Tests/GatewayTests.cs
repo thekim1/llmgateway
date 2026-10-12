@@ -67,6 +67,8 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.OutputTokens.ShouldBe(20);
         usage.CostSek.ShouldBe(0.00135m);
         usage.Outcome.ShouldBe(RequestOutcome.Success);
+        usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
+        usage.TimeToFirstTokenMs.ShouldBeNull(); // not streamed
         using var scope = fixture.Services.CreateScope();
         (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().VirtualKeys.SingleAsync(k => k.Id == key.Id, TestContext.Current.CancellationToken)).LastUsedAt.ShouldNotBeNull();
     }
@@ -83,7 +85,10 @@ public sealed class GatewayTests(GatewayFixture fixture)
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.GetValues("x-ume-provider").Single().ShouldBe("onprem");
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1");
-        (await fixture.UsageAsync(response)).FallbackCount.ShouldBe(1);
+        var usage = await fixture.UsageAsync(response);
+        usage.FallbackCount.ShouldBe(1);
+        // The failed attempt is provider time too; the slow provider is given up on after its 1 s timeout.
+        usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(failingModel == "slow/slow" ? 900 : 0, usage.LatencyMs);
     }
 
     [Fact]
@@ -127,6 +132,8 @@ public sealed class GatewayTests(GatewayFixture fixture)
         text.Contains("prompt_tokens", StringComparison.Ordinal).ShouldBe(includeUsage);
         var usage = await fixture.UsageAsync(response);
         usage.Streamed.ShouldBeTrue();
+        usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
+        usage.TimeToFirstTokenMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
         usage.InputTokens.ShouldBe(100);
         usage.OutputTokens.ShouldBe(20);
         usage.CostSek.ShouldBe(0.00135m);
@@ -181,6 +188,9 @@ public sealed class GatewayTests(GatewayFixture fixture)
         await AssertErrorAsync(response, 429, "rate_limited");
         response.Headers.RetryAfter.ShouldNotBeNull();
         response.Headers.GetValues("x-ratelimit-remaining-requests").Single().ShouldBe("0");
+        var usage = await fixture.UsageAsync(response);
+        usage.UpstreamMs.ShouldBeNull(); // refused before any provider was called
+        usage.TimeToFirstTokenMs.ShouldBeNull();
     }
 
     [Theory]

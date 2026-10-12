@@ -10,6 +10,7 @@ public static class AdminServices
         services.AddScoped<RoutingRuleService>();
         services.AddScoped<ProviderCatalogService>();
         services.AddScoped<ProviderStabilityService>();
+        services.AddScoped<UsageMetricsService>();
         services.AddScoped<BudgetAdminService>();
         services.AddScoped<ConfigTransferService>();
         services.AddScoped<PiiIncidentService>();

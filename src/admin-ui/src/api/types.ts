@@ -569,6 +569,112 @@ export interface UsageRequest {
   /** The routing rule that decided where the request went (the last one when rules were chained); null when none applied. */
   routingRuleId: string | null
   routingRuleName: string | null
+  costUsd: number
+  /** Time spent waiting on providers (failed fallback attempts included); null when no provider was called. */
+  upstreamMs: number | null
+  /** Streamed answers: time until the first event reached the client. */
+  timeToFirstTokenMs: number | null
+}
+
+export const GATEWAY_ENDPOINTS = [
+  'ChatCompletions',
+  'Responses',
+  'AnthropicMessages',
+  'Embeddings',
+  'AudioTranscriptions',
+  'AudioTranslations',
+  'Realtime',
+  'RealtimeTranslations',
+  'ImageGenerations',
+  'ImageEdits',
+] as const
+export type GatewayEndpointName = (typeof GATEWAY_ENDPOINTS)[number]
+
+export const METRICS_BUCKETS = ['auto', 'hour', 'day'] as const
+export type MetricsBucket = (typeof METRICS_BUCKETS)[number]
+
+export interface UsageMetricsQuery {
+  from?: string
+  to?: string
+  bucket?: MetricsBucket
+  departmentId?: string
+  teamId?: string
+  keyId?: string
+  model?: string
+  provider?: string
+  outcome?: RequestOutcome
+  endpoint?: GatewayEndpointName
+}
+
+/** Milliseconds; null when no request in the bucket had the timing. */
+export interface LatencyStats {
+  avg: number | null
+  p50: number | null
+  p90: number | null
+  p95: number | null
+  p99: number | null
+}
+
+export interface UsageMetricsTotals {
+  requests: number
+  successes: number
+  providerErrors: number
+  /** Refused by the gateway: over budget, rate limited, PII blocked or rejected. */
+  refused: number
+  cancelled: number
+  fallbacks: number
+  costUsd: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  /** Cached ÷ input tokens (0-1); null without input tokens. */
+  cacheHitRate: number | null
+  latency: LatencyStats
+  /** The gateway's own time: latency minus time spent waiting on providers. */
+  overhead: LatencyStats
+  firstToken: { avg: number | null; p50: number | null; p95: number | null }
+  /** Output tokens per second of provider time. */
+  tokensPerSecond: number | null
+}
+
+export interface UsageMetricsBucket {
+  start: IsoDateTime
+  requests: number
+  successes: number
+  providerErrors: number
+  refused: number
+  cancelled: number
+  fallbacks: number
+  costUsd: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  latency: LatencyStats
+  overhead: LatencyStats
+  firstTokenAvgMs: number | null
+  firstTokenP95Ms: number | null
+  tokensPerSecond: number | null
+}
+
+export interface UsageModelSeries {
+  /** Null for all other models together. */
+  model: string | null
+  requests: number
+  costUsd: number
+  requestsPerBucket: number[]
+  costUsdPerBucket: number[]
+}
+
+export interface UsageMetrics {
+  from: IsoDateTime
+  to: IsoDateTime
+  bucket: 'hour' | 'day'
+  timeZone: string
+  /** Set when the period reaches back before the oldest kept usage record; the figures start there. */
+  recordsFrom: IsoDateTime | null
+  totals: UsageMetricsTotals
+  buckets: UsageMetricsBucket[]
+  models: UsageModelSeries[]
 }
 
 export interface Paged<T> {

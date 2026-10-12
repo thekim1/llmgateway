@@ -59,6 +59,8 @@ import type {
   UsageRequestsQuery,
   UsageSummary,
   UsageSummaryQuery,
+  UsageMetrics,
+  UsageMetricsQuery,
   VirtualKey,
 } from './types'
 
@@ -173,6 +175,7 @@ export const api = {
   },
   usage: {
     summary: (query: UsageSummaryQuery) => http.get<UsageSummary>('/api/usage/summary', { ...query }),
+    metrics: (query: UsageMetricsQuery) => http.get<UsageMetrics>('/api/usage/metrics', { ...query }),
     requests: (query: UsageRequestsQuery) => http.get<Paged<UsageRequest>>('/api/usage/requests', { ...query }),
     request: (requestId: string) => http.get<UsageRequest>(`/api/usage/requests/${id(requestId)}`),
     exportCsvUrl: (from?: string, to?: string) => buildUrl('/api/usage/export.csv', { from, to }),

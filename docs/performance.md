@@ -175,6 +175,29 @@ with 1 s cache TTLs: 7,756–8,160 req/s (mean 7,968) against 7,755–8,317 req/
 The nightly removal runs in the admin API in batches of 5 000 rows, each its own short transaction, so it does not hold
 locks the gateway's usage writer waits on.
 
+### Usage dashboard timings (2026-10-13)
+
+The gateway records provider time (`UpstreamMs`) and time to first token (`TimeToFirstTokenMs`) for the Usage dashboard:
+two `TimeProvider.GetTimestamp()` reads around each provider attempt and the stream, one more on the first streamed event,
+no allocation and no external call. `audit`, same machine, back to back:
+
+| Scenario | Before | After |
+|---|---:|---:|
+| chat (warm caches), mean / p99 | 2.056 / 2.354 ms | 2.047 / 2.443 ms |
+| chat stream (warm caches), mean / p99 | 2.591 / 3.468 ms | 2.525 / 3.674 ms |
+| embeddings (warm caches), mean / p99 | 2.794 / 4.078 ms | 2.676 / 3.582 ms |
+| Load, 64 streaming clients | 7,272 req/s, p99 41.5 ms | 7,162 req/s, p99 42.0 ms |
+
+Postgres (0 on the request path, 1 in the background) and Redis (9) calls per request are unchanged; the differences are
+within run-to-run noise. The migration adds two nullable columns, which Postgres does without rewriting the table.
+
+`GET /api/usage/metrics` (admin API, not the request path) aggregates in one scan per query (`GROUPING SETS` gives the
+buckets and the period's percentiles together) plus one for the per-model series. On 2 million records spread over 30
+days (Postgres 17, default settings): 24 hours per hour 0.11 s, 7 days 0.63 s, 30 days 1.8 s for a gateway-admin (all
+departments); a department's view uses the `(DepartmentId, Timestamp)` index and took 0.02 / 0.13 / 0.40 s. The cost
+grows with the number of records in the period (the percentile sorts), so a 90-day view of a very busy gateway takes a
+few seconds.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)

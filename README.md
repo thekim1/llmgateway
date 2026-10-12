@@ -111,6 +111,35 @@ in the statistics (only its circuit breaker sees it); a request on which every p
 then p95). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
 ([docs/admin-api.md](docs/admin-api.md)).
 
+#### Usage dashboard
+
+**Monitor > Usage** opens on a **Dashboard** tab with a quick overview of how the gateway is used and how it performs. The
+earlier summary, request list and request lookup are on the **Requests and costs** tab (`/usage?tab=requests`). The
+dashboard has a time range (24 hours, 7 days, 30 days, 90 days or custom dates; up to two days per hour, otherwise per
+day in Swedish time) and filters for department, team, key, model, provider (gateway-admin), outcome and endpoint, which
+apply at once. Department admins and viewers see only their own departments. Nine cards, each with a bar, line and table
+view:
+
+| Card | Shows |
+|---|---|
+| Cost | Cost in **USD** per bucket, stacked by requested model (the 8 busiest models, the rest as *Other models*) |
+| Requests | Success, provider error, refused by the gateway (budget, rate limit, PII, invalid) and cancelled; error and fallback share |
+| Tokens | Uncached input, cached input and output tokens |
+| Provider cache hit rate | Cached ÷ input tokens over the period (prompt caching at the provider) |
+| Requests by model | Requests per requested model, same colours as the cost card |
+| Latency | Avg, P50, P95 and P99 of the whole request as the client saw it |
+| Gateway overhead | Avg, P50, P95 and P99 of the gateway's own time: latency minus time spent waiting on providers |
+| Time to first token | Avg and P95 for streamed answers: until the first event reached the client |
+| Throughput | Output tokens per second of provider time, over successful requests with output |
+
+To make overhead and time to first token possible the gateway records two more timings per request (`UsageRecords.UpstreamMs`,
+`TimeToFirstTokenMs`): provider time is every attempt, failed fallback attempts included, plus reading a streamed answer.
+Timings leave out live audio sessions (their latency is the session length) and requests refused before a provider was
+called. Requests recorded before the upgrade have no overhead or time to first token. Usage older than the retention
+period is only kept as monthly totals without timings, so the charts start at the oldest kept record (the page says so).
+The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](docs/admin-api.md)); the dashboard's query takes about
+0.1 s for 24 hours and 1.8 s for 30 days of 2 million requests (see [docs/performance.md](docs/performance.md)).
+
 #### Routing rules page
 
 **Routing > Routing rules** (gateway-admin) manages [routing rules](docs/routing-rules.md): rules are listed by

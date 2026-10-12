@@ -131,6 +131,9 @@ public static class ReportEndpoints
             return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
                 rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows, retained.TotalsUntil is null ? null : retained.RecordsFrom));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
+        reports.MapGet("/usage/metrics", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, Guid? departmentId, Guid? teamId, Guid? keyId, string? model, string? provider, RequestOutcome? outcome, GatewayEndpoint? endpoint, UsageMetricsService metrics, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await metrics.GetAsync(new UsageMetricsQuery(from, to, bucket, departmentId, teamId, keyId, model, provider, outcome, endpoint), user, ct)))
+            .WithName("GetUsageMetrics").WithSummary("Dashboard figures per hour or day: requests by outcome, cost in USD, tokens, cache hits, latency, gateway overhead, time to first token and throughput");
         reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
             .WithName("ListPiiIncidents").WithSummary("Requests in which PII was detected, newest first, with counts per category and action");
@@ -253,7 +256,8 @@ public static class ReportEndpoints
         var u = row.Record;
         return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
-            u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName);
+            u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
+            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs);
     }
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)

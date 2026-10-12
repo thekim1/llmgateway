@@ -171,11 +171,37 @@ public sealed record IgnoredRuleView(Guid RuleId, string RuleName, string Messag
 
 // ---- reports and operations ------------------------------------------------------------------------------
 
+/// <summary>Average and percentiles in milliseconds; null when no request in the bucket had the timing.</summary>
+public sealed record LatencyStatsDto(double? Avg, int? P50, int? P90, int? P95, int? P99);
+
+public sealed record FirstTokenStatsDto(double? Avg, int? P50, int? P95);
+
+/// <summary>
+/// <c>/api/usage/metrics</c>: the Usage dashboard. Cost is in USD (SEK is only a display currency). <c>RecordsFrom</c> is
+/// set when the period reaches back before the oldest kept usage record; the figures start there.
+/// </summary>
+public sealed record UsageMetricsDto(
+    DateTimeOffset From, DateTimeOffset To, string Bucket, string TimeZone, DateTimeOffset? RecordsFrom,
+    UsageMetricsTotalsDto Totals, UsageMetricsBucketDto[] Buckets, UsageModelSeriesDto[] Models);
+
+public sealed record UsageMetricsTotalsDto(
+    long Requests, long Successes, long ProviderErrors, long Refused, long Cancelled, long Fallbacks, decimal CostUsd,
+    long InputTokens, long CachedInputTokens, long OutputTokens, double? CacheHitRate, LatencyStatsDto Latency, LatencyStatsDto Overhead,
+    FirstTokenStatsDto FirstToken, double? TokensPerSecond);
+
+public sealed record UsageMetricsBucketDto(
+    DateTimeOffset Start, long Requests, long Successes, long ProviderErrors, long Refused, long Cancelled, long Fallbacks, decimal CostUsd,
+    long InputTokens, long CachedInputTokens, long OutputTokens, LatencyStatsDto Latency, LatencyStatsDto Overhead,
+    double? FirstTokenAvgMs, int? FirstTokenP95Ms, double? TokensPerSecond);
+
+/// <summary>A requested model's requests and cost per bucket (aligned with the buckets); a null model is all the others together.</summary>
+public sealed record UsageModelSeriesDto(string? Model, long Requests, decimal CostUsd, long[] RequestsPerBucket, decimal[] CostUsdPerBucket);
+
 public sealed record UsageRequestDto(
     string RequestId, DateTimeOffset Timestamp, string KeyPrefix, string KeyName, string TeamName, string DepartmentName, string Endpoint,
     string RequestedModel, string? ProviderName, string? UpstreamModel, long InputTokens, long CachedInputTokens, long OutputTokens,
     decimal CostSek, int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
-    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName);
+    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs);
 
 /// <summary>
 /// <c>MonthlyTotalsBefore</c> is set when the period reaches back before the oldest kept usage record (data retention): usage

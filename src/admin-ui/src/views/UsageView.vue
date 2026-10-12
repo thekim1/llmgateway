@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest } from '@/api/types'
 import { useUsageStore } from '@/stores/usage'
 import { useDepartmentsStore } from '@/stores/departments'
@@ -8,7 +8,7 @@ import { useTeamsStore } from '@/stores/teams'
 import { useKeysStore } from '@/stores/keys'
 import { OUTCOME_LABEL } from '@/utils/labels'
 import { problemLang, problemMessage } from '@/utils/problem'
-import { formatDate, formatDateTime, formatMs, formatNumber, formatSek, todayIso, toIsoDate } from '@/utils/format'
+import { formatDate, formatDateTime, formatMs, formatNumber, formatSek, formatUsdCost, todayIso, toIsoDate } from '@/utils/format'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
@@ -22,6 +22,8 @@ import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiDrawer from '@/components/ui/UiDrawer.vue'
+import UiTabs from '@/components/ui/UiTabs.vue'
+import UsageDashboard from '@/components/usage/UsageDashboard.vue'
 
 const PAGE_SIZE = 50
 const GROUP_LABEL: Record<UsageGroupBy, string> = {
@@ -33,7 +35,17 @@ const GROUP_LABEL: Record<UsageGroupBy, string> = {
   day: 'Day',
 }
 
+type Tab = 'dashboard' | 'requests'
+const tabs: { value: Tab; label: string; icon: string }[] = [
+  { value: 'dashboard', label: 'Dashboard', icon: 'monitoring' },
+  { value: 'requests', label: 'Requests and costs', icon: 'receipt_long' },
+]
+
 const route = useRoute()
+const router = useRouter()
+// Other pages (PII incidents) link to a request as /usage?request=<id>, which lives on the requests tab.
+const tab = ref<Tab>(route.query.tab === 'requests' || typeof route.query.request === 'string' ? 'requests' : 'dashboard')
+let requestsLoaded = false
 const usage = useUsageStore()
 const departments = useDepartmentsStore()
 const teams = useTeamsStore()
@@ -149,12 +161,22 @@ const requestColumns: Column[] = [
   { key: 'outcome', label: 'Outcome' },
 ]
 
+function openRequestsTab(): void {
+  if (requestsLoaded) return
+  requestsLoaded = true
+  void load()
+}
+
+watch(tab, (value) => {
+  void router.replace({ query: { ...route.query, tab: value === 'dashboard' ? undefined : value } })
+  if (value === 'requests') openRequestsTab()
+})
+
 onMounted(() => {
   void departments.load()
   void teams.load()
   void keys.load()
-  void load()
-  // Other pages (PII incidents) link to a request as /usage?request=<id>.
+  if (tab.value === 'requests') openRequestsTab()
   if (typeof route.query.request === 'string' && route.query.request) {
     lookupId.value = route.query.request
     void lookup()
@@ -163,83 +185,92 @@ onMounted(() => {
 </script>
 
 <template>
-  <PageHeader title="Usage" description="Requests, tokens and cost. Metadata only, never prompt or response content.">
+  <PageHeader title="Usage" description="How the gateway is used and how it performs: requests, cost, tokens and timings. Metadata only, never prompt or response content.">
     <UiButton :href="exportUrl" icon="download" :disabled="!exportUrl" download>Export CSV</UiButton>
   </PageHeader>
 
-  <form class="mb-6 flex flex-wrap items-end gap-3" novalidate @submit.prevent="apply">
-    <TextField v-model="from" label="From" type="date" />
-    <TextField v-model="to" label="To" type="date" />
-    <SelectField v-model="departmentId" label="Department" :options="departmentOptions" @update:model-value="onDepartmentChange" />
-    <SelectField v-model="teamId" label="Team" :options="teamOptions" @update:model-value="onTeamChange" />
-    <SelectField v-model="keyId" label="Key" :options="keyOptions" />
-    <SelectField v-model="group" label="Group by" :options="groupOptions" />
-    <UiButton type="submit" variant="primary">Apply</UiButton>
-  </form>
-  <InlineError v-if="rangeError" :message="rangeError" class="mb-6" />
+  <UiTabs id="usage" v-model="tab" :tabs="tabs" label="Usage views" class="mb-6" />
 
-  <section aria-labelledby="summary-h" class="mb-8">
-    <h2 id="summary-h" class="mb-3 text-heading">Summary by {{ GROUP_LABEL[group].toLowerCase() }}</h2>
-    <AsyncState :loading="usage.summaryLoading" :error="usage.summaryError" :empty="false" @retry="load">
-      <p v-if="usage.summary" class="mb-3 text-fg-2">
-        {{ formatSek(usage.summary.totalCostSek) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
-        {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens.
-      </p>
-      <p v-if="usage.summary?.monthlyTotalsBefore" class="mb-3 flex items-start gap-2 text-small text-fg-2">
-        <AppIcon name="info" :size="18" class="mt-px shrink-0" />
-        Usage before {{ formatDate(usage.summary.monthlyTotalsBefore) }} is only kept as monthly totals (data retention, see Settings). Those months count in full, and by day they show as one row per month.
-      </p>
-      <DataTable :columns="summaryColumns" :rows="usage.summary?.rows ?? []" :row-key="(r) => r.key" caption="Usage summary" empty-text="No usage in this period.">
-        <template #cell-label="{ row }"><span class="font-medium">{{ row.label }}</span></template>
-        <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
-        <template #cell-tokens="{ row }">{{ formatNumber(row.inputTokens + row.outputTokens) }}</template>
-        <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
-        <template #cell-errors="{ row }">{{ formatNumber(row.errors) }}</template>
-      </DataTable>
-    </AsyncState>
-  </section>
+  <div v-if="tab === 'dashboard'" id="usage-panel-dashboard" role="tabpanel" aria-labelledby="usage-tab-dashboard">
+    <UsageDashboard />
+  </div>
 
-  <section aria-labelledby="requests-h" class="mb-8">
-    <h2 id="requests-h" class="mb-3 text-heading">Requests</h2>
-    <AsyncState :loading="usage.requestsLoading" :error="usage.requestsError" :empty="false" @retry="load">
-      <DataTable
-        :columns="requestColumns"
-        :rows="usage.requests.items"
-        :row-key="(r) => r.requestId"
-        caption="Requests in this period"
-        empty-text="No requests in this period."
-        clickable
-        @row-click="openRequest"
-      >
-        <template #cell-requestId="{ row }"><span class="font-mono text-small">{{ row.requestId }}</span></template>
-        <template #cell-timestamp="{ row }">{{ formatDateTime(row.timestamp) }}</template>
-        <template #cell-keyName="{ row }">
-          <span class="font-medium">{{ row.keyName }}</span>
-          <span class="block text-caption text-fg-3"><span lang="sv">{{ row.teamName }}</span> · <span lang="sv">{{ row.departmentName }}</span></span>
-        </template>
-        <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
-        <template #cell-outcome="{ row }">
-          <UiBadge :tone="OUTCOME_LABEL[row.outcome].tone" :label="OUTCOME_LABEL[row.outcome].label" />
-          <span class="ml-2 text-caption text-fg-3">{{ row.statusCode }}</span>
-        </template>
-      </DataTable>
-      <nav v-if="usage.requests.total > PAGE_SIZE" aria-label="Request pages" class="mt-3 flex items-center justify-between gap-3">
-        <span class="text-small text-fg-2">Page {{ page }} of {{ pageCount }}</span>
-        <span class="flex gap-2">
-          <UiButton size="sm" :disabled="page <= 1" @click="goTo(page - 1)">Previous</UiButton>
-          <UiButton size="sm" :disabled="page >= pageCount" @click="goTo(page + 1)">Next</UiButton>
-        </span>
-      </nav>
-    </AsyncState>
-  </section>
+  <div v-else id="usage-panel-requests" role="tabpanel" aria-labelledby="usage-tab-requests">
 
-  <UiCard title="Look up a request" heading-id="lookup-h">
-    <form class="flex flex-wrap items-end gap-3" novalidate @submit.prevent="lookup">
-      <TextField v-model="lookupId" label="Request ID" mono hint="Find it in the x-request-id response header." :error="lookupMessage" />
-      <UiButton type="submit" :loading="lookupBusy">Look up</UiButton>
+    <form class="mb-6 flex flex-wrap items-end gap-3" novalidate @submit.prevent="apply">
+      <TextField v-model="from" label="From" type="date" />
+      <TextField v-model="to" label="To" type="date" />
+      <SelectField v-model="departmentId" label="Department" :options="departmentOptions" @update:model-value="onDepartmentChange" />
+      <SelectField v-model="teamId" label="Team" :options="teamOptions" @update:model-value="onTeamChange" />
+      <SelectField v-model="keyId" label="Key" :options="keyOptions" />
+      <SelectField v-model="group" label="Group by" :options="groupOptions" />
+      <UiButton type="submit" variant="primary">Apply</UiButton>
     </form>
-    <InlineError v-if="lookupError" :message="problemMessage(lookupError)" :lang="problemLang(lookupError)" class="mt-3" />
-  </UiCard>
+    <InlineError v-if="rangeError" :message="rangeError" class="mb-6" />
+
+    <section aria-labelledby="summary-h" class="mb-8">
+      <h2 id="summary-h" class="mb-3 text-heading">Summary by {{ GROUP_LABEL[group].toLowerCase() }}</h2>
+      <AsyncState :loading="usage.summaryLoading" :error="usage.summaryError" :empty="false" @retry="load">
+        <p v-if="usage.summary" class="mb-3 text-fg-2">
+          {{ formatSek(usage.summary.totalCostSek) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
+          {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens.
+        </p>
+        <p v-if="usage.summary?.monthlyTotalsBefore" class="mb-3 flex items-start gap-2 text-small text-fg-2">
+          <AppIcon name="info" :size="18" class="mt-px shrink-0" />
+          Usage before {{ formatDate(usage.summary.monthlyTotalsBefore) }} is only kept as monthly totals (data retention, see Settings). Those months count in full, and by day they show as one row per month.
+        </p>
+        <DataTable :columns="summaryColumns" :rows="usage.summary?.rows ?? []" :row-key="(r) => r.key" caption="Usage summary" empty-text="No usage in this period.">
+          <template #cell-label="{ row }"><span class="font-medium">{{ row.label }}</span></template>
+          <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
+          <template #cell-tokens="{ row }">{{ formatNumber(row.inputTokens + row.outputTokens) }}</template>
+          <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
+          <template #cell-errors="{ row }">{{ formatNumber(row.errors) }}</template>
+        </DataTable>
+      </AsyncState>
+    </section>
+
+    <section aria-labelledby="requests-h" class="mb-8">
+      <h2 id="requests-h" class="mb-3 text-heading">Requests</h2>
+      <AsyncState :loading="usage.requestsLoading" :error="usage.requestsError" :empty="false" @retry="load">
+        <DataTable
+          :columns="requestColumns"
+          :rows="usage.requests.items"
+          :row-key="(r) => r.requestId"
+          caption="Requests in this period"
+          empty-text="No requests in this period."
+          clickable
+          @row-click="openRequest"
+        >
+          <template #cell-requestId="{ row }"><span class="font-mono text-small">{{ row.requestId }}</span></template>
+          <template #cell-timestamp="{ row }">{{ formatDateTime(row.timestamp) }}</template>
+          <template #cell-keyName="{ row }">
+            <span class="font-medium">{{ row.keyName }}</span>
+            <span class="block text-caption text-fg-3"><span lang="sv">{{ row.teamName }}</span> · <span lang="sv">{{ row.departmentName }}</span></span>
+          </template>
+          <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
+          <template #cell-outcome="{ row }">
+            <UiBadge :tone="OUTCOME_LABEL[row.outcome].tone" :label="OUTCOME_LABEL[row.outcome].label" />
+            <span class="ml-2 text-caption text-fg-3">{{ row.statusCode }}</span>
+          </template>
+        </DataTable>
+        <nav v-if="usage.requests.total > PAGE_SIZE" aria-label="Request pages" class="mt-3 flex items-center justify-between gap-3">
+          <span class="text-small text-fg-2">Page {{ page }} of {{ pageCount }}</span>
+          <span class="flex gap-2">
+            <UiButton size="sm" :disabled="page <= 1" @click="goTo(page - 1)">Previous</UiButton>
+            <UiButton size="sm" :disabled="page >= pageCount" @click="goTo(page + 1)">Next</UiButton>
+          </span>
+        </nav>
+      </AsyncState>
+    </section>
+
+    <UiCard title="Look up a request" heading-id="lookup-h">
+      <form class="flex flex-wrap items-end gap-3" novalidate @submit.prevent="lookup">
+        <TextField v-model="lookupId" label="Request ID" mono hint="Find it in the x-request-id response header." :error="lookupMessage" />
+        <UiButton type="submit" :loading="lookupBusy">Look up</UiButton>
+      </form>
+      <InlineError v-if="lookupError" :message="problemMessage(lookupError)" :lang="problemLang(lookupError)" class="mt-3" />
+    </UiCard>
+  </div>
 
   <UiDrawer v-model:open="drawerOpen" :title="selected?.keyName ?? 'Request'" :subtitle="selected?.requestId">
     <template v-if="selected">
@@ -273,8 +304,11 @@ onMounted(() => {
         <DetailRow label="Input tokens">{{ formatNumber(selected.inputTokens) }}</DetailRow>
         <DetailRow label="Cached input">{{ formatNumber(selected.cachedInputTokens) }}</DetailRow>
         <DetailRow label="Output tokens">{{ formatNumber(selected.outputTokens) }}</DetailRow>
-        <DetailRow label="Cost">{{ formatSek(selected.costSek) }}</DetailRow>
+        <DetailRow label="Cost">{{ formatUsdCost(selected.costUsd) }} <span class="text-fg-3">{{ formatSek(selected.costSek) }}</span></DetailRow>
         <DetailRow label="Latency">{{ formatMs(selected.latencyMs) }}</DetailRow>
+        <DetailRow v-if="selected.upstreamMs !== null" label="Provider time">{{ formatMs(selected.upstreamMs) }}</DetailRow>
+        <DetailRow v-if="selected.upstreamMs !== null" label="Gateway overhead">{{ formatMs(Math.max(0, selected.latencyMs - selected.upstreamMs)) }}</DetailRow>
+        <DetailRow v-if="selected.timeToFirstTokenMs !== null" label="Time to first token">{{ formatMs(selected.timeToFirstTokenMs) }}</DetailRow>
       </DetailSection>
     </template>
   </UiDrawer>
