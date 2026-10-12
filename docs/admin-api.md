@@ -331,6 +331,12 @@ and invalidate the gateway catalogue.
   below (`invalid_api_key` with `WWW-Authenticate: Bearer`, `mcp_server_not_found` for an unknown or not granted slug);
   everything after that is a JSON-RPC error. Usage records of refused or failed tool calls carry `mcp_tool_not_found`,
   `mcp_invalid_arguments`, `mcp_upstream_failed` or `mcp_result_too_large`.
+- MCP tools for a client's own tool loop: `GET /v1/mcp/tools?format=openai|responses|anthropic` → `{ object: "list", format,
+  data: [tool definition] }` and `POST /v1/mcp/tools/call` (one `tool_calls` entry, Responses `function_call` or Anthropic
+  `tool_use` → the `tool` message, `function_call_output` or `tool_result` to append; optional request header
+  `x-ume-parent-request-id`). Errors use the error body below, with `mcp_tool_not_found` (404), `mcp_invalid_arguments` (400),
+  `mcp_upstream_failed` (502/504) and `mcp_result_too_large` (502) besides the usual codes; see
+  [mcp.md](mcp.md#using-mcp-tools-with-the-llm-apis). Usage records have `endpoint` `McpToolCall`.
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).

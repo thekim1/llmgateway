@@ -90,6 +90,7 @@ public sealed partial class GatewayRequestHandler
             McpServerId = state.McpServerId,
             McpMethod = state.McpMethod,
             McpTool = state.McpTool,
+            ParentRequestId = state.ParentRequestId,
         };
 
         metrics.Record(record);
@@ -150,6 +151,7 @@ public sealed partial class GatewayRequestHandler
         public Guid? McpServerId { get; set; }
         public string? McpMethod { get; set; }
         public string? McpTool { get; set; }
+        public string? ParentRequestId { get; set; }
 
         /// <summary>The deployment of the current (or last) attempt.</summary>
         public ModelDeployment? Deployment { get; set; }

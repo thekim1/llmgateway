@@ -22,7 +22,7 @@ namespace Ume.LlmGateway.Gateway.Tests;
 /// The MCP gateway end to end: the gateway (TestServer) in front of an SDK-built MCP server on a loopback port. Every
 /// test registers its own servers (unique slugs and upstream paths) and keys, so tests do not see each other's data.
 /// </summary>
-public sealed class McpGatewayTests(GatewayFixture fixture) : IAsyncLifetime
+public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLifetime
 {
     private const string LookupDefinition = """{"description":"Finds a case.","inputSchema":{"type":"object","properties":{"number":{"type":"string"}},"required":["number"]},"annotations":{"readOnlyHint":true}}""";
     private const string EchoDefinition = """{"description":"Echoes its arguments.","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}""";

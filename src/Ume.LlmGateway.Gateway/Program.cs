@@ -136,6 +136,15 @@ v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModels
     .WithSummary("Modeller och alias som nyckeln får använda")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
+// MCP tools for a client's own tool loop: definitions in the request format, and one call answered in the same format.
+v1.MapGet("/mcp/tools", (HttpContext http, string? format, GatewayRequestHandler h) => h.ListMcpToolsAsync(http, format))
+    .WithSummary("MCP-verktyg som nyckeln får använda, som verktygsdefinitioner (format: openai, responses eller anthropic)")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/mcp/tools/call", (HttpContext http, GatewayRequestHandler h) => h.CallMcpToolAsync(http))
+    .WithSummary("Kör ett verktygsanrop (tool_call, function_call eller tool_use) mot en MCP-server och svara i samma format")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
 // MCP gateway (Streamable HTTP, stateless): every granted server, or one server by slug with its own tool names.
 var mcp = app.MapGroup("/mcp").WithTags("MCP");
 mcp.MapPost("", (HttpContext http, GatewayRequestHandler h) => h.HandleMcpAsync(http, null))

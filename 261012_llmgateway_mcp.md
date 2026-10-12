@@ -389,11 +389,18 @@ Step 3a (admin API and tool sync) notes and deferrals:
 - Deferred: syncing on upstream `notifications/tools/list_changed` (needs a standing connection per server; the 10-minute and on-demand syncs cover it), `ume:mcp:events`, and returning non-secret credential parts (header names, OAuth client id) for the UI.
 
 **4. LLM path**
-- [ ] `GET /v1/mcp/tools` and `POST /v1/mcp/tools/call` in all three formats.
+- [x] `GET /v1/mcp/tools` and `POST /v1/mcp/tools/call` in all three formats.
 - [ ] `/v1/responses` hosted `mcp` tool: non-streaming loop, approval flow, `max_tool_calls`, `incomplete`.
 - [ ] Streaming events, provider pinning after the first turn, per-turn budget reservation.
 - [ ] Multimodal tool results mapped to native provider parts (OpenAI-compatible and Anthropic).
 - [ ] `/v1/messages` MCP connector shape.
+
+Step 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) notes and deferrals:
+- The listing uses `tools/list`'s visibility (`VisibleToolsAsync`) on the aggregated view only (exposed names); it is not accounted, and its authentication failures are recorded under `McpToolCall` (no new `GatewayEndpoint`). Answer: `{ object: "list", format, data }`, `data` being the `tools` array as is (no `ume` extension members, which providers would reject). Responses tools get `strict: false`, since Responses defaults to strict and MCP schemas rarely satisfy it; Chat Completions and Anthropic get no `strict`. The description falls back to the title.
+- A call runs the same `CallToolAsync` core as `tools/call` on `/mcp`; the answer is abstracted (`IMcpCallAnswer`: `McpRpcAnswer` for JSON-RPC, `McpToolCallAnswer` for REST), so authorisation, schema check, rate limit, PII, budget, upstream, circuit and accounting are not duplicated. REST answers use the status the usage record already had on `/mcp`; a result blocked by the PII policy is 400 `pii_blocked` (on `/mcp` it stays a JSON-RPC error recorded with 200). An upstream JSON-RPC error is 400 `provider_rejected`. Body errors (not one of the three shapes, no id or name, bad JSON, 413, 415) are accounted like other `/v1` refusals.
+- Content mapping: images are native in Responses (`input_image` with a `data:` URL; `function_call_output.output` takes an array of input parts) and Anthropic (`image` blocks), only for PNG, JPEG, GIF and WebP; Chat Completions tool messages take text only, so images and audio become `[image: mime, N bytes]` placeholders. `structuredContent` becomes JSON text only when there is no text block. `isError` is Anthropic `is_error`, otherwise an `Error: ` prefix.
+- `x-ume-parent-request-id`: 1–64 characters of letters, digits, `_ - . :`; not checked against the key's own requests (no Postgres on the request path).
+- Deferred: a `server` filter on the listing; the Anthropic error body shape for Anthropic-format calls (all errors use the OpenAI-style body of `/v1`); `ParentRequestId` in the admin API's usage views.
 
 **5. Docs and release**
 - [ ] `docs/mcp.md`: concepts, client setup, security model, limits.

@@ -24,7 +24,9 @@ namespace Ume.LlmGateway.Gateway.Tests;
 /// <item><c>fail_pii</c>: a JSON-RPC error whose long message contains an e-mail address;</item>
 /// <item><c>big</c>: about 100 KB of text;</item>
 /// <item><c>link</c>: a resource link to <c>file:///notes/a.txt</c> and an embedded <c>file:///notes/c.txt</c>;</item>
-/// <item><c>progress</c>: two progress notifications, then "done"; <c>slow</c>: 30 s unless cancelled (<see cref="SlowCancelled"/>).</item>
+/// <item><c>progress</c>: two progress notifications, then "done"; <c>slow</c>: 30 s unless cancelled (<see cref="SlowCancelled"/>);</item>
+/// <item><c>tool_error</c>: a tool error (<c>isError</c>) with a text; <c>structured_only</c>: structured content and no content blocks;</item>
+/// <item><c>mixed</c>: a BMP image, audio, a resource link and an embedded PNG blob.</item>
 /// </list>
 /// Resources <c>file:///notes/a.txt</c> (text with an e-mail address) and <c>b.bin</c> (a PNG blob) on the first list page,
 /// <c>c.txt</c> on the second, a template <c>file:///cases/{number}</c>, and the prompt <c>summarize.case</c>.
@@ -184,6 +186,18 @@ public sealed class McpUpstreamServer : IAsyncDisposable
             StructuredContent = JsonSerializer.SerializeToElement(arguments),
         },
         "flaky_read" or "flaky_delete" => new CallToolResult { Content = [new TextContentBlock { Text = "ok" }] },
+        "tool_error" => new CallToolResult { Content = [new TextContentBlock { Text = "Ärendet är låst." }], IsError = true },
+        "structured_only" => new CallToolResult { Content = [], StructuredContent = JsonElement.Parse("""{"count":2}""") },
+        "mixed" => new CallToolResult
+        {
+            Content =
+            [
+                ImageContentBlock.FromBytes(new byte[10], "image/bmp"),
+                AudioContentBlock.FromBytes(new byte[8], "audio/wav"),
+                new ResourceLinkBlock { Uri = "file:///notes/a.txt", Name = "a" },
+                new EmbeddedResourceBlock { Resource = BlobResourceContents.FromBytes(Convert.FromBase64String(PixelPng), "file:///notes/b.bin", "image/png") },
+            ],
+        },
         "contact" => new CallToolResult
         {
             Content = [new TextContentBlock { Text = "Ring 070-123 45 67" }],

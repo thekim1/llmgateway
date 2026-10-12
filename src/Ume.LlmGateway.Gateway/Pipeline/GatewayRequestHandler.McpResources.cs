@@ -175,6 +175,7 @@ public sealed partial class GatewayRequestHandler
     private async Task ReadResourceAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
     {
         var state = new RequestState(RequestIdMiddleware.Get(response.Http), GatewayEndpoint.Mcp, time.GetTimestamp()) { Key = key, McpMethod = "resources/read" };
+        var answer = new McpRpcAnswer(response, id);
         var uri = parameters?["uri"] is JsonValue u && u.TryGetValue<string>(out var given) ? given : null;
         McpServer? server = only;
         var original = uri;
@@ -191,7 +192,7 @@ public sealed partial class GatewayRequestHandler
         if (server is null || original is null || denial != McpDenial.None)
         {
             LogMcpDenied(state, "resources/read", denial, server);
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Resource not found",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Resource not found",
                 404, RequestOutcome.Rejected, GatewayErrorCodes.McpResourceNotFound);
             return;
         }
@@ -199,12 +200,13 @@ public sealed partial class GatewayRequestHandler
         Action<JsonNode>? rewrite = only is null ? result => NamespaceContents(result, server.Slug) : null;
         var forward = new McpForward(server, "resources/read", new JsonObject { ["uri"] = original }, null, MayRetry: true, Price: 0m,
             McpResultKind.Resource, "resources/read", null, rewrite);
-        await RunAccountedAsync(response, state, snapshot, id, parameters, forward, ct);
+        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, ct), ct);
     }
 
     private async Task GetPromptAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
     {
         var state = new RequestState(RequestIdMiddleware.Get(response.Http), GatewayEndpoint.Mcp, time.GetTimestamp()) { Key = key, McpMethod = "prompts/get" };
+        var answer = new McpRpcAnswer(response, id);
         var name = parameters?["name"] is JsonValue n && n.TryGetValue<string>(out var given) ? given : null;
         state.RequestedModel = McpUsageName(only?.Slug, name ?? string.Empty);
         state.McpTool = name is null ? null : Truncate(name, 128);
@@ -216,7 +218,7 @@ public sealed partial class GatewayRequestHandler
         if (server is null || original is null || denial != McpDenial.None)
         {
             LogMcpDenied(state, state.McpTool ?? "-", denial, server);
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Unknown prompt: '{Truncate(name ?? string.Empty, 128)}'",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Unknown prompt: '{Truncate(name ?? string.Empty, 128)}'",
                 404, RequestOutcome.Rejected, GatewayErrorCodes.McpPromptNotFound);
             return;
         }
@@ -226,7 +228,7 @@ public sealed partial class GatewayRequestHandler
         var arguments = parameters!["arguments"];
         if (arguments is not null and not JsonObject)
         {
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Invalid params: 'arguments' must be an object",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Invalid params: 'arguments' must be an object",
                 400, RequestOutcome.Rejected, GatewayErrorCodes.McpInvalidArguments);
             return;
         }
@@ -236,7 +238,7 @@ public sealed partial class GatewayRequestHandler
         var forward = new McpForward(server, "prompts/get", new JsonObject { ["name"] = original, ["arguments"] = args }, args, MayRetry: true, Price: 0m,
             McpResultKind.Prompt, "prompts/get " + original, original,
             only is null ? result => NamespaceBlockUris((result["messages"] as JsonArray ?? []).Select(m => m?["content"]), server.Slug) : null);
-        await RunAccountedAsync(response, state, snapshot, id, parameters, forward, ct);
+        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, ct), ct);
     }
 
     /// <summary>The server's name of an exposed prompt name: from aggregated lists seen before, else by searching its list.</summary>

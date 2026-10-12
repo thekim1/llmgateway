@@ -186,10 +186,23 @@ public sealed partial class GatewayRequestHandler
         }
     }
 
-    private async Task CallToolAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
+    private Task CallToolAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
     {
         var state = new RequestState(RequestIdMiddleware.Get(response.Http), GatewayEndpoint.Mcp, time.GetTimestamp()) { Key = key, McpMethod = "tools/call" };
         var name = parameters?["name"] is JsonValue n && n.TryGetValue<string>(out var given) ? given : null;
+        var arguments = parameters?["arguments"];
+        parameters?.Remove("arguments");
+        return CallToolAsync(new McpRpcAnswer(response, id), state, snapshot, only, name, arguments, ProgressRelay(response, parameters, ct), ct);
+    }
+
+    /// <summary>
+    /// A tool call, on <c>/mcp</c> or <c>/v1/mcp/tools/call</c>: resolve and authorise the name, check the arguments
+    /// against the approved input schema, then the accounted steps. <paramref name="arguments"/> must have no parent.
+    /// </summary>
+    private async Task CallToolAsync(IMcpCallAnswer answer, RequestState state, CatalogSnapshot snapshot, McpServer? only, string? name, JsonNode? arguments,
+        Func<JsonObject, ValueTask>? progress, CancellationToken ct)
+    {
+        var key = state.Key!;
         state.RequestedModel = McpUsageName(only?.Slug, name ?? string.Empty);
         state.McpTool = name is null ? null : Truncate(name, 128);
 
@@ -206,7 +219,7 @@ public sealed partial class GatewayRequestHandler
         {
             state.McpServerId = entry?.Server.Id;
             LogMcpDenied(state, state.McpTool ?? "-", denial, entry?.Server);
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Unknown tool: '{Truncate(name ?? string.Empty, 128)}'",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Unknown tool: '{Truncate(name ?? string.Empty, 128)}'",
                 404, RequestOutcome.Rejected, GatewayErrorCodes.McpToolNotFound);
             return;
         }
@@ -216,11 +229,9 @@ public sealed partial class GatewayRequestHandler
         state.McpTool = entry.Tool.Name;
         state.RequestedModel = McpUsageName(server.Slug, entry.Tool.Name);
 
-        // Arguments against the approved input schema.
-        var arguments = parameters!["arguments"];
         if (arguments is not null and not JsonObject)
         {
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Invalid params: 'arguments' must be an object",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, "Invalid params: 'arguments' must be an object",
                 400, RequestOutcome.Rejected, GatewayErrorCodes.McpInvalidArguments);
             return;
         }
@@ -228,24 +239,23 @@ public sealed partial class GatewayRequestHandler
         var args = (JsonObject?)arguments ?? [];
         if (entry.Definition.InputSchema is { } schema && McpSchemaValidator.Validate(schema, args) is { } invalid)
         {
-            await RefuseAsync(response, state, id, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Invalid arguments for tool '{entry.Tool.Name}': {invalid}",
+            await RefuseAsync(answer, state, (int)ModelContextProtocol.McpErrorCode.InvalidParams, $"Invalid arguments for tool '{entry.Tool.Name}': {invalid}",
                 400, RequestOutcome.Rejected, GatewayErrorCodes.McpInvalidArguments);
             return;
         }
 
-        parameters.Remove("arguments");
         var forward = new McpForward(server, "tools/call", new JsonObject { ["name"] = entry.Tool.Name, ["arguments"] = args }, args, entry.Definition.MayRetry,
             entry.Tool.PriceSek is > 0 ? entry.Tool.PriceSek.Value : 0m, McpResultKind.Tool, "tools/call " + entry.Tool.Name, entry.Tool.Name,
             only is null ? result => NamespaceBlockUris(result["content"] as JsonArray ?? [], server.Slug) : null);
-        await RunAccountedAsync(response, state, snapshot, id, parameters, forward, ct);
+        await RunAccountedAsync(answer, state, snapshot, forward, progress, ct);
     }
 
     /// <summary>
     /// The shared steps of an accounted request: rate limit, PII guard on the arguments, budget, then the upstream call.
     /// Every path accounts exactly once.
     /// </summary>
-    private async Task RunAccountedAsync(McpResponse response, RequestState state, CatalogSnapshot snapshot, JsonNode id, JsonObject? requestParams,
-        McpForward forward, CancellationToken ct)
+    private async Task RunAccountedAsync(IMcpCallAnswer answer, RequestState state, CatalogSnapshot snapshot, McpForward forward,
+        Func<JsonObject, ValueTask>? progress, CancellationToken ct)
     {
         var key = state.Key!;
         var server = forward.Server;
@@ -253,8 +263,8 @@ public sealed partial class GatewayRequestHandler
         if (!rate.Allowed)
         {
             var retryAfter = Math.Max(1, (int)Math.Ceiling(rate.RetryAfter.TotalSeconds));
-            response.SetHeader("Retry-After", retryAfter.ToString(CultureInfo.InvariantCulture));
-            await RefuseAsync(response, state, id, McpErrors.RateLimited, $"Gränsen för MCP-anrop per minut är nådd för nyckeln. Försök igen om {retryAfter} s.",
+            answer.SetHeader("Retry-After", retryAfter.ToString(CultureInfo.InvariantCulture));
+            await RefuseAsync(answer, state, McpErrors.RateLimited, $"Gränsen för MCP-anrop per minut är nådd för nyckeln. Försök igen om {retryAfter} s.",
                 429, RequestOutcome.RateLimited, GatewayErrorCodes.RateLimited, new JsonObject { ["code"] = GatewayErrorCodes.RateLimited, ["retryAfterSeconds"] = retryAfter });
             return;
         }
@@ -268,7 +278,7 @@ public sealed partial class GatewayRequestHandler
             {
                 state.PiiAction = key.PiiPolicy;
                 var decision = PiiJsonScanner.Decide(key.PiiPolicy, argumentScan);
-                response.SetHeader(GatewayHeaders.Pii, decision switch
+                answer.SetHeader(GatewayHeaders.Pii, decision switch
                 {
                     PiiDecision.ForwardRedacted => "redacted",
                     PiiDecision.Block => "blocked",
@@ -277,7 +287,7 @@ public sealed partial class GatewayRequestHandler
                 });
                 if (decision == PiiDecision.Block)
                 {
-                    await RefuseAsync(response, state, id, McpErrors.PiiRefused,
+                    await RefuseAsync(answer, state, McpErrors.PiiRefused,
                         $"Argumenten innehåller personuppgifter ({argumentScan.Summary}) och nyckelns policy tillåter inte det. Ta bort uppgifterna och försök igen.",
                         400, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, new JsonObject { ["code"] = GatewayErrorCodes.PiiBlocked });
                     return;
@@ -285,7 +295,7 @@ public sealed partial class GatewayRequestHandler
 
                 if (decision == PiiDecision.ForwardOnPremOnly && server.Residency != DataResidency.OnPrem)
                 {
-                    await RefuseAsync(response, state, id, McpErrors.PiiRefused,
+                    await RefuseAsync(answer, state, McpErrors.PiiRefused,
                         $"Argumenten innehåller personuppgifter ({argumentScan.Summary}); nyckeln får då bara använda MCP-servrar som körs on-prem.",
                         400, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, new JsonObject { ["code"] = GatewayErrorCodes.PiiBlocked });
                     return;
@@ -299,7 +309,7 @@ public sealed partial class GatewayRequestHandler
             state.Reservation = reservation;
             if (!reservation.Allowed)
             {
-                await RefuseAsync(response, state, id, McpErrors.BudgetExceeded, BudgetExceededMessage(reservation.Exceeded!.Budget, "Kontakta budgetansvarig."),
+                await RefuseAsync(answer, state, McpErrors.BudgetExceeded, BudgetExceededMessage(reservation.Exceeded!.Budget, "Kontakta budgetansvarig."),
                     402, RequestOutcome.BudgetExceeded, GatewayErrorCodes.BudgetExceeded, new JsonObject { ["code"] = GatewayErrorCodes.BudgetExceeded });
                 return;
             }
@@ -308,24 +318,24 @@ public sealed partial class GatewayRequestHandler
         // From here on the reservation must be reconciled whatever happens.
         try
         {
-            await SendAccountedAsync(response, state, snapshot, id, forward, argumentScan, ProgressRelay(response, requestParams, ct), ct);
+            await SendAccountedAsync(answer, state, snapshot, forward, argumentScan, progress, ct);
         }
         catch (Exception ex) when (!state.Accounted)
         {
-            if (!await AccountUnexpectedAsync(response.Http, state, snapshot, ex))
+            if (!await AccountUnexpectedAsync(answer.Http, state, snapshot, ex))
             {
                 throw;
             }
         }
     }
 
-    private async Task SendAccountedAsync(McpResponse response, RequestState state, CatalogSnapshot snapshot, JsonNode id, McpForward forward,
+    private async Task SendAccountedAsync(IMcpCallAnswer answer, RequestState state, CatalogSnapshot snapshot, McpForward forward,
         PiiScanResult? argumentScan, Func<JsonObject, ValueTask>? progress, CancellationToken ct)
     {
         var server = forward.Server;
-        if (UpstreamCall(response.Http, snapshot, server, forward.Method, forward.Params, forward.MayRetry, progress) is not { } call)
+        if (UpstreamCall(answer.Http, snapshot, server, forward.Method, forward.Params, forward.MayRetry, progress) is not { } call)
         {
-            await RefuseAsync(response, state, id, McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' kan inte nås just nu.",
+            await RefuseAsync(answer, state, McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' kan inte nås just nu.",
                 502, RequestOutcome.ProviderError, GatewayErrorCodes.McpUpstreamFailed, new JsonObject { ["code"] = GatewayErrorCodes.McpUpstreamFailed });
             return;
         }
@@ -367,13 +377,13 @@ public sealed partial class GatewayRequestHandler
             LogMcpUpstreamFailed(logger, state.RequestId, server.Slug, result.Failure.ToString(), result.HttpStatus ?? 0, result.Attempts);
             var (code, message, status, error) = result.Failure switch
             {
-                McpUpstreamFailure.JsonRpcError => (result.ErrorCode, UpstreamErrorMessage(response, state, result.ErrorMessage, argumentScan), 400, GatewayErrorCodes.ProviderRejected),
+                McpUpstreamFailure.JsonRpcError => (result.ErrorCode, UpstreamErrorMessage(answer, state, result.ErrorMessage, argumentScan), 400, GatewayErrorCodes.ProviderRejected),
                 McpUpstreamFailure.TooLarge => (McpErrors.ResultTooLarge,
                     $"Svaret från MCP-servern är större än tillåtet ({server.MaxResultBytes.ToString(CultureInfo.InvariantCulture)} byte).", 502, GatewayErrorCodes.McpResultTooLarge),
                 McpUpstreamFailure.Timeout => (McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' svarade inte i tid.", 504, GatewayErrorCodes.McpUpstreamFailed),
                 _ => (McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' kan inte nås just nu.", 502, GatewayErrorCodes.McpUpstreamFailed),
             };
-            await RefuseAsync(response, state, id, code, message, status, RequestOutcome.ProviderError, error,
+            await RefuseAsync(answer, state, code, message, status, RequestOutcome.ProviderError, error,
                 result.Failure == McpUpstreamFailure.JsonRpcError ? null : new JsonObject { ["code"] = error });
             return;
         }
@@ -381,16 +391,16 @@ public sealed partial class GatewayRequestHandler
         var cost = forward.Price > 0 ? new Cost(snapshot.SekPerUsd > 0 ? forward.Price / snapshot.SekPerUsd : 0, forward.Price) : default;
 
         // The PII guard on the result: it reaches the client and, on the LLM path, a model.
-        var answer = result.Result;
+        var output = result.Result;
         var policy = state.Key!.PiiPolicy;
         if (policy != PiiPolicy.Off)
         {
             var redact = policy == PiiPolicy.Redact;
             var resultScan = forward.Kind switch
             {
-                McpResultKind.Resource => McpPii.ScanResourceContents(answer, redact),
-                McpResultKind.Prompt => McpPii.ScanPrompt(answer, redact),
-                _ => McpPii.ScanResult(answer, redact),
+                McpResultKind.Resource => McpPii.ScanResourceContents(output, redact),
+                McpResultKind.Prompt => McpPii.ScanPrompt(output, redact),
+                _ => McpPii.ScanResult(output, redact),
             };
             if (resultScan.HasPii)
             {
@@ -398,31 +408,31 @@ public sealed partial class GatewayRequestHandler
                 state.PiiAction = policy;
                 if (policy == PiiPolicy.Block)
                 {
-                    response.SetHeader(GatewayHeaders.Pii, "blocked");
-                    await response.ErrorAsync(id, McpErrors.PiiRefused,
+                    answer.SetHeader(GatewayHeaders.Pii, "blocked");
+                    var sent = await answer.ErrorAsync(McpErrors.PiiRefused,
                         $"Svaret från MCP-servern innehåller personuppgifter ({resultScan.Summary}) och nyckelns policy tillåter inte det.",
-                        data: new JsonObject { ["code"] = GatewayErrorCodes.PiiBlocked }, ct: CancellationToken.None);
-                    await AccountAsync(state, null, default, 200, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, snapshot, cost);
+                        400, GatewayErrorCodes.PiiBlocked, new JsonObject { ["code"] = GatewayErrorCodes.PiiBlocked }, CancellationToken.None);
+                    await AccountAsync(state, null, default, sent, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, snapshot, cost);
                     return;
                 }
 
-                response.SetHeader(GatewayHeaders.Pii, redact ? "redacted" : "detected");
+                answer.SetHeader(GatewayHeaders.Pii, redact ? "redacted" : "detected");
             }
         }
 
-        if (answer is not null)
+        if (output is not null)
         {
-            forward.Rewrite?.Invoke(answer);
+            forward.Rewrite?.Invoke(output);
         }
 
         using (usageWriter.TrackPending())
         {
             if (forward.Price > 0)
             {
-                response.SetHeader(GatewayHeaders.CostSek, forward.Price.ToString("0.000000", CultureInfo.InvariantCulture));
+                answer.SetHeader(GatewayHeaders.CostSek, forward.Price.ToString("0.000000", CultureInfo.InvariantCulture));
             }
 
-            await response.ResultAsync(id, w => WriteNode(w, answer), CancellationToken.None);
+            await answer.ResultAsync(output, CancellationToken.None);
             await AccountAsync(state, null, default, 200, RequestOutcome.Success, null, snapshot, cost);
         }
     }
@@ -506,23 +516,11 @@ public sealed partial class GatewayRequestHandler
     private static string OutcomeName(McpUpstreamResult result) =>
         result.Failure == McpUpstreamFailure.None ? "success" : result.Failure.ToString().ToLowerInvariant();
 
-    private static void WriteNode(Utf8JsonWriter w, JsonNode? node)
-    {
-        if (node is null)
-        {
-            w.WriteNullValue();
-        }
-        else
-        {
-            node.WriteTo(w);
-        }
-    }
-
     /// <summary>
     /// The server's own JSON-RPC error message, passed on to the client: cut to <see cref="McpMaxErrorMessage"/>
     /// characters and put through the key's PII policy like a result text.
     /// </summary>
-    private static string UpstreamErrorMessage(McpResponse response, RequestState state, string? message, PiiScanResult? argumentScan)
+    private static string UpstreamErrorMessage(IMcpCallAnswer answer, RequestState state, string? message, PiiScanResult? argumentScan)
     {
         var text = Truncate(string.IsNullOrWhiteSpace(message) ? "Error" : message, McpMaxErrorMessage);
         var policy = state.Key!.PiiPolicy;
@@ -540,7 +538,7 @@ public sealed partial class GatewayRequestHandler
 
         state.PiiAction = policy;
         state.PiiCategories = (argumentScan is null ? scan : PiiJsonScanner.Merge(argumentScan, scan)).Summary;
-        response.SetHeader(GatewayHeaders.Pii, policy switch
+        answer.SetHeader(GatewayHeaders.Pii, policy switch
         {
             PiiPolicy.Redact => "redacted",
             PiiPolicy.Block => "blocked",
@@ -559,12 +557,15 @@ public sealed partial class GatewayRequestHandler
     private static string McpUsageName(string? slug, string name) =>
         ModelNames.Truncate(slug is null ? "mcp:" + name : name.Length == 0 ? "mcp:" + slug : $"mcp:{slug}/{name}");
 
-    /// <summary>Answers a refused accounted request with a JSON-RPC error and accounts it.</summary>
-    private async Task RefuseAsync(McpResponse response, RequestState state, JsonNode id, int code, string message, int recordedStatus, RequestOutcome outcome,
+    /// <summary>
+    /// Answers a refused accounted request and accounts it with <paramref name="status"/> (the status a REST answer has;
+    /// a JSON-RPC answer is sent with 200).
+    /// </summary>
+    private async Task RefuseAsync(IMcpCallAnswer answer, RequestState state, int code, string message, int status, RequestOutcome outcome,
         string errorCode, JsonObject? data = null)
     {
-        await response.ErrorAsync(id, code, message, data);
-        await AccountAsync(state, null, default, recordedStatus, outcome, errorCode, null);
+        await answer.ErrorAsync(code, message, status, errorCode, data, answer.Http.RequestAborted);
+        await AccountAsync(state, null, default, status, outcome, errorCode, null);
     }
 
     private void LogMcpDenied(RequestState state, string name, McpDenial? denial, McpServer? server)

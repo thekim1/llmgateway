@@ -32,7 +32,7 @@ public static class GatewayErrorCodes
     /// <summary><c>/mcp/{slug}</c>: no such server, or the key may not use it.</summary>
     public const string McpServerNotFound = "mcp_server_not_found";
 
-    /// <summary>Recorded for a <c>tools/call</c> of an unknown tool or one the key may not use (the client sees "Unknown tool").</summary>
+    /// <summary>A tool call of an unknown tool or one the key may not use (on <c>/mcp</c> the client sees only "Unknown tool").</summary>
     public const string McpToolNotFound = "mcp_tool_not_found";
     public const string McpInvalidArguments = "mcp_invalid_arguments";
 

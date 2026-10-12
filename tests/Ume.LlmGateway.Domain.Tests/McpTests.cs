@@ -535,3 +535,84 @@ public class McpDefinitionDiffTests
         McpDefinitionDiff.Compare(null, """{"a":1}""").ShouldHaveSingleItem().Path.ShouldBe("");
     }
 }
+
+public class McpToolFormatsTests
+{
+    private static JsonObject Parse(string json) => JsonNode.Parse(json)!.AsObject();
+
+    [Theory]
+    [InlineData(null, LlmToolFormat.OpenAi)]
+    [InlineData("openai", LlmToolFormat.OpenAi)]
+    [InlineData("Responses", LlmToolFormat.Responses)]
+    [InlineData("anthropic", LlmToolFormat.Anthropic)]
+    public void Format_names_are_parsed(string? value, LlmToolFormat expected)
+    {
+        McpToolFormats.TryParseFormat(value, out var format).ShouldBeTrue();
+        format.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void An_unknown_format_is_refused() => McpToolFormats.TryParseFormat("gemini", out _).ShouldBeFalse();
+
+    [Fact]
+    public void A_definition_without_input_schema_or_description_gets_an_empty_object_schema_and_the_title()
+    {
+        var definition = McpToolDefinition.Parse("""{"title":"Time"}""")!;
+
+        McpToolFormats.Definition(LlmToolFormat.Anthropic, "demo__time", definition).ToJsonString()
+            .ShouldBe("""{"name":"demo__time","description":"Time","input_schema":{"type":"object","properties":{}}}""");
+    }
+
+    [Fact]
+    public void Each_tool_call_shape_is_recognised_and_its_arguments_parsed()
+    {
+        var chat = McpToolFormats.ParseCall(Parse("""{"id":"c1","type":"function","function":{"name":"a__b","arguments":"{\"x\":1}"}}"""))!;
+        (chat.Format, chat.CallId, chat.Name).ShouldBe((LlmToolFormat.OpenAi, "c1", "a__b"));
+        chat.Arguments!["x"]!.GetValue<int>().ShouldBe(1);
+
+        var untyped = McpToolFormats.ParseCall(Parse("""{"id":"c2","function":{"name":"a__b","arguments":""}}"""))!;
+        untyped.Format.ShouldBe(LlmToolFormat.OpenAi);
+        untyped.Arguments.ShouldBeNull();
+
+        var responses = McpToolFormats.ParseCall(Parse("""{"type":"function_call","id":"fc_1","call_id":"c3","name":"a__b","arguments":"{}"}"""))!;
+        (responses.Format, responses.CallId).ShouldBe((LlmToolFormat.Responses, "c3"));
+
+        var body = Parse("""{"type":"tool_use","id":"toolu_1","name":"a__b","input":{"x":2}}""");
+        var anthropic = McpToolFormats.ParseCall(body)!;
+        (anthropic.Format, anthropic.CallId).ShouldBe((LlmToolFormat.Anthropic, "toolu_1"));
+        anthropic.Arguments!.Parent.ShouldBeNull();
+
+        McpToolFormats.ParseCall(Parse("""{"type":"function_call","name":"a__b"}""")).ShouldBeNull();
+        McpToolFormats.ParseCall(Parse("""{"type":"tool_use","id":"t","input":{}}""")).ShouldBeNull();
+        McpToolFormats.ParseCall(Parse("""{"type":"message","content":"hi"}""")).ShouldBeNull();
+    }
+
+    [Fact]
+    public void An_image_first_tool_error_gets_a_leading_error_text_in_responses()
+    {
+        var call = new LlmToolCall(LlmToolFormat.Responses, "c", "a__b", null);
+        var result = Parse("""{"content":[{"type":"image","mimeType":"image/png","data":"AAAA"}],"isError":true}""");
+
+        McpToolFormats.Result(call, result)["output"]!.ToJsonString()
+            .ShouldBe("""[{"type":"input_text","text":"Error:"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]""");
+    }
+
+    [Fact]
+    public void An_empty_result_has_empty_text_and_an_anthropic_result_without_content()
+    {
+        var result = Parse("""{"content":[]}""");
+
+        McpToolFormats.Result(new LlmToolCall(LlmToolFormat.OpenAi, "c", "a__b", null), result)["content"]!.GetValue<string>().ShouldBeEmpty();
+        McpToolFormats.Result(new LlmToolCall(LlmToolFormat.Anthropic, "c", "a__b", null), result).ToJsonString()
+            .ShouldBe("""{"type":"tool_result","tool_use_id":"c"}""");
+    }
+
+    [Fact]
+    public void An_image_type_the_apis_do_not_take_is_a_placeholder_even_where_images_are_native()
+    {
+        var result = Parse("""{"content":[{"type":"image","mimeType":"image/svg+xml","data":"PHN2Zz4="}]}""");
+
+        McpToolFormats.Result(new LlmToolCall(LlmToolFormat.Responses, "c", "a__b", null), result)["output"]!.GetValue<string>()
+            .ShouldBe("[image: image/svg+xml, 5 bytes]");
+    }
+}

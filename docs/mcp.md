@@ -6,7 +6,9 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 
 > **Status.** Tools, resources and prompts work end to end (listing, calling and reading, authorisation, PII guard, rate
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
-> (`subscriptions/listen`). `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
+> (`subscriptions/listen`). Clients of the LLM APIs can list the tools as tool definitions and run the calls a model makes
+> (see *Using MCP tools with the LLM APIs*); the gateway does not yet run a tool loop itself.
+> `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
 > and grants are managed in the admin UI (**Routing > MCP servers**, and **MCP servers** on a key) or the admin API (see
 > *Administration*). The local dev seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all
 > to the dev key.
@@ -17,8 +19,10 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 |---|---|
 | `POST /mcp` | Every MCP server the key is granted. Tools and prompts are named `{slug}__{name}`, resource URIs are `mcp+ume://{slug}/{uri}` (see *Naming*). |
 | `POST /mcp/{slug}` | One server, with the server's own tool and prompt names, resource URIs and list cursors. Recommended when a client only needs one server. |
+| `GET /v1/mcp/tools` | The key's tools as tool definitions for Chat Completions, Responses or Anthropic Messages (see *Using MCP tools with the LLM APIs*). |
+| `POST /v1/mcp/tools/call` | Runs one tool call a model made and answers in the same format. |
 
-Both speak Streamable HTTP and are **stateless**: the gateway issues no `Mcp-Session-Id`, keeps no session state, and any
+The two `/mcp` endpoints speak Streamable HTTP and are **stateless**: the gateway issues no `Mcp-Session-Id`, keeps no session state, and any
 gateway instance answers any request. `GET` and `DELETE` answer 405; change notifications come on `subscriptions/listen`.
 
 | Protocol revision | How the client talks to the gateway |
@@ -272,7 +276,7 @@ across instances by `Gateway:Mcp:MaxListenStreamsPerKey` (10; Redis `ume:mcp:lis
 ## Accounting and monitoring
 
 Every `tools/call`, `resources/read` and `prompts/get` that passes authentication is one usage record, whatever its outcome:
-`Endpoint = Mcp`, `McpServerId`, `McpMethod`, `McpTool` (the server's name of the tool or prompt; empty for a read, whose
+`Endpoint = Mcp` (`McpToolCall` for `POST /v1/mcp/tools/call`, which also records `ParentRequestId`), `McpServerId`, `McpMethod`, `McpTool` (the server's name of the tool or prompt; empty for a read, whose
 URI is not stored), `RequestedModel = mcp:{slug}/{name}` (`mcp:{slug}` for a read; so reports grouped by model show MCP
 calls apart from models; for a name that matched nothing, `mcp:` and the name as sent), cost = the tool's price on success
 (nothing on failure), latency, status (200, 4xx for refusals, 502/504 for server failures, 499 when
@@ -287,6 +291,138 @@ as its own row, *MCP*. Budget counters rebuilt from Postgres include MCP costs.
   `ume.mcp.server`, `ume.mcp.attempts`.
 - Circuit breaker: the provider circuit settings, per MCP server. Transport failures, timeouts and 5xx count; tool errors
   (`isError: true`), JSON-RPC errors and 4xx do not. While open, the server's tools are hidden.
+
+## Using MCP tools with the LLM APIs
+
+A client that runs its own tool loop against `/v1/chat/completions`, `/v1/responses` or `/v1/messages` can use the key's MCP
+tools without speaking MCP: it fetches the tools as tool definitions, sends them with its requests, and hands every tool
+call the model makes to the gateway, which runs it and answers with the message or block to append to the conversation.
+Nothing is added to LLM requests by the gateway; the LLM endpoints work exactly as without MCP.
+
+**`GET /v1/mcp/tools?format=openai|responses|anthropic`** (default `openai`) lists the tools `tools/list` on `/mcp` lists
+for the key (same check, see *What a key sees*), by exposed name (`{slug}__{tool}`), with the approved description (the
+title when there is none) and input schema unchanged. Listing is not recorded as usage and sends nothing to the servers.
+
+```json
+{ "object": "list", "format": "openai", "data": [ /* send as "tools" */ ] }
+```
+
+| `format` | Each entry of `data` |
+|---|---|
+| `openai` (Chat Completions) | `{ "type": "function", "function": { "name", "description", "parameters" } }` |
+| `responses` | `{ "type": "function", "name", "description", "parameters", "strict": false }` (Responses treats a missing `strict` as `true`, which most MCP schemas do not satisfy) |
+| `anthropic` (Messages) | `{ "name", "description", "input_schema" }` |
+
+**`POST /v1/mcp/tools/call`** takes exactly one tool call as the model produced it, and recognises the format from its shape:
+
+| Format | Request body | Answer (ready to append) |
+|---|---|---|
+| Chat Completions | an entry of `tool_calls`: `{ "id", "type": "function", "function": { "name", "arguments": "<JSON string>" } }` | `{ "role": "tool", "tool_call_id", "content": "<text>" }` |
+| Responses | a `function_call` item: `{ "type": "function_call", "call_id", "name", "arguments": "<JSON string>" }` | `{ "type": "function_call_output", "call_id", "output" }` |
+| Anthropic | a `tool_use` block: `{ "type": "tool_use", "id", "name", "input": { … } }` | `{ "type": "tool_result", "tool_use_id", "content": [ … ], "is_error"? }` |
+
+Other members (`status`, an item's `id`, …) are ignored, so items can be passed on as the SDKs return them. Empty
+`arguments` mean no arguments. The call goes through every step of a `tools/call` on `/mcp` (*A tool call, step by step*):
+authorisation, schema check, `McpCallsPerMinute` (shared with `/mcp`), PII guard on arguments and result, budget, the server,
+circuit breaker and one usage record. Only the exposed name is accepted. Resource URIs in the result are namespaced as on
+`/mcp`, so they can be read there.
+
+How the result's content blocks become the answer:
+
+| MCP | Chat Completions (`content` string) | Responses (`output`) | Anthropic (`content` blocks) |
+|---|---|---|---|
+| `text` | the text; several are joined with a blank line | the same, or `input_text` parts when there is an image | `text` blocks |
+| `image` (PNG, JPEG, GIF, WebP) | `[image: image/png, 1234 bytes]` (tool messages take only text) | an `input_image` part with a `data:` URL | an `image` block (`source.type: "base64"`) |
+| other images, `audio` | `[image: …]` / `[audio: audio/wav, 1234 bytes]` | the same placeholder | the same placeholder |
+| `resource_link` | `[resource link: <uri> (<name>)]` | the same | the same |
+| embedded `resource` | its `text`, or `[resource: <uri>, <mimeType>, N bytes]` for a blob | the same | the same |
+| `structuredContent` | JSON text, only when the result has no `text` block (MCP asks servers that return both to put the same data in a text block) | the same | the same |
+| `isError: true` | the text starts with `Error: ` | the same | `"is_error": true` |
+
+Base64 data never becomes text. Refusals and failures are HTTP errors with the gateway's usual error body (`{ "error": {
+"message", "type", "code", "request_id", "doc_url" } }`), not tool results:
+
+| HTTP | `code` | When |
+|---|---|---|
+| 400 | `invalid_request` | The body is not one of the three shapes, or lacks the call's id or name; a malformed `x-ume-parent-request-id`. |
+| 400 | `mcp_invalid_arguments` | The arguments are not a JSON object or do not match the input schema. |
+| 400 | `pii_blocked` | PII policy: *Block* found personal data in the arguments or the result, or *Reroute to on-prem* and the server is not on-prem. |
+| 400 | `provider_rejected` | The server answered with a JSON-RPC error (its message, cut and put through the PII policy). |
+| 401, 403 | `invalid_api_key`, … | As on every `/v1` endpoint. |
+| 402 | `budget_exceeded` | A budget is used up (priced tools only). |
+| 404 | `mcp_tool_not_found` | Unknown tool, or one the key may not use: the same answer (`Unknown tool: '<name>'`) either way. |
+| 429 | `rate_limited` | `McpCallsPerMinute` reached; `Retry-After` says when to try again. |
+| 502, 504 | `mcp_upstream_failed`, `mcp_result_too_large` | The server could not be reached, failed or timed out (504), or its result is over `MaxResultBytes`. |
+
+A tool that reports its own failure (`isError: true`) is a normal answer (200). To link the tool calls to the LLM request
+they belong to, send that request's `x-request-id` in **`x-ume-parent-request-id`**: it is stored as the usage record's
+`ParentRequestId` (at most 64 characters: letters, digits, `_`, `-`, `.`, `:`; anything else is refused). The gateway does
+not check that it names a request of the same key.
+
+The loop in Python, with the official SDKs (replace the address, key and model):
+
+```python
+import httpx
+from openai import OpenAI
+
+GATEWAY, KEY = "https://gateway.example.se", "ume-sk-…"
+mcp = httpx.Client(base_url=f"{GATEWAY}/v1/mcp", headers={"Authorization": f"Bearer {KEY}"})
+openai = OpenAI(base_url=f"{GATEWAY}/v1", api_key=KEY)
+
+def run(call, parent=None):
+    answer = mcp.post("/tools/call", json=call, headers={"x-ume-parent-request-id": parent} if parent else {})
+    answer.raise_for_status()
+    return answer.json()
+```
+
+**Chat Completions**
+
+```python
+tools = mcp.get("/tools").json()["data"]
+messages = [{"role": "user", "content": "Is case KS-1 open?"}]
+while True:
+    raw = openai.chat.completions.with_raw_response.create(model="ume/chat-standard", messages=messages, tools=tools)
+    reply = raw.parse().choices[0].message
+    messages.append(reply.model_dump(exclude_none=True))
+    if not reply.tool_calls:
+        break
+    messages += [run(call.model_dump(), raw.headers["x-request-id"]) for call in reply.tool_calls]
+print(reply.content)
+```
+
+**Responses**
+
+```python
+tools = mcp.get("/tools", params={"format": "responses"}).json()["data"]
+items = [{"role": "user", "content": "Is case KS-1 open?"}]
+while True:
+    response = openai.responses.create(model="ume/chat-standard", input=items, tools=tools)
+    items += [item.model_dump(exclude_none=True) for item in response.output]
+    calls = [item for item in response.output if item.type == "function_call"]
+    if not calls:
+        break
+    items += [run(call.model_dump(exclude_none=True)) for call in calls]
+print(response.output_text)
+```
+
+**Anthropic Messages**
+
+```python
+from anthropic import Anthropic
+
+claude = Anthropic(base_url=GATEWAY, api_key=KEY)
+tools = mcp.get("/tools", params={"format": "anthropic"}).json()["data"]
+messages = [{"role": "user", "content": "Is case KS-1 open?"}]
+while True:
+    reply = claude.messages.create(model="ume/chat-advanced", max_tokens=1024, messages=messages, tools=tools)
+    messages.append({"role": "assistant", "content": [block.model_dump(exclude_none=True) for block in reply.content]})
+    if reply.stop_reason != "tool_use":
+        break
+    messages.append({"role": "user", "content": [run(block.model_dump(exclude_none=True)) for block in reply.content if block.type == "tool_use"]})
+print(reply.content[-1].text)
+```
+
+A real client should cap the number of rounds and handle error answers (for example by telling the model the tool failed).
 
 ## Client setup
 
