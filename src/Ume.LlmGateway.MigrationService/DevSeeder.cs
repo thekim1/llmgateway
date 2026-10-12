@@ -104,9 +104,9 @@ public sealed partial class DevSeeder(
         var fakeUrl = o.FakeLlmUrl ?? "http://localhost:5090/v1";
         var hasFake = !string.IsNullOrWhiteSpace(o.FakeLlmUrl);
         var fakeOnPrem = Provider("fake-onprem", "Testleverantör (on-prem)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.OnPrem,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, hasFake);
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images, hasFake);
         var fakeEu = Provider("fake-eu", "Testleverantör (EU)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.Eu,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, hasFake);
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images, hasFake);
         var fakeExternal = Provider("fake-external", "Testleverantör (extern)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.External,
             chatAll | ProviderCapabilities.Responses, hasFake);
         var fakeAnthropic = Provider("fake-anthropic", "Testleverantör (Anthropic-format)", ProviderType.Anthropic, fakeUrl, ProviderAuthMode.XApiKeyHeader, DataResidency.External,
@@ -118,7 +118,7 @@ public sealed partial class DevSeeder(
 
         bool HasCredential(string name) => !string.IsNullOrWhiteSpace(o.Credentials.GetValueOrDefault(name));
         var openai = Provider("openai", "OpenAI", ProviderType.OpenAI, "https://api.openai.com/v1", ProviderAuthMode.Bearer, DataResidency.External,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime, HasCredential("openai"));
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images, HasCredential("openai"));
         var azure = Provider("azure-openai-swc", "Azure OpenAI (Sweden Central)", ProviderType.AzureOpenAI,
             o.AzureOpenAIEndpoint is { Length: > 0 } az ? az.TrimEnd('/') + "/openai/v1" : "https://example-swc.openai.azure.com/openai/v1",
             ProviderAuthMode.ApiKeyHeader, DataResidency.Eu, chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses,
@@ -136,7 +136,7 @@ public sealed partial class DevSeeder(
         // --- Models & prices (USD per 1M tokens; example list prices – verify before production use) ----
         ModelDeployment Model(ProviderAccount provider, string name, string upstream, decimal input, decimal cached, decimal output,
             ModelKind kind = ModelKind.Chat, ParameterProfile profile = ParameterProfile.Standard, int? context = null, decimal perMinute = 0,
-            decimal audioInput = 0, decimal audioOutput = 0)
+            decimal audioInput = 0, decimal audioOutput = 0, decimal perImage = 0)
         {
             var m = new ModelDeployment
             {
@@ -147,7 +147,7 @@ public sealed partial class DevSeeder(
                 ParameterProfile = profile,
                 ContextWindow = context,
                 Prices = [new ModelPrice { EffectiveFrom = priceDate, InputPerMillionUsd = input, CachedInputPerMillionUsd = cached, OutputPerMillionUsd = output, AudioPerMinuteUsd = perMinute,
-                    AudioInputPerMillionUsd = audioInput, AudioOutputPerMillionUsd = audioOutput }],
+                    AudioInputPerMillionUsd = audioInput, AudioOutputPerMillionUsd = audioOutput, PerImageUsd = perImage }],
             };
             db.Add(m);
             return m;
@@ -174,6 +174,11 @@ public sealed partial class DevSeeder(
         Model(fakeEu, "transcribe-eu", "fake-transcribe", 2.50m, 0m, 10.00m, ModelKind.Transcription, audioInput: 6.00m);
         Model(openai, "whisper-1", "whisper-1", 0m, 0m, 0m, ModelKind.Transcription, perMinute: 0.006m);
         Model(openai, "gpt-4o-transcribe", "gpt-4o-transcribe", 2.50m, 0m, 10.00m, ModelKind.Transcription, audioInput: 6.00m);
+        // Images: DALL·E style models are priced per picture, gpt-image-1 per token.
+        var fakeImageEu = Model(fakeEu, "image-eu", "fake-image", 0m, 0m, 0m, ModelKind.Image, perImage: 0.04m);
+        var fakeImageOnPrem = Model(fakeOnPrem, "image-onprem", "fake-image-token", 5.00m, 0m, 40.00m, ModelKind.Image);
+        Model(openai, "dall-e-3", "dall-e-3", 0m, 0m, 0m, ModelKind.Image, perImage: 0.04m);
+        Model(openai, "gpt-image-1", "gpt-image-1", 5.00m, 1.25m, 40.00m, ModelKind.Image);
         // Live audio (/v1/realtime, /v1/realtime/translations): realtime models price audio tokens far above text tokens.
         var fakeRealtimeEu = Model(fakeEu, "realtime-eu", "fake-realtime", 4.00m, 0.40m, 16.00m, ModelKind.Realtime, audioInput: 32.00m, audioOutput: 64.00m);
         var fakeInterpretEu = Model(fakeEu, "interpret-eu", "fake-interpret", 0m, 0m, 0m, ModelKind.SpeechTranslation, perMinute: 0.02m);
@@ -219,6 +224,13 @@ public sealed partial class DevSeeder(
                 Kind = ModelKind.Transcription,
                 Description = "Tal till text (POST /v1/audio/transcriptions). Körs i EU i första hand, med reserv on-prem.",
                 Targets = [T(fakeWhisperEu, 0), T(fakeWhisperOnPrem, 1)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/image",
+                Kind = ModelKind.Image,
+                Description = "Bildgenerering och bildredigering (POST /v1/images/generations och /v1/images/edits). Körs i EU i första hand, med reserv on-prem.",
+                Targets = [T(fakeImageEu, 0), T(fakeImageOnPrem, 1)],
             },
             new RouteAlias
             {

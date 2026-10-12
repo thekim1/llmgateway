@@ -470,6 +470,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");
 
+                    b.Property<decimal>("PerImageUsd")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ModelDeploymentId", "EffectiveFrom")

@@ -148,7 +148,7 @@ public static class DataEndpoints
                 .Select(m => new { m.Id, m.Name, m.UpstreamModel, m.Kind, ProviderId = m.ProviderAccountId, m.IsEnabled }).ToListAsync(ct)));
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
-                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd }).ToListAsync(ct)));
+                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd }).ToListAsync(ct)));
         catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
                 .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitSek, b.IsActive }).ToListAsync(ct)));

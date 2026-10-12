@@ -130,7 +130,7 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
   (No ASP.NET Core forwarded-header setting is involved; scheme and host need no forwarding because the upstream hop is HTTPS.)
 - Gateway host: disable response buffering and allow long reads (streamed completions can run
   for minutes), and allow bodies of a few MB or more: 32 MB covers the 26 MB audio upload limit
-  (`Gateway__MaxAudioRequestBodyBytes`; raise both together). Disable request buffering as well, so uploaded
+  (`Gateway__MaxAudioRequestBodyBytes`; raise both together), 52 MB the 50 MB of image edits (`Gateway__MaxImageRequestBodyBytes`). Disable request buffering as well, so uploaded
   recordings and documents are not written to the proxy's temporary files. Pass the WebSocket upgrade for live
   audio (`/v1/realtime`): the `Upgrade` and `Connection` headers, as in the nginx example; the gateway pings every
   30 s, so the 600 s read timeout does not cut a quiet session.

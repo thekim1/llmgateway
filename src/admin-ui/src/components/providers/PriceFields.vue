@@ -43,6 +43,15 @@ function set(key: keyof PriceDraft, value: string): void {
       @update:model-value="set('audioOut', $event)"
     />
     <TextField
+      :id="`${idPrefix}-image`"
+      :model-value="draft.image"
+      label="Image (USD per picture)"
+      inputmode="decimal"
+      hint="Optional. For image models billed per picture, such as DALL·E. Token-billed models such as gpt-image-1 use the token prices; leave this empty for them."
+      :error="errors.image"
+      @update:model-value="set('image', $event)"
+    />
+    <TextField
       v-if="optionalFrom"
       :id="`${idPrefix}-from`"
       :model-value="draft.from"

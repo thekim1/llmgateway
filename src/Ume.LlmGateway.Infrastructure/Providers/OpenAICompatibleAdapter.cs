@@ -194,6 +194,11 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             return await SendAudioAsync(call, cancellationToken);
         }
 
+        if (GatewayEndpoints.Info(call.Endpoint).IsImage)
+        {
+            return await SendImageAsync(call, cancellationToken);
+        }
+
         var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), call.Body, call, timeout, cancellationToken);
         if (failure is not null)
@@ -281,7 +286,74 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         }
     }
 
+    /// <summary>
+    /// Image generation (a JSON body) and editing (a multipart upload of the pictures and an optional mask). The answer is
+    /// one JSON document, passed on as received: <c>data[]</c> holds base64 pictures or URLs, and token-billed models
+    /// (gpt-image-1) report <c>usage</c>. Streaming (<c>partial_images</c>) is refused before the call, so it is never asked for.
+    /// </summary>
+    private async Task<ProviderResult> SendImageAsync(ProviderCall call, CancellationToken cancellationToken)
+    {
+        var timeout = CreateTimeout(call, cancellationToken);
+        var uri = ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint));
+        var (response, failure) = call.Images is { } images
+            ? await SendRawAsync(uri, ImageForm(call.Body, images), call, timeout, cancellationToken)
+            : await SendRawAsync(uri, call.Body, call, timeout, cancellationToken);
+        if (failure is not null)
+        {
+            timeout.Dispose();
+            return failure;
+        }
+
+        using (timeout)
+        using (response)
+        {
+            byte[] buffer;
+            int length;
+            try
+            {
+                (buffer, length) = await ProviderJson.ReadBodyAsync(response!.Content, timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return ProviderFailure.Timeout;
+            }
+
+            try
+            {
+                var usage = ProviderJson.ReadImageUsage(buffer.AsSpan(0, length));
+                return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer);
+            }
+            catch (JsonException)
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                return ProviderFailure.InvalidJson;
+            }
+        }
+    }
+
     private static MultipartFormDataContent AudioForm(JsonObject fields, AudioUpload audio)
+    {
+        var form = FormFields(fields);
+        var file = new ReadOnlyMemoryContent(audio.Data);
+        file.Headers.ContentType = MediaTypeHeaderValue.TryParse(audio.ContentType, out var type) ? type : new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "file", audio.FileName);
+        return form;
+    }
+
+    private static MultipartFormDataContent ImageForm(JsonObject fields, ImageUploads images)
+    {
+        var form = FormFields(fields);
+        foreach (var image in images.Files)
+        {
+            var file = new ReadOnlyMemoryContent(image.Data);
+            file.Headers.ContentType = MediaTypeHeaderValue.TryParse(image.ContentType, out var type) ? type : new MediaTypeHeaderValue("application/octet-stream");
+            form.Add(file, image.Field, image.FileName);
+        }
+
+        return form;
+    }
+
+    private static MultipartFormDataContent FormFields(JsonObject fields)
     {
         var form = new MultipartFormDataContent();
         foreach (var (name, node) in fields)
@@ -299,9 +371,6 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             }
         }
 
-        var file = new ReadOnlyMemoryContent(audio.Data);
-        file.Headers.ContentType = MediaTypeHeaderValue.TryParse(audio.ContentType, out var type) ? type : new MediaTypeHeaderValue("application/octet-stream");
-        form.Add(file, "file", audio.FileName);
         return form;
     }
 

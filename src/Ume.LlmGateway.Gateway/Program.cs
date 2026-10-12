@@ -126,6 +126,14 @@ v1.MapPost("/audio/translations", (HttpContext http, GatewayRequestHandler h) =>
     .WithSummary("Tal till engelsk text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
+v1.MapPost("/images/generations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageGenerations))
+    .WithSummary("Bildgenerering från text (OpenAI-kompatibel, JSON)")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/images/edits", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageEdits))
+    .WithSummary("Bildredigering (OpenAI-kompatibel, multipart/form-data med fälten 'image' och eventuellt 'mask')")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
 // Live audio: WebSocket (OpenAI Realtime protocol). HTTP/2 extended CONNECT is presented as GET as well.
 v1.MapGet("/realtime", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.Realtime))
     .WithSummary("Realtidsljud över WebSocket: live-transkribering och realtidssamtal (OpenAI Realtime-kompatibel)");

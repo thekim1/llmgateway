@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 // upload is 128 kbps audio: fake-whisper reports usage by duration like whisper-1, fake-transcribe by tokens and
 // streams like gpt-4o-transcribe. Behaviour is controlled by the requested model name:
 //   fake-fail-503 → always 503, fake-fail-429 → always 429, fake-slow → 3 s delay, anything else → answer.
+// Images (/v1/images/generations, /v1/images/edits): fake-image bills per picture, fake-image-token by tokens.
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
 // response.create in text, and translation sessions (fake-interpret) send transcript deltas per second of audio.
@@ -182,6 +183,9 @@ app.MapPost("/v1/messages", async (HttpContext ctx) =>
 app.MapPost("/v1/audio/transcriptions", (Delegate)((HttpContext ctx) => TranscribeAsync(ctx, translate: false)));
 app.MapPost("/v1/audio/translations", (Delegate)((HttpContext ctx) => TranscribeAsync(ctx, translate: true)));
 
+app.MapPost("/v1/images/generations", (Delegate)((HttpContext ctx) => ImagesAsync(ctx, edit: false)));
+app.MapPost("/v1/images/edits", (Delegate)((HttpContext ctx) => ImagesAsync(ctx, edit: true)));
+
 app.MapGet("/v1/realtime", (Delegate)((HttpContext ctx) => RealtimeAsync(ctx, translations: false)));
 app.MapGet("/v1/realtime/translations", (Delegate)((HttpContext ctx) => RealtimeAsync(ctx, translations: true)));
 
@@ -302,6 +306,71 @@ static async Task<IResult> RealtimeAsync(HttpContext ctx, bool translations)
     }
 
     return Results.Empty;
+}
+
+// Images: n tiny PNGs as base64. fake-image answers like DALL·E (no usage, billed per picture), fake-image-token like
+// gpt-image-1 (usage in tokens). Edits take the pictures in image / image[] and an optional mask.
+static async Task<IResult> ImagesAsync(HttpContext ctx, bool edit)
+{
+    const string Png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    string model, prompt, n;
+    var images = 0;
+    if (edit)
+    {
+        if (!ctx.Request.HasFormContentType)
+        {
+            return Results.Json(new { error = new { message = "Expected multipart/form-data", type = "invalid_request_error" } }, statusCode: 400);
+        }
+
+        var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+        model = form["model"].ToString() is { Length: > 0 } fm ? fm : "fake-image";
+        prompt = form["prompt"].ToString();
+        n = form["n"].ToString();
+        images = form.Files.Count(f => f.Name is "image" or "image[]");
+        if (images == 0)
+        {
+            return Results.Json(new { error = new { message = "image is required", type = "invalid_request_error" } }, statusCode: 400);
+        }
+    }
+    else
+    {
+        var body = await JsonNode.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted) as JsonObject ?? [];
+        model = body["model"]?.GetValue<string>() is { Length: > 0 } bm ? bm : "fake-image";
+        prompt = body["prompt"]?.GetValue<string>() ?? string.Empty;
+        n = body["n"]?.ToJsonString() ?? string.Empty;
+    }
+
+    if (await FailureAsync(ctx, model) is { } failure)
+    {
+        return failure;
+    }
+
+    if (string.IsNullOrWhiteSpace(prompt))
+    {
+        return Results.Json(new { error = new { message = "prompt is required", type = "invalid_request_error" } }, statusCode: 400);
+    }
+
+    var count = int.TryParse(n.Trim('"'), out var parsed) ? Math.Clamp(parsed, 1, 10) : 1;
+    var data = Enumerable.Range(0, count).Select(_ => new { b64_json = Png, revised_prompt = prompt }).ToArray();
+    if (!model.Contains("token", StringComparison.Ordinal))
+    {
+        return Results.Json(new { created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), data });
+    }
+
+    var inputTokens = Tokens(prompt) + images * 800;
+    var outputTokens = count * 1056;
+    return Results.Json(new
+    {
+        created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        data,
+        usage = new
+        {
+            input_tokens = inputTokens,
+            output_tokens = outputTokens,
+            total_tokens = inputTokens + outputTokens,
+            input_tokens_details = new { text_tokens = Tokens(prompt), image_tokens = images * 800 },
+        },
+    });
 }
 
 static async Task<IResult> TranscribeAsync(HttpContext ctx, bool translate)

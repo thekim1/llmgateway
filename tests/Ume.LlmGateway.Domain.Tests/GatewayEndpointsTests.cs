@@ -33,6 +33,8 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.AudioTranslations, "audio_translations", "/v1/audio/translations", "audio/translations")]
     [InlineData(GatewayEndpoint.Realtime, "realtime", "/v1/realtime", "realtime")]
     [InlineData(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations")]
+    [InlineData(GatewayEndpoint.ImageGenerations, "image_generations", "/v1/images/generations", "images/generations")]
+    [InlineData(GatewayEndpoint.ImageEdits, "image_edits", "/v1/images/edits", "images/edits")]
     public void Names_and_paths_are_the_documented_ones(GatewayEndpoint endpoint, string routingName, string clientPath, string? upstreamPath)
     {
         var info = GatewayEndpoints.Info(endpoint);
@@ -50,16 +52,18 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.AudioTranslations, ProviderCapabilities.AudioTranscriptions)]
     [InlineData(GatewayEndpoint.Realtime, ProviderCapabilities.Realtime)]
     [InlineData(GatewayEndpoint.RealtimeTranslations, ProviderCapabilities.Realtime)]
+    [InlineData(GatewayEndpoint.ImageGenerations, ProviderCapabilities.Images)]
+    [InlineData(GatewayEndpoint.ImageEdits, ProviderCapabilities.Images)]
     public void Provider_support_follows_the_required_capability(GatewayEndpoint endpoint, ProviderCapabilities capability)
     {
         new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = capability }.Supports(endpoint).ShouldBeTrue();
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ~capability & (ProviderCapabilities)0x7F }.Supports(endpoint).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ~capability & (ProviderCapabilities)0xFF }.Supports(endpoint).ShouldBeFalse();
     }
 
     [Fact]
     public void Models_endpoint_is_never_served_by_a_provider()
     {
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = (ProviderCapabilities)0x7F }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = (ProviderCapabilities)0xFF }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
         new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ProviderCapabilities.None }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
     }
 
@@ -72,6 +76,8 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.AudioTranslations, new[] { ModelKind.Transcription })]
     [InlineData(GatewayEndpoint.Realtime, new[] { ModelKind.Realtime, ModelKind.Transcription })]
     [InlineData(GatewayEndpoint.RealtimeTranslations, new[] { ModelKind.SpeechTranslation })]
+    [InlineData(GatewayEndpoint.ImageGenerations, new[] { ModelKind.Image })]
+    [InlineData(GatewayEndpoint.ImageEdits, new[] { ModelKind.Image })]
     [InlineData(GatewayEndpoint.Models, new ModelKind[0])]
     public void Endpoints_serve_their_model_kinds(GatewayEndpoint endpoint, ModelKind[] kinds)
     {
@@ -88,6 +94,9 @@ public class GatewayEndpointsTests
     {
         GatewayEndpoints.All.Where(e => e.IsAudio).Select(e => e.Endpoint).ShouldBe([GatewayEndpoint.AudioTranscriptions, GatewayEndpoint.AudioTranslations]);
         GatewayEndpoints.All.Where(e => e.IsRealtime).Select(e => e.Endpoint).ShouldBe([GatewayEndpoint.Realtime, GatewayEndpoint.RealtimeTranslations]);
+        GatewayEndpoints.All.Where(e => e.IsImage).Select(e => e.Endpoint).ShouldBe([GatewayEndpoint.ImageGenerations, GatewayEndpoint.ImageEdits]);
+        GatewayEndpoints.All.Where(e => e.IsImageUpload).Select(e => e.Endpoint).ShouldBe([GatewayEndpoint.ImageEdits]);
+        GatewayEndpoints.All.Where(e => e.IsImage).ShouldAllBe(e => !e.SupportsStreaming && e.HasOutputTokens && !e.IsAudio && !e.IsRealtime);
         GatewayEndpoints.Info(GatewayEndpoint.Embeddings).SupportsStreaming.ShouldBeFalse();
         GatewayEndpoints.Info(GatewayEndpoint.Embeddings).HasOutputTokens.ShouldBeFalse();
         GatewayEndpoints.Info(GatewayEndpoint.ChatCompletions).SupportsStreaming.ShouldBeTrue();

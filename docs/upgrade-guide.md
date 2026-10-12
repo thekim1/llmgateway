@@ -66,6 +66,12 @@ text* capability, add the models with kind *Speech to text* (or rediscover them)
 price, and create an alias such as `ume/transcribe`. If a proxy sits in front of the gateway, allow at least 32 MB
 bodies and turn request buffering off (see the runbook).
 
+Image generation (`/v1/images/generations`, `/v1/images/edits`) adds the migration `ImageGeneration`: `PerImageUsd` on
+`ModelPrices`, `NOT NULL DEFAULT 0`, so it is additive and needs no new grants. After deploying, give the providers that serve
+image models the *Image generation and editing* capability, add the models with kind *Image generation* (or rediscover them)
+and their per-picture or per-token price, and create an alias such as `ume/image`. Image edits upload up to 50 MB: allow at
+least 52 MB bodies at the proxy (`Gateway__MaxImageRequestBodyBytes`; raise both together).
+
 Live audio (`/v1/realtime`, `/v1/realtime/translations`) needs three more steps:
 - **Redis ACL.** The per-key session limit uses a sorted set: add `+zadd +zrem +zcard +zremrangebyscore` to the
   `gateway` user in `secrets/redis/users.acl` (the template `deploy/redis/users.acl.example` has them). Since 0.3.1 the

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Images.** `POST /v1/images/generations` (JSON) and `POST /v1/images/edits` (`multipart/form-data`: one or more pictures in
+`image` or `image[]`, an optional `mask`) in OpenAI format, for gpt-image-1, DALL·E, FLUX and other OpenAI-compatible image
+models. New provider capability `Images`, model kind `Image` (discovery recognises `gpt-image*`, `dall-e*`, `flux*`, `imagen*`
+and `stable-diffusion*`), endpoints `ImageGenerations` and `ImageEdits` (routing names `image_generations`, `image_edits`),
+and the price field `perImageUsd` next to the token prices (admin API, config export/import, Data API prices feed, admin UI
+price form, price history and model list). The cost is the number of pictures in the answer × `perImageUsd` plus reported
+tokens × token prices, and the budget reserves the worst case for `n` pictures first. Edits are read into pooled in-memory
+buffers like audio (never a temporary file) up to `Gateway:MaxImageRequestBodyBytes` (50 MB for all pictures, at most 16) and
+sent again from memory on fallback; the pictures count as image attachments for the key's *Attached files* setting. `stream`
+and `partial_images` are refused with `400 invalid_request`. The dev seed has `ume/image`; FakeLlm answers both endpoints;
+the admin UI shows image examples for image aliases. Migration `ImageGeneration` (`PerImageUsd` on `ModelPrices`, default 0).
+Usage records have no picture count yet: reports show the cost and tokens of an image request, not how many pictures.
+
 **Data retention.** Old data is removed every night so the database stays bounded. New card *Settings > Data retention*
 (gateway-admin): **usage data** (usage records, refused-key records, budget alerts of periods that ended over a year ago)
 and the **audit log** each have a period of 90–3 650 days, both **365 by default**; the audit log can be kept for ever.

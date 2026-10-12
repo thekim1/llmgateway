@@ -66,7 +66,7 @@ public sealed partial class GatewayRequestHandler(
         state.Key = key;
 
         // 2. Parse body (strict JSON object with a model name; the audio endpoints take a multipart upload instead).
-        var (body, bodyLength, audio) = await ReadBodyAsync(http, state, info, ct);
+        var (body, bodyLength, audio, images) = await ReadBodyAsync(http, state, info, ct);
         if (body is null)
         {
             return;
@@ -74,6 +74,7 @@ public sealed partial class GatewayRequestHandler(
 
         // The upload stays in memory until the last attempt is done; disposing returns the pooled buffer.
         using var audioLifetime = audio;
+        using var imagesLifetime = images;
 
         if (body["model"] is not JsonValue modelValue || !modelValue.TryGetValue<string>(out var model) || string.IsNullOrWhiteSpace(model))
         {
@@ -83,9 +84,16 @@ public sealed partial class GatewayRequestHandler(
 
         state.RequestedModel = ModelNames.Truncate(model);
 
+        if (info.IsImage && RequestRewriter.IsStreaming(body))
+        {
+            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, "Strömmande bildsvar (stream) stöds inte. Skicka förfrågan utan 'stream'.", RequestOutcome.Rejected);
+            return;
+        }
+
         // 2b. Attachment policy (per key): files are base64 the PII guard cannot read, so sensitive keys may refuse them.
         //     Large bodies are inspected regardless, so inline images do not count as text in the token estimate.
         var attachments = audio is not null ? new AttachmentScan(AttachmentKinds.Audio, 0, 0)
+            : images is not null ? new AttachmentScan(AttachmentKinds.Image, images.ImageCount, 0)
             : key.AttachmentPolicy != AttachmentPolicy.Allowed || bodyLength >= AttachmentInspectBytes ? AttachmentScanner.Inspect(body)
             : default;
         if (AttachmentScanner.Disallowed(key.AttachmentPolicy, attachments.Kinds) is var refused and not AttachmentKinds.None)
@@ -175,7 +183,9 @@ public sealed partial class GatewayRequestHandler(
 
         // 8. Budget reservation across key, team and förvaltning.
         long maxOutput = info.HasOutputTokens ? RequestRewriter.RequestedMaxOutputTokens(body) ?? options.CurrentValue.DefaultOutputTokenEstimate : 0;
-        var expectedUsage = audio is null ? new TokenUsage(estimatedInputTokens, 0, maxOutput) : audioEstimate;
+        var expectedUsage = audio is not null ? audioEstimate
+            : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
+            : new TokenUsage(estimatedInputTokens, 0, maxOutput);
         var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
         if (await TryReserveAsync(http, state, snapshot, BudgetService.ApplicableBudgets(snapshot, key), estimate, ct) is null)
         {
@@ -185,7 +195,7 @@ public sealed partial class GatewayRequestHandler(
         // 9. Attempt candidates in order. From here on the reservation must be reconciled whatever happens.
         try
         {
-            await AttemptAsync(http, state, snapshot, body, audio, selected, ct);
+            await AttemptAsync(http, state, snapshot, body, audio, images, selected, ct);
         }
         catch (Exception ex) when (!state.Accounted)
         {
@@ -198,7 +208,7 @@ public sealed partial class GatewayRequestHandler(
 
     /// <summary>Calls the candidates in order, falling back while nothing has been sent to the client, and accounts the outcome.</summary>
     private async Task AttemptAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, JsonObject body, AudioUpload? audio,
-        SelectedRoute route, CancellationToken ct)
+        ImageUploads? images, SelectedRoute route, CancellationToken ct)
     {
         var candidates = route.Candidates;
         var now = time.GetUtcNow();
@@ -225,7 +235,7 @@ public sealed partial class GatewayRequestHandler(
             try
             {
                 result = await _adapters.Resolve(provider.Type)
-                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, attemptBody, state.Streamed, credential, clientWantsStreamUsage, audio), ct);
+                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, attemptBody, state.Streamed, credential, clientWantsStreamUsage, audio, images), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -333,10 +343,10 @@ public sealed partial class GatewayRequestHandler(
     }
 
     /// <summary>
-    /// The request body: a JSON object, or the form fields and file of an audio upload. A null body means the request was
-    /// refused (the answer has been written and accounted).
+    /// The request body: a JSON object, or the form fields and files of an audio or image upload. A null body means the
+    /// request was refused (the answer has been written and accounted).
     /// </summary>
-    private async Task<(JsonObject? Body, long Length, AudioUpload? Audio)> ReadBodyAsync(HttpContext http, RequestState state, GatewayEndpointInfo info, CancellationToken ct)
+    private async Task<(JsonObject? Body, long Length, AudioUpload? Audio, ImageUploads? Images)> ReadBodyAsync(HttpContext http, RequestState state, GatewayEndpointInfo info, CancellationToken ct)
     {
         if (info.IsAudio)
         {
@@ -353,7 +363,27 @@ public sealed partial class GatewayRequestHandler(
                 return default;
             }
 
-            return (form.Fields ?? new JsonObject(), http.Request.ContentLength ?? form.Audio!.Data.Length, form.Audio);
+            return (form.Fields ?? new JsonObject(), http.Request.ContentLength ?? form.Audio!.Data.Length, form.Audio, null);
+        }
+
+        if (info.IsImageUpload)
+        {
+            var maxImageBytes = options.CurrentValue.MaxImageRequestBodyBytes;
+            if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeLimit)
+            {
+                sizeLimit.MaxRequestBodySize = maxImageBytes;
+            }
+
+            var form = await ImageFormReader.ReadAsync(http.Request, maxImageBytes, ct);
+            if (form.Failed)
+            {
+                await RejectAsync(http, state, form.Status, form.Code!, form.Message!, RequestOutcome.Rejected);
+                return default;
+            }
+
+            // The size that counts as text is the form fields', not the pictures' (they are counted per picture).
+            var fields = form.Fields ?? new JsonObject();
+            return (fields, fields.ToJsonString().Length, null, form.Images);
         }
 
         if (!http.Request.HasJsonContentType())
@@ -377,7 +407,7 @@ public sealed partial class GatewayRequestHandler(
             return default;
         }
 
-        return (body, length, null);
+        return (body, length, null, null);
     }
 
     /// <summary>Reads the body into one pooled buffer and parses it. A non-zero status (413, 400) means it is refused.</summary>

@@ -10,7 +10,8 @@ namespace Ume.LlmGateway.Infrastructure.Providers;
 
 /// <summary>
 /// One upstream call attempt. <see cref="Body"/> is already rewritten for the target deployment. For the audio
-/// endpoints it holds the form's text fields and <see cref="Audio"/> the uploaded file.
+/// endpoints it holds the form's text fields and <see cref="Audio"/> the uploaded file; for image edits the text fields
+/// and <see cref="Images"/> the uploaded pictures.
 /// </summary>
 public sealed record ProviderCall(
     ProviderAccount Provider,
@@ -20,7 +21,8 @@ public sealed record ProviderCall(
     bool Stream,
     string? Credential,
     bool ClientRequestedStreamUsage,
-    AudioUpload? Audio = null);
+    AudioUpload? Audio = null,
+    ImageUploads? Images = null);
 
 /// <summary>
 /// An audio file uploaded to a speech-to-text endpoint, held in memory only (never on disk) for as long as the
@@ -42,6 +44,34 @@ public sealed class AudioUpload(byte[] pooled, int length, string fileName, stri
         if (Interlocked.Exchange(ref _pooled, null) is { } buffer)
         {
             ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+}
+
+/// <summary>One picture of an image edit request: the form field it came in (<c>image</c>, <c>image[]</c> or <c>mask</c>) and its bytes.</summary>
+public sealed record ImageFile(string Field, ReadOnlyMemory<byte> Data, string FileName, string? ContentType);
+
+/// <summary>
+/// The pictures uploaded to <c>/v1/images/edits</c>, held in memory only (never on disk) for as long as the request
+/// runs, so fallback attempts can send them again. <see cref="Dispose"/> returns the pooled buffers.
+/// </summary>
+public sealed class ImageUploads(IReadOnlyList<ImageFile> files, IReadOnlyList<byte[]> pooled) : IDisposable
+{
+    private IReadOnlyList<byte[]>? _pooled = pooled;
+
+    public IReadOnlyList<ImageFile> Files { get; } = files;
+
+    /// <summary>The pictures to edit; the optional mask is not one of them.</summary>
+    public int ImageCount => Files.Count(f => f.Field != "mask");
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _pooled, null) is { } buffers)
+        {
+            foreach (var buffer in buffers)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
     }
 }

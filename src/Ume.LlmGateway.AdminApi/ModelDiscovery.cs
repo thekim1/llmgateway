@@ -11,7 +11,7 @@ namespace Ume.LlmGateway.AdminApi;
 
 public sealed record DiscoveredPrice(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd,
-    decimal AudioInputPerMillionUsd = 0, decimal AudioOutputPerMillionUsd = 0);
+    decimal AudioInputPerMillionUsd = 0, decimal AudioOutputPerMillionUsd = 0, decimal PerImageUsd = 0);
 
 public sealed record DiscoveredModel(
     string Id,
@@ -34,9 +34,13 @@ public static partial class ModelDiscovery
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
 
-    /// <summary>Models the gateway has no endpoint for (speech synthesis, images, video, moderation, chat with audio).</summary>
-    [GeneratedRegex(@"(^|[-/])(tts|dall-e|gpt-image|sora)|moderation|audio", RegexOptions.IgnoreCase)]
+    /// <summary>Models the gateway has no endpoint for (speech synthesis, video, moderation, chat with audio).</summary>
+    [GeneratedRegex(@"(^|[-/])(tts|sora)|moderation|audio", RegexOptions.IgnoreCase)]
     private static partial Regex UnsupportedModel();
+
+    /// <summary>Image generation and editing, served by /v1/images/generations and /v1/images/edits.</summary>
+    [GeneratedRegex(@"(^|[-/])(dall-e|gpt-image|chatgpt-image|imagen|flux|stable-diffusion|sdxl)", RegexOptions.IgnoreCase)]
+    private static partial Regex ImageModel();
 
     /// <summary>Speech to text, served by /v1/audio/transcriptions, /v1/audio/translations and live on /v1/realtime.</summary>
     [GeneratedRegex(@"whisper|transcribe", RegexOptions.IgnoreCase)]
@@ -343,7 +347,8 @@ public static partial class ModelDiscovery
         }
 
         var ollamaCaps = OllamaCapabilities(item);
-        var kind = TranscriptionModel().IsMatch(id) ? ModelKind.Transcription
+        var kind = ImageModel().IsMatch(id) ? ModelKind.Image
+            : TranscriptionModel().IsMatch(id) ? ModelKind.Transcription
             : SpeechTranslationModel().IsMatch(id) ? ModelKind.SpeechTranslation
             : RealtimeModel().IsMatch(id) ? ModelKind.Realtime
             : id.Contains("embed", StringComparison.OrdinalIgnoreCase) || ollamaCaps.Contains("embedding") ? ModelKind.Embedding

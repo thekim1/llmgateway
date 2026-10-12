@@ -433,6 +433,41 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Image_models_carry_a_per_picture_price_through_export_and_import()
+    {
+        using var client = await fixture.ClientAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        using var providerResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            name = "images-" + suffix, baseUrl = "https://images.invalid/v1", type = "OpenAICompatible", authMode = "None", residency = "Eu",
+            capabilities = new[] { "Images" }, timeoutSeconds = 60, isEnabled = true,
+        }, TestContext.Current.CancellationToken);
+        var provider = await AdminFixture.ReadAsync(providerResponse, HttpStatusCode.Created);
+        provider["capabilities"]!.AsArray().Select(c => c!.GetValue<string>()).ShouldBe(["Images"]);
+
+        using var modelResponse = await client.PostAsJsonAsync("/api/models", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(), name = "images-" + suffix + "/pic", upstreamModel = "dall-e-3", kind = "Image", parameterProfile = "Standard",
+            isEnabled = true, price = new { inputPerMillionUsd = 0, cachedInputPerMillionUsd = 0, outputPerMillionUsd = 0, perImageUsd = 0.04m },
+        }, TestContext.Current.CancellationToken);
+        var model = await AdminFixture.ReadAsync(modelResponse, HttpStatusCode.Created);
+        model["kind"]!.GetValue<string>().ShouldBe("Image");
+        model["currentPrice"]!["perImageUsd"]!.GetValue<decimal>().ShouldBe(0.04m);
+
+        // Exporting and importing again keeps the price; a changed per-picture price on the same date is refused like any other price edit.
+        using var export = await client.GetAsync("/api/ops/config/export", TestContext.Current.CancellationToken);
+        var document = await AdminFixture.ReadAsync(export);
+        var exported = document["models"]!.AsArray().Single(m => m!["configuration"]!["name"]!.GetValue<string>() == "images-" + suffix + "/pic")!;
+        exported["prices"]![0]!["perImageUsd"]!.GetValue<decimal>().ShouldBe(0.04m);
+        using var import = await client.PostAsJsonAsync("/api/ops/config/import", document, TestContext.Current.CancellationToken);
+        await AdminFixture.ReadAsync(import);
+
+        exported["prices"]![0]!["perImageUsd"] = 0.08m;
+        using var changed = await client.PostAsJsonAsync("/api/ops/config/import", document, TestContext.Current.CancellationToken);
+        changed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task Models_prices_routes_budgets_and_ops_follow_the_contract()
     {
         using var client = await fixture.ClientAsync();

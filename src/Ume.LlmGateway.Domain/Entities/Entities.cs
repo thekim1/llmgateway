@@ -265,7 +265,8 @@ public sealed class ModelDeployment
 }
 
 /// <summary>
-/// Price per one million tokens in USD, valid from <see cref="EffectiveFrom"/>. Speech-to-text models billed by
+/// Price per one million tokens in USD, valid from <see cref="EffectiveFrom"/>. Image models billed per picture use
+/// <see cref="PerImageUsd"/>. Speech-to-text models billed by
 /// duration (Whisper, gpt-realtime-translate) use <see cref="AudioPerMinuteUsd"/> instead; a model may have both.
 /// Audio tokens (gpt-realtime, gpt-4o-transcribe) cost more than text tokens: when an audio token price is set, the
 /// audio part of the tokens is billed at it and only the rest at the text price.
@@ -287,6 +288,9 @@ public sealed class ModelPrice
 
     /// <summary>Price per million audio output tokens in USD; 0 bills them as text output.</summary>
     public decimal AudioOutputPerMillionUsd { get; set; }
+
+    /// <summary>Price per generated image in USD (DALL·E, FLUX …). Token-billed image models (gpt-image-1) use the token prices instead; a model may have both.</summary>
+    public decimal PerImageUsd { get; set; }
 }
 
 /// <summary>Client-facing model alias (e.g. <c>ume/chat-standard</c>) mapping to targets with fallback.</summary>

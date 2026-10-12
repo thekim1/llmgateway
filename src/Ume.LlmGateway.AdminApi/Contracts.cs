@@ -75,11 +75,11 @@ public sealed record ProviderDto(
 
 public sealed record PriceDto(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd, decimal AudioPerMinuteUsd,
-    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom)
+    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom, decimal PerImageUsd = 0)
 {
     public static PriceDto Of(ModelPrice p) => new(
         p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd,
-        p.AudioOutputPerMillionUsd, p.EffectiveFrom);
+        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd);
 }
 
 public sealed record ModelDto(

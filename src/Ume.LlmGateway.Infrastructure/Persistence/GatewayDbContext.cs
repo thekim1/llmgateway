@@ -112,6 +112,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioOutputPerMillionUsd).HasPrecision(18, 6);
+            e.Property(x => x.PerImageUsd).HasPrecision(18, 6);
             e.HasIndex(x => new { x.ModelDeploymentId, x.EffectiveFrom }).IsUnique();
         });
 

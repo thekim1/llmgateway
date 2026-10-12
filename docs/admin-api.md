@@ -113,15 +113,15 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
-- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, effectiveFrom }`
+- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
   (`audioPerMinuteUsd` is for models billed by duration, such as Whisper and gpt-realtime-translate; `audioInputPerMillionUsd`
   and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
-  as text tokens; all three omitted on create = 0)
+  as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0)
 - `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
-  (speech to text), `Realtime` (live audio over WebSocket). `ModelKind` (models and routes): `Chat`, `Embedding`,
-  `Transcription`, `Realtime`, `SpeechTranslation`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
-  `*realtime-translate*` as `SpeechTranslation` and other `*realtime*` models as `Realtime`; speech synthesis, image and
-  chat-with-audio models are still left out.
+  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). `ModelKind` (models and
+  routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
+  `*realtime-translate*` as `SpeechTranslation`, other `*realtime*` models as `Realtime` and `gpt-image*`, `dall-e*`,
+  `flux*`, `imagen*` and `stable-diffusion*` models as `Image`; speech synthesis, video and chat-with-audio models are still left out.
 - `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
   gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
 - `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null }`
@@ -269,6 +269,14 @@ and invalidate the gateway catalogue.
   Billing: provider-reported duration (`usage.seconds` or the `duration` of `verbose_json`) × `audioPerMinuteUsd`, plus
   reported tokens × token prices (gpt-4o-transcribe); whatever is not reported is estimated from the file (exact for
   WAV and FLAC, from the bitrate for MP3, 32 kbps otherwise). Usage records carry `audioSeconds`.
+- `POST /v1/images/generations` (JSON: `model` an `Image` alias or model, `prompt`, `n`, `size`, `quality`, `response_format` …) and
+  `POST /v1/images/edits` (`multipart/form-data`: the pictures in `image` or `image[]`, at most 16, an optional `mask`, and the text
+  fields `model`, `prompt`, `n`, `size` …): OpenAI format; every field except the files is passed on unchanged and the answer comes
+  back as the provider sent it (`data[]` with `b64_json` or `url`, `usage` for token-billed models). Only providers with the `Images`
+  capability are used. Edits are limited to `Gateway:MaxImageRequestBodyBytes` (50 MB for all pictures together) and held in memory,
+  never on disk. `stream` is refused with `400 invalid_request`. The PII policy scans the text fields; the pictures count as image
+  attachments, so keys set to `None` get `attachment_not_allowed` on edits. Billing: the number of pictures in `data` ×
+  `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,

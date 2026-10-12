@@ -15,6 +15,16 @@ describe('snippets', () => {
     expect(examples.every((e) => e.code.includes('"ume/transcribe"') || e.code.includes("'ume/transcribe'"))).toBe(true)
   })
 
+  it('shows generation and editing requests for image aliases', () => {
+    const examples = snippets('https://gw.example/', 'ume/image', 'Image')
+    expect(examples.map((e) => e.label)).not.toContain('Anthropic SDK (Anthropic model required)')
+    expect(examples[0]?.code).toContain('https://gw.example/v1/images/generations')
+    expect(examples[0]?.code).toContain('https://gw.example/v1/images/edits')
+    expect(examples[0]?.code).toContain('-F image=@stuga.png')
+    expect(examples.every((e) => e.code.includes('"ume/image"') || e.code.includes("'ume/image'"))).toBe(true)
+    expect(examples[2]?.code).toContain('client.images.generate')
+  })
+
   it('adds a live transcription example over WebSocket for speech-to-text aliases', () => {
     const live = snippets('https://gw.example', 'ume/transcribe', 'Transcription').find((e) => e.label.startsWith('Live transcription'))
     expect(live?.code).toContain('wss://gw.example/v1/realtime?model=ume%2Ftranscribe')

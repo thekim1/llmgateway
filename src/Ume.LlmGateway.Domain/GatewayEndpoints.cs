@@ -26,6 +26,12 @@ public sealed record GatewayEndpointInfo(
     bool HasOutputTokens,
     params ModelKind[] ModelKinds)
 {
+    /// <summary>A multipart image upload (the files to edit, an optional mask) instead of a JSON body.</summary>
+    public bool IsImageUpload { get; init; }
+
+    /// <summary>The answer is billed per generated image (and per token for models that report tokens).</summary>
+    public bool IsImage => Serves(ModelKind.Image);
+
     private readonly int _kindMask = ModelKinds.Aggregate(0, (mask, kind) => mask | (1 << (int)kind));
 
     /// <summary>Whether a model of <paramref name="kind"/> can be used with this endpoint.</summary>
@@ -55,6 +61,12 @@ public static class GatewayEndpoints
             IsAudio: true, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Transcription),
         new(GatewayEndpoint.AudioTranslations, "audio_translations", "/v1/audio/translations", "audio/translations", ProviderCapabilities.AudioTranscriptions,
             IsAudio: true, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Transcription),
+
+        // Images answer in one piece: streaming (partial images) is not supported, the handler refuses `stream`.
+        new(GatewayEndpoint.ImageGenerations, "image_generations", "/v1/images/generations", "images/generations", ProviderCapabilities.Images,
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: true, ModelKind.Image),
+        new(GatewayEndpoint.ImageEdits, "image_edits", "/v1/images/edits", "images/edits", ProviderCapabilities.Images,
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: true, ModelKind.Image) { IsImageUpload = true },
 
         // Live transcription uses speech-to-text models on /v1/realtime.
         new(GatewayEndpoint.Realtime, "realtime", "/v1/realtime", "realtime", ProviderCapabilities.Realtime,

@@ -29,10 +29,11 @@ export const PROVIDER_CAPABILITIES = [
   'Streaming',
   'AudioTranscriptions',
   'Realtime',
+  'Images',
 ] as const
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]
 
-export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation'] as const
+export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation', 'Image'] as const
 export type ModelKind = (typeof MODEL_KINDS)[number]
 
 export const PARAMETER_PROFILES = ['Standard', 'OpenAIReasoning'] as const
@@ -322,6 +323,8 @@ export interface Price {
   /** Audio tokens of realtime and gpt-4o-transcribe models; 0 bills them as text tokens. */
   audioInputPerMillionUsd: number
   audioOutputPerMillionUsd: number
+  /** Image models billed per picture (DALL·E, FLUX). Token-billed image models (gpt-image-1) use the token prices. */
+  perImageUsd: number
   effectiveFrom: IsoDateTime
 }
 
@@ -334,6 +337,8 @@ export interface NewPrice {
   /** Optional, defaults to 0 (audio tokens billed as text tokens). */
   audioInputPerMillionUsd?: number
   audioOutputPerMillionUsd?: number
+  /** Optional, defaults to 0. */
+  perImageUsd?: number
   /** Optional, defaults to now. */
   effectiveFrom?: IsoDateTime | null
 }

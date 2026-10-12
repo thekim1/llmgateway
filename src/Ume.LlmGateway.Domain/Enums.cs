@@ -53,6 +53,9 @@ public enum ProviderCapabilities
 
     /// <summary>Live audio over WebSocket: <c>/realtime</c> and <c>/realtime/translations</c> (OpenAI Realtime protocol).</summary>
     Realtime = 64,
+
+    /// <summary><c>/images/generations</c> and <c>/images/edits</c> (text to image, image editing).</summary>
+    Images = 128,
 }
 
 public enum GatewayEndpoint
@@ -76,6 +79,12 @@ public enum GatewayEndpoint
 
     /// <summary><c>GET /v1/realtime/translations</c> (WebSocket): live speech translation (interpreting).</summary>
     RealtimeTranslations = 8,
+
+    /// <summary><c>POST /v1/images/generations</c>: an image from a text prompt (JSON body).</summary>
+    ImageGenerations = 9,
+
+    /// <summary><c>POST /v1/images/edits</c>: edits or combines uploaded images from a prompt (multipart upload).</summary>
+    ImageEdits = 10,
 }
 
 public enum ModelKind
@@ -91,6 +100,9 @@ public enum ModelKind
 
     /// <summary>Live speech translation models (gpt-realtime-translate …) on <c>/v1/realtime/translations</c>.</summary>
     SpeechTranslation = 4,
+
+    /// <summary>Image generation and editing (gpt-image-1, DALL·E, FLUX …) on <c>/v1/images/generations</c> and <c>/v1/images/edits</c>.</summary>
+    Image = 5,
 }
 
 /// <summary>

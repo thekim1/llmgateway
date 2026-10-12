@@ -55,6 +55,8 @@ const endpointOptions = [
   { value: 'anthropic_messages', label: 'Anthropic messages' },
   { value: 'audio_transcriptions', label: 'Audio transcriptions' },
   { value: 'audio_translations', label: 'Audio translations' },
+  { value: 'image_generations', label: 'Image generations' },
+  { value: 'image_edits', label: 'Image edits' },
   { value: 'realtime', label: 'Realtime (live audio)' },
   { value: 'realtime_translations', label: 'Realtime translations (interpreting)' },
 ]

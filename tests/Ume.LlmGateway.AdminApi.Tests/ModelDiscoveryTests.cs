@@ -56,16 +56,19 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
         using var list = new FakeProvider("""
             {"data":[{"id":"gpt-4.1"},{"id":"whisper-1"},{"id":"gpt-4o-mini-transcribe"},{"id":"text-embedding-3-small"},
                      {"id":"tts-1"},{"id":"gpt-4o-realtime-preview"},{"id":"gpt-4o-audio-preview"},{"id":"dall-e-3"},
-                     {"id":"gpt-realtime-translate"},{"id":"gpt-realtime-whisper"}]}
+                     {"id":"gpt-realtime-translate"},{"id":"gpt-realtime-whisper"},{"id":"gpt-image-1"},{"id":"flux-1.1-pro"},{"id":"sora-2"}]}
             """);
 
         var models = await DiscoverAsync(Provider("https://api.example/v1"), list);
 
         models.Select(m => (m.Id, m.Kind)).ShouldBe(
         [
+            ("dall-e-3", ModelKind.Image),
+            ("flux-1.1-pro", ModelKind.Image),
             ("gpt-4.1", ModelKind.Chat),
             ("gpt-4o-mini-transcribe", ModelKind.Transcription),
             ("gpt-4o-realtime-preview", ModelKind.Realtime),
+            ("gpt-image-1", ModelKind.Image),
             ("gpt-realtime-translate", ModelKind.SpeechTranslation),
             ("gpt-realtime-whisper", ModelKind.Transcription),
             ("text-embedding-3-small", ModelKind.Embedding),

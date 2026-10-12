@@ -30,6 +30,13 @@ public sealed class GatewayOptions
     public long MaxAudioRequestBodyBytes { get; set; } = 26 * 1024 * 1024;
 
     /// <summary>
+    /// Upload limit for <c>/v1/images/edits</c> (all pictures, the mask and the form fields together). gpt-image-1 accepts
+    /// 50 MB per picture. The files are held in memory while the request runs.
+    /// </summary>
+    [Range(1024, 512L * 1024 * 1024)]
+    public long MaxImageRequestBodyBytes { get; set; } = 50 * 1024 * 1024;
+
+    /// <summary>
     /// SEK per USD used to price requests only while no USD exchange rate has been entered (admin API, exchange rates).
     /// Each catalogue load that uses it logs a warning, and the readiness check reports Degraded.
     /// </summary>
