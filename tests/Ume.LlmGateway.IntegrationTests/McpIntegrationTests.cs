@@ -71,6 +71,9 @@ public sealed class McpIntegrationTests(IntegrationFixture fixture)
             await db.SaveChangesAsync(Cancellation);
         }
 
+        // The grant bypasses the admin API, so nothing tells the gateway to reload its catalog.
+        fixture.GatewayServices.GetRequiredService<GatewayCatalog>().Invalidate();
+
         using var gateway = fixture.GatewayClient(key.Secret);
         var body = new JsonObject
         {
