@@ -390,8 +390,8 @@ Step 3a (admin API and tool sync) notes and deferrals:
 
 **4. LLM path**
 - [x] `GET /v1/mcp/tools` and `POST /v1/mcp/tools/call` in all three formats.
-- [ ] `/v1/responses` hosted `mcp` tool: non-streaming loop, approval flow, `max_tool_calls`, `incomplete`.
-- [ ] Streaming events, provider pinning after the first turn, per-turn budget reservation.
+- [x] `/v1/responses` hosted `mcp` tool: non-streaming loop, approval flow, `max_tool_calls`, `incomplete` (with provider pinning after the first turn and per-turn budget reservation).
+- [ ] Streaming events (4c).
 - [ ] Multimodal tool results mapped to native provider parts (OpenAI-compatible and Anthropic).
 - [ ] `/v1/messages` MCP connector shape.
 
@@ -401,6 +401,152 @@ Step 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) notes and deferrals:
 - Content mapping: images are native in Responses (`input_image` with a `data:` URL; `function_call_output.output` takes an array of input parts) and Anthropic (`image` blocks), only for PNG, JPEG, GIF and WebP; Chat Completions tool messages take text only, so images and audio become `[image: mime, N bytes]` placeholders. `structuredContent` becomes JSON text only when there is no text block. `isError` is Anthropic `is_error`, otherwise an `Error: ` prefix.
 - `x-ume-parent-request-id`: 1–64 characters of letters, digits, `_ - . :`; not checked against the key's own requests (no Postgres on the request path).
 - Deferred: a `server` filter on the listing; the Anthropic error body shape for Anthropic-format calls (all errors use the OpenAI-style body of `/v1`); `ParentRequestId` in the admin API's usage views.
+
+### Step 4b design: hosted `mcp` tool on `/v1/responses` (non-streaming)
+
+Decided 2026-10-12 and implemented; the decisions below override the design text where they differ.
+
+Decisions:
+1. **Defer, never store results.** If any MCP call of a turn needs approval, none of that turn's MCP calls run: the ones needing approval become `mcp_approval_request`, the others `mcp_call` with `status: "calling"`, and both run on continuation (denied ones get the denial output). The same rule covers a turn that also calls a caller function, and every limit stop (calls `Not run: <reason>`), so the provider is never owed a tool result at a stop. The stored state holds arguments only.
+2. **Encryption.** The Redis state is encrypted with Data Protection, purpose `Ume.LlmGateway.McpLoopState.v1` plus the key id (a value only opens for its key).
+3. **Reasons.** `max_tool_calls`, `max_turns`, `time_limit`, `budget_exceeded`, `provider_error` are documented in `docs/mcp.md` as gateway extensions; a provider's own reason (`max_output_tokens`) is kept unchanged.
+4. **Provider failure after turn 1:** HTTP 200 `incomplete`/`provider_error` with the partial output.
+5. **Tool-level refusals** are fed back to the model; budget exhaustion is not: a refused next-turn reservation stops at once, and a tool call whose price does not fit lets the model have the turn already reserved and then stops with `budget_exceeded`.
+6. The FakeLlm script file is linked into Gateway.Tests.
+7. PII as designed, with a test that a Redact key's tool-result PII never reaches turn 2 and that *Reroute to on-prem* withholds it.
+- `include: reasoning.encrypted_content` only for `OpenAIReasoning` deployments with `store: false`.
+
+Implementation notes and deviations:
+- **`AttemptAsync` is not split.** An extra awaited async method on the normal path costs one state-machine allocation per request, so the MCP path has its own candidate loop (`SendTurnAsync`) built from the same helpers (`TryGetCredential`, `RecordFailureAsync`, `RecordSuccessAsync`, `RequestRewriter.Apply`). The normal path gains one enum comparison and a null check; benchmarks before and after are below.
+- Benchmarks (Release, Docker; `*Pipeline*`, `*Request*`, `audit`) before and after: Postgres statements and Redis commands per request unchanged (chat 0 / 1 / 9, cache miss 11 / 1 / 9); `RequestBenchmarks` allocations identical (888 B, 1 464 B, 848 B small; 70 336 B, 67 096 B, 125 936 B large); `PipelineBenchmarks` allocations within run-to-run noise (chat in memory 72.51 → 73.14 KB, Redis 88.62 → 88.68 KB; stream in memory 611.3 → 610.4 KB); 64-client streaming load 4 342 → 4 488 req/s.
+- The `mcp` tools are validated and the input translated before the PII guard; the function tools are added when turn 1 is sent, so the PII guard and token estimate see the caller's body, not tool descriptions (a description with an e-mail example would otherwise block a *Block* key).
+- Limits are checked, and the next turn's budget reserved, after a turn arrives and before its calls run; the time limit is not enforced inside a single call (the server's own timeout bounds it).
+- A function call to a name that is neither an offered MCP tool nor one of the caller's `function` tools is answered to the model with `Error: Unknown tool: '<name>'`; it counts against `max_tool_calls` and is neither shown to the client nor a usage record. Items of the provider's own hosted tools (`web_search_call`, …) pass through untouched. `max_tool_calls` counts per HTTP request; a continuation starts a fresh count.
+- A `resp_ume_` continuation is pinned to the stored deployment (409 `mcp_continuation_not_found` when it is no longer a candidate); a continuation by replaying history is routed normally. Its first turn records the original request as `ParentRequestId`.
+- State is read when the request is prepared (validation, tamper check) and taken atomically just before the loop runs, so a request refused by a later stage (rate limit, PII, budget) does not use it up; two racing copies get 409 for the loser.
+- Limitation: after `provider_error` the provider never got the last tool outputs, so that response cannot be continued with `previous_response_id`; the client has to send the history back (the `mcp_call` items carry the outputs).
+- `mcp_call.output` is text (image placeholders as in the 4a Chat mapping); the model got native image parts. Replaying such an item sends the text.
+- Fixed on the way: `ProgressRelay` could write two progress notifications out of order (check and write were not atomic); the existing progress test was flaky on `main` for this reason.
+
+Original design:
+
+**Detection and entry.** `HandleAsync` checks one condition, only for `GatewayEndpoint.Responses`, right after the body is parsed: `tools` has an entry with `type: "mcp"`, or `previous_response_id` starts with `resp_ume_` (a gateway continuation, see *Approval*). The check is a scan over `tools`, not `input`. If the condition is false, nothing changes and the request takes the current path. If it is true, the request goes to `HandleResponsesMcpAsync` (new partial `GatewayRequestHandler.ResponsesMcp.cs`). That handler reuses the stages in order: model resolution, attachments, rate limit, PII, routing, route selection, budget. It replaces only the success branch of `AttemptAsync`. To do that, `AttemptAsync` is split so that one provider call that does not write the response (`SendTurnAsync` → `ProviderJsonResult` or failure, with the existing fallback loop) can be used by both paths. The normal path keeps the same behaviour and the same allocations; I will check this with the `*Pipeline*` benchmark. `stream: true`, `background: true` or `conversation` together with an `mcp` tool gets 400 `invalid_request`. Streaming is planned for 4c. Background mode and Conversations are not supported, because a gateway-run loop would duplicate items into a provider conversation.
+
+**The `mcp` tool.** It is validated after authentication, against the snapshot:
+- `server_label` must be a server slug the key may use (`McpAccess.CheckServer`). An unknown server and one the key may not use get the same answer: 404 `mcp_server_not_found`.
+- `server_url` must be absent or exactly the registered URL. Anything else gets 400. We never connect to a URL the caller supplies.
+- `allowed_tools` is either an array of names or `{tool_names:[…]}`. It names server tool names and can only narrow the tools `VisibleToolsAsync` shows the key. `read_only: true` inside it is honoured, using `readOnlyHint`.
+- `require_approval` is `"always"`, `"never"`, `{always:{tool_names}}`, `{never:{tool_names}}`, or both objects together. A tool that none of them names needs approval, as in OpenAI's default. When the field is absent, everything needs approval.
+- `headers`, `authorization` and `connector_id` get 400: the gateway uses the server's own credential. Caller headers still reach a server only through its `ForwardHeaders`, taken from the HTTP request.
+- Two `mcp` tools with the same `server_label` get 400.
+
+**Rewriting.** Every `mcp` tool is replaced in place by the function tools it offers (`McpToolFormats.Definition(Responses, ExposedName, …)`, with `strict:false`). A caller function tool whose name equals an offered exposed name gets 400. `tool_choice: {type:"mcp", server_label, name}` becomes `{type:"function", name:<exposed>}`. An `mcp` entry inside `tool_choice.allowed_tools` is expanded the same way. `max_tool_calls` is removed from the body: OpenAI applies it only to built-in tools, and other providers may reject it. The gateway enforces it itself. The `mcp` tool is never sent upstream, whatever the provider's capabilities.
+
+**Input items from earlier responses** (a client that replays history instead of using `previous_response_id`):
+- `mcp_list_tools` is dropped.
+- `mcp_call` becomes `function_call` plus `function_call_output`. The `call_id` is the `mcp_call` `id`, the name is `McpToolNames.Exposed(server_label, name)`, and the output is the `output`, or `error` with the `Error: ` prefix.
+- `mcp_approval_request` plus `mcp_approval_response` are resolved as described under *Approval*.
+- An `mcp_*` item whose `server_label` is not one of this request's `mcp` tools gets 400.
+
+**The loop** (`McpResponsesLoop`). Turn N+1 always replays: it sends the body of turn N with `input` = the input of turn N, followed by the output items of turn N exactly as returned (reasoning items included), followed by one `function_call_output` per MCP call. Replay is chosen for every request, not per request:
+- It works with `store: false`, where there is nothing to chain to.
+- It works with providers whose Responses implementation has no `previous_response_id`.
+- It leaves the caller's own `previous_response_id`, `store` and `instructions` semantics exactly as sent. They are resent unchanged on every turn, so the provider sees the same prior context each time.
+- It costs the same input tokens as chaining. The provider bills the whole context either way, and caching helps both.
+
+When `store` is false and the pinned deployment has `ParameterProfile.OpenAIReasoning`, `include` gains `reasoning.encrypted_content`, so that replayed reasoning items stay usable. If the caller did not ask for it, it is removed from the final response.
+
+On turns ≥2:
+- `tool_choice` set to `"required"`, a named function or a forced MCP tool becomes `"auto"`. Otherwise a forced call would repeat forever.
+- `parallel_tool_calls` and every other parameter are passed through unchanged.
+
+After each turn:
+- If the provider `status` is not `completed` (for example `incomplete`/`max_output_tokens`), the loop stops and that status and reason are returned.
+- If there are no function calls, the loop is done.
+- MCP calls in that turn (exposed names offered in this request) are executed in order through the shared core (`CallToolAsync` with a third answer type, `McpLoopAnswer`, which records the result or error instead of writing HTTP). Calls that may run do run; calls that need approval wait.
+- If the turn also has a call to one of the caller's own function tools, its MCP calls are still executed, and the loop then stops. The caller's `function_call` items are returned unchanged, for the caller to answer.
+- A function call to a name that is neither offered nor the caller's gets an error output (`Error: Unknown tool`) and the loop continues.
+
+**Final response.** The base is the last turn's response object (model, `created_at` and so on). Changes:
+- `tools` and `tool_choice` are the caller's originals. `max_tool_calls` is echoed.
+- `usage` is the sum over turns, including `input_tokens_details.cached_tokens` and `output_tokens_details.reasoning_tokens`.
+- `output`, in order:
+  1. one `mcp_list_tools` item per `server_label` (`id` `mcpl_…`, `server_label`, `tools: [{name, description, input_schema, annotations}]` with server names). It is omitted when the request has a `previous_response_id` or its input already holds `mcp_list_tools` for that label (the model already saw the tools in an earlier response);
+  2. then, turn by turn, the model's items, with each MCP `function_call` replaced by `mcp_call` `{id: <provider call_id>, type, server_label, name: <server's tool name>, arguments: <exactly as the model produced them>, output: <text>, error: <text|null>}`. `output` is a string: text with image placeholders, as in the 4a Chat mapping. The model itself received native image parts. An `mcp_approval_request` stands in place of each call that is waiting.
+- `id`:
+  - When the provider holds no unanswered call, `id` is the last turn's provider id. With `store` on, that stored response contains the whole replayed history, so a later `previous_response_id` works at the provider without the gateway.
+  - When the loop stops with MCP calls the provider has not had outputs for, and `store` is not false, `id` is `resp_ume_<random>`. Those calls are the approval-pending calls, calls left unrun by a limit, and auto-run calls in a turn that also needs approval or caller calls. Redis maps the gateway id to the provider id, the pinned deployment and the outputs still owed (see below).
+  - With `store:false` the provider id is returned. Clients replay, and the items carry everything that is needed.
+- `status`/`incomplete_details`:
+  - `completed`;
+  - `incomplete` with the provider's own reason;
+  - `incomplete` with one of our reasons: `max_tool_calls`, `max_turns`, `time_limit`, `budget_exceeded`, `provider_error`. These reasons are gateway extensions to the OpenAI set.
+  - When approval is needed, `status` stays `completed`, as OpenAI does for `mcp_approval_request`.
+  - Calls that were not run because of a limit appear as `mcp_call` with `error: "Not run: <limit> reached"`. They are never silently dropped.
+
+**Approval.** A call needs approval when the request or the grant asks for it, whichever is stricter. The grant asks for approval when its `ApprovalPolicy` is `Always`, or when it is `NeverForReadOnly` and the approved definition has no `readOnlyHint: true`. The request asks per `require_approval`. When a turn has such calls:
+1. The calls that may run are executed first.
+2. Each waiting call becomes `mcp_approval_request` `{id: "mcpr_<128-bit random>", server_label, name, arguments}`.
+3. The loop stops.
+
+State in Redis:
+- `ume:mcp:approval:{keyId:N}:{id}`: server, tool, exposed name, provider `call_id`, a SHA-256 of the arguments, the arguments themselves, and the pending id.
+- `ume:mcp:pending:{keyId:N}:{resp_ume id}` (store mode only): provider response id, deployment id, and the outputs owed for the other calls of that turn (the results of auto-run calls, and "Not run" texts).
+
+The payload is encrypted with a Data Protection purpose (`Ume.Mcp.LoopState`). It has to hold the arguments: a `previous_response_id` continuation sends only `mcp_approval_response`, and the gateway cannot read stored responses at every provider. The TTL is `Gateway:Mcp:Loop:ApprovalTtlMinutes` (60). Records are read and deleted atomically, with a Lua `GET`+`DEL` through `eval`, which the ACL already allows. A record is used once, and a lookup with another key finds nothing.
+
+On continuation, for each `mcp_approval_response`:
+- the approval record is looked up. An unknown, expired or already-used id gets 400 `mcp_approval_not_found`;
+- `approve:true` executes the stored arguments;
+- `approve:false` sends a `function_call_output` "The user denied this tool call" plus the `reason`, if one was given.
+
+In replay mode the resent `mcp_approval_request` item must match the stored name and argument hash, otherwise 400. The stored arguments are what run, so the arguments that run are exactly what the model produced.
+
+In store mode the continuation's `previous_response_id: resp_ume_…` is replaced by the provider id. The owed outputs from the pending record are prepended, the request is pinned to the stored deployment (routing and fallback are skipped), and the loop goes on. The continuation is a new HTTP request, so it is accounted with its own `ParentRequestId` chain.
+
+**Limits** (gateway options under `Gateway:Mcp:Loop`):
+- `max_tool_calls`: default `DefaultMaxToolCalls` (10). A request may set it lower, or higher up to `MaxToolCalls` (50); above that it is capped. It counts the MCP calls the gateway executes.
+- `MaxTurns`: 20, a safety net.
+- `TimeoutSeconds`: 300, wall clock from turn 1. Checked before each turn and each tool call, and passed as a deadline to the tool core.
+
+A per-key cap can be added later as a key field. Every limit ends the loop through the `incomplete` path described above.
+
+**Governance and accounting.**
+- Turn 1 is the request as today: request id `x-request-id`, RPM and TPM, the PII guard on the caller's body, routing rules, fallback, budget reservation. Its turn records no `ParentRequestId`.
+- Turns ≥2 each get their own `RequestState` (a new `req_…` id, `ParentRequestId` = the turn-1 id, `Endpoint = Responses`, the same requested model). Each has a budget reservation for its own estimate (body length plus max output). If budget refuses, the loop stops with `incomplete`/`budget_exceeded`. Turns ≥2 do not count against RPM; their tokens are recorded against TPM when they are accounted (`RecordTokensAsync`, as today), with no pre-check.
+- The body is not PII-scanned again on turns ≥2. Their only new content is model output (not scanned on any endpoint) and tool results, which the MCP core has already put through the key's policy. One extra rule: with `RerouteToOnPrem`, a tool result in which PII was found is withheld from a pinned provider that is not `OnPrem`. The model gets `Error: result withheld (personal data, provider not on-prem)`.
+- Turns ≥2 are pinned to turn 1's deployment, with no routing and no fallback. A failure there ends the loop with `incomplete`/`provider_error` and HTTP 200, keeping what was produced, because executed tools may have had side effects that the client must see. The failed turn is accounted as `ProviderError`.
+- Each tool call goes through the shared MCP core with `Endpoint = McpToolCall` (the "MCP on the LLM path" bucket, already counted by `traffic=mcp`), `ParentRequestId` = turn-1 id, its own `req_…` id, `McpCallsPerMinute`, price and budget. Tool-level refusals and failures do not stop the loop: unknown, rate limited, PII blocked, invalid arguments, upstream failure, too large and budget. They become an `Error: …` output for the model and the `mcp_call.error` for the client, like OpenAI's hosted MCP. The core's HTTP status stays in the usage record.
+- Client disconnect: the request token cancels the turn or tool call in flight, which is accounted 499 by its own state. No further turn starts. Every turn and every tool call has its own `RequestState`, so each is accounted exactly once.
+
+**Response headers.**
+- `x-ume-provider`, `-model`, `-residency`, `-fallbacks` and `-rule`, and the rate-limit headers: from turn 1, the pinned deployment.
+- `x-ume-cost-sek`: all turns plus tool prices.
+- `x-ume-budget-remaining-sek`: after the last reservation.
+- `x-ume-pii`: the strongest action of turn 1 and the tool calls.
+- New `x-ume-turns`: the number of provider turns.
+
+**Tests.** FakeLlm `/v1/responses` gets a deterministic script, in its own file `FakeResponsesScript.cs`. The file is linked into `Gateway.Tests` (`<Compile Include … Link>`) and served there as a WireMock callback, so the loop runs against the same script in unit and integration tests. The script:
+- If the newest user text has `[[call:NAME {json}]]` (several mean parallel calls) and the input has no `function_call_output` for them yet, it returns those `function_call`s.
+- Once outputs are present, it answers with a message quoting them.
+- `[[loop:NAME]]` calls `NAME` on every turn, for the limit tests.
+- `[[fail-turn:N]]` returns 500 on turn N, to test pinning and `provider_error`.
+- Reasoning items are emitted for `fake-reasoning`, to check that replay keeps them.
+
+Gateway.Tests (McpUpstreamServer plus the script) cover:
+- detection and a no-mcp parity check;
+- validation errors;
+- tool rewriting and conflicts;
+- the loop with mixed caller and MCP calls;
+- output order and `mcp_call` shape, and summed usage;
+- the approval round trip in store mode (`resp_ume_` plus Redis) and in replay mode, including denial, tampered arguments, reuse, another key and expiry;
+- each limit giving `incomplete`;
+- turn-2 failure with pinning;
+- usage records: turns with a parent, tools as `McpToolCall`, budget per turn;
+- disconnect;
+- `stream:true` giving 400.
+
+IntegrationTests get one end-to-end run with FakeLlm and the demo MCP server.
 
 **5. Docs and release**
 - [ ] `docs/mcp.md`: concepts, client setup, security model, limits.

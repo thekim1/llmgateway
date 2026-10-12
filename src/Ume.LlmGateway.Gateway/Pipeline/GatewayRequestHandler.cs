@@ -33,6 +33,7 @@ public sealed partial class GatewayRequestHandler(
     IRealtimeSessionRegistry sessions,
     IMcpUpstream mcp,
     IMcpListenRegistry listens,
+    McpLoopStates mcpStates,
     IInvalidationBus invalidation,
     IHostApplicationLifetime lifetime,
     CredentialProtector credentials,
@@ -110,6 +111,16 @@ public sealed partial class GatewayRequestHandler(
         }
 
         var requested = resolution.Model;
+        ResponsesMcp? mcp = null;
+        if (endpoint == GatewayEndpoint.Responses && ResponsesMcpTool.IsMcpRequest(body))
+        {
+            mcp = await PrepareResponsesMcpAsync(http, state, snapshot, key, body, ct);
+            if (mcp is null)
+            {
+                return;
+            }
+        }
+
         // Issued now so it is pipelined with the rate-limit call below instead of costing its own round trip.
         var circuitPrefetch = requested is null ? null : router.PrefetchCircuits(requested, ct);
 
@@ -189,7 +200,14 @@ public sealed partial class GatewayRequestHandler(
         // 9. Attempt candidates in order. From here on the reservation must be reconciled whatever happens.
         try
         {
-            await AttemptAsync(http, state, snapshot, body, audio, selected, ct);
+            if (mcp is null)
+            {
+                await AttemptAsync(http, state, snapshot, body, audio, selected, ct);
+            }
+            else
+            {
+                await RunResponsesMcpAsync(http, state, snapshot, body, selected, mcp, ct);
+            }
         }
         catch (Exception ex) when (!state.Accounted)
         {

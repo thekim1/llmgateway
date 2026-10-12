@@ -81,3 +81,46 @@ internal sealed class McpToolCallAnswer(HttpContext http, LlmToolCall call, stri
         await http.Response.WriteAsync(McpToolFormats.Result(call, result).ToJsonString(), ct);
     }
 }
+
+/// <summary>
+/// The answer of a tool call the gateway runs inside a <c>/v1/responses</c> tool loop: nothing is written to the client,
+/// the result or the refusal is kept for the loop. Headers the core sets are collected (PII action, cost).
+/// </summary>
+internal sealed class McpLoopAnswer(HttpContext http) : IMcpCallAnswer
+{
+    public HttpContext Http => http;
+
+    public bool Answered { get; private set; }
+    public JsonNode? Result { get; private set; }
+    public string? Error { get; private set; }
+    public string? ErrorCode { get; private set; }
+    public string? Pii { get; private set; }
+    public decimal CostSek { get; private set; }
+
+    public void SetHeader(string name, string value)
+    {
+        if (name == GatewayHeaders.Pii)
+        {
+            Pii = value;
+        }
+        else if (name == GatewayHeaders.CostSek)
+        {
+            CostSek = decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    public Task<int> ErrorAsync(int rpcCode, string message, int status, string errorCode, JsonObject? data, CancellationToken ct)
+    {
+        Answered = true;
+        Error = message;
+        ErrorCode = errorCode;
+        return Task.FromResult(status);
+    }
+
+    public Task ResultAsync(JsonNode? result, CancellationToken ct)
+    {
+        Answered = true;
+        Result = result;
+        return Task.CompletedTask;
+    }
+}

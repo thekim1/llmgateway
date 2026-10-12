@@ -481,30 +481,35 @@ public sealed partial class GatewayRequestHandler
 
         var callerToken = token.DeepClone();
         var last = double.NegativeInfinity;
-        var gate = new Lock();
+        var gate = new SemaphoreSlim(1, 1);
         return async notification =>
         {
-            // The upstream client may hand over notifications out of order; progress must only ever increase.
+            // The upstream client may hand over notifications concurrently and out of order; progress must only ever
+            // increase, so the check and the write happen under one gate.
             if (notification["progress"] is not JsonValue p || !p.TryGetValue<double>(out var value))
             {
                 return;
             }
 
-            lock (gate)
-            {
-                if (value <= last)
-                {
-                    return;
-                }
-
-                last = value;
-            }
-
-            notification["progressToken"] = callerToken.DeepClone();
-            notification.Remove("_meta");
             try
             {
-                await response.NotifyAsync("notifications/progress", notification, ct);
+                await gate.WaitAsync(ct);
+                try
+                {
+                    if (value <= last)
+                    {
+                        return;
+                    }
+
+                    last = value;
+                    notification["progressToken"] = callerToken.DeepClone();
+                    notification.Remove("_meta");
+                    await response.NotifyAsync("notifications/progress", notification, ct);
+                }
+                finally
+                {
+                    gate.Release();
+                }
             }
             catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException)
             {

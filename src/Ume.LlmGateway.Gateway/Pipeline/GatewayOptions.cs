@@ -67,6 +67,33 @@ public sealed class McpOptions
 
     /// <summary>How long a stream's slot is held without renewal, so slots of a crashed instance free themselves.</summary>
     public TimeSpan ListenSlotLifetime => TimeSpan.FromSeconds(ListenCheckSeconds * 3 + 30);
+
+    /// <summary>The tool loop the gateway runs for hosted <c>mcp</c> tools on <c>/v1/responses</c>.</summary>
+    [ValidateObjectMembers]
+    public McpLoopOptions Loop { get; set; } = new();
+}
+
+public sealed class McpLoopOptions
+{
+    /// <summary>MCP calls one request may run when it does not set <c>max_tool_calls</c>.</summary>
+    [Range(1, 1000)]
+    public int DefaultMaxToolCalls { get; set; } = 10;
+
+    /// <summary>The most MCP calls one request may run, whatever its <c>max_tool_calls</c> says.</summary>
+    [Range(1, 1000)]
+    public int MaxToolCalls { get; set; } = 50;
+
+    /// <summary>Provider turns per request.</summary>
+    [Range(1, 1000)]
+    public int MaxTurns { get; set; } = 20;
+
+    /// <summary>Wall-clock time per request, checked before each turn and each set of tool calls.</summary>
+    [Range(1, 3600)]
+    public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>How long an approval request (and a stopped loop's state) can be answered.</summary>
+    [Range(1, 1440)]
+    public int ApprovalTtlMinutes { get; set; } = 60;
 }
 
 public sealed class RealtimeOptions

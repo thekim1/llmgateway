@@ -11,7 +11,7 @@ Everything in the original POC scope and the routing rules feature is implemente
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
-| MCP gateway (ADR 016): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example | Steps 1–3 and 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) done (plan: `261012_llmgateway_mcp.md`; the gateway-run tool loop, rest of step 4, not started), see [docs/mcp.md](docs/mcp.md). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
+| MCP gateway (ADR 016): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example | Steps 1–3, 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) and 4b (hosted `mcp` tool on `/v1/responses`, non-streaming) done (plan: `261012_llmgateway_mcp.md`; streaming (4c), native multimodal mapping and `/v1/messages` not started), see [docs/mcp.md](docs/mcp.md). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |

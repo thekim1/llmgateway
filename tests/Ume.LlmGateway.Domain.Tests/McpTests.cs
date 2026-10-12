@@ -616,3 +616,50 @@ public class McpToolFormatsTests
             .ShouldBe("[image: image/svg+xml, 5 bytes]");
     }
 }
+
+public class ResponsesMcpToolTests
+{
+    private static ResponsesMcpTool? Parse(string json, out string? error) => ResponsesMcpTool.Parse(JsonNode.Parse(json)!.AsObject(), out error);
+
+    [Fact]
+    public void Only_requests_with_an_mcp_tool_or_a_gateway_response_id_are_mcp_requests()
+    {
+        ResponsesMcpTool.IsMcpRequest(JsonNode.Parse("""{"tools":[{"type":"function","name":"f"},{"type":"mcp","server_label":"demo"}]}""")!.AsObject()).ShouldBeTrue();
+        ResponsesMcpTool.IsMcpRequest(JsonNode.Parse("""{"previous_response_id":"resp_ume_abc"}""")!.AsObject()).ShouldBeTrue();
+        ResponsesMcpTool.IsMcpRequest(JsonNode.Parse("""{"tools":[{"type":"function","name":"f"}],"previous_response_id":"resp_abc"}""")!.AsObject()).ShouldBeFalse();
+        ResponsesMcpTool.IsMcpRequest(JsonNode.Parse("""{"input":"hej"}""")!.AsObject()).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Approval_is_needed_unless_the_request_says_never_for_the_tool()
+    {
+        Parse("""{"type":"mcp","server_label":"demo"}""", out _)!.RequiresApproval("echo").ShouldBeTrue();
+        Parse("""{"type":"mcp","server_label":"demo","require_approval":"never"}""", out _)!.RequiresApproval("echo").ShouldBeFalse();
+        var mixed = Parse("""{"type":"mcp","server_label":"demo","require_approval":{"never":{"tool_names":["echo"]},"always":{"tool_names":["delete"]}}}""", out _)!;
+        mixed.RequiresApproval("echo").ShouldBeFalse();
+        mixed.RequiresApproval("delete").ShouldBeTrue();
+        mixed.RequiresApproval("other").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Allowed_tools_take_a_list_or_a_filter()
+    {
+        Parse("""{"type":"mcp","server_label":"demo","allowed_tools":["echo"]}""", out _)!.AllowedTools!.ShouldBe(["echo"]);
+        var filter = Parse("""{"type":"mcp","server_label":"demo","allowed_tools":{"read_only":true}}""", out _)!;
+        filter.AllowedTools.ShouldBeNull();
+        filter.ReadOnlyOnly.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("""{"type":"mcp"}""")]
+    [InlineData("""{"type":"mcp","server_label":"demo","headers":{"Authorization":"x"}}""")]
+    [InlineData("""{"type":"mcp","server_label":"demo","authorization":"x"}""")]
+    [InlineData("""{"type":"mcp","server_label":"demo","allowed_tools":[1]}""")]
+    [InlineData("""{"type":"mcp","server_label":"demo","require_approval":"sometimes"}""")]
+    [InlineData("""{"type":"mcp","server_label":"demo","require_approval":{"maybe":{}}}""")]
+    public void Unusable_mcp_tools_are_refused_with_a_message(string json)
+    {
+        Parse(json, out var error).ShouldBeNull();
+        error.ShouldNotBeNullOrWhiteSpace();
+    }
+}

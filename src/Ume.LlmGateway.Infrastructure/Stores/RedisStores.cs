@@ -182,6 +182,34 @@ public sealed class RedisMcpSyncLock(IConnectionMultiplexer redis) : IMcpSyncLoc
         redis.GetDatabase().ScriptEvaluateAsync(ReleaseScript, [RedisKeys.McpSyncLock], [token]);
 }
 
+public sealed class RedisMcpLoopStore(IConnectionMultiplexer redis) : IMcpLoopStore
+{
+    private const string TakeScript = """
+        local value = redis.call('GET', KEYS[1])
+        if value then redis.call('DEL', KEYS[1]) end
+        return value
+        """;
+
+    public Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        var database = redis.GetDatabase();
+        return Task.WhenAll(values.Select(v => database.StringSetAsync(Key(keyId, v.Kind, v.Id), v.Value, timeToLive)));
+    }
+
+    public async Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
+        (byte[]?)await redis.GetDatabase().StringGetAsync(Key(keyId, kind, id));
+
+    public async Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken)
+    {
+        var value = await redis.GetDatabase().ScriptEvaluateAsync(TakeScript, [Key(keyId, kind, id)]);
+        return value.IsNull ? null : (byte[]?)value;
+    }
+
+    private static RedisKey Key(Guid keyId, McpLoopRecord kind, string id) =>
+        kind == McpLoopRecord.Pending ? RedisKeys.McpPending(keyId, id) : RedisKeys.McpApproval(keyId, id);
+}
+
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
     // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.

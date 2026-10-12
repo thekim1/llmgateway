@@ -43,6 +43,7 @@ builder.Services.AddSingleton<UsageWriter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UsageWriter>());
 builder.Services.AddSingleton<AuthFailureRecorder>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
+builder.Services.AddSingleton<McpLoopStates>();
 builder.Services.AddSingleton<GatewayRequestHandler>();
 // One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
 builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();

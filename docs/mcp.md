@@ -7,7 +7,8 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 > **Status.** Tools, resources and prompts work end to end (listing, calling and reading, authorisation, PII guard, rate
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
 > (`subscriptions/listen`). Clients of the LLM APIs can list the tools as tool definitions and run the calls a model makes
-> (see *Using MCP tools with the LLM APIs*); the gateway does not yet run a tool loop itself.
+> (see *Using MCP tools with the LLM APIs*), and `/v1/responses` runs a hosted `mcp` tool itself, with approval (see *Hosted
+> MCP tools on `/v1/responses`*; not yet streamed, and not yet on `/v1/messages`).
 > `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
 > and grants are managed in the admin UI (**Routing > MCP servers**, and **MCP servers** on a key) or the admin API (see
 > *Administration*). The local dev seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all
@@ -21,6 +22,7 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 | `POST /mcp/{slug}` | One server, with the server's own tool and prompt names, resource URIs and list cursors. Recommended when a client only needs one server. |
 | `GET /v1/mcp/tools` | The key's tools as tool definitions for Chat Completions, Responses or Anthropic Messages (see *Using MCP tools with the LLM APIs*). |
 | `POST /v1/mcp/tools/call` | Runs one tool call a model made and answers in the same format. |
+| `POST /v1/responses` with `{"type":"mcp"}` tools | The gateway runs the tool loop itself (see *Hosted MCP tools on `/v1/responses`*). |
 
 The two `/mcp` endpoints speak Streamable HTTP and are **stateless**: the gateway issues no `Mcp-Session-Id`, keeps no session state, and any
 gateway instance answers any request. `GET` and `DELETE` answer 405; change notifications come on `subscriptions/listen`.
@@ -276,7 +278,8 @@ across instances by `Gateway:Mcp:MaxListenStreamsPerKey` (10; Redis `ume:mcp:lis
 ## Accounting and monitoring
 
 Every `tools/call`, `resources/read` and `prompts/get` that passes authentication is one usage record, whatever its outcome:
-`Endpoint = Mcp` (`McpToolCall` for `POST /v1/mcp/tools/call`, which also records `ParentRequestId`), `McpServerId`, `McpMethod`, `McpTool` (the server's name of the tool or prompt; empty for a read, whose
+`Endpoint = Mcp` (`McpToolCall` for `POST /v1/mcp/tools/call` and for calls the gateway runs in a `/v1/responses` tool loop,
+which also record `ParentRequestId`), `McpServerId`, `McpMethod`, `McpTool` (the server's name of the tool or prompt; empty for a read, whose
 URI is not stored), `RequestedModel = mcp:{slug}/{name}` (`mcp:{slug}` for a read; so reports grouped by model show MCP
 calls apart from models; for a name that matched nothing, `mcp:` and the name as sent), cost = the tool's price on success
 (nothing on failure), latency, status (200, 4xx for refusals, 502/504 for server failures, 499 when
@@ -423,6 +426,137 @@ print(reply.content[-1].text)
 ```
 
 A real client should cap the number of rounds and handle error answers (for example by telling the model the tool failed).
+
+## Hosted MCP tools on `/v1/responses`
+
+A `/v1/responses` request can name an MCP server as a hosted tool, in OpenAI's shape. The gateway runs the tool loop itself:
+it offers the server's tools to the model as function tools, runs the calls the model makes, sends the conversation again
+and repeats until the model answers, a call needs approval, the model calls one of the caller's own functions, or a limit
+is reached. It works with any model the key may use on `/v1/responses`. The `mcp` tool is never sent to the provider, and
+the gateway never connects to an address the caller sends.
+
+```json
+{
+  "model": "ume/chat-standard",
+  "input": "Är ärende KS-2026-1 avslutat?",
+  "tools": [{ "type": "mcp", "server_label": "diarium", "allowed_tools": ["search_cases"],
+              "require_approval": { "never": { "tool_names": ["search_cases"] } } }],
+  "max_tool_calls": 8
+}
+```
+
+| Member | Meaning |
+|---|---|
+| `server_label` | Required: the slug of a server the key may use. Unknown and not allowed get the same 404 `mcp_server_not_found`. |
+| `server_url` | Optional; must be exactly the registered URL (400 otherwise). |
+| `allowed_tools` | Narrows the tools the key may use: an array of the server's tool names, or `{ "tool_names": [...], "read_only": true }` (`read_only`: only tools annotated `readOnlyHint: true`). |
+| `require_approval` | `"always"`, `"never"`, or `{ "always": { "tool_names": [...] }, "never": { "tool_names": [...] } }`. A tool that is not named, or a missing `require_approval`, needs approval (as at OpenAI). |
+| `headers`, `authorization`, `connector_id` | Refused (400): the gateway uses the server's own credential; caller headers reach a server only through its `ForwardHeaders`. |
+
+`stream: true`, `background: true` and `conversation` cannot be combined with an `mcp` tool yet (400). A function tool of the
+caller with the same name as an offered tool (`{slug}__{tool}`) is refused (400). `max_tool_calls` counts the calls run by one HTTP request: a continuation (see *Continuing*) starts a fresh count. A
+`function_call` to a name that is neither an offered MCP tool nor one of the caller's own `function` tools is answered to the
+model with `Error: Unknown tool: '<name>'` (it counts against `max_tool_calls`, is not shown to the client and is no usage
+record). Hosted tools the provider runs itself (for example `web_search`) are sent on unchanged, and their items
+(`web_search_call`, …) pass through untouched; they never appear as `function_call`. `tool_choice: { "type": "mcp",
+"server_label", "name" }` forces that tool on the first turn; from the second turn on a forced or `"required"` `tool_choice`
+becomes `"auto"`, so the model can finish. `max_tool_calls` is enforced by the gateway and not sent on.
+
+**The loop.** Each turn sends the whole conversation again: the input, the model's items exactly as returned (reasoning
+included) and a `function_call_output` per call. With `store: false` and a reasoning model (`ParameterProfile`
+`OpenAIReasoning`) the gateway adds `include: ["reasoning.encrypted_content"]`, so that reasoning can be replayed, and
+leaves it out of the answer unless the caller asked for it. The caller's `previous_response_id`, `store` and `instructions`
+are sent unchanged on every turn. Calls run one after the other through the same steps as `tools/call` on `/mcp`
+(authorisation, schema check, `McpCallsPerMinute`, PII guard on arguments and result, price and budget, circuit breaker), and
+the model gets native image parts. A call that is refused or fails (unknown, rate limited, PII blocked, invalid arguments,
+server failure) is reported to the model as `Error: …` and to the client as the `error` of its `mcp_call`; the loop goes on.
+
+**Turns whose calls cannot all run now run none of them**, so a stopped loop never leaves tool results the provider has not
+seen, and tool results are never stored:
+
+- a call needs approval (see below);
+- the model also calls one of the caller's own `function` tools: the caller's `function_call` is
+  returned unchanged for the caller to answer, and the MCP calls of that turn are returned as `mcp_call` with `status:
+  "calling"`; they run when the caller continues;
+- a limit is reached: the calls are returned as `mcp_call` with `status: "incomplete"` and `error: "Not run: <reason>."`.
+
+**The answer** is the last turn's response with:
+
+- `output`: one `mcp_list_tools` per `server_label` first (left out when the request has a `previous_response_id`, or its
+  input already has the list for that label), then every turn's items, the MCP calls as `mcp_call` (`id` = the model's
+  `call_id`, `name` = the server's tool name, `arguments` exactly as the model produced them, `output` as text with image
+  placeholders, `error`, `status`, and `approval_request_id` for an approved call) or `mcp_approval_request`;
+- `usage` summed over the turns; `tools` and `tool_choice` as the caller sent them; `max_tool_calls` as applied;
+- `id`: the last turn's provider id, so a later `previous_response_id` works at the provider. When the loop stopped with
+  calls still to answer and `store` is not false, a gateway id `resp_ume_…` instead (see *Continuing*);
+- `status` and `incomplete_details`: the provider's own when it did not complete (its `max_output_tokens` stays as it is),
+  otherwise `incomplete` with one of these **gateway extensions** to OpenAI's reasons:
+
+| `incomplete_details.reason` | When |
+|---|---|
+| `max_tool_calls` | The next turn's calls would go over `max_tool_calls` (default `Gateway:Mcp:Loop:DefaultMaxToolCalls`, 10; at most `MaxToolCalls`, 50). |
+| `max_turns` | `Gateway:Mcp:Loop:MaxTurns` (20) provider turns were sent. |
+| `time_limit` | `Gateway:Mcp:Loop:TimeoutSeconds` (300) passed; checked before each turn's calls. |
+| `budget_exceeded` | The next turn's budget reservation was refused, or a tool call's price did not fit (the model then gets one more turn, already reserved, to report it). |
+| `provider_error` | A turn after the first failed: the answer has everything done so far (tools may have changed things), with HTTP 200. |
+
+A request refused before the first turn, or a first turn that fails, is answered as any `/v1/responses` request (4xx/5xx).
+
+**Approval.** A call needs approval when the request or the key's grant asks for it, whichever is stricter: the grant's
+approval policy `Always`, or `NeverForReadOnly` for a tool without `readOnlyHint: true`. Such a turn stops with an
+`mcp_approval_request` (`id` `mcpr_…`, `server_label`, `name`, `arguments`) per call that needs it, and the turn's other MCP
+calls as `mcp_call` with `status: "calling"`. The gateway keeps the stopped calls, with their arguments, encrypted with Data
+Protection in Redis (`ume:mcp:approval:{key}:{id}`, and `ume:mcp:pending:{key}:{id}` for a `resp_ume_` response) for
+`Gateway:Mcp:Loop:ApprovalTtlMinutes` (60): the state is bound to the key, used once, and holds no tool result.
+
+**Continuing.** Either way, the answered calls run first (approved ones with exactly the arguments the model produced, denied
+ones answered "The user denied this tool call." with the `reason`), then the loop goes on:
+
+- with `previous_response_id: "resp_ume_…"` and `mcp_approval_response` items (and the caller's own `function_call_output`
+  items) as input; an approval request left unanswered counts as denied. The continuation goes to the same model
+  deployment; when the key may no longer use it, 409 `mcp_continuation_not_found`;
+- by sending the history back (needed with `store: false`), including the `mcp_approval_request` items unchanged and an
+  `mcp_approval_response` for each (a request sent back without an answer is left out, as if the model had not made the
+  call). An `mcp_call` with `status: "calling"` is run; other `mcp_call` items become the call and
+  its output for the model; `mcp_list_tools` items are left out.
+
+| HTTP | `code` | When |
+|---|---|---|
+| 404 | `mcp_continuation_not_found` | The `resp_ume_` id is unknown, expired, of another key, or was continued already. |
+| 404 | `mcp_approval_not_found` | An approval request is unknown, expired, of another key, or was answered already (also 409 when two copies of a request race). |
+| 400 | `mcp_approval_mismatch` | A resent `mcp_approval_request` differs from the one the gateway issued (tool or arguments changed). |
+
+An example with approval (Python, OpenAI SDK, `store` on):
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="https://gateway.example.se/v1", api_key="ume-sk-…")
+tools = [{"type": "mcp", "server_label": "diarium", "require_approval": {"never": {"tool_names": ["search_cases"]}}}]
+response = client.responses.create(model="ume/chat-standard", input="Stäng ärende KS-2026-1.", tools=tools)
+while True:
+    requests = [item for item in response.output if item.type == "mcp_approval_request"]
+    if not requests:
+        break
+    answers = [{"type": "mcp_approval_response", "approval_request_id": r.id,
+                "approve": input(f"Run {r.name}({r.arguments})? [y/n] ") == "y"} for r in requests]
+    response = client.responses.create(model="ume/chat-standard", previous_response_id=response.id, input=answers, tools=tools)
+print(response.status, response.output_text)
+```
+
+**Accounting.** The first turn is the request itself (its `x-request-id`, rate limit, PII guard, routing rules, fallback,
+budget). Every later turn is its own usage record (`Endpoint = Responses`, a new request id, `ParentRequestId` = the first
+turn's id), on the first turn's deployment without routing or fallback, with its own budget reservation; it counts towards
+the key's tokens per minute but not its requests per minute. Every tool call is a usage record with `Endpoint =
+McpToolCall` and the same parent. The first turn of a continuation records the original request as its parent. The body is
+PII-scanned on the first turn only: later turns add model output and tool results, which the MCP core has already put
+through the key's policy; with *Reroute to on-prem*, a tool result with personal data is withheld from a model that does
+not run on-prem (the model gets `Error: Result withheld …`). A client that leaves cancels the turn or call in flight
+(accounted 499) and no further turn starts.
+
+Response headers: `x-ume-provider`, `x-ume-model`, `x-ume-residency`, `x-ume-fallbacks` and `x-ume-rule` of the first turn;
+`x-ume-cost-sek` for all turns and tool calls; `x-ume-budget-remaining-sek`; `x-ume-pii` (the strongest action of the
+request and its tool calls); `x-ume-turns` (provider turns).
 
 ## Client setup
 

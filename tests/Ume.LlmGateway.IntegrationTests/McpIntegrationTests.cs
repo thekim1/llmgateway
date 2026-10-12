@@ -110,6 +110,61 @@ public sealed class McpIntegrationTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task A_hosted_mcp_tool_on_responses_asks_for_approval_and_continues_through_redis()
+    {
+        using var admin = await fixture.AdminAsync();
+        var key = await fixture.KeyAsync(admin);
+        using (var scope = fixture.GatewayServices.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            var demo = await db.McpServers.SingleAsync(s => s.Slug == "demo", Cancellation);
+            db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant { VirtualKeyId = key.Id, McpServerId = demo.Id, AllowedTools = ["echo"], CreatedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync(Cancellation);
+        }
+
+        await fixture.GatewayServices.GetRequiredService<IInvalidationBus>().PublishAsync(InvalidationKind.Config, Cancellation);
+        using var gateway = fixture.GatewayClient(key.Secret);
+        var tool = new JsonObject { ["type"] = "mcp", ["server_label"] = "demo" };
+        var first = new JsonObject
+        {
+            ["model"] = "ume/chat-onprem", ["input"] = """[[call:demo__echo {"text":"hej"}]]""", ["tools"] = new JsonArray(tool),
+        };
+        using var stopped = await gateway.PostAsync("/v1/responses", new StringContent(first.ToJsonString(), Encoding.UTF8, "application/json"), Cancellation);
+        var approval = (await IntegrationFixture.ReadAsync(stopped))!.AsObject();
+        var request = approval["output"]!.AsArray().Single(i => i!["type"]!.GetValue<string>() == "mcp_approval_request")!;
+        request["name"]!.GetValue<string>().ShouldBe("echo");
+
+        var next = new JsonObject
+        {
+            ["model"] = "ume/chat-onprem", ["previous_response_id"] = approval["id"]!.GetValue<string>(), ["tools"] = new JsonArray(tool.DeepClone()),
+            ["input"] = new JsonArray(new JsonObject { ["type"] = "mcp_approval_response", ["approval_request_id"] = request["id"]!.GetValue<string>(), ["approve"] = true }),
+        };
+        using var continued = await gateway.PostAsync("/v1/responses", new StringContent(next.ToJsonString(), Encoding.UTF8, "application/json"), Cancellation);
+        var done = (await IntegrationFixture.ReadAsync(continued))!.AsObject();
+        var call = done["output"]!.AsArray().Single(i => i!["type"]!.GetValue<string>() == "mcp_call")!;
+        call["output"]!.GetValue<string>().ShouldBe("hej");
+        done["output"]!.AsArray().Last()!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("Tool results: hej");
+
+        using var again = await gateway.PostAsync("/v1/responses", new StringContent(next.ToJsonString(), Encoding.UTF8, "application/json"), Cancellation);
+        ((int)again.StatusCode).ShouldBe(404);
+    }
+
+    [Fact]
+    public async Task Redis_keeps_mcp_loop_state_per_key_and_hands_it_out_once()
+    {
+        var store = fixture.GatewayServices.GetRequiredService<IMcpLoopStore>();
+        store.ShouldBeOfType<RedisMcpLoopStore>();
+        var keyId = Guid.NewGuid();
+
+        await store.SaveAsync(keyId, [(McpLoopRecord.Approval, "a", [1, 2, 3])], TimeSpan.FromMinutes(1), Cancellation);
+        (await store.GetAsync(Guid.NewGuid(), McpLoopRecord.Approval, "a", Cancellation)).ShouldBeNull();
+        (await store.GetAsync(keyId, McpLoopRecord.Pending, "a", Cancellation)).ShouldBeNull();
+        (await store.GetAsync(keyId, McpLoopRecord.Approval, "a", Cancellation)).ShouldBe(new byte[] { 1, 2, 3 });
+        (await store.TakeAsync(keyId, McpLoopRecord.Approval, "a", Cancellation)).ShouldBe(new byte[] { 1, 2, 3 });
+        (await store.TakeAsync(keyId, McpLoopRecord.Approval, "a", Cancellation)).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Redis_counts_mcp_calls_per_key_and_minute_across_requests()
     {
         var limiter = fixture.GatewayServices.GetRequiredService<IRateLimiter>();

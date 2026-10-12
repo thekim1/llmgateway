@@ -41,6 +41,15 @@ public static class GatewayErrorCodes
     public const string McpPromptNotFound = "mcp_prompt_not_found";
     public const string McpUpstreamFailed = "mcp_upstream_failed";
     public const string McpResultTooLarge = "mcp_result_too_large";
+
+    /// <summary><c>/v1/responses</c>: the <c>resp_ume_</c> response to continue from is unknown, expired, already continued or cannot be reached any more.</summary>
+    public const string McpContinuationNotFound = "mcp_continuation_not_found";
+
+    /// <summary><c>/v1/responses</c>: an <c>mcp_approval_response</c> answers no known, unexpired and unused approval request of the key.</summary>
+    public const string McpApprovalNotFound = "mcp_approval_not_found";
+
+    /// <summary><c>/v1/responses</c>: a resent <c>mcp_approval_request</c> differs from the one the gateway issued.</summary>
+    public const string McpApprovalMismatch = "mcp_approval_mismatch";
 }
 
 public static class GatewayErrors

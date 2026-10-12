@@ -82,6 +82,27 @@ public interface IRealtimeSessionRegistry
     Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken);
 }
 
+/// <summary>The kinds of MCP loop state: a stopped loop (<c>resp_ume_</c>) and an approval request.</summary>
+public enum McpLoopRecord
+{
+    Pending = 0,
+    Approval = 1,
+}
+
+/// <summary>
+/// Short-lived state of <c>/v1/responses</c> MCP loops (already encrypted by the caller) per virtual key, shared by all
+/// gateway instances. A value is taken once: <see cref="TakeAsync"/> reads and removes it atomically.
+/// </summary>
+public interface IMcpLoopStore
+{
+    Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken);
+
+    /// <summary>The value, removed; null when it does not exist (expired, or taken already).</summary>
+    Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken);
+}
+
 /// <summary>Open MCP <c>subscriptions/listen</c> streams per virtual key, shared by all gateway instances, like <see cref="IRealtimeSessionRegistry"/>.</summary>
 public interface IMcpListenRegistry
 {
@@ -535,4 +556,27 @@ public sealed class InMemoryCircuitBreakerStore(TimeProvider time, Microsoft.Ext
 
         return Task.CompletedTask;
     }
+}
+
+public sealed class InMemoryMcpLoopStore(TimeProvider time) : IMcpLoopStore
+{
+    private readonly ConcurrentDictionary<(Guid, McpLoopRecord, string), (byte[] Value, DateTimeOffset Expires)> _values = new();
+
+    public Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        var expires = time.GetUtcNow() + timeToLive;
+        foreach (var (kind, id, value) in values)
+        {
+            _values[(keyId, kind, id)] = (value, expires);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
+        Task.FromResult(_values.TryGetValue((keyId, kind, id), out var entry) && entry.Expires > time.GetUtcNow() ? entry.Value : null);
+
+    public Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
+        Task.FromResult(_values.TryRemove((keyId, kind, id), out var entry) && entry.Expires > time.GetUtcNow() ? entry.Value : null);
 }

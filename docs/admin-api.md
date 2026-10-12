@@ -337,6 +337,12 @@ and invalidate the gateway catalogue.
   `x-ume-parent-request-id`). Errors use the error body below, with `mcp_tool_not_found` (404), `mcp_invalid_arguments` (400),
   `mcp_upstream_failed` (502/504) and `mcp_result_too_large` (502) besides the usual codes; see
   [mcp.md](mcp.md#using-mcp-tools-with-the-llm-apis). Usage records have `endpoint` `McpToolCall`.
+- Hosted MCP tools on `POST /v1/responses` (`{"type":"mcp","server_label":"<slug>",…}`, non-streaming): the gateway runs the
+  tool loop and answers with `mcp_list_tools`, `mcp_call` and `mcp_approval_request` items, a summed `usage` and, when calls
+  are still to be answered, a `resp_ume_…` id to continue from; see [mcp.md](mcp.md#hosted-mcp-tools-on-v1responses). Extra
+  header `x-ume-turns`; extra error codes `mcp_server_not_found` (404), `mcp_continuation_not_found` (404/409),
+  `mcp_approval_not_found` (404/409), `mcp_approval_mismatch` (400). Later turns and tool calls are usage records with
+  `ParentRequestId` set to the first turn's request id.
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).

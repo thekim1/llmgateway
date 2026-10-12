@@ -35,7 +35,11 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public ValueTask InitializeAsync() => new(_upstream.StartAsync());
+    public async ValueTask InitializeAsync()
+    {
+        await _upstream.StartAsync();
+        await _responses.StartAsync();
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -46,6 +50,7 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
         }
 
         await _upstream.DisposeAsync();
+        await _responses.DisposeAsync();
     }
 
     private async Task<McpServer> AddServerAsync(Action<McpServer>? configure = null, params (string Name, McpToolApprovalState State, string Definition)[] tools)

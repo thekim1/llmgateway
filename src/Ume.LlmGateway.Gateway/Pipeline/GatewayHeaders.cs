@@ -27,6 +27,9 @@ public static class GatewayHeaders
     /// <summary>What the PII guard did: detected, redacted, blocked or rerouted-onprem.</summary>
     public const string Pii = "x-ume-pii";
 
+    /// <summary>Provider turns of a <c>/v1/responses</c> request with hosted <c>mcp</c> tools.</summary>
+    public const string Turns = "x-ume-turns";
+
     public const string RateLimitLimitRequests = "x-ratelimit-limit-requests";
     public const string RateLimitRemainingRequests = "x-ratelimit-remaining-requests";
 }

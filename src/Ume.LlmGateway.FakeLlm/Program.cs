@@ -13,6 +13,7 @@ using ModelContextProtocol.Server;
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
 // response.create in text, and translation sessions (fake-interpret) send transcript deltas per second of audio.
+// /v1/responses with tools or previous_response_id (non-streaming) follows FakeResponsesScript, for tool loops.
 // A demo MCP server (Streamable HTTP) on /mcp offers echo (text), get_time (structured content) and get_image (an image),
 // the resource ume://demo/welcome and the prompt summarize.
 // NOT for production. It echoes the last user message so demos can show PII redaction.
@@ -28,6 +29,7 @@ app.MapDefaultEndpoints();
 app.MapMcp("/mcp");
 app.UseWebSockets();
 
+var responsesScript = new Ume.LlmGateway.FakeLlm.FakeResponsesScript();
 app.MapGet("/", () => "Ume fake LLM – endast för test och demo.");
 app.MapGet("/v1/models", () => Results.Json(new
 {
@@ -114,6 +116,12 @@ app.MapPost("/v1/responses", async (HttpContext ctx) =>
     if (await FailureAsync(ctx, model) is { } failure)
     {
         return failure;
+    }
+
+    if ((body["tools"] is JsonArray || body["previous_response_id"] is not null) && body["stream"]?.GetValue<bool>() != true)
+    {
+        var (status, scripted) = responsesScript.Respond(body);
+        return Results.Json(scripted, statusCode: status);
     }
 
     var input = body["input"] is JsonValue v ? v.ToString() : AllText(body["input"]);

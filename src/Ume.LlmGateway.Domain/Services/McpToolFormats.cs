@@ -142,7 +142,7 @@ public static class McpToolFormats
     public static JsonObject Result(LlmToolCall call, JsonNode? result)
     {
         ArgumentNullException.ThrowIfNull(call);
-        var isError = result?["isError"] is JsonValue e && e.TryGetValue<bool>(out var flag) && flag;
+        var isError = IsError(result);
         var parts = Parts(result, nativeImages: call.Format != LlmToolFormat.OpenAi);
         if (isError && call.Format != LlmToolFormat.Anthropic)
         {
@@ -188,6 +188,12 @@ public static class McpToolFormats
                 return new JsonObject { ["role"] = "tool", ["tool_call_id"] = call.CallId, ["content"] = JoinText(parts) };
         }
     }
+
+    /// <summary>The result as text only (images and audio as placeholders), without the error prefix: an <c>mcp_call</c>'s <c>output</c> or <c>error</c>.</summary>
+    public static string Text(JsonNode? result) => JoinText(Parts(result, nativeImages: false));
+
+    /// <summary>Whether the tool reported its own failure (<c>isError: true</c>).</summary>
+    public static bool IsError(JsonNode? result) => result?["isError"] is JsonValue e && e.TryGetValue<bool>(out var flag) && flag;
 
     /// <summary>A text, or an image the format takes natively.</summary>
     private readonly record struct Part(string? Text, string? MimeType, string? Data);

@@ -42,6 +42,12 @@ internal static class RedisKeys
     /// <summary>Open MCP <c>subscriptions/listen</c> streams of a key (sorted set of stream id → expiry).</summary>
     public static string McpListenStreams(Guid keyId) => $"ume:mcp:listen:{keyId:N}";
 
+    /// <summary>Encrypted state of a <c>/v1/responses</c> MCP loop that stopped with calls still to answer (a <c>resp_ume_</c> response).</summary>
+    public static string McpPending(Guid keyId, string id) => $"ume:mcp:pending:{keyId:N}:{id}";
+
+    /// <summary>Encrypted state of one <c>mcp_approval_request</c>.</summary>
+    public static string McpApproval(Guid keyId, string id) => $"ume:mcp:approval:{keyId:N}:{id}";
+
     /// <summary>Open realtime sessions of a key (sorted set of session id → expiry).</summary>
     public static string RealtimeSessions(Guid keyId) => $"ume:rt:{keyId:N}";
 

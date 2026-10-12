@@ -110,6 +110,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IMcpListenRegistry, RedisMcpListenRegistry>();
             builder.Services.TryAddSingleton<IMcpSyncLock, RedisMcpSyncLock>();
+            builder.Services.TryAddSingleton<IMcpLoopStore, RedisMcpLoopStore>();
         }
         else
         {
@@ -120,6 +121,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IMcpListenRegistry, InMemoryMcpListenRegistry>();
             builder.Services.TryAddSingleton<IMcpSyncLock, InMemoryMcpSyncLock>();
+            builder.Services.TryAddSingleton<IMcpLoopStore, InMemoryMcpLoopStore>();
         }
 
         return builder;
