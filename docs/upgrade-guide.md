@@ -35,6 +35,16 @@ See [runbook](runbook.md) for the actual deployment procedure.
   keys given an address restriction are refused. Check the proxy sends `X-Forwarded-For` (see the runbook).
 - New 403 error code `address_not_allowed` for clients of keys with an address restriction.
 
+## Next release: usage dashboard
+
+- The migration `RequestTimings` adds the nullable columns `UsageRecords.UpstreamMs` and `TimeToFirstTokenMs` (no table
+  rewrite). It is additive: the previous gateway keeps writing records without them. The existing grants cover the new
+  columns (the gateway inserts and the Data API reads the whole table).
+- Records written before the upgrade have no provider time or time to first token, so the *Gateway overhead* and
+  *Time to first token* cards fill in from the upgrade on.
+- The Data API usage feed and `GET /api/usage/requests` have the new fields `upstreamMs` and `timeToFirstTokenMs`
+  (`/api/usage/requests` also `costUsd`); clients that ignore unknown fields need no change.
+
 ## Upgrade procedure
 
 1. Review release/source changes, package/image advisories, licenses and SBOM; approve exact

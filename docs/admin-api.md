@@ -199,8 +199,26 @@ and invalidate the gateway catalogue.
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
   → `{ from, to, totalCostSek, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costSek, errors, fallbacks }] }`
+- `GET /api/usage/metrics?from=&to=&bucket=auto|hour|day&departmentId=&teamId=&keyId=&model=&provider=&outcome=&endpoint=` (any role, own departments)
+  → `{ from, to, bucket, timeZone, recordsFrom, totals, buckets: [...], models: [...] }`, the Usage dashboard. Cost is in **USD**.
+  - `bucket`: `auto` (default) is `hour` for periods up to two days, else `day`. Hours are cut in UTC, days at Europe/Stockholm midnight
+    (`timeZone`). `hour` allows at most 7 days; the period is at most one year (default: the last 30 days). Every bucket in the
+    period is returned, empty ones with zeros and `null` timings, so the series have no gaps.
+  - Filters: `model` is the requested model (alias or deployment name), `provider` the provider account name, `outcome` a
+    `RequestOutcome`, `endpoint` a `GatewayEndpoint` name. Anything else is 400.
+  - `totals` and each bucket: `requests`, `successes`, `providerErrors`, `refused` (BudgetExceeded, RateLimited, PiiBlocked,
+    Rejected), `cancelled`, `fallbacks` (requests with at least one fallback), `costUsd`, `inputTokens`, `cachedInputTokens`,
+    `outputTokens`, `latency` and `overhead` (each `{ avg, p50, p90, p95, p99 }` in ms) and `tokensPerSecond`. `totals` also
+    has `cacheHitRate` (cached ÷ input tokens) and `firstToken: { avg, p50, p95 }`; a bucket has `firstTokenAvgMs` and `firstTokenP95Ms`.
+  - Timings: `latency` leaves out live audio sessions and requests no provider handled; `overhead` is `latencyMs − upstreamMs`
+    for records that have it; time to first token covers streamed answers; `tokensPerSecond` is output tokens ÷ provider time
+    over successful requests with output. Percentiles are nearest-rank (`percentile_disc`), over the whole period for `totals`.
+  - `models`: `[{ model, requests, costUsd, requestsPerBucket[], costUsdPerBucket[] }]`, the 8 requested models with the most
+    requests, then one entry with `model: null` for all others together; the arrays line up with `buckets`.
+  - `recordsFrom` is set when the period starts before the oldest kept usage record (data retention): monthly totals have no
+    timings or days, so the figures cover only `recordsFrom`..`to`.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
-  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
+  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only)
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
 - `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
   → `{ from, to, items: PiiIncident[], total, totalIncidents, categories: [{ category, requests, occurrences }], actions: [{ action, requests }] }`

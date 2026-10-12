@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Usage dashboard.** *Monitor > Usage* opens on a dashboard tab with nine cards: cost in USD stacked by model, requests by
+outcome (success, provider error, refused, cancelled), tokens (input, cached input, output), the provider cache hit rate,
+requests by model, latency (avg, P50, P95, P99), gateway overhead, time to first token and throughput (output tokens per
+second of provider time). Each card has a bar, line and table view, a text summary and a hover tooltip; the page has
+time-range presets (24 hours to 90 days, or custom dates) and filters for department, team, key, model, provider, outcome
+and endpoint. The earlier summary and request list moved to the *Requests and costs* tab (`/usage?tab=requests`), and the
+request drawer shows the cost in USD, provider time, gateway overhead and time to first token. New endpoint
+`GET /api/usage/metrics` (hourly or daily buckets, department-scoped, aggregated in SQL). The gateway now records provider
+time (every attempt, failed fallbacks included, and the streamed answer) and time to first token for streamed answers:
+migration `RequestTimings` (`UsageRecords.UpstreamMs`, `TimeToFirstTokenMs`), new fields `upstreamMs` and
+`timeToFirstTokenMs` in the Data API usage feed and `/api/usage/requests`, and the OpenTelemetry histograms
+`ume.gateway.overhead` and `ume.gateway.time_to_first_token`. No measurable effect on the request path (docs/performance.md).
+
 **Images.** `POST /v1/images/generations` (JSON) and `POST /v1/images/edits` (`multipart/form-data`: one or more pictures in
 `image` or `image[]`, an optional `mask`) in OpenAI format, for gpt-image-1, DALL·E, FLUX and other OpenAI-compatible image
 models. New provider capability `Images`, model kind `Image` (discovery recognises `gpt-image*`, `dall-e*`, `flux*`, `imagen*`

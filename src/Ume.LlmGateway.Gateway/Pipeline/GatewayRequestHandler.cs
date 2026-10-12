@@ -232,6 +232,7 @@ public sealed partial class GatewayRequestHandler(
             RequestRewriter.Apply(attemptBody, state.Endpoint, deployment.UpstreamModel, deployment.ParameterProfile, state.Streamed);
 
             ProviderResult result;
+            var sent = time.GetTimestamp();
             try
             {
                 result = await _adapters.Resolve(provider.Type)
@@ -239,10 +240,13 @@ public sealed partial class GatewayRequestHandler(
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                state.AddUpstreamTime(time.GetTimestamp() - sent);
                 await AccountAsync(state, deployment, new TokenUsage(state.EstimatedInputTokens, 0, 0, state.EstimatedAudioSeconds), 499, RequestOutcome.ClientCancelled, null, snapshot);
                 return;
             }
 
+            // Failed attempts count too: time spent waiting on providers is not gateway overhead.
+            state.AddUpstreamTime(time.GetTimestamp() - sent);
             switch (result)
             {
                 case ProviderFailure failure when failure.CanFallBack:
@@ -314,6 +318,8 @@ public sealed partial class GatewayRequestHandler(
         var status = 200;
         var outcome = RequestOutcome.Success;
         string? errorCode = null;
+        // Reading the stream is provider time: the gateway only relays events as they arrive.
+        var streaming = time.GetTimestamp();
         try
         {
             await http.Response.StartAsync(ct);
@@ -323,6 +329,10 @@ public sealed partial class GatewayRequestHandler(
                 // Encoded straight into the response pipe; one flush per event keeps tokens flowing immediately.
                 evt.WriteTo(writer);
                 await writer.FlushAsync(ct);
+                if (state.FirstEventTimestamp == 0)
+                {
+                    state.FirstEventTimestamp = time.GetTimestamp();
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -339,6 +349,7 @@ public sealed partial class GatewayRequestHandler(
             errorCode = "stream_interrupted";
         }
 
+        state.AddUpstreamTime(time.GetTimestamp() - streaming);
         await AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
     }
 

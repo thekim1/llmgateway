@@ -898,12 +898,18 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TeamId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("TimeToFirstTokenMs")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("Timestamp")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("UpstreamModel")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("UpstreamMs")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("VirtualKeyId")
                         .HasColumnType("uuid");
