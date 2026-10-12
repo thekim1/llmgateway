@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { GATEWAY_ERROR_CODES } from '@/api/types'
 import { useCatalogStore } from '@/stores/catalog'
-import { snippets } from '@/utils/snippets'
+import { mcpSnippets, snippets } from '@/utils/snippets'
 import CodeBlock from '@/components/keys/CodeBlock.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -21,6 +21,8 @@ const aliasOptions = computed(() => (catalog.catalog?.routes ?? []).map((r) => (
 const examples = computed(() =>
   snippets(baseUrl.value, model.value, catalog.catalog?.routes.find((r) => r.name === model.value)?.kind ?? 'Chat'),
 )
+
+const mcpExamples = computed(() => mcpSnippets(baseUrl.value))
 
 onMounted(async () => {
   const result = await catalog.load()
@@ -56,6 +58,18 @@ onMounted(async () => {
         </section>
       </div>
     </AsyncState>
+
+    <UiCard v-if="baseUrl" title="MCP tools in Claude Code, VS Code and Claude Desktop" padding="lg">
+      <div class="flex flex-col gap-4">
+        <p class="text-fg-2">
+          The gateway also serves the municipality’s MCP servers at <span class="font-mono">{{ baseUrl.replace(/\/+$/, '') }}/mcp</span>, with the same key.
+          The key only sees servers it has been granted and tools an administrator has approved; tools are named
+          <span class="font-mono">server__tool</span>. To use one server with its own tool names, put <span class="font-mono">/mcp/&lt;server&gt;</span> in the address instead.
+        </p>
+        <CodeBlock v-for="example in mcpExamples" :key="example.label" :code="example.code" :label="example.label" />
+        <p class="text-small text-fg-2">Claude Desktop’s own connectors need OAuth, which the gateway does not offer yet, so it connects through <span class="font-mono">mcp-remote</span>. Keep the key out of shared files.</p>
+      </div>
+    </UiCard>
 
     <UiCard title="Routing examples" padding="lg">
       <div class="flex flex-col gap-6">
@@ -100,6 +114,7 @@ onMounted(async () => {
           <DetailRow label="Speech to text">Send a recording to <span class="font-mono">/v1/audio/transcriptions</span> (or <span class="font-mono">/v1/audio/translations</span> for English text) as a file upload, with a speech-to-text alias such as <span class="font-mono">ume/transcribe</span>. Choose that alias above for examples. Files up to 25 MB.</DetailRow>
           <DetailRow label="Live audio">Stream audio over a WebSocket to <span class="font-mono">/v1/realtime?model=…</span> for live transcription (a speech-to-text alias such as <span class="font-mono">ume/live-transcribe</span>) or a realtime model, or to <span class="font-mono">/v1/realtime/translations</span> for live interpreting (<span class="font-mono">ume/interpret</span>). Same protocol as OpenAI's Realtime API, server to server: connect from your backend with the key in the Authorization header, never from a browser. Billed per session; it is closed when the budget runs out.</DetailRow>
           <DetailRow label="Attached files">Images, PDFs, audio and video sent inside a request (up to 16 MB per request). A key can allow all files, images only, or text only; a refused file returns <span class="font-mono">attachment_not_allowed</span>. The personal data check reads text, not file contents, so keys for sensitive work should use text only.</DetailRow>
+          <DetailRow label="MCP">Model Context Protocol: lets assistants such as Claude Code call tools on other systems. Calls are recorded in Usage as <span class="font-mono">mcp:server/tool</span>; arguments and results are never stored.</DetailRow>
           <DetailRow label="Routing rule">A condition on the request, such as a header or how much of the budget is left, that sends it to a different model than the one it asked for. The <span class="font-mono">x-ume-rule</span> response header shows which rule applied.</DetailRow>
         </DetailSection>
       </div>

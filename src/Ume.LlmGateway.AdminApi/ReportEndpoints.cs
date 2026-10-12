@@ -37,11 +37,11 @@ public static class ReportEndpoints
     public static void MapReports(this RouteGroupBuilder api)
     {
         var reports = api.MapGroup("").RequireAuthorization("read").WithTags("Reports");
-        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, string? traffic, int? page, int? pageSize, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var (skip, take) = Pagination(page, pageSize);
             var (start, end) = Range(from, to, ctx.Now);
-            var query = ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end);
+            var query = ByTraffic(ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end), traffic);
             if (keyId is { } key) { query = query.Where(u => u.VirtualKeyId == key); }
             if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
@@ -89,8 +89,8 @@ public static class ReportEndpoints
             return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
                 rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
-        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
+        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, string? traffic, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize, traffic), user, ct)))
             .WithName("ListPiiIncidents").WithSummary("Requests in which PII was detected, newest first, with counts per category and action");
         reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -156,6 +156,15 @@ public static class ReportEndpoints
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName);
     }
+
+    /// <summary>The <c>traffic</c> filter: <c>mcp</c> (MCP calls) or <c>llm</c> (everything else), case-insensitive; null = all.</summary>
+    internal static IQueryable<UsageRecord> ByTraffic(IQueryable<UsageRecord> query, string? traffic) => traffic?.ToLowerInvariant() switch
+    {
+        null => query,
+        "mcp" => query.Where(u => u.Endpoint == GatewayEndpoint.Mcp || u.Endpoint == GatewayEndpoint.McpToolCall),
+        "llm" => query.Where(u => u.Endpoint != GatewayEndpoint.Mcp && u.Endpoint != GatewayEndpoint.McpToolCall),
+        _ => throw new ApiFaultException(400, "Trafiken måste vara llm eller mcp."),
+    };
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)
     {

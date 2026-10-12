@@ -789,4 +789,37 @@ public sealed class McpAdminTests(AdminFixture fixture)
         using var missing = await client.PostAsJsonAsync($"/api/ops/mcp-servers/{Guid.NewGuid()}/circuit", new { state = "Open" }, Ct);
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task Usage_and_pii_incidents_filter_mcp_traffic()
+    {
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        using var keyResponse = await admin.PostAsJsonAsync("/api/keys", KeyBody(own.Team), Ct);
+        var key = Id((await AdminFixture.ReadAsync(keyResponse, HttpStatusCode.Created))["key"]!);
+        UsageRecord Row(GatewayEndpoint endpoint, string model) => new()
+        {
+            RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = DateTimeOffset.UtcNow, VirtualKeyId = key, TeamId = own.Team, DepartmentId = own.Department,
+            Endpoint = endpoint, RequestedModel = model, Outcome = RequestOutcome.Success, StatusCode = 200, PiiCategories = "Email:1", PiiActionApplied = PiiPolicy.Redact,
+        };
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            db.UsageRecords.AddRange(Row(GatewayEndpoint.ChatCompletions, "ume/chat"), Row(GatewayEndpoint.Mcp, "mcp:demo/echo"));
+            await db.SaveChangesAsync(Ct);
+        }
+
+        async Task<string[]> ModelsAsync(string path)
+        {
+            using var response = await admin.GetAsync(path, Ct);
+            return [.. (await AdminFixture.ReadAsync(response))["items"]!.AsArray().Select(r => r!["requestedModel"]!.GetValue<string>())];
+        }
+
+        (await ModelsAsync($"/api/usage/requests?keyId={key}")).ShouldBe(["ume/chat", "mcp:demo/echo"], ignoreOrder: true);
+        (await ModelsAsync($"/api/usage/requests?keyId={key}&traffic=mcp")).ShouldBe(["mcp:demo/echo"]);
+        (await ModelsAsync($"/api/usage/requests?keyId={key}&traffic=LLM")).ShouldBe(["ume/chat"]);
+        (await ModelsAsync($"/api/usage/pii-incidents?keyId={key}&traffic=mcp")).ShouldBe(["mcp:demo/echo"]);
+        using var invalid = await admin.GetAsync($"/api/usage/requests?keyId={key}&traffic=other", Ct);
+        invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
 }

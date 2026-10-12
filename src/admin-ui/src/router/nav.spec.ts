@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { effectiveRoles } from '@/stores/auth'
 import { routes } from '.'
-import { GATEWAY_ADMIN, navGroups } from './nav'
+import { ADMIN_ROLES, GATEWAY_ADMIN, navGroups } from './nav'
 
 describe('routing rules navigation', () => {
   const item = navGroups.flatMap((g) => g.items).find((i) => i.name === 'routing-rules')
@@ -9,7 +9,7 @@ describe('routing rules navigation', () => {
   it('is in the Routing group next to Routes and Providers', () => {
     const group = navGroups.find((g) => g.items.some((i) => i.name === 'routing-rules'))
     expect(group?.label).toBe('Routing')
-    expect(group?.items.map((i) => i.name)).toEqual(['routes', 'routing-rules', 'providers'])
+    expect(group?.items.map((i) => i.name)).toEqual(['routes', 'routing-rules', 'providers', 'mcp-servers'])
   })
 
   it('is only for gateway administrators, in the menu and as a page', () => {
@@ -26,5 +26,17 @@ describe('routing rules navigation', () => {
 
   it('has an icon', () => {
     expect(item?.icon).toBe('rule')
+  })
+})
+
+describe('MCP servers navigation', () => {
+  const item = navGroups.flatMap((g) => g.items).find((i) => i.name === 'mcp-servers')
+
+  it('is next to providers, for gateway and department admins, with a badge for tools to review', () => {
+    expect(item?.roles).toEqual(ADMIN_ROLES)
+    expect(item?.badge).toBe('mcp')
+    const route = routes.find((r) => r.name === 'mcp-servers')
+    expect(route?.path).toBe('/mcp-servers')
+    expect(route?.meta?.roles).toEqual(ADMIN_ROLES)
   })
 })

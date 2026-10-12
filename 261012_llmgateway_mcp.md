@@ -366,8 +366,16 @@ Step 2a (tools) notes and deferrals:
 **3. Control plane**
 - [x] The tool sync worker with a Redis lock, hashing and the approval states (upstream `list_changed` deferred, see below).
 - [x] Admin API endpoints, audit and `ConfigTransfer`.
-- [ ] Admin UI: MCP servers, approval queue with diff, key grants, usage filters, getting started snippets. Vitest and a Playwright e2e test.
-- [ ] Stdio bridge container pattern documented, with hardening in `deploy/` (compose snippet and runbook).
+- [x] Admin UI: MCP servers, approval queue with diff, key grants, usage filters, getting started snippets. Vitest and a Playwright e2e test.
+- [x] Stdio bridge container pattern documented, with hardening in `deploy/` (compose snippet and runbook).
+
+Step 3b (admin UI and stdio bridge) notes and deferrals:
+- *Routing > MCP servers* (gateway and department admins): list with status, last sync and error, owner, residency, tool counts and a review badge; a drawer with *Tools* (sync, review dialog with the structured diff, approve with the reviewed hash and a 409 that reloads and says why, reject, price) and *Settings* (every field, live slug check, write-only credentials with set/not set and replace, test connection saved or unsaved, enable/disable and delete behind confirmations). Global servers are read-only for department admins. The nav item counts tools waiting for review from `GET /api/mcp/servers` (no new endpoint).
+- Keys: *MCP servers* section in the key drawer edits grants (all tools or a pick list from the server's tools, approval policy, documents, prompts, unknown-name warnings); the key form sends `mcpCallsPerMinute` on create and edit, so editing a key keeps its MCP limit. `KeyFormDrawer` is the only client of `PUT /api/keys/{id}`.
+- Usage and PII incidents: a *Requests* filter (all, model requests, MCP tool calls) backed by a new `traffic=llm|mcp` query parameter; the usage drawer shows an MCP call's server and tool instead of routing details. *Operations* lists MCP servers with their last sync and forces their circuit. *Getting started* has Claude Code, VS Code and Claude Desktop (`mcp-remote`) snippets.
+- Stdio bridge: `deploy/mcp/` (supergateway 4.1.0, MIT, digest-pinned, server installed at build time, logging off, behind an nginx TLS sidecar that checks the key because supergateway 4.1.0 has no inbound key check). Verified locally: the image builds, runs non-root and read-only, answers with the key and refuses without it (401). The `mcp` network is added by that extra Compose file, not by the base or hardening files (adopter step), so `build-portainer-stack.sh` and CI checks are unchanged.
+- The Playwright test (`tests/e2e/specs/mcp.spec.ts`) needs the Aspire stack with Keycloak (`scripts/Start-E2E.ps1`); it was type-checked, not run.
+- Deferred: an Overview card for pending approvals (the nav badge covers it), MCP rows on *Provider stability* (MCP calls carry no provider), and per-server price.
 
 Step 3a (admin API and tool sync) notes and deferrals:
 - Removed tools are deleted, not marked: they are hidden at once without a new state for the gateway's `IsExposed`, and a tool that comes back is new and needs approval again (its price too). Exposed-name collisions skip the later tool and set the server `Degraded` with the names in `LastError` (no per-tool error column).

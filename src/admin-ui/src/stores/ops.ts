@@ -23,6 +23,11 @@ export const useOpsStore = defineStore('ops', () => {
     await loadHealth()
   }
 
+  async function setMcpCircuit(serverId: string, state: CircuitState): Promise<void> {
+    await api.ops.setMcpCircuit(serverId, state)
+    await loadHealth()
+  }
+
   const invalidateKeyCache = () => api.ops.invalidateKeyCache()
   const exportConfig = () => api.ops.exportConfig()
   const importConfig = (doc: ConfigDocument): Promise<ConfigImportResult> => api.ops.importConfig(doc)
@@ -37,6 +42,7 @@ export const useOpsStore = defineStore('ops', () => {
     loadHealth,
     loadAudit,
     setCircuit,
+    setMcpCircuit,
     invalidateKeyCache,
     exportConfig,
     importConfig,

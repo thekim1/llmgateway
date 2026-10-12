@@ -7,7 +7,8 @@ namespace Ume.LlmGateway.AdminApi;
 
 /// <summary>Filters of <c>GET /api/usage/pii-incidents</c>; <see cref="Category"/> and <see cref="Action"/> as written in the query string.</summary>
 public sealed record PiiIncidentQuery(
-    DateTimeOffset? From, DateTimeOffset? To, Guid? KeyId, Guid? TeamId, Guid? DepartmentId, string? Category, string? Action, int? Page, int? PageSize);
+    DateTimeOffset? From, DateTimeOffset? To, Guid? KeyId, Guid? TeamId, Guid? DepartmentId, string? Category, string? Action, int? Page, int? PageSize,
+    string? Traffic = null);
 
 /// <summary>
 /// PII incidents: usage records in which the gateway found PII (<c>PiiCategories</c> is set), in the user's departments.
@@ -28,7 +29,7 @@ public sealed class PiiIncidentService(AdminContext ctx)
             : throw new ApiFaultException(400, "PII-åtgärden är ogiltig.");
 
         // Served by the partial index on Timestamp where PiiCategories is set.
-        var incidents = ctx.Usage(user).AsNoTracking().Where(u => u.PiiCategories != null && u.Timestamp >= start && u.Timestamp < end);
+        var incidents = ReportEndpoints.ByTraffic(ctx.Usage(user).AsNoTracking().Where(u => u.PiiCategories != null && u.Timestamp >= start && u.Timestamp < end), query.Traffic);
         if (query.KeyId is { } key) { incidents = incidents.Where(u => u.VirtualKeyId == key); }
         if (query.TeamId is { } team) { incidents = incidents.Where(u => u.TeamId == team); }
         if (query.DepartmentId is { } department) { incidents = incidents.Where(u => u.DepartmentId == department); }

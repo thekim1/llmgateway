@@ -155,4 +155,39 @@ describe('KeyFormDrawer provider then model selection', () => {
     await flushPromises()
     expect(update.mock.calls[0]![1]).toMatchObject({ attachmentPolicy: 'ImagesOnly' })
   })
+
+  it('always sends MCP calls per minute, so editing a key keeps its MCP limit', async () => {
+    update.mockResolvedValue({})
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', requestsPerMinute: null, tokensPerMinute: null, mcpCallsPerMinute: 12, expiresAt: null,
+    } as unknown as VirtualKey
+    const edit = mountForm(existing)
+    await flushPromises()
+    expect((edit.find('#key-mcp-rpm').element as HTMLInputElement).value).toBe('12')
+    await edit.find('form').trigger('submit')
+    await flushPromises()
+    expect(update.mock.calls[0]![1]).toMatchObject({ mcpCallsPerMinute: 12 })
+
+    await edit.find('#key-mcp-rpm').setValue('')
+    await edit.find('form').trigger('submit')
+    await flushPromises()
+    expect(update.mock.calls[1]![1]).toHaveProperty('mcpCallsPerMinute', null)
+
+    await edit.find('#key-mcp-rpm').setValue('0')
+    await edit.find('form').trigger('submit')
+    await flushPromises()
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(edit.text()).toContain('MCP calls per minute must be a whole number of 1 or more.')
+
+    create.mockResolvedValue({ key: {}, secret: 's' })
+    const fresh = mountForm()
+    await flushPromises()
+    await fresh.find('select').setValue('t1')
+    await fresh.find('input[autocomplete=off]').setValue('New key')
+    await fresh.find('#key-mcp-rpm').setValue('30')
+    await fresh.find('form').trigger('submit')
+    await flushPromises()
+    expect(create.mock.calls[0]![0]).toMatchObject({ mcpCallsPerMinute: 30 })
+  })
 })

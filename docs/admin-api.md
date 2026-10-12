@@ -244,10 +244,11 @@ and invalidate the gateway catalogue.
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
   → `{ from, to, totalCostSek, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costSek, errors, fallbacks }] }`
-- `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
+- `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&traffic=&page=1&pageSize=50`
   → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
+- `traffic` (both lists, case-insensitive): `mcp` = MCP calls (endpoints `/mcp` and `/v1/mcp/...`), `llm` = everything else; anything else → 400.
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
-- `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
+- `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&traffic=&page=1&pageSize=50` (any role, own departments)
   → `{ from, to, items: PiiIncident[], total, totalIncidents, categories: [{ category, requests, occurrences }], actions: [{ action, requests }] }`
   where `PiiIncident = { requestId, timestamp, keyId, keyPrefix, keyName, teamId, teamName, departmentId, departmentName, endpoint, requestedModel, providerName, action, categories: [{ category, count }], outcome, statusCode, routingRuleName }`.
   An incident is a usage record with PII found (`piiCategories` set), newest first; this includes policy `Allow` (detected and sent on).

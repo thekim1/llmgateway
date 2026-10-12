@@ -11,10 +11,11 @@ Everything in the original POC scope and the routing rules feature is implemente
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
+| MCP gateway (ADR 016): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example | Steps 1–3 done (plan: `261012_llmgateway_mcp.md`; LLM-path MCP, step 4, not started), see [docs/mcp.md](docs/mcp.md). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
-| Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass |
+| Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass; the new MCP e2e test and the `/mcp-servers` accessibility pass still need a run |
 
 The POC is not a production approval, legal attestation or WCAG certification (see the release gates in
 [docs/security-and-compliance.md](docs/security-and-compliance.md)).

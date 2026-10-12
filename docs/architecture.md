@@ -23,9 +23,10 @@ prices and fallback targets are data-driven.
 
 Compose: `data` is internal and has no DB/cache host ports. `edge` contains the two
 HTTPS APIs on separate loopback-bound listeners by default. `llm` is a separate gateway
-network for provider connectivity; it is not itself an egress firewall. A planned `mcp`
-network (ADR 016) will connect the gateway to MCP servers, including stdio servers that run as
-separate hardened bridge containers; the admin API needs it too, since it syncs the servers' tool lists. Municipal
+network for provider connectivity; it is not itself an egress firewall. An internal `mcp`
+network (ADR 016) connects the gateway and the admin API (which syncs tool lists) to MCP servers, including stdio servers
+that run as separate hardened bridge containers; it is added by an extra Compose file per deployment
+(`deploy/mcp/compose.mcp-stdio-example.yaml`, see docs/mcp.md), not by the base files. Municipal
 firewall/DNS controls must enforce actual allowed destinations, management access and
 public exposure. Admin API shares Redis for audited circuit controls/invalidation;
 isolating Redis to the gateway alone would break these control-plane functions.

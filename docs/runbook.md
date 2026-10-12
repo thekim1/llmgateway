@@ -373,6 +373,7 @@ does not deploy/expose a public Aspire dashboard.
 | MCP server `Degraded` | Some tools were left out (two names that sanitise to the same `/mcp` name, an invalid definition, more than 50 pages); `lastError` says which. Ask the server's owner to rename one of the tools |
 | MCP tool quarantined | Event `admin.mcp.tool_quarantined` (2002): `new` (a tool waits for approval) or `changed` (an approved tool's definition changed upstream; clients still see the approved one). Review the differences in `GET /api/mcp/servers/{id}/tools` (`changes`) with the server's owner before approving; reject the tool if the change is unexpected, it could be tool poisoning |
 | MCP sync answers 409 | Another sync is running (scheduled syncs hold `ume:mcp:sync-lock` for at most 5 minutes per server); try again. A 409 on approve means the definition changed after it was reviewed |
+| Stdio MCP server (bridge example) unavailable | Check `docker compose ps` for `mcp-time-bridge` (healthcheck `/healthz`) and `mcp-time`; 401 from the server means the key in `authorized-keys.map` and the server's static header differ; a TLS error means the `mcp-time` certificate is not from the internal CA or lacks the name `mcp-time`. The bridge logs nothing by design (`--logLevel none`) |
 | Live audio: sessions end with `gateway_shutting_down` | Expected on deploy/restart: open sessions are closed with an error event and clients reconnect. Metrics: `ume.gateway.realtime.sessions` (open now), `ume.gateway.realtime.session.duration`, `ume.gateway.audio` (seconds) |
 
 ## Backup and restore

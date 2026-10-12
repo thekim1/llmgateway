@@ -61,3 +61,44 @@ function liveSnippets(base: string, model: string, kind: ModelKind): { label: st
     },
   ]
 }
+
+/**
+ * MCP client configuration for the gateway's `/mcp` (every server the key is granted) or `/mcp/{slug}` (one server with
+ * its own tool names). Matches the client setup in docs/mcp.md; the key is never written into the file.
+ */
+export function mcpSnippets(baseUrl: string, slug = ''): { label: string; language: string; code: string }[] {
+  const url = baseUrl.replace(/\/+$/, '') + (slug ? `/mcp/${slug}` : '/mcp')
+  const name = slug ? `ume-${slug.replace(/_/g, '-')}` : 'ume'
+  return [
+    {
+      label: 'Claude Code',
+      language: 'bash',
+      code: `claude mcp add --transport http ${name} ${url} --header "Authorization: Bearer $UME_API_KEY"`,
+    },
+    {
+      label: 'VS Code (.vscode/mcp.json)',
+      language: 'json',
+      code: JSON.stringify(
+        {
+          inputs: [{ type: 'promptString', id: 'ume-key', description: 'Ume LLM Gateway key', password: true }],
+          servers: { [name]: { type: 'http', url, headers: { Authorization: 'Bearer ${input:ume-key}' } } },
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      label: 'Claude Desktop (claude_desktop_config.json, needs Node.js)',
+      language: 'json',
+      code: JSON.stringify(
+        {
+          mcpServers: {
+            [name]: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${UME_AUTH}'], env: { UME_AUTH: 'Bearer ume-sk-…' } },
+          },
+        },
+        null,
+        2,
+      ),
+    },
+  ]
+}

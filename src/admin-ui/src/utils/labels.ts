@@ -222,3 +222,34 @@ export const MODEL_FEATURES = ['tools', 'vision', 'thinking', 'image generation'
 export function featureLabel(feature: string): string {
   return feature.charAt(0).toUpperCase() + feature.slice(1)
 }
+
+export const MCP_STATUS: Record<import('@/api/types').McpServerStatus, { label: string; tone: Tone }> = {
+  Healthy: { label: 'Healthy', tone: 'ok' },
+  Degraded: { label: 'Degraded', tone: 'warn' },
+  Unavailable: { label: 'Unavailable', tone: 'danger' },
+}
+
+export const MCP_AUTH_LABEL: Record<import('@/api/types').McpAuthType, string> = {
+  None: 'None',
+  StaticHeaders: 'Static headers (API key)',
+  OAuthClientCredentials: 'OAuth client credentials',
+}
+
+export const MCP_TOOL_STATE: Record<import('@/api/types').McpToolState, { label: string; tone: Tone; hint: string }> = {
+  Pending: { label: 'Waiting for approval', tone: 'warn', hint: 'New on the server. Hidden from every key until approved.' },
+  Approved: { label: 'Approved', tone: 'ok', hint: 'Keys with a grant can use it.' },
+  Rejected: { label: 'Rejected', tone: 'neutral', hint: 'Hidden from every key.' },
+  Changed: { label: 'Changed upstream', tone: 'danger', hint: 'The server changed its definition. Keys still see the approved one until you approve the change.' },
+}
+
+export const MCP_APPROVAL_POLICY: Record<import('@/api/types').McpApprovalPolicy, { label: string; hint: string }> = {
+  Always: { label: 'Always ask', hint: 'Every tool call the gateway makes inside an LLM request needs the caller’s approval.' },
+  NeverForReadOnly: { label: 'Ask unless read-only', hint: 'Tools marked read-only run without approval; all others need it.' },
+  Never: { label: 'Never ask', hint: 'Tool calls inside LLM requests run without approval.' },
+}
+
+export const MCP_CHANGE_KIND: Record<import('@/api/types').McpDefinitionChangeKind, { label: string; icon: string }> = {
+  Added: { label: 'Added', icon: 'add' },
+  Removed: { label: 'Removed', icon: 'remove' },
+  Changed: { label: 'Changed', icon: 'edit' },
+}

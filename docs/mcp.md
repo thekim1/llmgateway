@@ -7,8 +7,9 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 > **Status.** Tools, resources and prompts work end to end (listing, calling and reading, authorisation, PII guard, rate
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
 > (`subscriptions/listen`). `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
-> and grants are managed through the admin API (see *Administration*); the admin UI for them is not built yet. The local dev
-> seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all to the dev key.
+> and grants are managed in the admin UI (**Routing > MCP servers**, and **MCP servers** on a key) or the admin API (see
+> *Administration*). The local dev seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all
+> to the dev key.
 
 ## Endpoints
 
@@ -126,8 +127,31 @@ URIs keep their names.
 
 ## Administration
 
-The admin API ([admin-api.md](admin-api.md#mcp-servers-and-grants)) manages servers, tools and grants. Gateway admins manage
-every server; department admins manage the servers their departments own and can grant global servers to their keys.
+The admin UI and the admin API ([admin-api.md](admin-api.md#mcp-servers-and-grants)) manage servers, tools and grants.
+Gateway admins manage every server; department admins manage the servers their departments own, see global servers
+read-only and can grant them to their keys.
+
+In the admin UI:
+
+1. **Register:** *Routing > MCP servers > New MCP server*. Enter a short name (checked as you type), the URL, residency,
+   owner and authentication. Credentials are write-only: the form shows only whether one is set, and offers *Replace the
+   stored credential*; choosing another authentication type needs new credentials, and *None* removes the stored one.
+   *Test connection* connects with the values in the form (saved or not) and lists the tools. Leave *Approve new tools
+   automatically* off unless the server is a trusted internal one; the form explains why.
+2. **Sync:** after *Create server* the drawer shows the *Tools* tab; *Sync now* reads the tools and reports what changed.
+3. **Approve:** select a tool to review it. A *Changed upstream* tool shows each change from the approved definition to the
+   one offered now, by JSON path, with the approved and the new value as text. *Approve* approves exactly the definition on
+   screen; if the server changed it in the meantime, nothing is approved, the dialog shows the new definition and says so.
+   The dialog also sets the price per call. The *MCP servers* menu item shows how many tools wait for review.
+4. **Grant:** on the key (*Access > Keys*, select the key), *MCP servers > Edit MCP access*: add the server, keep *All
+   approved tools* or pick tools, choose the approval policy and whether documents (resources) and prompts are allowed, and
+   save. Tool names the server does not offer are kept with a warning. *MCP calls per minute* is in the key's form, next to
+   the other limits.
+
+Usage and PII incidents can be filtered to MCP calls (*Requests: MCP tool calls*); MCP calls show as `mcp:{slug}/{tool}`.
+*Operations* lists each MCP server's last sync and lets a gateway admin force its circuit open or closed.
+
+With the admin API:
 
 1. **Register** the server: `POST /api/mcp/servers` with a slug, the URL, residency, auth type and credential. Try it first with
    `POST /api/mcp/servers/test`, which connects and lists the tools without saving anything. The URL must pass the SSRF rules
@@ -192,8 +216,35 @@ such names should be under municipal DNS control.
 | `ForwardHeaders` | Caller headers sent on to the server, by exact name. `Authorization`, `x-api-key`, `api-key`, cookies and MCP/HTTP protocol headers are never forwarded. A forwarded header goes only with that caller's own `tools/call`, never with requests the gateway's client sends on its own. |
 | `TimeoutSeconds`, `MaxResultBytes` | Per call (default 30 s and 1 MiB). |
 
-Legacy SSE servers and stdio servers are not supported directly; run them behind a bridge (planned: a hardened container
-on the `mcp` network).
+Legacy SSE servers and stdio servers are not supported directly; run them behind a bridge (see *Stdio servers*).
+
+### Stdio servers
+
+A server that only speaks stdio (most `npx`/`uvx` MCP servers) runs in its own container behind a bridge that serves it
+as Streamable HTTP. `deploy/mcp/compose.mcp-stdio-example.yaml` is a worked example with `mcp-server-time`:
+
+- `mcp-time-bridge`: [supergateway](https://github.com/supercorp-ai/supergateway) (MIT, image `supercorp/supergateway`,
+  pinned by digest) with the MCP server installed when the image is built (`deploy/mcp/Dockerfile.stdio-example`), so the
+  running container downloads nothing and needs no egress. Non-root, read-only root filesystem, `cap_drop: ALL`,
+  `no-new-privileges`, memory, CPU and process limits, and `--logLevel none` (its `info` level logs every message,
+  arguments and results included). It is only on its own internal network.
+- `mcp-time`: an unprivileged nginx (pinned by digest) that terminates TLS (production gateways call MCP servers over https
+  only) with a certificate from the deployment's internal CA, and checks the key: supergateway 4.1.0 checks none itself.
+  It is on that network and on the internal `mcp` network, which the example also attaches the gateway and the admin API
+  to. It holds only its own certificate and its key list.
+
+To use it, as an adopter step (the base Compose files are unchanged):
+
+1. Issue a certificate for `mcp-time` from the internal CA, as `init-deployment.sh` does for the services, into
+   `deploy/certs/mcp-time/mcp-time.crt` and `.key`.
+2. Write `deploy/secrets/mcp-time/authorized-keys.map` with one line per accepted key: `"Bearer <random key>" 1;`.
+3. Start it with the production files:
+   `docker compose -f deploy/compose.prod.yaml -f deploy/mcp/compose.mcp-stdio-example.yaml --env-file deploy/.env up -d --wait`.
+4. Register `https://mcp-time:8443/mcp` (residency `OnPrem`, authentication *Static headers*, `Authorization: Bearer <key>`),
+   sync it and approve its tools.
+
+For another server, copy the example with its own name, image (installing that server at build time), certificate, key
+list and network. Each server gets its own containers: never put two servers, or the server and anything else, in one.
 
 ## Progress and cancellation
 
