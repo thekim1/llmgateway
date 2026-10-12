@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
 
@@ -98,5 +100,156 @@ public class McpEntityTests
         new VirtualKeyMcpGrant { AllowedTools = ["search"] }.Allows("Search").ShouldBeFalse();
         new VirtualKeyMcpGrant { AllowedTools = ["search"] }.Allows("delete").ShouldBeFalse();
         new VirtualKeyMcpGrant().Allows("search").ShouldBeFalse();
+    }
+}
+
+public class McpSchemaValidatorTests
+{
+    private static readonly JsonElement Schema = JsonElement.Parse("""
+        {"type":"object","required":["number"],"additionalProperties":false,
+         "properties":{
+           "number":{"type":"string","minLength":2,"maxLength":10},
+           "limit":{"type":"integer","minimum":1,"maximum":50},
+           "mode":{"enum":["fast","full"]},
+           "tags":{"type":"array","items":{"type":"string"},"maxItems":2},
+           "filter":{"type":"object","properties":{"open":{"type":"boolean"}}},
+           "maybe":{"type":["string","null"]}}}
+        """);
+
+    [Theory]
+    [InlineData("""{"number":"KS-1"}""")]
+    [InlineData("""{"number":"KS-1","limit":5,"mode":"full","tags":["a","b"],"filter":{"open":true},"maybe":null}""")]
+    [InlineData("""{"number":"KS-1","limit":5.0}""")]
+    public void Valid_arguments_pass(string arguments) =>
+        McpSchemaValidator.Validate(Schema, JsonNode.Parse(arguments)).ShouldBeNull();
+
+    [Theory]
+    [InlineData("""{}""", "Argument '/number' is required")]
+    [InlineData("""{"number":5}""", "Argument '/number' must be of type string")]
+    [InlineData("""{"number":"K"}""", "Argument '/number' must be at least 2 characters")]
+    [InlineData("""{"number":"KS-1","limit":0}""", "Argument '/limit' must be at least 1")]
+    [InlineData("""{"number":"KS-1","limit":1.5}""", "Argument '/limit' must be of type integer")]
+    [InlineData("""{"number":"KS-1","mode":"slow"}""", "Argument '/mode' must be one of [\"fast\",\"full\"]")]
+    [InlineData("""{"number":"KS-1","tags":["a",1]}""", "Argument '/tags/1' must be of type string")]
+    [InlineData("""{"number":"KS-1","tags":["a","b","c"]}""", "Argument '/tags' must have at most 2 items")]
+    [InlineData("""{"number":"KS-1","filter":{"open":"yes"}}""", "Argument '/filter/open' must be of type boolean")]
+    [InlineData("""{"number":"KS-1","other":1}""", "Argument '/other' is not allowed")]
+    [InlineData("""{"number":"KS-1","maybe":1}""", "Argument '/maybe' must be string or null")]
+    public void Invalid_arguments_are_reported_with_their_path(string arguments, string error) =>
+        McpSchemaValidator.Validate(Schema, JsonNode.Parse(arguments)).ShouldBe(error);
+
+    [Fact]
+    public void Unknown_keywords_and_schemas_that_are_not_objects_are_ignored()
+    {
+        McpSchemaValidator.Validate(JsonElement.Parse("""{"$ref":"#/defs/x","oneOf":[]}"""), new JsonObject()).ShouldBeNull();
+        McpSchemaValidator.Validate(JsonElement.Parse("true"), new JsonObject()).ShouldBeNull();
+    }
+}
+
+public class McpAccessTests
+{
+    private static readonly VirtualKey Key = new() { Name = "k", Prefix = "p", KeyHash = "h" };
+
+    private static (McpServer Server, VirtualKeyMcpGrant Grant, McpTool Tool) Setup(params string[] allowed)
+    {
+        var server = new McpServer { Slug = "s", DisplayName = "s", Url = "https://s", Residency = DataResidency.Eu };
+        var tool = new McpTool
+        {
+            McpServerId = server.Id, Name = "t", Definition = "{}", DefinitionHash = "h", ExposedName = "s__t",
+            ApprovalState = McpToolApprovalState.Approved, ApprovedDefinition = "{}",
+        };
+        return (server, new VirtualKeyMcpGrant { VirtualKeyId = Key.Id, McpServerId = server.Id, AllowedTools = [.. allowed] }, tool);
+    }
+
+    [Fact]
+    public void A_granted_approved_tool_on_an_enabled_server_is_allowed()
+    {
+        var (server, grant, tool) = Setup("*");
+        McpAccess.Check(Key, server, grant, tool, circuitOpen: false).ShouldBe(McpDenial.None);
+    }
+
+    [Fact]
+    public void Every_check_can_refuse()
+    {
+        var (server, grant, tool) = Setup("*");
+        McpAccess.Check(Key, server, null, tool, false).ShouldBe(McpDenial.NotGranted);
+        McpAccess.Check(Key, server, new VirtualKeyMcpGrant { VirtualKeyId = Guid.NewGuid(), McpServerId = server.Id, AllowedTools = ["*"] }, tool, false)
+            .ShouldBe(McpDenial.NotGranted);
+        McpAccess.Check(Key, server, new VirtualKeyMcpGrant { VirtualKeyId = Key.Id, McpServerId = server.Id, AllowedTools = ["other"] }, tool, false)
+            .ShouldBe(McpDenial.ToolNotGranted);
+        McpAccess.Check(Key, server, grant, tool, circuitOpen: true).ShouldBe(McpDenial.CircuitOpen);
+        McpAccess.Check(Key, server, grant, tool, false, restrictTo: DataResidency.OnPrem).ShouldBe(McpDenial.OnPremOnly);
+
+        server.IsEnabled = false;
+        McpAccess.Check(Key, server, grant, tool, false).ShouldBe(McpDenial.ServerDisabled);
+        server.IsEnabled = true;
+
+        tool.ApprovalState = McpToolApprovalState.Pending;
+        McpAccess.Check(Key, server, grant, tool, false).ShouldBe(McpDenial.NotApproved);
+    }
+
+    [Fact]
+    public void Residency_follows_the_keys_allow_list_and_empty_means_all()
+    {
+        var (server, _, tool) = Setup("*");
+        var onPremOnly = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h", AllowedResidencies = [DataResidency.OnPrem] };
+        var grant = new VirtualKeyMcpGrant { VirtualKeyId = onPremOnly.Id, McpServerId = server.Id, AllowedTools = ["*"] };
+
+        McpAccess.Check(onPremOnly, server, grant, tool, false).ShouldBe(McpDenial.Residency);
+        server.Residency = DataResidency.OnPrem;
+        McpAccess.Check(onPremOnly, server, grant, tool, false).ShouldBe(McpDenial.None);
+    }
+}
+
+public class McpToolDefinitionTests
+{
+    [Theory]
+    [InlineData("""{"annotations":{"readOnlyHint":true}}""", true)]
+    [InlineData("""{"annotations":{"destructiveHint":false}}""", true)]
+    [InlineData("""{"annotations":{"destructiveHint":true,"idempotentHint":true}}""", true)]
+    [InlineData("""{"annotations":{"destructiveHint":true}}""", false)]
+    [InlineData("""{"annotations":{}}""", false)]
+    [InlineData("""{}""", false)]
+    public void Only_tools_that_cannot_do_harm_twice_may_be_retried(string json, bool mayRetry) =>
+        McpToolDefinition.Parse(json)!.MayRetry.ShouldBe(mayRetry);
+
+    [Fact]
+    public void Definitions_that_are_not_objects_are_refused()
+    {
+        McpToolDefinition.Parse("[]").ShouldBeNull();
+        McpToolDefinition.Parse("{").ShouldBeNull();
+        McpToolDefinition.Parse(null).ShouldBeNull();
+        McpToolDefinition.Parse("""{"inputSchema":{"type":"object"}}""")!.InputSchema.ShouldNotBeNull();
+    }
+}
+
+public class McpPiiTests
+{
+    [Fact]
+    public void Arguments_are_scanned_in_full_including_names_ids_and_types()
+    {
+        var args = (JsonObject)JsonNode.Parse("""{"name":"anna@example.se","id":"070-123 45 67","nested":[{"type":"x@example.se"}]}""")!;
+        var scan = McpPii.ScanArguments(args, redact: true);
+
+        scan.Summary.ShouldBe("Email:2,Phone:1");
+        args.ToJsonString().ShouldNotContain("@example.se");
+    }
+
+    [Fact]
+    public void Results_are_scanned_in_text_and_structured_content_but_not_in_payloads()
+    {
+        var result = JsonNode.Parse("""
+            {"content":[{"type":"text","text":"Mejla anna@example.se"},{"type":"image","data":"anna@example.se","mimeType":"image/png"},
+                        {"type":"resource","resource":{"uri":"mailto:anna@example.se","text":"bo@example.se","blob":"x@example.se"}}],
+             "structuredContent":{"data":"c@example.se"},"_meta":{"m":"d@example.se"}}
+            """);
+        var scan = McpPii.ScanResult(result, redact: true);
+
+        scan.Summary.ShouldBe("Email:3");
+        result!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("Mejla [E-POST]");
+        result["content"]![1]!["data"]!.GetValue<string>().ShouldBe("anna@example.se");
+        result["content"]![2]!["resource"]!["text"]!.GetValue<string>().ShouldBe("[E-POST]");
+        result["structuredContent"]!["data"]!.GetValue<string>().ShouldBe("[E-POST]");
+        result["_meta"]!["m"]!.GetValue<string>().ShouldBe("d@example.se");
     }
 }

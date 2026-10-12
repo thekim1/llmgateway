@@ -65,6 +65,7 @@ public sealed class CatalogSnapshot
         UsesFallbackRate = usesFallbackRate;
 
         var mcpDuplicates = new List<string>();
+        var mcpInvalid = new List<string>();
         foreach (var server in mcpServers ?? [])
         {
             if (!_mcpServers.TryAdd(server.Slug, server))
@@ -74,16 +75,23 @@ public sealed class CatalogSnapshot
             }
 
             _mcpServersById[server.Id] = server;
-            var tools = new Dictionary<string, McpTool>(StringComparer.Ordinal);
+            var tools = new Dictionary<string, McpToolEntry>(StringComparer.Ordinal);
             foreach (var tool in server.Tools.Where(t => t.IsExposed).OrderBy(t => t.Id))
             {
-                if (tools.ContainsKey(tool.Name) || !_mcpTools.TryAdd(tool.ExposedName, new McpToolEntry(server, tool)))
+                if (McpToolDefinition.Parse(tool.ApprovedDefinition) is not { } definition)
+                {
+                    mcpInvalid.Add(tool.ExposedName);
+                    continue;
+                }
+
+                var entry = new McpToolEntry(server, tool, definition);
+                if (tools.ContainsKey(tool.Name) || !_mcpTools.TryAdd(tool.ExposedName, entry))
                 {
                     mcpDuplicates.Add(tool.ExposedName);
                     continue;
                 }
 
-                tools[tool.Name] = tool;
+                tools[tool.Name] = entry;
             }
 
             _mcpServerTools[server.Id] = tools;
@@ -98,6 +106,7 @@ public sealed class CatalogSnapshot
         }
 
         McpDuplicateNames = mcpDuplicates;
+        McpInvalidTools = mcpInvalid;
     }
 
     public IReadOnlyList<ProviderAccount> Providers { get; }
@@ -144,10 +153,10 @@ public sealed class CatalogSnapshot
 
     private readonly Dictionary<string, McpServer> _mcpServers = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, McpServer> _mcpServersById = [];
-    private readonly Dictionary<Guid, Dictionary<string, McpTool>> _mcpServerTools = [];
+    private readonly Dictionary<Guid, Dictionary<string, McpToolEntry>> _mcpServerTools = [];
     private readonly Dictionary<string, McpToolEntry> _mcpTools = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, Dictionary<Guid, VirtualKeyMcpGrant>> _mcpGrants = [];
-    private static readonly Dictionary<string, McpTool> NoMcpTools = [];
+    private static readonly Dictionary<string, McpToolEntry> NoMcpTools = [];
     private static readonly Dictionary<Guid, VirtualKeyMcpGrant> NoMcpGrants = [];
 
     /// <summary>MCP servers by slug, enabled or not.</summary>
@@ -162,10 +171,16 @@ public sealed class CatalogSnapshot
     /// </summary>
     public IReadOnlyList<string> McpDuplicateNames { get; }
 
+    /// <summary>Exposed names of approved tools whose approved definition is not a JSON object; they are left out.</summary>
+    public IReadOnlyList<string> McpInvalidTools { get; }
+
     public McpServer? McpServerById(Guid id) => _mcpServersById.GetValueOrDefault(id);
 
     /// <summary>The server's approved tools by their name on the server, for <c>/mcp/{slug}</c>.</summary>
-    public IReadOnlyDictionary<string, McpTool> McpServerTools(Guid serverId) => _mcpServerTools.GetValueOrDefault(serverId) ?? NoMcpTools;
+    public IReadOnlyDictionary<string, McpToolEntry> McpServerTools(Guid serverId) => _mcpServerTools.GetValueOrDefault(serverId) ?? NoMcpTools;
+
+    /// <summary>Decrypted MCP server credentials, cached for this snapshot's lifetime like <see cref="Credentials"/>.</summary>
+    internal McpCredentials McpCredentials { get; } = new();
 
     /// <summary>The key's MCP grants by server id. A key without grants has no MCP access.</summary>
     public IReadOnlyDictionary<Guid, VirtualKeyMcpGrant> McpGrants(Guid keyId) => _mcpGrants.GetValueOrDefault(keyId) ?? NoMcpGrants;
@@ -220,8 +235,8 @@ public sealed record ResolvedModel(string Name, ModelKind Kind, IReadOnlyList<Ro
     }
 }
 
-/// <summary>An approved MCP tool and the server it belongs to.</summary>
-public sealed record McpToolEntry(McpServer Server, McpTool Tool);
+/// <summary>An approved MCP tool, the server it belongs to and its parsed approved definition.</summary>
+public sealed record McpToolEntry(McpServer Server, McpTool Tool, McpToolDefinition Definition);
 
 /// <summary>
 /// Loads and caches the routing catalogue. An admin change (via <see cref="IInvalidationBus"/>) drops the snapshot, so
@@ -359,6 +374,9 @@ public sealed partial class GatewayCatalog : IDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "MCP server slug or tool name '{Name}' is loaded twice and the later one is ignored")]
     private static partial void LogDuplicateMcpName(ILogger logger, string name);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "MCP tool '{Name}' is ignored: its approved definition is not a JSON object")]
+    private static partial void LogInvalidMcpTool(ILogger logger, string name);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Routing rule '{Rule}' ({RuleId}) is ignored: {Error}")]
     private static partial void LogRuleIgnored(ILogger logger, string rule, Guid ruleId, string error);
 
@@ -427,6 +445,11 @@ public sealed partial class GatewayCatalog : IDisposable
         foreach (var name in snapshot.McpDuplicateNames)
         {
             LogDuplicateMcpName(_logger, name);
+        }
+
+        foreach (var name in snapshot.McpInvalidTools)
+        {
+            LogInvalidMcpTool(_logger, name);
         }
 
         return snapshot;

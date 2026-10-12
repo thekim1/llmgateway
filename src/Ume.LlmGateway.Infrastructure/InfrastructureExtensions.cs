@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using StackExchange.Redis;
 using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Infrastructure.Mcp;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;
@@ -127,6 +128,30 @@ public static class InfrastructureExtensions
         services.AddSingleton<IProviderAdapter, AnthropicAdapter>();
         services.AddSingleton<IProviderAdapter, OpenAICompatibleAdapter>();
         services.TryAddSingleton<IRealtimeConnector, RealtimeConnector>();
+        return services;
+    }
+
+    /// <summary>
+    /// The MCP upstream client. The host must remove the standard resilience handler from <see cref="McpUpstream.HttpClientName"/>
+    /// and <see cref="McpTokenCache.HttpClientName"/>: whether an MCP request may be sent again depends on the tool.
+    /// Production allows only https servers, like providers.
+    /// </summary>
+    public static IServiceCollection AddMcpUpstream(this IServiceCollection services)
+    {
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton(sp => new McpUpstreamOptions { RequireHttps = sp.GetRequiredService<IHostEnvironment>().IsProduction() });
+        services.AddHttpClient(McpUpstream.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                ConnectTimeout = TimeSpan.FromSeconds(10),
+                AutomaticDecompression = System.Net.DecompressionMethods.All,
+                AllowAutoRedirect = false,
+            });
+        services.AddHttpClient(McpTokenCache.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.TryAddSingleton<McpTokenCache>();
+        services.TryAddSingleton<IMcpUpstream, McpUpstream>();
         return services;
     }
 

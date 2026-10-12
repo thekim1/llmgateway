@@ -251,7 +251,7 @@ URIs from resources in the aggregated view are namespaced as `mcp+ume://{slug}/{
 4. Rate limit (`McpCallsPerMinute`) in Redis.
 5. Validate the arguments against the approved `inputSchema`, then run the PII guard on the arguments.
 6. Reserve budget if the tool has a price.
-7. Call upstream through the pooled session, with a timeout. Retry once on a transport failure, unless the tool has `destructiveHint: true` and `idempotentHint` is not true.
+7. Call upstream through the pooled client, with a timeout. Retry once on a transport failure, timeout or 5xx only when the tool cannot do harm twice: `readOnlyHint: true`, `destructiveHint: false` or `idempotentHint: true` (MCP's defaults treat a tool without hints as destructive). A 404 is retried only against a handshake-era upstream session (the session was dropped, so the request never ran); against `2026-07-28` it is a plain error.
 8. Apply the PII guard to the result and cap its size (`MaxResultBytes`). Content blocks pass through unchanged.
 9. Account the call (`UsageRecord`), reconcile the budget, and emit a span and metrics.
 
@@ -339,13 +339,19 @@ MCP tool definitions stay invisible to routing conditions, as `tools` already ar
 - [x] Redis keys and channel added to `RedisKeys.cs` and `deploy/redis/users.acl.example`.
 
 **2. MCP gateway (proxy)**
-- [ ] `/mcp` and `/mcp/{slug}`, stateless for every client (`HttpServerSessionMode.Stateless`): `server/discover`, per-request `_meta`, and `initialize`/`ping` for handshake-era clients; `tools/list` and `tools/call` (raw JSON passthrough of results).
-- [ ] The authorisation stage (grant, residency, approval state). Unknown and forbidden tools give the same error.
-- [ ] Upstream session pool with re-initialize, timeout, retry rules and circuit breaker.
-- [ ] PII on arguments and results, `McpCallsPerMinute`, budget reservation for priced tools, `UsageRecord` accounting.
+- [x] `/mcp` and `/mcp/{slug}`, stateless for every client (`HttpServerSessionMode.Stateless`): `server/discover`, per-request `_meta`, and `initialize`/`ping` for handshake-era clients; `tools/list` and `tools/call` (raw JSON passthrough of results).
+- [x] The authorisation stage (grant, residency, approval state). Unknown and forbidden tools give the same error.
+- [x] Upstream session pool with re-initialize, timeout, retry rules and circuit breaker.
+- [x] PII on arguments and results, `McpCallsPerMinute`, budget reservation for priced tools, `UsageRecord` accounting.
 - [ ] Resources, prompts, progress, cancellation, and change notifications with `list_changed` on `subscriptions/listen` (per-key stream cap).
-- [ ] Spans, metrics and security events.
-- [ ] Tests: integration with Testcontainers and a fake MCP server, covering grants, denial, PII redaction in results, image content passed through, any instance serves any request (two gateway instances), and destructive tools not retried. Benchmark that `/v1/chat/completions` latency is unchanged.
+- [x] Spans, metrics and security events (`gateway.mcp.tool_denied`; `McpToolQuarantined` belongs to the sync in step 3, `McpServerAuthFailed` is deferred, see below).
+- [x] Tests: integration with Testcontainers and a fake MCP server, covering grants, denial, PII redaction in results, image content passed through, any instance serves any request (two gateway instances), and destructive tools not retried. Benchmark that `/v1/chat/completions` latency is unchanged.
+
+Step 2a (tools) notes and deferrals:
+- The gateway implements the Streamable HTTP POST handling itself instead of the SDK's `MapMcp`, so authentication, error format, middleware and accounting stay in the gateway pipeline; the SDK is used for the upstream client and its protocol constants. Answers are `application/json`; `GET`/`DELETE` answer 405.
+- Argument validation is a built-in subset of JSON Schema (`McpSchemaValidator`): JsonSchema.Net is under the Open Source Maintenance Fee EULA (fees for commercial use), and the upstream validates fully anyway.
+- Upstream requests the SDK client sends by itself (version probe, `initialize`) carry only the server's credential; caller headers are attached by a per-call context that only the caller's own `tools/call` request can claim.
+- Deferred: the `McpServerAuthFailed` security event (upstream 401/403 is logged and answered `-32003`); a per-server price separate from per-tool `PriceSek`; forwarding caller `_meta` (progress tokens) and upstream notifications (2b); limiting the SDK client's buffering before the byte limit applies (the response stream is cut at twice `MaxResultBytes` plus 64 KiB).
 
 **3. Control plane**
 - [ ] The tool sync worker with a Redis lock, hashing, the approval states and `list_changed` subscription.

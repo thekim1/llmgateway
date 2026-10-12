@@ -23,6 +23,9 @@ public interface IRateLimiter
     /// has no token limit. Does not count as a request.
     /// </summary>
     Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken);
+
+    /// <summary>Counts one MCP call sent upstream against the key's <c>McpCallsPerMinute</c> (null or 0 = no limit).</summary>
+    Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken);
 }
 
 /// <summary>A spend counter for one budget scope and period window, in micro-SEK (1 SEK = 1 000 000).</summary>
@@ -131,6 +134,7 @@ internal static class RateLimitWindow
 public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
 {
     private readonly ConcurrentDictionary<Counter, long> _counters = new();
+    private readonly ConcurrentDictionary<(Guid KeyId, long Minute), long> _mcpCalls = new();
     private readonly Lock _lock = new();
     private long _prunedMinute;
 
@@ -176,8 +180,22 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
         return Task.FromResult<double?>(RateLimitWindow.TokenPercent(_counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true)), tokensPerMinute.Value));
     }
 
+    public Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken)
+    {
+        if (callsPerMinute is not > 0)
+        {
+            return Task.FromResult(RateLimitDecision.Unlimited);
+        }
+
+        var (minute, retry) = Window();
+        var calls = _mcpCalls.AddOrUpdate((keyId, minute), 1, (_, v) => v + 1);
+        return Task.FromResult(calls > callsPerMinute
+            ? new RateLimitDecision(false, callsPerMinute, 0, retry, "mcp_calls")
+            : new RateLimitDecision(true, callsPerMinute, (int)(callsPerMinute.Value - calls), TimeSpan.Zero, null));
+    }
+
     /// <summary>Number of counters held (tests: old windows are dropped).</summary>
-    internal int Count => _counters.Count;
+    internal int Count => _counters.Count + _mcpCalls.Count;
 
     /// <summary>The current window; the first call in a new minute drops the counters of earlier ones.</summary>
     private (long Minute, TimeSpan RetryAfter) Window()
@@ -191,6 +209,14 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
                 if (counter.Minute < window.Minute - 1)
                 {
                     _counters.TryRemove(counter, out _);
+                }
+            }
+
+            foreach (var counter in _mcpCalls.Keys)
+            {
+                if (counter.Minute < window.Minute - 1)
+                {
+                    _mcpCalls.TryRemove(counter, out _);
                 }
             }
         }

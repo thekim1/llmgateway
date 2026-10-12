@@ -241,6 +241,8 @@ public sealed class GatewayMetrics
     private readonly Histogram<double> _sessionDuration;
     private readonly UpDownCounter<long> _openSessions;
     private readonly Counter<double> _audioSeconds;
+    private readonly Counter<long> _mcpCalls;
+    private readonly Histogram<double> _mcpDuration;
     private readonly Meter _meter;
 
     public GatewayMetrics(IMeterFactory meterFactory)
@@ -256,6 +258,16 @@ public sealed class GatewayMetrics
         _sessionDuration = _meter.CreateHistogram<double>("ume.gateway.realtime.session.duration", unit: "s", description: "Length of live audio sessions");
         _openSessions = _meter.CreateUpDownCounter<long>("ume.gateway.realtime.sessions", description: "Live audio sessions open on this instance");
         _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
+        _mcpCalls = _meter.CreateCounter<long>("ume.gateway.mcp.calls", description: "MCP requests sent to MCP servers, by server, method and outcome");
+        _mcpDuration = _meter.CreateHistogram<double>("ume.gateway.mcp.call.duration", unit: "ms", description: "Duration of MCP requests to MCP servers");
+    }
+
+    /// <summary>One MCP request sent upstream. <paramref name="server"/> is the server's slug (configured, so bounded).</summary>
+    public void McpCall(string server, string method, string outcome, double milliseconds)
+    {
+        var tags = new TagList { { "server", server }, { "method", method }, { "outcome", outcome } };
+        _mcpCalls.Add(1, tags);
+        _mcpDuration.Record(milliseconds, tags);
     }
 
     public void SessionOpened(GatewayEndpoint endpoint) => _openSessions.Add(1, new TagList { { "endpoint", endpoint.ToString() } });

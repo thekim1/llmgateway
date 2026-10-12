@@ -4,6 +4,7 @@ using Scalar.AspNetCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure;
+using Ume.LlmGateway.Infrastructure.Mcp;
 using Ume.LlmGateway.Infrastructure.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -20,6 +21,10 @@ builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
 builder.AddGatewayStores();
 builder.Services.AddProviderAdapters();
+builder.Services.AddMcpUpstream();
+// The gateway decides itself whether an MCP request may be sent again (never for destructive tools).
+builder.Services.AddHttpClient(McpUpstream.HttpClientName).RemoveStandardResilienceHandler();
+builder.Services.AddHttpClient(McpTokenCache.HttpClientName).RemoveStandardResilienceHandler();
 
 builder.Services.AddOptions<GatewayOptions>()
     .BindConfiguration(GatewayOptions.SectionName)
@@ -69,7 +74,9 @@ app.UseUmeSecurityHeaders(o =>
 {
     o.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
     o.ContentSecurityPolicyPrefixes.Add("/v1");
+    o.ContentSecurityPolicyPrefixes.Add("/mcp");
     o.NoStorePrefixes.Add("/v1");
+    o.NoStorePrefixes.Add("/mcp");
 });
 
 app.MapDefaultEndpoints();
@@ -128,6 +135,13 @@ v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) 
 v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
     .WithSummary("Modeller och alias som nyckeln får använda")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+// MCP gateway (Streamable HTTP, stateless): every granted server, or one server by slug with its own tool names.
+var mcp = app.MapGroup("/mcp").WithTags("MCP");
+mcp.MapPost("", (HttpContext http, GatewayRequestHandler h) => h.HandleMcpAsync(http, null))
+    .WithSummary("MCP-server (Streamable HTTP) med alla MCP-servrar nyckeln får använda");
+mcp.MapPost("/{slug}", (HttpContext http, string slug, GatewayRequestHandler h) => h.HandleMcpAsync(http, slug))
+    .WithSummary("MCP-server (Streamable HTTP) för en MCP-server, med verktygens egna namn");
 
 await app.RunAsync();
 

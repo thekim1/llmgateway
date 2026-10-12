@@ -72,6 +72,24 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
         var used = await redis.GetDatabase().StringGetAsync(RedisKeys.RateTokens(keyId, minute));
         return RateLimitWindow.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
     }
+
+    public async Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken)
+    {
+        if (callsPerMinute is not > 0)
+        {
+            return RateLimitDecision.Unlimited;
+        }
+
+        var (minute, retry) = RateLimitWindow.Current(time.GetUtcNow());
+        RedisKey key = RedisKeys.RateMcpCalls(keyId, minute);
+        var db = redis.GetDatabase();
+        var increment = db.StringIncrementAsync(key);
+        _ = db.KeyExpireAsync(key, RedisKeys.RateWindow, CommandFlags.FireAndForget); // pipelined after the INCR
+        var calls = await increment;
+        return calls > callsPerMinute
+            ? new RateLimitDecision(false, callsPerMinute, 0, retry, "mcp_calls")
+            : new RateLimitDecision(true, callsPerMinute, (int)(callsPerMinute.Value - calls), TimeSpan.Zero, null);
+    }
 }
 
 /// <summary>Open sessions per key as a sorted set of session id → expiry (ms). Expired members are dropped on open.</summary>

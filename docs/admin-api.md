@@ -253,6 +253,10 @@ and invalidate the gateway catalogue.
   reported tokens × token prices (gpt-4o-transcribe); whatever is not reported is estimated from the file (exact for
   WAV and FLAC, from the bitrate for MP3, 32 kbps otherwise). Usage records carry `audioSeconds`.
 - Live audio: see [below](#live-audio-realtime).
+- MCP: `POST /mcp` and `POST /mcp/{slug}` (JSON-RPC; see [mcp.md](mcp.md)). HTTP-level errors use the error body
+  below (`invalid_api_key` with `WWW-Authenticate: Bearer`, `mcp_server_not_found` for an unknown or not granted slug);
+  everything after that is a JSON-RPC error. Usage records of refused or failed tool calls carry `mcp_tool_not_found`,
+  `mcp_invalid_arguments`, `mcp_upstream_failed` or `mcp_result_too_large`.
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).

@@ -45,6 +45,11 @@ public static partial class SecurityEvents
     public static partial void RequestRefused(ILogger logger, string requestId, string endpoint, string errorCode,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
+    [LoggerMessage(1004, LogLevel.Information,
+        "MCP tool {Tool} refused in request {RequestId}: {Reason} (server {Server}); key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}", EventName = "gateway.mcp.tool_denied")]
+    public static partial void McpToolDenied(ILogger logger, string tool, string requestId, string reason, string? server,
+        Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
+
     [LoggerMessage(3001, LogLevel.Information,
         "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}", EventName = "data.read")]
     public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);

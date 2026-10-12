@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Infrastructure.Mcp;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -30,6 +31,7 @@ public sealed partial class GatewayRequestHandler(
     IEnumerable<IProviderAdapter> adapters,
     IRealtimeConnector realtime,
     IRealtimeSessionRegistry sessions,
+    IMcpUpstream mcp,
     IHostApplicationLifetime lifetime,
     CredentialProtector credentials,
     UsageWriter usageWriter,

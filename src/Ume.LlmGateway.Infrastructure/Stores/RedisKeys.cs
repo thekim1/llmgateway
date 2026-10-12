@@ -36,6 +36,9 @@ internal static class RedisKeys
     /// <summary>Tokens a key used in the minute <paramref name="minute"/> (Unix minutes).</summary>
     public static string RateTokens(Guid keyId, long minute) => $"ume:rl:tok:{keyId:N}:{minute}";
 
+    /// <summary>MCP calls a key sent upstream in the minute <paramref name="minute"/> (Unix minutes).</summary>
+    public static string RateMcpCalls(Guid keyId, long minute) => $"ume:rl:mcp:{keyId:N}:{minute}";
+
     /// <summary>Open realtime sessions of a key (sorted set of session id → expiry).</summary>
     public static string RealtimeSessions(Guid keyId) => $"ume:rt:{keyId:N}";
 

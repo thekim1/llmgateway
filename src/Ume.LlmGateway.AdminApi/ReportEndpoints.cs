@@ -72,7 +72,12 @@ public static class ReportEndpoints
                 UsageGrouping.Team => names.GroupBy(u => new { Key = u.Record.TeamId.ToString(), Label = u.TeamName }),
                 UsageGrouping.Key => names.GroupBy(u => new { Key = u.Record.VirtualKeyId.ToString(), Label = u.KeyName }),
                 UsageGrouping.Model => names.GroupBy(u => new { Key = u.Record.RequestedModel, Label = u.Record.RequestedModel }),
-                UsageGrouping.Provider => names.GroupBy(u => new { Key = u.Record.ProviderName ?? "-", Label = u.Record.ProviderName ?? "-" }),
+                // MCP tool calls have no provider; they get their own row instead of joining refused requests under "-".
+                UsageGrouping.Provider => names.GroupBy(u => new
+                {
+                    Key = u.Record.Endpoint == GatewayEndpoint.Mcp ? "(mcp)" : u.Record.ProviderName ?? "-",
+                    Label = u.Record.Endpoint == GatewayEndpoint.Mcp ? "MCP" : u.Record.ProviderName ?? "-",
+                }),
 #pragma warning disable CA1305 // translated to SQL (a text cast in the database), no .NET culture is involved
                 UsageGrouping.Day => names.GroupBy(u => new { Key = u.Record.Timestamp.Date.ToString(), Label = u.Record.Timestamp.Date.ToString() }),
 #pragma warning restore CA1305

@@ -44,6 +44,36 @@ public static class PiiJsonScanner
         return new PiiScanResult(counts);
     }
 
+    /// <summary>
+    /// Scans every string value in <paramref name="node"/> (MCP tool arguments and results, which have no structural
+    /// fields of their own), except under the property names in <paramref name="skipped"/>.
+    /// </summary>
+    public static PiiScanResult ScanValues(JsonNode? node, bool redact, IReadOnlySet<string>? skipped = null)
+    {
+        var counts = new Dictionary<PiiCategory, int>();
+        WalkValues(node, counts, redact, skipped);
+        return new PiiScanResult(counts);
+    }
+
+    /// <summary>Adds <paramref name="other"/>'s counts to <paramref name="result"/>'s.</summary>
+    public static PiiScanResult Merge(PiiScanResult result, PiiScanResult other)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(other);
+        if (!other.HasPii)
+        {
+            return result;
+        }
+
+        var counts = new Dictionary<PiiCategory, int>(result.Counts);
+        foreach (var (category, count) in other.Counts)
+        {
+            counts[category] = counts.GetValueOrDefault(category) + count;
+        }
+
+        return new PiiScanResult(counts);
+    }
+
     public static PiiDecision Decide(PiiPolicy policy, PiiScanResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -93,23 +123,56 @@ public static class PiiJsonScanner
                 break;
 
             case JsonValue value when value.TryGetValue<string>(out var text):
-                var matches = PiiDetector.Detect(text);
-                if (matches.Count == 0)
-                {
-                    return;
-                }
+                Detect(value, text, counts, redact);
+                break;
+        }
+    }
 
-                foreach (var m in matches)
+    private static void WalkValues(JsonNode? node, Dictionary<PiiCategory, int> counts, bool redact, IReadOnlySet<string>? skipped)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var (key, child) in redact ? obj.ToList() : (IEnumerable<KeyValuePair<string, JsonNode?>>)obj)
                 {
-                    counts[m.Category] = counts.GetValueOrDefault(m.Category) + 1;
-                }
-
-                if (redact)
-                {
-                    value.ReplaceWith(JsonValue.Create(PiiDetector.Redact(text, matches)));
+                    if (skipped is null || !skipped.Contains(key))
+                    {
+                        WalkValues(child, counts, redact, skipped);
+                    }
                 }
 
                 break;
+
+            case JsonArray arr:
+                for (var i = 0; i < arr.Count; i++)
+                {
+                    WalkValues(arr[i], counts, redact, skipped);
+                }
+
+                break;
+
+            case JsonValue value when value.TryGetValue<string>(out var text):
+                Detect(value, text, counts, redact);
+                break;
+        }
+    }
+
+    private static void Detect(JsonValue value, string text, Dictionary<PiiCategory, int> counts, bool redact)
+    {
+        var matches = PiiDetector.Detect(text);
+        if (matches.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var m in matches)
+        {
+            counts[m.Category] = counts.GetValueOrDefault(m.Category) + 1;
+        }
+
+        if (redact)
+        {
+            value.ReplaceWith(JsonValue.Create(PiiDetector.Redact(text, matches)));
         }
     }
 }
