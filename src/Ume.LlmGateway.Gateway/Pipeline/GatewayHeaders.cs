@@ -30,6 +30,12 @@ public static class GatewayHeaders
     /// <summary>Provider turns of a <c>/v1/responses</c> request with hosted <c>mcp</c> tools.</summary>
     public const string Turns = "x-ume-turns";
 
+    /// <summary>
+    /// Why a <c>/v1/messages</c> MCP connector loop stopped early (<c>max_tool_calls</c>, <c>max_turns</c>, <c>time_limit</c>,
+    /// <c>budget_exceeded</c>, <c>provider_error</c>); Anthropic's <c>stop_reason</c> has no value for these.
+    /// </summary>
+    public const string McpStop = "x-ume-mcp-stop";
+
     public const string RateLimitLimitRequests = "x-ratelimit-limit-requests";
     public const string RateLimitRemainingRequests = "x-ratelimit-remaining-requests";
 }

@@ -393,7 +393,7 @@ Step 3a (admin API and tool sync) notes and deferrals:
 - [x] `/v1/responses` hosted `mcp` tool: non-streaming loop, approval flow, `max_tool_calls`, `incomplete` (with provider pinning after the first turn and per-turn budget reservation).
 - [ ] Streaming events (4c).
 - [ ] Multimodal tool results mapped to native provider parts (OpenAI-compatible and Anthropic).
-- [ ] `/v1/messages` MCP connector shape.
+- [x] `/v1/messages` MCP connector shape (4d, non-streaming; streaming refused with 400 for now).
 
 Step 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) notes and deferrals:
 - The listing uses `tools/list`'s visibility (`VisibleToolsAsync`) on the aggregated view only (exposed names); it is not accounted, and its authentication failures are recorded under `McpToolCall` (no new `GatewayEndpoint`). Answer: `{ object: "list", format, data }`, `data` being the `tools` array as is (no `ume` extension members, which providers would reject). Responses tools get `strict: false`, since Responses defaults to strict and MCP schemas rarely satisfy it; Chat Completions and Anthropic get no `strict`. The description falls back to the title.

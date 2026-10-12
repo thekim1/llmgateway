@@ -39,6 +39,7 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
     {
         await _upstream.StartAsync();
         await _responses.StartAsync();
+        await _messages.StartAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -51,6 +52,7 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
 
         await _upstream.DisposeAsync();
         await _responses.DisposeAsync();
+        await _messages.DisposeAsync();
     }
 
     private async Task<McpServer> AddServerAsync(Action<McpServer>? configure = null, params (string Name, McpToolApprovalState State, string Definition)[] tools)

@@ -71,12 +71,11 @@ public sealed partial class GatewayRequestHandler
         public Guid? PinnedDeploymentId { get; set; }
     }
 
-    /// <summary>The running loop of one request.</summary>
-    private sealed class McpLoop(ResponsesMcp request, RequestState first)
+    /// <summary>What every gateway-run tool loop counts: turns, tool calls, cost and what limits it.</summary>
+    private abstract class McpLoopCore(RequestState first, int maxToolCalls)
     {
-        public ResponsesMcp Request { get; } = request;
         public RequestState First { get; } = first;
-        public JsonArray Output { get; } = [];
+        public int MaxToolCalls { get; } = maxToolCalls;
         public int ToolCalls { get; set; }
 
         /// <summary>The MCP calls of the turn just received, which the next turn would answer.</summary>
@@ -86,11 +85,19 @@ public sealed partial class GatewayRequestHandler
         public string? Pii { get; set; }
         public bool BudgetExhausted { get; set; }
 
+        /// <summary>Whether the next turn may go to a provider that does not run on-prem (any candidate of turn 1, then the pinned one).</summary>
+        public bool OffPrem { get; set; }
+    }
+
+    /// <summary>The running loop of one request.</summary>
+    private sealed class McpLoop(ResponsesMcp request, RequestState first) : McpLoopCore(first, request.MaxToolCalls)
+    {
+        public ResponsesMcp Request { get; } = request;
+        public JsonArray Output { get; } = [];
+
         /// <summary>A streamed loop's <c>response.created</c> response from the provider (the base of the final response when no turn completed).</summary>
         public JsonObject? Created { get; set; }
 
-        /// <summary>Whether the next turn may go to a provider that does not run on-prem (any candidate of turn 1, then the pinned one).</summary>
-        public bool OffPrem { get; set; }
         public long InputTokens { get; set; }
         public long CachedTokens { get; set; }
         public long OutputTokens { get; set; }
@@ -731,7 +738,7 @@ public sealed partial class GatewayRequestHandler
     /// The budget for the next turn, reserved before this turn's calls run; null when a limit stops the loop instead
     /// (<see cref="LimitReached"/> says which).
     /// </summary>
-    private async Task<BudgetReservation?> ReserveNextTurnAsync(McpLoop loop, JsonObject template, CatalogSnapshot snapshot, long started, CancellationToken ct)
+    private async Task<BudgetReservation?> ReserveNextTurnAsync(McpLoopCore loop, JsonObject template, CatalogSnapshot snapshot, long started, CancellationToken ct)
     {
         if (LimitReached(loop, started) is not "budget_exceeded")
         {
@@ -747,19 +754,23 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>The limit that stops the loop before another turn; <c>budget_exceeded</c> when only the budget can still stop it.</summary>
-    private string LimitReached(McpLoop loop, long started)
+    private string LimitReached(McpLoopCore loop, long started)
     {
         var limits = options.CurrentValue.Mcp.Loop;
-        return loop.ToolCalls + loop.NextCalls > loop.Request.MaxToolCalls ? "max_tool_calls"
+        return loop.ToolCalls + loop.NextCalls > loop.MaxToolCalls ? "max_tool_calls"
             : loop.Turns >= limits.MaxTurns ? "max_turns"
             : time.GetElapsedTime(started).TotalSeconds >= limits.TimeoutSeconds ? "time_limit"
             : "budget_exceeded";
     }
 
-    /// <summary>Turn 1 with the route's fallback, later turns on the pinned deployment only. Null result: every candidate failed.</summary>
+    /// <summary>
+    /// Turn 1 with the route's fallback, later turns on the pinned deployment only, to <paramref name="turn"/>'s endpoint
+    /// (Responses when <paramref name="mcp"/> is set, otherwise not streamed). Null result: every candidate failed.
+    /// </summary>
     private async Task<(ProviderResult? Result, ProviderFailure? LastFailure)> SendTurnAsync(RequestState turn, CatalogSnapshot snapshot, IReadOnlyList<RouteTarget> candidates,
-        JsonObject body, ResponsesMcp mcp, CancellationToken ct)
+        JsonObject body, ResponsesMcp? mcp, CancellationToken ct)
     {
+        var stream = mcp?.Stream ?? false;
         ProviderFailure? lastFailure = null;
         for (var i = 0; i < candidates.Count; i++)
         {
@@ -774,18 +785,18 @@ public sealed partial class GatewayRequestHandler
             }
 
             var attempt = i == candidates.Count - 1 ? body : (JsonObject)body.DeepClone();
-            if (!mcp.Store && deployment.ParameterProfile == ParameterProfile.OpenAIReasoning && !mcp.CallerWantsEncryptedReasoning)
+            if (mcp is { Store: false, CallerWantsEncryptedReasoning: false } && deployment.ParameterProfile == ParameterProfile.OpenAIReasoning)
             {
                 var include = attempt["include"] as JsonArray ?? [];
                 include.Add("reasoning.encrypted_content");
                 attempt["include"] = include;
             }
 
-            RequestRewriter.Apply(attempt, GatewayEndpoint.Responses, deployment.UpstreamModel, deployment.ParameterProfile, mcp.Stream);
+            RequestRewriter.Apply(attempt, turn.Endpoint, deployment.UpstreamModel, deployment.ParameterProfile, stream);
             ProviderResult result;
             try
             {
-                result = await _adapters.Resolve(provider.Type).SendAsync(new ProviderCall(provider, deployment, GatewayEndpoint.Responses, attempt, mcp.Stream, credential, false, null), ct);
+                result = await _adapters.Resolve(provider.Type).SendAsync(new ProviderCall(provider, deployment, turn.Endpoint, attempt, stream, credential, false, null), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -839,54 +850,17 @@ public sealed partial class GatewayRequestHandler
         }
         else
         {
-            JsonNode? arguments;
-            try
+            var run = await RunLoopToolAsync(http, snapshot, loop, c.Exposed, c.Arguments, ct);
+            if (run.Error is not null)
             {
-                arguments = string.IsNullOrWhiteSpace(c.Arguments) ? null : JsonNode.Parse(c.Arguments, documentOptions: JsonOptions);
-            }
-            catch (JsonException)
-            {
-                arguments = JsonValue.Create(c.Arguments);
-            }
-
-            var toolState = new RequestState(NewRequestId(), GatewayEndpoint.McpToolCall, time.GetTimestamp())
-            {
-                Key = loop.First.Key, McpMethod = "tools/call", ParentRequestId = loop.First.RequestId,
-            };
-            var answer = new McpLoopAnswer(http);
-            await CallToolAsync(answer, toolState, snapshot, null, c.Exposed, arguments, null, ct);
-            ct.ThrowIfCancellationRequested();
-            loop.ToolCalls++;
-            loop.CostSek += answer.CostSek;
-            loop.Pii = StrongerPii(loop.Pii, answer.Pii);
-            if (answer.ErrorCode == GatewayErrorCodes.BudgetExceeded)
-            {
-                loop.BudgetExhausted = true;
-            }
-
-            if (answer.Error is not null || !answer.Answered)
-            {
-                error = answer.Error ?? "The tool call failed.";
-                if (answer.ErrorCode is GatewayErrorCodes.McpUpstreamFailed or GatewayErrorCodes.McpResultTooLarge)
-                {
-                    (errorType, errorCode) = ("http_error", answer.Status);
-                }
-                else if (answer.Answered)
-                {
-                    errorCode = answer.RpcCode;
-                }
-            }
-            else if (loop.First.Key!.PiiPolicy == PiiPolicy.RerouteToOnPrem && loop.OffPrem
-                && McpPii.ScanResult(answer.Result?.DeepClone(), redact: false).HasPii)
-            {
-                error = "Result withheld: it contains personal data and the model does not run on-prem.";
-                loop.Pii = StrongerPii(loop.Pii, "rerouted-onprem");
+                (error, errorType) = (run.Error, run.ErrorType ?? errorType);
+                errorCode = run.ErrorCode ?? errorCode;
             }
             else
             {
-                output = McpToolFormats.Result(new LlmToolCall(LlmToolFormat.Responses, c.CallId, c.Exposed, null), answer.Result)["output"]!.DeepClone();
-                var text = McpToolFormats.Text(answer.Result);
-                if (McpToolFormats.IsError(answer.Result))
+                output = McpToolFormats.Result(new LlmToolCall(LlmToolFormat.Responses, c.CallId, c.Exposed, null), run.Result)["output"]!.DeepClone();
+                var text = McpToolFormats.Text(run.Result);
+                if (McpToolFormats.IsError(run.Result))
                 {
                     item["error"] = new JsonObject { ["type"] = "mcp_tool_execution_error", ["content"] = text };
                     item["status"] = "failed";
@@ -907,6 +881,58 @@ public sealed partial class GatewayRequestHandler
         }
 
         return (FunctionCallOutput(c.CallId, output!), item);
+    }
+
+    /// <summary>The MCP result of a tool the loop ran, or why there is none (with an OpenAI <c>McpToolCallError</c> type and code when they differ from the default).</summary>
+    private readonly record struct LoopToolRun(JsonNode? Result, string? Error, string? ErrorType, int? ErrorCode);
+
+    /// <summary>
+    /// Runs one offered tool through the shared MCP core (accounted as <see cref="GatewayEndpoint.McpToolCall"/> with the
+    /// loop's <c>ParentRequestId</c>) and counts it. A result with personal data is withheld from a model that is not on-prem
+    /// when the key reroutes PII.
+    /// </summary>
+    private async Task<LoopToolRun> RunLoopToolAsync(HttpContext http, CatalogSnapshot snapshot, McpLoopCore loop, string exposed, string argumentsJson, CancellationToken ct)
+    {
+        JsonNode? arguments;
+        try
+        {
+            arguments = string.IsNullOrWhiteSpace(argumentsJson) ? null : JsonNode.Parse(argumentsJson, documentOptions: JsonOptions);
+        }
+        catch (JsonException)
+        {
+            arguments = JsonValue.Create(argumentsJson);
+        }
+
+        var toolState = new RequestState(NewRequestId(), GatewayEndpoint.McpToolCall, time.GetTimestamp())
+        {
+            Key = loop.First.Key, McpMethod = "tools/call", ParentRequestId = loop.First.RequestId,
+        };
+        var answer = new McpLoopAnswer(http);
+        await CallToolAsync(answer, toolState, snapshot, null, exposed, arguments, null, ct);
+        ct.ThrowIfCancellationRequested();
+        loop.ToolCalls++;
+        loop.CostSek += answer.CostSek;
+        loop.Pii = StrongerPii(loop.Pii, answer.Pii);
+        if (answer.ErrorCode == GatewayErrorCodes.BudgetExceeded)
+        {
+            loop.BudgetExhausted = true;
+        }
+
+        if (answer.Error is not null || !answer.Answered)
+        {
+            var error = answer.Error ?? "The tool call failed.";
+            return answer.ErrorCode is GatewayErrorCodes.McpUpstreamFailed or GatewayErrorCodes.McpResultTooLarge
+                ? new LoopToolRun(null, error, "http_error", answer.Status)
+                : new LoopToolRun(null, error, null, answer.Answered ? answer.RpcCode : null);
+        }
+
+        if (loop.First.Key!.PiiPolicy == PiiPolicy.RerouteToOnPrem && loop.OffPrem && McpPii.ScanResult(answer.Result?.DeepClone(), redact: false).HasPii)
+        {
+            loop.Pii = StrongerPii(loop.Pii, "rerouted-onprem");
+            return new LoopToolRun(null, "Result withheld: it contains personal data and the model does not run on-prem.", null, null);
+        }
+
+        return new LoopToolRun(answer.Result, null, null, null);
     }
 
     /// <summary>Adds the client's view of a turn: the model's items, its MCP calls as <c>mcp_call</c> or <c>mcp_approval_request</c>.</summary>

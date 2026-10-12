@@ -8,7 +8,8 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
 > (`subscriptions/listen`). Clients of the LLM APIs can list the tools as tool definitions and run the calls a model makes
 > (see *Using MCP tools with the LLM APIs*), and `/v1/responses` runs a hosted `mcp` tool itself, with approval (see *Hosted
-> MCP tools on `/v1/responses`*, streamed or not; not yet on `/v1/messages`).
+> MCP tools on `/v1/responses`*, streamed or not), and `/v1/messages` runs Anthropic's MCP connector the same way (see *The
+> MCP connector on `/v1/messages`*; not streamed yet).
 > `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
 > and grants are managed in the admin UI (**Routing > MCP servers**, and **MCP servers** on a key) or the admin API (see
 > *Administration*). The local dev seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all
@@ -577,6 +578,55 @@ not run on-prem (the model gets `Error: Result withheld …`). A client that lea
 Response headers: `x-ume-provider`, `x-ume-model`, `x-ume-residency`, `x-ume-fallbacks` and `x-ume-rule` of the first turn;
 `x-ume-cost-sek` for all turns and tool calls; `x-ume-budget-remaining-sek`; `x-ume-pii` (the strongest action of the
 request and its tool calls); `x-ume-turns` (provider turns).
+
+## The MCP connector on `/v1/messages`
+
+A `/v1/messages` request can use Anthropic's MCP connector shape (beta `mcp-client-2025-11-20`; the deprecated
+`mcp-client-2025-04-04` `tool_configuration` is accepted too). The gateway runs the loop itself, with the rules of the
+`/v1/responses` loop above (turns, fallback on turn 1 only, budget per turn, PII, accounting, limits), so it works with any
+model the key may use on `/v1/messages`. `mcp_servers`, the `mcp_toolset` tools and the `anthropic-beta` header are never
+sent to the provider: the servers' tools go upstream as ordinary tools (`{slug}__{tool}`), and the model's `tool_use` for
+them comes back to the client as an `mcp_tool_use` block followed by its `mcp_tool_result`.
+
+```json
+{
+  "model": "ume/chat-advanced",
+  "max_tokens": 1024,
+  "messages": [{ "role": "user", "content": "Är ärende KS-2026-1 avslutat?" }],
+  "mcp_servers": [{ "type": "url", "name": "diarium" }],
+  "tools": [{ "type": "mcp_toolset", "mcp_server_name": "diarium",
+              "default_config": { "enabled": false }, "configs": { "search_cases": { "enabled": true } } }]
+}
+```
+
+| Member | Meaning |
+|---|---|
+| `mcp_servers[].name` | Required: the slug of a server the key may use. Unknown and not allowed get the same 404 `mcp_server_not_found`. |
+| `mcp_servers[].url` | Optional; must be exactly the registered URL (400 otherwise). |
+| `mcp_servers[].authorization_token` | Refused (400): the gateway uses the server's own credential. |
+| `mcp_toolset` | `default_config.enabled` and `configs.{tool}.enabled` narrow the tools the key may use (server tool names); a pinned `tools` list (beta `mcp-client-2026-09-15`) narrows to its names, but the definitions sent are always the approved ones. `cache_control` goes on the server's last tool; `defer_loading` is ignored. A toolset must name a server in `mcp_servers`, and a server may have only one. |
+
+**No approval.** The connector has no approval protocol, so a tool whose effective policy needs approval (the grant's
+`ApprovalPolicy` is `Always`, or `NeverForReadOnly` and the tool is not `readOnlyHint: true`) is simply not offered. Use
+`/v1/responses` for such tools.
+
+**The answer** has the content blocks of every turn in order (each MCP call as `mcp_tool_use` + `mcp_tool_result`, whose
+`content` is text, with images as placeholders as in the `mcp_call` output), the summed `usage` and the last turn's
+`stop_reason`. A `tool_use` for one of the caller's own tools ends the loop (`stop_reason: "tool_use"`); MCP calls of that
+turn have run and are shown. A call to a name nobody offered is answered to the model as an unknown tool and not shown.
+When a gateway limit stops the loop (`max_tool_calls`, default 10, no request field; `max_turns`; `time_limit`;
+`budget_exceeded`; `provider_error` after turn 1), the answer is HTTP 200 with `stop_reason: "pause_turn"` (what Anthropic
+returns when its own server-tool loop pauses: send the content back to continue) and the header `x-ume-mcp-stop` with the
+reason; calls that were not run have an `mcp_tool_result` with `is_error: true` and `Not run: <reason>.`. A turn that also
+calls one of the caller's tools keeps `tool_use`, and a provider's own stop (`max_tokens`, …) is kept. Headers are those of the `/v1/responses` loop plus `x-ume-mcp-stop`.
+
+**History.** Earlier assistant messages with `mcp_tool_use`/`mcp_tool_result` blocks are sent upstream as `tool_use` in the
+assistant message and `tool_result` in a user message after it (merged into the next user message when one follows);
+`mcp_tool_listing` blocks are left out. Their server must be in the request's `mcp_servers`, and every `mcp_tool_use` needs
+its `mcp_tool_result` (400 otherwise). The connector blocks are only translated when the request has `mcp_servers` or an
+`mcp_toolset`.
+
+**Not yet:** `stream: true` with the connector is refused (400); the gateway does not emit `mcp_tool_listing` blocks.
 
 ## Client setup
 

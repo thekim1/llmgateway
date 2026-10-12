@@ -121,6 +121,16 @@ public sealed partial class GatewayRequestHandler(
             }
         }
 
+        MessagesMcp? messagesMcp = null;
+        if (endpoint == GatewayEndpoint.AnthropicMessages && AnthropicMcpServer.IsMcpRequest(body))
+        {
+            messagesMcp = await PrepareMessagesMcpAsync(http, state, snapshot, key, body, ct);
+            if (messagesMcp is null)
+            {
+                return;
+            }
+        }
+
         // Issued now so it is pipelined with the rate-limit call below instead of costing its own round trip.
         var circuitPrefetch = requested is null ? null : router.PrefetchCircuits(requested, ct);
 
@@ -200,13 +210,17 @@ public sealed partial class GatewayRequestHandler(
         // 9. Attempt candidates in order. From here on the reservation must be reconciled whatever happens.
         try
         {
-            if (mcp is null)
+            if (mcp is not null)
             {
-                await AttemptAsync(http, state, snapshot, body, audio, selected, ct);
+                await RunResponsesMcpAsync(http, state, snapshot, body, selected, mcp, ct);
+            }
+            else if (messagesMcp is not null)
+            {
+                await RunMessagesMcpAsync(http, state, snapshot, body, selected, messagesMcp, ct);
             }
             else
             {
-                await RunResponsesMcpAsync(http, state, snapshot, body, selected, mcp, ct);
+                await AttemptAsync(http, state, snapshot, body, audio, selected, ct);
             }
         }
         catch (Exception ex) when (!state.Accounted)
