@@ -11,7 +11,7 @@ Everything in the original POC scope and the routing rules feature is implemente
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
-| MCP gateway (ADR 016): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example | Steps 1–3, 4a (`/v1/mcp/tools`, `/v1/mcp/tools/call`) and 4b (hosted `mcp` tool on `/v1/responses`, non-streaming) done (plan: `261012_llmgateway_mcp.md`; streaming (4c), native multimodal mapping and `/v1/messages` not started), see [docs/mcp.md](docs/mcp.md). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
+| MCP gateway (ADR 016): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example, MCP tools for the LLM APIs, hosted `mcp` tool loop on `/v1/responses` (streamed or not), Anthropic MCP connector on `/v1/messages` (not streamed) | Done, see [docs/mcp.md](docs/mcp.md) (*Known limitations and later work*). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
@@ -22,6 +22,11 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 
 ## Open items
 
+0. **MCP, needs a human on Windows** (cannot run in WSL):
+   - run the Playwright spec `tests/e2e/specs/mcp.spec.ts` and the axe pass on `/mcp-servers` (`scripts/Start-E2E.ps1`);
+   - try Claude Code, VS Code and Claude Desktop (via `mcp-remote`) against `/mcp` by hand;
+   - run the Python examples in [docs/mcp.md](docs/mcp.md), which have not been run.
+   Later MCP work (streaming on `/v1/messages`, `mcp_tool_listing` blocks, inbound OAuth and the rest) is listed in *Known limitations and later work* there.
 1. **Screen reader pass: not planned.** Decided 2026-10-10: there are no resources for manual testing with NVDA or VoiceOver. The automated axe,
    focus, heading and name checks remain the evidence. `docs/accessibility-statement.md` keeps saying that no screen reader has been run; an adopter
    who needs that evidence (for example before public use) has to arrange it. Untested areas most likely to need it: `<datalist>` model-name inputs, the

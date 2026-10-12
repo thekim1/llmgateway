@@ -279,7 +279,7 @@ across instances by `Gateway:Mcp:MaxListenStreamsPerKey` (10; Redis `ume:mcp:lis
 ## Accounting and monitoring
 
 Every `tools/call`, `resources/read` and `prompts/get` that passes authentication is one usage record, whatever its outcome:
-`Endpoint = Mcp` (`McpToolCall` for `POST /v1/mcp/tools/call` and for calls the gateway runs in a `/v1/responses` tool loop,
+`Endpoint = Mcp` (`McpToolCall` for `POST /v1/mcp/tools/call` and for calls the gateway runs in a `/v1/responses` or `/v1/messages` tool loop,
 which also record `ParentRequestId`), `McpServerId`, `McpMethod`, `McpTool` (the server's name of the tool or prompt; empty for a read, whose
 URI is not stored), `RequestedModel = mcp:{slug}/{name}` (`mcp:{slug}` for a read; so reports grouped by model show MCP
 calls apart from models; for a name that matched nothing, `mcp:` and the name as sent), cost = the tool's price on success
@@ -627,6 +627,66 @@ its `mcp_tool_result` (400 otherwise). The connector blocks are only translated 
 `mcp_toolset`.
 
 **Not yet:** `stream: true` with the connector is refused (400); the gateway does not emit `mcp_tool_listing` blocks.
+
+## Known limitations and later work
+
+Decisions that shape the feature, and what is not done. None of it is a bug; each item is a choice or a deferral.
+
+**Design decisions**
+
+- Proxy first: tools reach a model only when a request asks for them, with the providers' own shapes (Responses `mcp` tool,
+  Anthropic connector); requests without MCP take the unchanged LLM path.
+- Upstreams are remote Streamable HTTP only (no legacy SSE, no subprocesses in the gateway); the gateway is stateless towards
+  clients, with no `Mcp-Session-Id`, and change notifications only on `subscriptions/listen`.
+- The gateway handles Streamable HTTP POST itself instead of the SDK's `MapMcp`, and passes `tools/call`, `resources/read` and
+  `prompts/get` results through as raw JSON, so unknown block types and vendor fields survive. Arguments are checked with a
+  built-in subset of JSON Schema (`McpSchemaValidator`; JsonSchema.Net is under a paid licence for commercial use, and the
+  upstream validates fully anyway).
+- Removed tools are deleted, not marked; a tool that comes back needs approval (and a price) again. Grants are not part of the
+  configuration export (key ids differ). Unknown tool names in a grant are kept and reported.
+- Loop state of a stopped `/v1/responses` loop holds arguments only, encrypted and bound to the key; tool results are never
+  stored. After `provider_error` the provider never got the last outputs, so that response cannot be continued with
+  `previous_response_id`; send the history back instead.
+
+**Not supported yet**
+
+- Inbound OAuth 2.1 (clients use a virtual key as a static header; Claude Desktop needs `mcp-remote`), per-user upstream
+  credentials and token exchange.
+- `completion/complete`, resource subscriptions (`resources/updated`), noticing changes a server makes to its own prompt and
+  resource lists, announcing circuit changes, and syncing on an upstream `notifications/tools/list_changed` (the periodic and
+  on-demand syncs cover it).
+- Upstream sampling, elicitation and roots; progressive discovery (`search_tools`), code execution, virtual tool bundles,
+  routing-rule variables for MCP (`mcp_servers`, `mcp_tool_count`) and output guardrails beyond PII (prompt injection).
+- A per-server price (only per-tool `priceSek`), the `McpServerAuthFailed` event for gateway calls (the sync raises it; calls
+  only log upstream 401/403 and answer `-32003`), a `server` filter on `GET /v1/mcp/tools`, the Anthropic error body shape on
+  `/v1/mcp/tools/call` (errors use the OpenAI-style body), and `ParentRequestId` in the admin API's usage views.
+- The private-network SSRF rule is checked only when a URL is saved (forbidden addresses are refused on every connection).
+- A chat-completions tool loop (`ume_mcp` extension) is not built; clients use `/v1/mcp/tools` or `/v1/responses`.
+
+**Tool results and media.** Images in PNG, JPEG, GIF and WebP are native image parts where the model-facing format takes
+them (Responses function output, Anthropic tool results, so also in the `/v1/responses` and `/v1/messages` loops). Everything
+else is text: Chat Completions tool messages take no images, audio and other image types become `[audio: …]`/`[image: …]`
+placeholders in every format, and what the client sees in `mcp_call.output` and `mcp_tool_result.content` is text only (the
+model got the native image). Replaying such an item sends the text. Audio is not passed natively anywhere, because none of the
+three tool-result shapes carries it.
+
+**`/v1/responses` loop and streaming**
+
+- A streamed answer starts at turn 1's first event, so calls answered for a continuation run before the stream starts and no
+  keep-alive covers them.
+- Items of a streamed turn that breaks off are sent but are not in the final `output`.
+- A streamed answer has no `x-ume-turns`, cost or budget headers, and no tool-PII header (headers go out before the tools run).
+- `background: true` and `conversation` cannot be combined with an `mcp` tool.
+- `max_tool_calls` counts per HTTP request; the time limit is not enforced inside a single call (the server's own timeout
+  bounds it).
+
+**`/v1/messages` connector**
+
+- `stream: true` with `mcp_servers` is refused with 400; streaming is later work.
+- `mcp_tool_listing` blocks are not emitted (and are dropped from history).
+- The tool-call limit is fixed (`Gateway:Mcp:Loop:DefaultMaxToolCalls`, 10) because the connector has no request field for it.
+  When a limit is reached the answer is `stop_reason: "pause_turn"` with `x-ume-mcp-stop` naming the reason.
+- No approval: tools that need approval are not offered (use `/v1/responses`).
 
 ## Client setup
 

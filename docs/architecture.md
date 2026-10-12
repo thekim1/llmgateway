@@ -132,7 +132,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
 | Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |
 | Provider classification | OnPrem / EU / External; drives PII rerouting and key residency limits |
-| MCP gateway | In progress (ADR 016): `/mcp` and `/mcp/{slug}` proxy remote Streamable HTTP MCP servers under virtual-key grants, with pinned tool definitions, PII policy, residency and usage accounting |
+| MCP gateway | Implemented (ADR 016): `/mcp` and `/mcp/{slug}` proxy remote Streamable HTTP MCP servers under virtual-key grants, with pinned tool definitions, PII policy, residency and usage accounting; `/v1/mcp/tools*` and gateway-run tool loops for the Responses `mcp` tool and the Anthropic MCP connector |
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
 Out of scope for the POC: semantic caching, SSO for gateway clients (keys only),
