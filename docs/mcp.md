@@ -8,7 +8,7 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
 > (`subscriptions/listen`). Clients of the LLM APIs can list the tools as tool definitions and run the calls a model makes
 > (see *Using MCP tools with the LLM APIs*), and `/v1/responses` runs a hosted `mcp` tool itself, with approval (see *Hosted
-> MCP tools on `/v1/responses`*; not yet streamed, and not yet on `/v1/messages`).
+> MCP tools on `/v1/responses`*, streamed or not; not yet on `/v1/messages`).
 > `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
 > and grants are managed in the admin UI (**Routing > MCP servers**, and **MCP servers** on a key) or the admin API (see
 > *Administration*). The local dev seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all
@@ -453,7 +453,7 @@ the gateway never connects to an address the caller sends.
 | `require_approval` | `"always"`, `"never"`, or `{ "always": { "tool_names": [...] }, "never": { "tool_names": [...] } }`. A tool that is not named, or a missing `require_approval`, needs approval (as at OpenAI). |
 | `headers`, `authorization`, `connector_id` | Refused (400): the gateway uses the server's own credential; caller headers reach a server only through its `ForwardHeaders`. |
 
-`stream: true`, `background: true` and `conversation` cannot be combined with an `mcp` tool yet (400). A function tool of the
+`background: true` and `conversation` cannot be combined with an `mcp` tool yet (400). A function tool of the
 caller with the same name as an offered tool (`{slug}__{tool}`) is refused (400). `max_tool_calls` counts the calls run by one HTTP request: a continuation (see *Continuing*) starts a fresh count. A
 `function_call` to a name that is neither an offered MCP tool nor one of the caller's own `function` tools is answered to the
 model with `Error: Unknown tool: '<name>'` (it counts against `max_tool_calls`, is not shown to the client and is no usage
@@ -478,14 +478,18 @@ seen, and tool results are never stored:
 - the model also calls one of the caller's own `function` tools: the caller's `function_call` is
   returned unchanged for the caller to answer, and the MCP calls of that turn are returned as `mcp_call` with `status:
   "calling"`; they run when the caller continues;
-- a limit is reached: the calls are returned as `mcp_call` with `status: "incomplete"` and `error: "Not run: <reason>."`.
+- a limit is reached: the calls are returned as `mcp_call` with `status: "incomplete"` and an `error` whose `message` is
+  `"Not run: <reason>."`.
 
 **The answer** is the last turn's response with:
 
 - `output`: one `mcp_list_tools` per `server_label` first (left out when the request has a `previous_response_id`, or its
   input already has the list for that label), then every turn's items, the MCP calls as `mcp_call` (`id` = the model's
   `call_id`, `name` = the server's tool name, `arguments` exactly as the model produced them, `output` as text with image
-  placeholders, `error`, `status`, and `approval_request_id` for an approved call) or `mcp_approval_request`;
+  placeholders, `error`, `status`, and `approval_request_id` for an approved call) or `mcp_approval_request`. `error` has
+  OpenAI's shape: `{ "type": "mcp_tool_execution_error", "content" }` for a result with `isError`, `{ "type": "http_error",
+  "code", "message" }` when the server failed, and `{ "type": "mcp_protocol_error", "code", "message" }` otherwise (the
+  server's JSON-RPC code, or `-32000` for a call the gateway did not run);
 - `usage` summed over the turns; `tools` and `tool_choice` as the caller sent them; `max_tool_calls` as applied;
 - `id`: the last turn's provider id, so a later `previous_response_id` works at the provider. When the loop stopped with
   calls still to answer and `store` is not false, a gateway id `resp_ume_…` instead (see *Continuing*);
@@ -498,9 +502,25 @@ seen, and tool results are never stored:
 | `max_turns` | `Gateway:Mcp:Loop:MaxTurns` (20) provider turns were sent. |
 | `time_limit` | `Gateway:Mcp:Loop:TimeoutSeconds` (300) passed; checked before each turn's calls. |
 | `budget_exceeded` | The next turn's budget reservation was refused, or a tool call's price did not fit (the model then gets one more turn, already reserved, to report it). |
-| `provider_error` | A turn after the first failed: the answer has everything done so far (tools may have changed things), with HTTP 200. |
+| `provider_error` | A turn after the first failed, or a streamed turn broke off: the answer has everything done so far (tools may have changed things), with HTTP 200. |
 
 A request refused before the first turn, or a first turn that fails, is answered as any `/v1/responses` request (4xx/5xx).
+
+**Streaming.** With `stream: true` every turn is streamed from the provider and the client gets one event stream: one
+`response.created` and `response.in_progress` (turn 1's response, with the caller's `tools`), the turns' events with
+`output_index` counted over the whole answer and `sequence_number` renumbered, and one final `response.completed` or
+`response.incomplete` whose `response` is exactly the non-streamed answer (its `id` is the one to continue from, which can
+differ from the `id` in `response.created`). The provider's own `response.created`/`completed` per turn are left out.
+`mcp_list_tools` items come with `response.mcp_list_tools.in_progress|completed`; an MCP call is shown as an `mcp_call`
+whose arguments arrive as `response.mcp_call_arguments.delta|done` (`item_id` = the call's `id`), then
+`response.mcp_call.in_progress` and `completed|failed` around the call, then its `output_item.done`. An
+`mcp_approval_request` (and a call that may need approval but is not run) is sent whole, added and done, when its turn
+ends. Calls to unknown functions send no events. While tools run and the next turn starts, the gateway sends an SSE comment
+(`: keep-alive`) every `Gateway:Mcp:Loop:KeepAliveSeconds` (15). The stream starts at turn 1's first event: providers are
+tried in turn (fallback) only before that, and calls answered for a continuation run before it. A provider stream that
+fails or breaks off later ends the stream with `response.incomplete` and `provider_error`; items of the broken turn that
+were already sent are not in the final `output`. A streamed answer has no `x-ume-turns`, `x-ume-cost-sek` or
+`x-ume-budget-remaining-sek`, and no `x-ume-pii` for a tool result (the headers are sent before the tools run).
 
 **Approval.** A call needs approval when the request or the key's grant asks for it, whichever is stricter: the grant's
 approval policy `Always`, or `NeverForReadOnly` for a tool without `readOnlyHint: true`. Such a turn stops with an

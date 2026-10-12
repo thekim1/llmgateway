@@ -94,6 +94,8 @@ internal sealed class McpLoopAnswer(HttpContext http) : IMcpCallAnswer
     public JsonNode? Result { get; private set; }
     public string? Error { get; private set; }
     public string? ErrorCode { get; private set; }
+    public int RpcCode { get; private set; }
+    public int Status { get; private set; }
     public string? Pii { get; private set; }
     public decimal CostSek { get; private set; }
 
@@ -114,6 +116,8 @@ internal sealed class McpLoopAnswer(HttpContext http) : IMcpCallAnswer
         Answered = true;
         Error = message;
         ErrorCode = errorCode;
+        RpcCode = rpcCode;
+        Status = status;
         return Task.FromResult(status);
     }
 

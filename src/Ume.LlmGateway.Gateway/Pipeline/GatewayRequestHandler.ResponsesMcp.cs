@@ -10,18 +10,22 @@ using Ume.LlmGateway.Infrastructure.Providers;
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
 /// <summary>
-/// Hosted <c>mcp</c> tools on <c>/v1/responses</c> (non-streaming): the gateway replaces each <c>mcp</c> tool by the
+/// Hosted <c>mcp</c> tools on <c>/v1/responses</c>: the gateway replaces each <c>mcp</c> tool by the
 /// function tools of the server it names, runs the model's calls to them through the shared MCP core, and sends the
 /// conversation again (replaying the whole input) until the model is done, a call needs approval, the caller's own
 /// function is called or a limit is reached. Turn 1 is the request itself (routing, fallback, PII guard, budget); later
 /// turns are pinned to its deployment, reserve their own budget and are accounted with <c>ParentRequestId</c>. A turn
 /// whose calls cannot all run now runs none of them, so a stop never leaves tool results the provider has not seen, and no
 /// result is stored anywhere. The answer uses OpenAI's hosted MCP items (<c>mcp_list_tools</c>, <c>mcp_call</c>,
-/// <c>mcp_approval_request</c>).
+/// <c>mcp_approval_request</c>). With <c>stream: true</c> every turn is streamed and relayed as one stream
+/// (<see cref="ResponsesMcpStream"/>); the stream starts at turn 1's first event, so fallback happens only before it.
 /// </summary>
 public sealed partial class GatewayRequestHandler
 {
     private const string McpDenied = "The user denied this tool call.";
+
+    /// <summary>The <c>mcp_protocol_error</c> code of an <c>mcp_call</c> the gateway did not run (denied, not run, unknown, withheld).</summary>
+    private const int GatewayMcpErrorCode = -32000;
 
     /// <summary>One offered tool: the request's <c>mcp</c> tool it came from, the catalogue entry, and whether a call needs approval.</summary>
     private sealed record McpOffer(ResponsesMcpTool Spec, McpToolEntry Entry, bool NeedsApproval);
@@ -55,6 +59,7 @@ public sealed partial class GatewayRequestHandler
         public required string? OriginalPreviousResponseId { get; init; }
         public required int MaxToolCalls { get; init; }
         public required bool Store { get; init; }
+        public required bool Stream { get; init; }
         public required bool CallerWantsEncryptedReasoning { get; init; }
         public required HashSet<string> ListLabels { get; init; }
 
@@ -81,6 +86,9 @@ public sealed partial class GatewayRequestHandler
         public string? Pii { get; set; }
         public bool BudgetExhausted { get; set; }
 
+        /// <summary>A streamed loop's <c>response.created</c> response from the provider (the base of the final response when no turn completed).</summary>
+        public JsonObject? Created { get; set; }
+
         /// <summary>Whether the next turn may go to a provider that does not run on-prem (any candidate of turn 1, then the pinned one).</summary>
         public bool OffPrem { get; set; }
         public long InputTokens { get; set; }
@@ -98,12 +106,6 @@ public sealed partial class GatewayRequestHandler
         CancellationToken ct)
     {
         Task Refuse(int status, string code, string message) => RejectAsync(http, state, status, code, message, RequestOutcome.Rejected);
-
-        if (RequestRewriter.IsStreaming(body))
-        {
-            await Refuse(400, GatewayErrorCodes.InvalidRequest, "Strömmade svar ('stream': true) stöds inte ännu tillsammans med mcp-verktyg.");
-            return null;
-        }
 
         if (body["background"] is JsonValue background && background.TryGetValue<bool>(out var inBackground) && inBackground)
         {
@@ -237,7 +239,7 @@ public sealed partial class GatewayRequestHandler
         var mcp = new ResponsesMcp
         {
             Offered = offered, Servers = servers, CallerFunctions = callerFunctions, OriginalTools = originalTools, OriginalToolChoice = originalChoice,
-            OriginalPreviousResponseId = previous, MaxToolCalls = maxToolCalls, Store = body["store"] is not JsonValue st || !st.TryGetValue<bool>(out var store) || store,
+            OriginalPreviousResponseId = previous, MaxToolCalls = maxToolCalls, Stream = RequestRewriter.IsStreaming(body), Store = body["store"] is not JsonValue st || !st.TryGetValue<bool>(out var store) || store,
             CallerWantsEncryptedReasoning = include?.Any(i => i is JsonValue v && v.TryGetValue<string>(out var s) && s == "reasoning.encrypted_content") == true,
             ListLabels = listLabels,
         };
@@ -352,7 +354,7 @@ public sealed partial class GatewayRequestHandler
                     input.Add(FunctionCall(callId, exposed, arguments));
                     if (resolved.TryGetValue(callId, out var done))
                     {
-                        input.Add(FunctionCallOutput(callId, Str(done["error"]) is { } failed ? McpToolFormats.ErrorPrefix + failed : Str(done["output"]) ?? string.Empty));
+                        input.Add(FunctionCallOutput(callId, ErrorText(done["error"]) is { } failed ? McpToolFormats.ErrorPrefix + failed : Str(done["output"]) ?? string.Empty));
                     }
                     else
                     {
@@ -464,6 +466,10 @@ public sealed partial class GatewayRequestHandler
         string? providerStatus = null;
         JsonNode? providerIncomplete = null;
         List<LoopCall> owed = [];
+        var stream = mcp.Stream
+            ? new ResponsesMcpStream(http, TimeSpan.FromSeconds(options.CurrentValue.Mcp.Loop.KeepAliveSeconds), mcp.CallerWantsEncryptedReasoning)
+            : null;
+        Task<T> KeepingAlive<T>(Task<T> work) => stream is { Started: true } ? stream.KeepAliveAsync(work, ct) : work;
         try
         {
             while (true)
@@ -472,7 +478,19 @@ public sealed partial class GatewayRequestHandler
                 var prepend = 0;
                 foreach (var call in pendingCalls)
                 {
-                    var (output, item) = await AnswerCallAsync(http, snapshot, loop, call, ct);
+                    var shownAt = stream is { Started: true } && call.Item is { } shown ? loop.Output.IndexOf(shown) : -1;
+                    if (shownAt >= 0)
+                    {
+                        await stream!.ItemEventAsync("response.mcp_call.in_progress", shownAt, call.Call.CallId, ct);
+                    }
+
+                    var (output, item) = await KeepingAlive(AnswerCallAsync(http, snapshot, loop, call, ct));
+                    if (shownAt >= 0)
+                    {
+                        await stream!.ItemEventAsync(Str(item["status"]) == "completed" ? "response.mcp_call.completed" : "response.mcp_call.failed", shownAt, call.Call.CallId, ct);
+                        await stream.ItemDoneAsync(shownAt, item, ct);
+                    }
+
                     if (turnState == state && !IsUnknown(call.Call))
                     {
                         loop.Output.Add(item);
@@ -505,10 +523,12 @@ public sealed partial class GatewayRequestHandler
                     turnBody["tool_choice"] = "auto";
                 }
 
-                var (result, lastFailure) = await SendTurnAsync(turnState, snapshot, loop.Turns == 0 ? candidates : [candidates.First(c => c.ModelDeployment!.Id == state.Deployment!.Id)],
-                    turnBody, mcp, ct);
+                var (result, lastFailure) = await KeepingAlive(SendTurnAsync(turnState, snapshot,
+                    loop.Turns == 0 ? candidates : [candidates.First(c => c.ModelDeployment!.Id == state.Deployment!.Id)], turnBody, mcp, ct));
                 var deployment = turnState.Deployment!;
-                if (result is not ProviderJsonResult json)
+                var turnStart = loop.Output.Count;
+                var deferred = new HashSet<string>(StringComparer.Ordinal);
+                if (result is not (ProviderJsonResult or ProviderStreamResult))
                 {
                     if (loop.Turns == 0)
                     {
@@ -538,17 +558,33 @@ public sealed partial class GatewayRequestHandler
                 }
 
                 JsonObject response;
-                using (json)
+                using (result as IDisposable)
                 {
-                    var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(time.GetUtcNow()), snapshot.SekPerUsd);
+                    JsonObject? parsed;
+                    TokenUsage usage;
+                    int statusCode;
+                    string? errorCode;
+                    if (result is ProviderJsonResult json)
+                    {
+                        parsed = ParseResponse(json.Body);
+                        (usage, statusCode, errorCode) = (json.Usage, json.StatusCode, GatewayErrorCodes.ProviderRejected);
+                    }
+                    else
+                    {
+                        var streamed = (ProviderStreamResult)result;
+                        parsed = await RelayMcpTurnAsync(http, state, loop, stream!, streamed, deferred, ct);
+                        last ??= loop.Created;
+                        (usage, statusCode, errorCode) = (streamed.Usage.ToTokenUsage(turnState.EstimatedInputTokens), parsed is null ? 502 : 200, "stream_interrupted");
+                    }
+
+                    var cost = CostCalculator.Calculate(usage, deployment.PriceAt(time.GetUtcNow()), snapshot.SekPerUsd);
                     loop.CostSek += cost.Sek;
                     loop.Turns++;
-                    var parsed = ParseResponse(json.Body);
-                    await AccountAsync(turnState, deployment, json.Usage, json.StatusCode, parsed is null ? RequestOutcome.ProviderError : RequestOutcome.Success,
-                        parsed is null ? GatewayErrorCodes.ProviderRejected : null, snapshot);
+                    await AccountAsync(turnState, deployment, usage, statusCode, parsed is null ? RequestOutcome.ProviderError : RequestOutcome.Success,
+                        parsed is null ? errorCode : null, snapshot);
                     if (parsed is null)
                     {
-                        if (loop.Turns == 1)
+                        if (loop.Turns == 1 && !http.Response.HasStarted)
                         {
                             await GatewayErrors.WriteAsync(http, GatewayEndpoint.Responses, 502, GatewayErrorCodes.AllProvidersFailed,
                                 "Leverantörens svar kunde inte läsas.", options.CurrentValue.DocsUrl);
@@ -617,7 +653,7 @@ public sealed partial class GatewayRequestHandler
                 }
                 else if (!(approvals = mcpCalls.Any(c => c.Offer!.NeedsApproval)) && !callerCall)
                 {
-                    held = await ReserveNextTurnAsync(loop, template, snapshot, started, ct);
+                    held = await KeepingAlive(ReserveNextTurnAsync(loop, template, snapshot, started, ct));
                     notRun = stopReason = held is null ? LimitReached(loop, started) : null;
                 }
 
@@ -637,7 +673,13 @@ public sealed partial class GatewayRequestHandler
                 }
 
                 AppendTurn(loop, turnOutput, next);
-                if (notRun is not null || callerCall || approvals)
+                var stops = notRun is not null || callerCall || approvals;
+                if (stream is { Started: true })
+                {
+                    await EmitTurnCallsAsync(stream, loop, turnStart, deferred, stops, ct);
+                }
+
+                if (stops)
                 {
                     owed = next;
                     break;
@@ -682,7 +724,7 @@ public sealed partial class GatewayRequestHandler
             }
         }
 
-        await WriteMcpResponseAsync(http, state, loop, last!, stopReason, providerStatus, providerIncomplete, owed);
+        await WriteMcpResponseAsync(http, state, loop, stream, last!, stopReason, providerStatus, providerIncomplete, owed);
     }
 
     /// <summary>
@@ -739,11 +781,11 @@ public sealed partial class GatewayRequestHandler
                 attempt["include"] = include;
             }
 
-            RequestRewriter.Apply(attempt, GatewayEndpoint.Responses, deployment.UpstreamModel, deployment.ParameterProfile, streaming: false);
+            RequestRewriter.Apply(attempt, GatewayEndpoint.Responses, deployment.UpstreamModel, deployment.ParameterProfile, mcp.Stream);
             ProviderResult result;
             try
             {
-                result = await _adapters.Resolve(provider.Type).SendAsync(new ProviderCall(provider, deployment, GatewayEndpoint.Responses, attempt, false, credential, false, null), ct);
+                result = await _adapters.Resolve(provider.Type).SendAsync(new ProviderCall(provider, deployment, GatewayEndpoint.Responses, attempt, mcp.Stream, credential, false, null), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -759,9 +801,6 @@ public sealed partial class GatewayRequestHandler
                     continue;
                 case ProviderFailure failure:
                     return (failure, failure);
-                case ProviderStreamResult stream:
-                    stream.Dispose();
-                    return (null, ProviderFailure.InvalidJson);
                 default:
                     await RecordSuccessAsync(turn, provider);
                     return (result, null);
@@ -778,6 +817,8 @@ public sealed partial class GatewayRequestHandler
         var item = call.Item ?? McpCallItem(c);
         call.Item = item;
         string? error = null;
+        var errorType = "mcp_protocol_error";
+        var errorCode = GatewayMcpErrorCode;
         JsonNode? output = null;
         if (call.Decision == McpDecision.Deny)
         {
@@ -826,6 +867,14 @@ public sealed partial class GatewayRequestHandler
             if (answer.Error is not null || !answer.Answered)
             {
                 error = answer.Error ?? "The tool call failed.";
+                if (answer.ErrorCode is GatewayErrorCodes.McpUpstreamFailed or GatewayErrorCodes.McpResultTooLarge)
+                {
+                    (errorType, errorCode) = ("http_error", answer.Status);
+                }
+                else if (answer.Answered)
+                {
+                    errorCode = answer.RpcCode;
+                }
             }
             else if (loop.First.Key!.PiiPolicy == PiiPolicy.RerouteToOnPrem && loop.OffPrem
                 && McpPii.ScanResult(answer.Result?.DeepClone(), redact: false).HasPii)
@@ -839,7 +888,7 @@ public sealed partial class GatewayRequestHandler
                 var text = McpToolFormats.Text(answer.Result);
                 if (McpToolFormats.IsError(answer.Result))
                 {
-                    item["error"] = text;
+                    item["error"] = new JsonObject { ["type"] = "mcp_tool_execution_error", ["content"] = text };
                     item["status"] = "failed";
                 }
                 else
@@ -852,7 +901,7 @@ public sealed partial class GatewayRequestHandler
 
         if (error is not null)
         {
-            item["error"] = error;
+            item["error"] = McpCallError(error, errorType, errorCode);
             item["status"] = call.Decision == McpDecision.NotRun ? "incomplete" : "failed";
             output = McpToolFormats.ErrorPrefix + error;
         }
@@ -886,7 +935,7 @@ public sealed partial class GatewayRequestHandler
                 call.Item = McpCallItem(c);
                 if (c.NotRun is { } notRun)
                 {
-                    call.Item["error"] = notRun;
+                    call.Item["error"] = McpCallError(notRun, "mcp_protocol_error", GatewayMcpErrorCode);
                     call.Item["status"] = "incomplete";
                 }
 
@@ -902,7 +951,7 @@ public sealed partial class GatewayRequestHandler
     /// The combined response: the last turn's object with every turn's items, summed usage, the caller's tools, and the id
     /// to continue from. When calls are still owed and <c>store</c> is on, the id is a gateway id whose state is stored.
     /// </summary>
-    private async Task WriteMcpResponseAsync(HttpContext http, RequestState state, McpLoop loop, JsonObject response, string? stopReason,
+    private async Task WriteMcpResponseAsync(HttpContext http, RequestState state, McpLoop loop, ResponsesMcpStream? stream, JsonObject response, string? stopReason,
         string? providerStatus, JsonNode? providerIncomplete, List<LoopCall> owed)
     {
         var mcp = loop.Request;
@@ -936,10 +985,7 @@ public sealed partial class GatewayRequestHandler
             ["output_tokens_details"] = new JsonObject { ["reasoning_tokens"] = loop.ReasoningTokens },
             ["total_tokens"] = loop.InputTokens + loop.OutputTokens,
         };
-        Restore(response, "tools", mcp.OriginalTools);
-        Restore(response, "tool_choice", mcp.OriginalToolChoice);
-        Restore(response, "previous_response_id", mcp.OriginalPreviousResponseId);
-        response["max_tool_calls"] = mcp.MaxToolCalls;
+        ClientView(response, mcp);
         if (providerStatus is not null)
         {
             response["status"] = providerStatus;
@@ -957,6 +1003,16 @@ public sealed partial class GatewayRequestHandler
             {
                 item.Remove("encrypted_content");
             }
+        }
+
+        if (stream is { Started: true })
+        {
+            using (usageWriter.TrackPending())
+            {
+                await stream.CompleteAsync(response);
+            }
+
+            return;
         }
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(response);
@@ -979,6 +1035,99 @@ public sealed partial class GatewayRequestHandler
             http.Response.ContentType = "application/json";
             http.Response.ContentLength = bytes.Length;
             await http.Response.Body.WriteAsync(bytes, CancellationToken.None);
+        }
+    }
+
+    /// <summary>The request's own <c>tools</c>, <c>tool_choice</c>, <c>previous_response_id</c> and <c>max_tool_calls</c> in a provider response.</summary>
+    private static JsonObject ClientView(JsonObject response, ResponsesMcp mcp)
+    {
+        Restore(response, "tools", mcp.OriginalTools);
+        Restore(response, "tool_choice", mcp.OriginalToolChoice);
+        Restore(response, "previous_response_id", mcp.OriginalPreviousResponseId);
+        response["max_tool_calls"] = mcp.MaxToolCalls;
+        return response;
+    }
+
+    /// <summary>
+    /// Relays one streamed turn. At the first event of turn 1 the client stream starts (the routing headers are final then):
+    /// <c>response.created</c> with the provider's response as the client sees it, then the items the loop has already
+    /// (<c>mcp_list_tools</c>, calls answered for a continuation). Null when the provider failed or the stream broke off.
+    /// </summary>
+    private async Task<JsonObject?> RelayMcpTurnAsync(HttpContext http, RequestState first, McpLoop loop, ResponsesMcpStream stream, ProviderStreamResult result,
+        HashSet<string> deferred, CancellationToken ct)
+    {
+        var mcp = loop.Request;
+        try
+        {
+            return await stream.RelayTurnAsync(result, loop.Output.Count, item => ClassifyStreamed(mcp, item, deferred), async created =>
+            {
+                if (stream.Started)
+                {
+                    return;
+                }
+
+                loop.Created = (JsonObject?)created?.DeepClone() ?? new JsonObject { ["id"] = string.Empty, ["object"] = "response" };
+                var shown = ClientView((JsonObject)loop.Created.DeepClone(), mcp);
+                shown["status"] = "in_progress";
+                shown["output"] = new JsonArray();
+                shown.Remove("usage");
+                SetRoutingHeaders(http, first.Deployment!, first.Fallbacks);
+                await stream.StartAsync(shown, ct);
+                for (var i = 0; i < loop.Output.Count; i++)
+                {
+                    await stream.WholeItemAsync(i, (JsonObject)loop.Output[i]!, ct);
+                }
+            }, ct);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException && !ct.IsCancellationRequested)
+        {
+            LogStreamBroken(logger, first.RequestId, first.Deployment!.ProviderAccount!.Name, ex.GetType().Name);
+            return null;
+        }
+    }
+
+    /// <summary>How a streamed item is shown; calls that may need approval are deferred (their ids collected in <paramref name="deferred"/>).</summary>
+    private static (StreamItemKind Kind, JsonObject? Shown) ClassifyStreamed(ResponsesMcp mcp, JsonObject item, HashSet<string> deferred)
+    {
+        if (Str(item["type"]) != "function_call")
+        {
+            return (StreamItemKind.Plain, null);
+        }
+
+        var name = Str(item["name"]) ?? string.Empty;
+        var callId = Str(item["call_id"]) ?? string.Empty;
+        if (mcp.Offered.TryGetValue(name, out var offer))
+        {
+            if (offer.NeedsApproval)
+            {
+                deferred.Add(callId);
+                return (StreamItemKind.Deferred, null);
+            }
+
+            return (StreamItemKind.McpCall, ResponsesMcpStream.McpCallShell(callId, offer.Spec.ServerLabel, offer.Entry.Tool.Name, null));
+        }
+
+        return (mcp.CallerFunctions.Contains(name) ? StreamItemKind.Plain : StreamItemKind.Hidden, null);
+    }
+
+    /// <summary>
+    /// After a streamed turn: the deferred items whole (approval requests, calls that will not run), and when the loop
+    /// <paramref name="stops"/>, <c>output_item.done</c> for the turn's other MCP calls, which will not run either.
+    /// </summary>
+    private static async Task EmitTurnCallsAsync(ResponsesMcpStream stream, McpLoop loop, int from, HashSet<string> deferred, bool stops, CancellationToken ct)
+    {
+        for (var i = from; i < loop.Output.Count; i++)
+        {
+            var item = (JsonObject)loop.Output[i]!;
+            var type = Str(item["type"]);
+            if (type == "mcp_approval_request" || (type == "mcp_call" && deferred.Contains(Str(item["id"]) ?? string.Empty)))
+            {
+                await stream.WholeItemAsync(i, item, ct);
+            }
+            else if (type == "mcp_call" && stops)
+            {
+                await stream.ItemDoneAsync(i, item, ct);
+            }
         }
     }
 
@@ -1008,6 +1157,17 @@ public sealed partial class GatewayRequestHandler
 
     /// <summary>A call to a function nobody offered: answered to the model with an error and not shown to the client.</summary>
     private static bool IsUnknown(McpLoopCall call) => call.ServerLabel.Length == 0;
+
+    /// <summary>An <c>mcp_call</c> error in the shape of OpenAI's <c>McpToolCallError</c> (<c>mcp_protocol_error</c> or <c>http_error</c>).</summary>
+    private static JsonObject McpCallError(string message, string type, int code) => new() { ["type"] = type, ["code"] = code, ["message"] = message };
+
+    /// <summary>The text of an <c>mcp_call</c> error sent back in the history: a string, or the message or content of an error object.</summary>
+    private static string? ErrorText(JsonNode? error) => error switch
+    {
+        JsonValue v when v.TryGetValue<string>(out var text) => text,
+        JsonObject o => Str(o["message"]) ?? (o["content"] is JsonValue c && c.TryGetValue<string>(out var content) ? content : o["content"]?.ToJsonString()),
+        _ => null,
+    };
 
     private static JsonObject McpCallItem(McpLoopCall call)
     {

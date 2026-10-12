@@ -18,16 +18,16 @@ public sealed partial class McpGatewayTests
     private readonly ResponsesUpstreamServer _responses = new();
 
     /// <summary>A Responses provider of its own (models <c>{name}/chat</c> and <c>{name}/reasoning</c>), 1.4 SEK per fake turn.</summary>
-    private async Task<string> ScriptProviderAsync(DataResidency residency = DataResidency.Eu)
+    private async Task<string> ScriptProviderAsync(DataResidency residency = DataResidency.Eu, string prefix = "r")
     {
-        var name = "r" + Guid.NewGuid().ToString("N")[..10];
+        var name = prefix + Guid.NewGuid().ToString("N")[..10];
         await using var scope = fixture.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
         var provider = new ProviderAccount
         {
             Name = name, Type = ProviderType.OpenAICompatible, Residency = residency, BaseUrl = $"{_responses.Url}/{name}/v1",
             AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = scope.ServiceProvider.GetRequiredService<CredentialProtector>().Protect("secret"),
-            Capabilities = ProviderCapabilities.ChatCompletions | ProviderCapabilities.Responses, TimeoutSeconds = 10, CreatedAt = DateTimeOffset.UtcNow,
+            Capabilities = ProviderCapabilities.ChatCompletions | ProviderCapabilities.Responses | ProviderCapabilities.Streaming, TimeoutSeconds = 10, CreatedAt = DateTimeOffset.UtcNow,
         };
         foreach (var (model, upstream, profile) in new[] { ("chat", "fake-chat", ParameterProfile.Standard), ("reasoning", "fake-reasoning", ParameterProfile.OpenAIReasoning) })
         {
@@ -259,7 +259,7 @@ public sealed partial class McpGatewayTests
     }
 
     [Fact]
-    public async Task Unusable_mcp_tools_and_streaming_are_refused()
+    public async Task Unusable_mcp_tools_are_refused()
     {
         var (key, server, provider) = await LoopSetupAsync();
         async Task<(HttpStatusCode, string)> Refused(Action<JsonObject> change, JsonObject? tool = null)
@@ -283,7 +283,6 @@ public sealed partial class McpGatewayTests
         authorization["authorization"] = "token";
         (await Refused(_ => { }, authorization)).ShouldBe((HttpStatusCode.BadRequest, "invalid_request"));
         (await Refused(_ => { }, new JsonObject { ["type"] = "mcp", ["server_label"] = "nosuchserver" })).ShouldBe((HttpStatusCode.NotFound, "mcp_server_not_found"));
-        (await Refused(b => b["stream"] = true)).ShouldBe((HttpStatusCode.BadRequest, "invalid_request"));
         (await Refused(b => b["tools"]!.AsArray().Add(new JsonObject { ["type"] = "function", ["name"] = $"{server.Slug}__echo_args" })))
             .ShouldBe((HttpStatusCode.BadRequest, "invalid_request"));
         (await Refused(b => b["previous_response_id"] = "resp_ume_0123")).ShouldBe((HttpStatusCode.NotFound, "mcp_continuation_not_found"));
@@ -372,7 +371,7 @@ public sealed partial class McpGatewayTests
         }
         else
         {
-            delete["error"]!.GetValue<string>().ShouldBe("The user denied this tool call. Reason: Inte nu");
+            delete["error"]!["message"]!.GetValue<string>().ShouldBe("The user denied this tool call. Reason: Inte nu");
             _responses.For(provider)[^1]["input"]!.ToJsonString().ShouldContain("Error: The user denied this tool call.");
         }
     }
@@ -433,7 +432,7 @@ public sealed partial class McpGatewayTests
         answer!["status"]!.GetValue<string>().ShouldBe("incomplete");
         answer["incomplete_details"]!["reason"]!.GetValue<string>().ShouldBe("max_tool_calls");
         answer["output"]!.AsArray().Where(i => i!["type"]!.GetValue<string>() == "mcp_call")
-            .ShouldAllBe(i => i!["status"]!.GetValue<string>() == "incomplete" && i["error"]!.GetValue<string>() == "Not run: max_tool_calls.");
+            .ShouldAllBe(i => i!["status"]!.GetValue<string>() == "incomplete" && i["error"]!["message"]!.GetValue<string>() == "Not run: max_tool_calls.");
         answer["id"]!.GetValue<string>().ShouldStartWith("resp_ume_");
         _upstream.For(server.Slug).ShouldBeEmpty();
     }
@@ -489,7 +488,7 @@ public sealed partial class McpGatewayTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         answer!["incomplete_details"]!["reason"]!.GetValue<string>().ShouldBe("budget_exceeded");
-        Item(answer, "mcp_call")["error"]!.GetValue<string>().ShouldBe("Not run: budget_exceeded.");
+        Item(answer, "mcp_call")["error"]!["message"]!.GetValue<string>().ShouldBe("Not run: budget_exceeded.");
         _upstream.For(server.Slug).ShouldBeEmpty();
         _responses.For(provider).Count.ShouldBe(1);
     }
@@ -512,7 +511,7 @@ public sealed partial class McpGatewayTests
 
         answer!["status"]!.GetValue<string>().ShouldBe("incomplete");
         answer["incomplete_details"]!["reason"]!.GetValue<string>().ShouldBe("budget_exceeded");
-        Item(answer, "mcp_call")["error"]!.GetValue<string>().ShouldContain("budget");
+        Item(answer, "mcp_call")["error"]!["message"]!.GetValue<string>().ShouldContain("budget");
         Text(answer).ShouldStartWith("Tool results: Error: ");
         _upstream.For(server.Slug).ShouldNotContain(r => r.Method == "tools/call");
         var usage = await UsageOfKeyAsync(key, 3);
@@ -589,7 +588,7 @@ public sealed partial class McpGatewayTests
         var rerouteKey = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.RerouteToOnPrem);
         await GrantPolicyAsync(rerouteKey, server, McpApprovalPolicy.Never);
         var (_, withheld) = await RespondAsync(rerouteKey, Request(provider + "/chat", $"[[call:{server.Slug}__contact {{}}]]", HostedMcp(server, "never")));
-        Item(withheld!, "mcp_call")["error"]!.GetValue<string>().ShouldStartWith("Result withheld");
+        Item(withheld!, "mcp_call")["error"]!["message"]!.GetValue<string>().ShouldStartWith("Result withheld");
         var turn2 = _responses.For(provider)[^1].ToJsonString();
         turn2.ShouldNotContain("070-123");
         turn2.ShouldContain("Result withheld");

@@ -12,7 +12,9 @@ namespace Ume.LlmGateway.FakeLlm;
 /// <item><c>[[loop:NAME]]</c>: a call to NAME on every turn;</item>
 /// <item><c>[[fail-turn:N]]</c>: HTTP 500 on turn N (turns are counted from the user text);</item>
 /// <item><c>[[web_search]]</c>: a <c>web_search_call</c> item (a hosted tool the provider runs itself) on the first turn.</item>
+/// <item><c>[[break-turn:N]]</c>: when streamed, turn N stops right after its first item is added (the connection is cut).</item>
 /// </list>
+/// <see cref="Stream"/> answers the same as Responses stream events (<c>response.created</c> ... <c>response.completed</c>).
 /// A model name with <c>reasoning</c> adds a reasoning item, with <c>encrypted_content</c> when <c>include</c> asks for it;
 /// replaying one without it while <c>store</c> is false is refused. Like OpenAI, responses are kept for
 /// <c>previous_response_id</c> unless <c>store</c> is false, and a function call without its output (or an output without
@@ -23,6 +25,98 @@ internal sealed partial class FakeResponsesScript
     private readonly ConcurrentDictionary<string, JsonArray> _stored = new(StringComparer.Ordinal);
 
     public (int Status, JsonObject Body) Respond(JsonObject request)
+    {
+        var (status, body, _) = Answer(request);
+        return (status, body);
+    }
+
+    /// <summary>The answer as stream events (null for an HTTP error), and whether the connection is cut after them.</summary>
+    public (int Status, JsonObject Body, List<JsonObject>? Events, bool BreaksOff) Stream(JsonObject request)
+    {
+        var (status, body, breakOff) = Answer(request);
+        if (status != 200)
+        {
+            return (status, body, null, false);
+        }
+
+        var events = new List<JsonObject>();
+        void Emit(string type, JsonObject data)
+        {
+            data["type"] = type;
+            data["sequence_number"] = events.Count;
+            events.Add(data);
+        }
+
+        var shell = (JsonObject)body.DeepClone();
+        shell["status"] = "in_progress";
+        shell["output"] = new JsonArray();
+        shell["usage"] = null;
+        Emit("response.created", new JsonObject { ["response"] = shell.DeepClone() });
+        Emit("response.in_progress", new JsonObject { ["response"] = shell.DeepClone() });
+        var output = body["output"]!.AsArray();
+        for (var i = 0; i < output.Count; i++)
+        {
+            var item = output[i]!.AsObject();
+            var id = Str(item["id"]);
+            var added = (JsonObject)item.DeepClone();
+            switch (Str(item["type"]))
+            {
+                case "function_call":
+                    added["arguments"] = string.Empty;
+                    added["status"] = "in_progress";
+                    break;
+                case "message":
+                    added["content"] = new JsonArray();
+                    added["status"] = "in_progress";
+                    break;
+            }
+
+            Emit("response.output_item.added", new JsonObject { ["output_index"] = i, ["item"] = added });
+            if (breakOff)
+            {
+                return (status, body, events, true);
+            }
+
+            switch (Str(item["type"]))
+            {
+                case "function_call":
+                    var arguments = Str(item["arguments"]) ?? string.Empty;
+                    var half = arguments.Length / 2;
+                    foreach (var delta in new[] { arguments[..half], arguments[half..] })
+                    {
+                        Emit("response.function_call_arguments.delta", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["delta"] = delta });
+                    }
+
+                    Emit("response.function_call_arguments.done", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["arguments"] = arguments });
+                    break;
+                case "message":
+                    var parts = item["content"]!.AsArray();
+                    for (var j = 0; j < parts.Count; j++)
+                    {
+                        var text = Str(parts[j]!["text"]) ?? string.Empty;
+                        var empty = (JsonObject)parts[j]!.DeepClone();
+                        empty["text"] = string.Empty;
+                        Emit("response.content_part.added", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["content_index"] = j, ["part"] = empty });
+                        foreach (var word in text.Split(' '))
+                        {
+                            Emit("response.output_text.delta", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["content_index"] = j, ["delta"] = word + " " });
+                        }
+
+                        Emit("response.output_text.done", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["content_index"] = j, ["text"] = text });
+                        Emit("response.content_part.done", new JsonObject { ["item_id"] = id, ["output_index"] = i, ["content_index"] = j, ["part"] = parts[j]!.DeepClone() });
+                    }
+
+                    break;
+            }
+
+            Emit("response.output_item.done", new JsonObject { ["output_index"] = i, ["item"] = item.DeepClone() });
+        }
+
+        Emit("response.completed", new JsonObject { ["response"] = body.DeepClone() });
+        return (status, body, events, false);
+    }
+
+    private (int Status, JsonObject Body, bool BreakOff) Answer(JsonObject request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var model = Str(request["model"]) ?? "fake-chat";
@@ -81,6 +175,8 @@ internal sealed partial class FakeResponsesScript
         {
             return Error(500, "Fake failure.");
         }
+
+        var breakOff = BreakRegex().Match(prompt) is { Success: true } cut && int.Parse(cut.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) == turn;
 
         var output = new JsonArray();
         var reasoning = model.Contains("reasoning", StringComparison.Ordinal);
@@ -147,7 +243,7 @@ internal sealed partial class FakeResponsesScript
                 ["output_tokens"] = 20, ["output_tokens_details"] = new JsonObject { ["reasoning_tokens"] = reasoning ? 5 : 0 },
                 ["total_tokens"] = 120,
             },
-        });
+        }, breakOff);
     }
 
     private static JsonObject Call(int turn, int index, string name, string arguments) => new()
@@ -166,8 +262,8 @@ internal sealed partial class FakeResponsesScript
         _ => string.Empty,
     };
 
-    private static (int, JsonObject) Error(int status, string message) =>
-        (status, new JsonObject { ["error"] = new JsonObject { ["type"] = status >= 500 ? "server_error" : "invalid_request_error", ["message"] = message } });
+    private static (int, JsonObject, bool) Error(int status, string message) =>
+        (status, new JsonObject { ["error"] = new JsonObject { ["type"] = status >= 500 ? "server_error" : "invalid_request_error", ["message"] = message } }, false);
 
     private static string? Str(JsonNode? node) => node is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
@@ -179,4 +275,7 @@ internal sealed partial class FakeResponsesScript
 
     [GeneratedRegex(@"\[\[fail-turn:(\d+)\]\]")]
     private static partial Regex FailRegex();
+
+    [GeneratedRegex(@"\[\[break-turn:(\d+)\]\]")]
+    private static partial Regex BreakRegex();
 }

@@ -91,6 +91,10 @@ public sealed class McpLoopOptions
     [Range(1, 3600)]
     public int TimeoutSeconds { get; set; } = 300;
 
+    /// <summary>A streamed loop sends an SSE comment when nothing else was sent for this long (tool calls, the next turn).</summary>
+    [Range(1, 300)]
+    public int KeepAliveSeconds { get; set; } = 15;
+
     /// <summary>How long an approval request (and a stopped loop's state) can be answered.</summary>
     [Range(1, 1440)]
     public int ApprovalTtlMinutes { get; set; } = 60;
