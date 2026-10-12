@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -25,6 +26,10 @@ builder.Services.AddOptions<GatewayOptions>()
     .BindConfiguration(GatewayOptions.SectionName)
     .ValidateDataAnnotations()
     .ValidateOnStart();
+
+// Client addresses come only from the trusted proxies set in the admin UI (ClientAddressMiddleware).
+// ASPNETCORE_FORWARDEDHEADERS_ENABLED would believe X-Forwarded-For from any caller, so it is switched off here.
+builder.Services.PostConfigure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.None);
 
 builder.Services.AddSingleton<KeyAuthenticator>();
 builder.Services.AddSingleton<GatewayCatalog>();
@@ -61,6 +66,9 @@ var app = builder.Build();
 app.UseUmeHsts();
 
 app.UseMiddleware<RequestIdMiddleware>();
+// Before anything reads the client address; only the client API, so health probes never wait on the catalogue.
+app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1", StringComparison.OrdinalIgnoreCase),
+    branch => branch.UseMiddleware<ClientAddressMiddleware>());
 // Only on the live audio paths: the middleware would otherwise add a handshake object to every request.
 app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime", StringComparison.OrdinalIgnoreCase),
     branch => branch.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) }));

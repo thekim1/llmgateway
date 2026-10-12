@@ -80,7 +80,8 @@ services:
       Kestrel__Endpoints__Https__Certificate__Path: /run/certs/gateway.crt
       Kestrel__Endpoints__Https__Certificate__KeyPath: /run/certs/gateway.key
       Gateway__Security__SourceAddress: ${UME_SOURCE_ADDRESS:-Truncated}
-      ASPNETCORE_FORWARDEDHEADERS_ENABLED: ${UME_FORWARDED_HEADERS:-false}
+      # Client addresses come from Settings > Trusted proxies in the admin UI, never from this switch.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${UME_OTEL_ENDPOINT:-}
       OTEL_SERVICE_NAME: gateway
       SSL_CERT_FILE: /run/certs/ca.pem

@@ -10,6 +10,7 @@ public static class GatewayErrorCodes
     public const string KeyExpired = "key_expired";
     public const string KeyRevoked = "key_revoked";
     public const string KeyDisabled = "key_disabled";
+    public const string AddressNotAllowed = "address_not_allowed";
     public const string InvalidRequest = "invalid_request";
     public const string UnsupportedMediaType = "unsupported_media_type";
     public const string RequestTooLarge = "request_too_large";

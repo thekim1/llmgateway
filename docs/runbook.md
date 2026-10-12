@@ -123,7 +123,11 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
 - Preserve the `Host` header (`proxy_set_header Host $host;`, the default in Nginx Proxy
   Manager). The admin UI builds its OIDC redirect URIs from it, so register
   `https://<admin host>/signin-oidc` and `/signout-callback-oidc` in the IdP.
-- Do not enable forwarded-header trust; it is not needed because the upstream hop is HTTPS.
+- Send the client address in `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`,
+  the default in Nginx Proxy Manager) and list the proxy's address under **Settings > Trusted proxies** in the admin
+  UI. Without that, every request appears to come from the proxy: keys restricted to client addresses are refused
+  and refused credentials are recorded with the proxy's address. See *Client addresses and trusted proxies* below.
+  (No ASP.NET Core forwarded-header setting is involved; scheme and host need no forwarding because the upstream hop is HTTPS.)
 - Gateway host: disable response buffering and allow long reads (streamed completions can run
   for minutes), and allow bodies of a few MB or more: 32 MB covers the 26 MB audio upload limit
   (`Gateway__MaxAudioRequestBodyBytes`; raise both together). Disable request buffering as well, so uploaded
@@ -146,6 +150,32 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
 | SSL tab | your certificate, Force SSL, HTTP/2 | same |
 | Websockets Support | **on** (live audio, `/v1/realtime`) | off |
 | Advanced (custom nginx configuration) | `proxy_buffering off; proxy_request_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 32m;` | (none) |
+
+### Client addresses and trusted proxies
+
+A key can be restricted to client addresses (admin UI: key form, *Allowed client addresses*; one IP address or CIDR
+network per line). The gateway compares them with the client address, which is the TCP connection's address unless the
+connection comes from a **trusted proxy** (admin UI: *Settings > Trusted proxies*, gateway admins only). Then the gateway
+reads `X-Forwarded-For` from the right, skips addresses that are themselves trusted proxies, and takes the first one that
+is not as the client. Entries further left are never believed, because a client can put anything there.
+
+- **List every proxy hop you operate**, for example both a load balancer and the nginx behind it. Find the address the
+  gateway sees: the Settings page shows the address the admin API received the page request from, which is the proxy when
+  the admin UI goes through the same proxy; otherwise look at *Source address* of refused credentials (Data API
+  `security/auth-failures`, or the `gateway.auth.failed` security event).
+- **Never trust addresses that clients also use.** A trusted address can claim to be any client. Trusting a whole office
+  network, or `0.0.0.0/0` (refused by the admin API), would let anyone in it get past every key's address restriction.
+- **Docker networks:** a proxy container on the same Docker network reaches the gateway from its container address, and a
+  proxy on the host through the bridge's gateway address (often `172.17.0.1` or `172.18.0.1`), not the host's LAN address.
+- **Changes apply within seconds** on every gateway instance (the admin API publishes a configuration change). A wrong list
+  only affects keys with an address restriction; they are refused with `403 address_not_allowed`. Keys without a restriction
+  keep working whatever the list holds.
+- **IPv4 and IPv6:** an IPv4 client reaching a dual-stack socket is matched against IPv4 entries (`::ffff:192.0.2.1` counts as
+  `192.0.2.1`). If clients may arrive over IPv6, list their IPv6 networks too.
+- **Not a replacement for network controls.** Address restrictions limit where a leaked key works; they do not authenticate
+  the caller. Keep the firewall rules on 8443/9443 described above.
+- **Source address logging.** `Gateway:Security:SourceAddress` (truncated by default) applies to the recorded address only;
+  the allow-list check always uses the full address in memory.
 
 **PKI certificates.** Pass the certificate chain and key for each public name (the
 leaf certificate file should include intermediates). `--ca-file` appends your root and
@@ -334,9 +364,9 @@ Push over OTLP is best-effort. The durable record is in the database: `AuthFailu
 reason, endpoint, key and client network), `UsageRecords` (PII actions and refusals) and `AuditLog`.
 
 `UME_SOURCE_ADDRESS` (`Truncated` by default, `Full` or `None`) sets how much of the client address is kept for
-refused keys; record the choice in your DPIA. Behind a reverse proxy the gateway sees only the proxy's address unless
-`UME_FORWARDED_HEADERS=true` is set (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`). Set it only when the gateway port is reachable from the proxy alone,
-otherwise clients can forge `X-Forwarded-For`.
+refused keys; record the choice in your DPIA. Behind a reverse proxy the gateway sees only the proxy's address until the
+proxy is listed under *Settings > Trusted proxies* (see *Client addresses and trusted proxies*). The gateway ignores
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED`, which would believe `X-Forwarded-For` from any caller.
 
 ## Health and troubleshooting
 
@@ -369,6 +399,33 @@ does not deploy/expose a public Aspire dashboard.
 | Live audio: 400 "requires a WebSocket connection" | The proxy drops the `Upgrade` header; see *Reverse proxy and PKI* |
 | Live audio: warning "session registry unavailable" | The Redis ACL lacks `zadd zrem zcard zremrangebyscore` (upgrade guide); sessions work but the per-key limit is off |
 | Live audio: sessions end with `gateway_shutting_down` | Expected on deploy/restart: open sessions are closed with an error event and clients reconnect. Metrics: `ume.gateway.realtime.sessions` (open now), `ume.gateway.realtime.session.duration`, `ume.gateway.audio` (seconds) |
+
+## Data retention
+
+Old data is removed every night at 03:00 Europe/Stockholm by the admin API (several instances may run; they take turns).
+How long data is kept is set by a gateway admin under *Settings > Data retention*:
+
+| Data | Setting (default) | Removed | Kept |
+|---|---|---|---|
+| Usage records, refused-key records, budget alerts of periods that ended over a year ago | Usage data, 365 days (90–3 650) | Whole Europe/Stockholm months older than the setting | Monthly totals per key, team, department, model, provider and endpoint (`UsageMonthlyTotals`) |
+| Admin audit log | Audit log, 365 days (90–3 650), or for ever | Entries older than the setting | Nothing |
+
+- **Set both from your records-retention decision (gallringsbeslut) before going live.** Removal cannot be undone
+  except by restoring a backup; backups keep removed rows until they expire, so align backup expiry too.
+- **What still works for removed months:** budgets (a yearly budget reads the totals of its earlier months), the usage
+  summary and CSV export (whole months; by day one row per month), Data API monthly aggregates. **What does not:** the
+  request list, PII incidents, request lookup by id, the Data API daily aggregate and feeds.
+- **The database does the removal.** The admin API calls `ume_retention_step(batch)` until it returns 0. The function runs
+  with the schema owner's rights and treats anything below 90 days as 90; `ume_admin` may execute it but has no `DELETE`
+  on these tables, so the audit log stays append-only for recent entries even if the admin API's credentials leak.
+- **Check it ran:** *Settings > Data retention* shows the last run, rows removed, an error if it failed, the oldest kept
+  usage and the next run; *Run now* starts one (audited as `run Settings`). The admin API logs
+  `Data retention run removed N rows` or `Data retention run failed ...`. A failed run continues the next night.
+- **Configuration** (admin API, `Retention__*`): `Enabled` (true; false stops the nightly run, *Run now* still works),
+  `RunAt` (`03:00`, local time), `BatchSize` (5 000 rows per transaction, 100–50 000).
+- **Large first run:** an existing database with years of usage removes it at the first run, in batches of `BatchSize`;
+  run it outside office hours or start it with *Run now* at a quiet time. Postgres reuses the freed space; run
+  `VACUUM (FULL) "UsageRecords"` in a maintenance window only if the disk must shrink.
 
 ## Backup and restore
 

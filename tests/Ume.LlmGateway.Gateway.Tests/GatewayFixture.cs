@@ -158,8 +158,12 @@ public sealed class GatewayFixture : IAsyncLifetime
     }
 
     /// <summary>A second gateway on the same database and upstreams, with some services replaced. Dispose it.</summary>
-    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> configure) =>
-        _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(configure));
+    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> configure, Action<IWebHostBuilder>? host = null) =>
+        _factory.WithWebHostBuilder(builder =>
+        {
+            host?.Invoke(builder);
+            builder.ConfigureTestServices(configure);
+        });
 
     private void Map(string model, ProviderType type, string behavior)
     {

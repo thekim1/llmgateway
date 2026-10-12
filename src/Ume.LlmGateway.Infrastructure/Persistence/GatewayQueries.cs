@@ -26,6 +26,30 @@ public static class GatewayQueries
             .Where(k => k.RotatedToKeyId != null)
             .ToDictionaryAsync(k => k.Id, k => k.RotatedToKeyId!.Value, cancellationToken);
 
+    /// <summary>The oldest instant usage records cover after the retention job (<see cref="GatewaySettings.UsageRetainedFrom"/>); null when nothing was removed.</summary>
+    public static Task<DateTimeOffset?> UsageRetainedFromAsync(this GatewayDbContext db, CancellationToken cancellationToken) =>
+        db.Settings.AsNoTracking().Select(s => s.UsageRetainedFrom).SingleOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// Cost in <paramref name="window"/> per key, team and department: usage records from <paramref name="retainedFrom"/> on, and
+    /// before it the monthly totals of months that start in the window. Budget windows longer than the minimum retention
+    /// start on a month, so the sum is exact.
+    /// </summary>
+    public static IQueryable<UsageCost> CostsIn(this GatewayDbContext db, PeriodWindow window, DateTimeOffset? retainedFrom)
+    {
+        var recordsFrom = retainedFrom is { } r && r > window.Start ? r : window.Start;
+        var records = db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= recordsFrom && u.Timestamp < window.End)
+            .Select(u => new UsageCost { VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostSek = u.CostSek });
+        if (retainedFrom is not { } kept || kept <= window.Start)
+        {
+            return records;
+        }
+
+        var totalsUntil = kept < window.End ? kept : window.End;
+        return records.Concat(db.UsageMonthlyTotals.AsNoTracking().Where(t => t.MonthStart >= window.Start && t.MonthStart < totalsUntil)
+            .Select(t => new UsageCost { VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostSek = t.CostSek }));
+    }
+
     /// <summary>
     /// SEK spent against <paramref name="budget"/> in <paramref name="window"/>. A key budget covers the key and every key it was rotated into.
     /// Pass <paramref name="rotations"/> when it is already loaded (e.g. when summing many budgets).
@@ -33,7 +57,7 @@ public static class GatewayQueries
     public static async Task<decimal> SpentAsync(this GatewayDbContext db, Budget budget, PeriodWindow window, CancellationToken cancellationToken,
         IReadOnlyDictionary<Guid, Guid>? rotations = null)
     {
-        var query = db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= window.Start && u.Timestamp < window.End);
+        var query = db.CostsIn(window, await db.UsageRetainedFromAsync(cancellationToken));
         switch (budget.Scope)
         {
             case BudgetScope.Department:
@@ -52,4 +76,13 @@ public static class GatewayQueries
 
         return await query.SumAsync(u => u.CostSek, cancellationToken);
     }
+}
+
+/// <summary>One usage record's or monthly total's cost and owners (<see cref="GatewayQueries.CostsIn"/>).</summary>
+public sealed class UsageCost
+{
+    public Guid VirtualKeyId { get; init; }
+    public Guid TeamId { get; init; }
+    public Guid DepartmentId { get; init; }
+    public decimal CostSek { get; init; }
 }

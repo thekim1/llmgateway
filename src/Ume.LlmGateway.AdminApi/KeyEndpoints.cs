@@ -21,7 +21,8 @@ public sealed record KeyRequest(
     [property: Range(1, int.MaxValue)] int? TokensPerMinute = null,
     bool IsEnabled = true,
     [property: MaxLength(100)] List<string>? AllowedProviders = null,
-    [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null) : AdminRequest, IValidatableObject
+    [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null,
+    [property: MaxLength(NetworkRanges.MaxEntries)] List<string>? AllowedIpRanges = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -32,6 +33,10 @@ public sealed record KeyRequest(
         if (AllowedProviders?.Any(p => string.IsNullOrWhiteSpace(p) || p.Length > 100) == true)
         {
             yield return new ValidationResult("Leverantörsnamn måste vara 1–100 tecken.", [nameof(AllowedProviders)]);
+        }
+        if (AllowedIpRanges is not null && NetworkRanges.Normalize(AllowedIpRanges, out _) is { } rangeError)
+        {
+            yield return new ValidationResult(rangeError, [nameof(AllowedIpRanges)]);
         }
         if (AllowedResidencies?.Any(r => !Enum.IsDefined(r)) == true)
         {
@@ -124,6 +129,7 @@ public static class KeyEndpoints
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();
         key.AllowedModels = [.. input.AllowedModels]; key.AllowedResidencies = [.. input.AllowedResidencies]; if (input.AllowedProviders is not null) { key.AllowedProviders = [.. input.AllowedProviders.Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)]; } key.PiiPolicy = input.PiiPolicy;
         if (input.AttachmentPolicy is { } attachments) { key.AttachmentPolicy = attachments; }
+        if (input.AllowedIpRanges is not null) { NetworkRanges.Normalize(input.AllowedIpRanges, out var ranges); key.AllowedIpRanges = ranges; }
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
     }
 }

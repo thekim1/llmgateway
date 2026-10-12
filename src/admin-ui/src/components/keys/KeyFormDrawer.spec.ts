@@ -156,3 +156,49 @@ describe('KeyFormDrawer provider then model selection', () => {
     expect(update.mock.calls[0]![1]).toMatchObject({ attachmentPolicy: 'ImagesOnly' })
   })
 })
+
+describe('KeyFormDrawer client addresses', () => {
+  beforeEach(() => {
+    create.mockReset()
+    update.mockReset()
+  })
+
+  it('sends the address list one entry per line and shows the existing one on edit', async () => {
+    update.mockResolvedValue({})
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], allowedIpRanges: ['203.0.113.0/24'], piiPolicy: 'Off',
+      requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
+    } as unknown as VirtualKey
+    const wrapper = mountForm(existing, 'department-admin')
+    await flushPromises()
+    const field = wrapper.find('textarea#key-addresses')
+    expect((field.element as HTMLTextAreaElement).value).toBe('203.0.113.0/24')
+    await field.setValue('203.0.113.0/24\n 2001:db8::10 \n')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect((update.mock.calls[0]![1] as { allowedIpRanges: string[] }).allowedIpRanges).toEqual(['203.0.113.0/24', '2001:db8::10'])
+  })
+
+  it('refuses an invalid entry before saving', async () => {
+    const wrapper = mountForm()
+    await flushPromises()
+    await wrapper.find('input[autocomplete=off]').setValue('My key')
+    await wrapper.find('textarea#key-addresses').setValue('10.20.1.5/16')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Did you mean 10.20.0.0/16?')
+  })
+
+  it('sends an empty list when no addresses are entered', async () => {
+    create.mockResolvedValue({ key: {}, secret: 's' })
+    const wrapper = mountForm()
+    await flushPromises()
+    await wrapper.find('select').setValue('t1')
+    await wrapper.find('input[autocomplete=off]').setValue('My key')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect((create.mock.calls[0]![0] as { allowedIpRanges: string[] }).allowedIpRanges).toEqual([])
+  })
+})

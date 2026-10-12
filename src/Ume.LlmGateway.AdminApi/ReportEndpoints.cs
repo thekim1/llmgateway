@@ -21,6 +21,22 @@ public sealed record UsageRow
 }
 public sealed record UsageSummaryRow(string Key, string Label, long Requests, long InputTokens, long OutputTokens, decimal CostSek, long Errors, long Fallbacks);
 
+/// <summary>A usage record or a monthly total, in the shape the summary and the export add up (<see cref="ReportEndpoints.Facts"/>).</summary>
+public sealed class UsageFact
+{
+    public Guid DepartmentId { get; init; }
+    public Guid TeamId { get; init; }
+    public Guid VirtualKeyId { get; init; }
+    public required string RequestedModel { get; init; }
+    public string? ProviderName { get; init; }
+    public long Requests { get; init; }
+    public long InputTokens { get; init; }
+    public long OutputTokens { get; init; }
+    public decimal CostSek { get; init; }
+    public long Errors { get; init; }
+    public long Fallbacks { get; init; }
+}
+
 /// <summary>The <c>groupBy</c> of <c>/api/usage/summary</c> (case-insensitive; default <c>department</c>).</summary>
 public enum UsageGrouping
 {
@@ -62,27 +78,58 @@ public static class ReportEndpoints
                 : EnumQuery.TryParse<UsageGrouping>(groupBy, out var parsed) ? parsed
                 : throw new ApiFaultException(400, "Grupperingen är ogiltig.");
             var (start, end) = Range(from, to, ctx.Now);
-            var query = ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end);
-            if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
-            if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
-            var names = WithNames(query, ctx.Db);
-            var groups = grouping switch
+            var retained = await Retained(ctx, start, end, ct);
+            List<UsageSummaryRow> rows;
+            if (grouping == UsageGrouping.Day)
             {
-                UsageGrouping.Department => names.GroupBy(u => new { Key = u.Record.DepartmentId.ToString(), Label = u.DepartmentName }),
-                UsageGrouping.Team => names.GroupBy(u => new { Key = u.Record.TeamId.ToString(), Label = u.TeamName }),
-                UsageGrouping.Key => names.GroupBy(u => new { Key = u.Record.VirtualKeyId.ToString(), Label = u.KeyName }),
-                UsageGrouping.Model => names.GroupBy(u => new { Key = u.Record.RequestedModel, Label = u.Record.RequestedModel }),
-                UsageGrouping.Provider => names.GroupBy(u => new { Key = u.Record.ProviderName ?? "-", Label = u.Record.ProviderName ?? "-" }),
+                // By day from records; a month that only has totals is one row labelled yyyy-MM.
+                var query = ctx.Usage(user).Where(u => u.Timestamp >= retained.RecordsFrom && u.Timestamp < end);
+                if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
+                if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
 #pragma warning disable CA1305 // translated to SQL (a text cast in the database), no .NET culture is involved
-                UsageGrouping.Day => names.GroupBy(u => new { Key = u.Record.Timestamp.Date.ToString(), Label = u.Record.Timestamp.Date.ToString() }),
+                rows = await query.GroupBy(u => u.Timestamp.Date.ToString()).Select(g => new UsageSummaryRow(g.Key, g.Key,
 #pragma warning restore CA1305
-                _ => throw new ArgumentOutOfRangeException(nameof(groupBy), grouping, "Unknown grouping."),
-            };
-            var rows = await groups.Select(g => new UsageSummaryRow(g.Key.Key, g.Key.Label,
-                g.LongCount(), g.Sum(u => u.Record.InputTokens), g.Sum(u => u.Record.OutputTokens),
-                g.Sum(u => u.Record.CostSek), g.LongCount(u => u.Record.Outcome != RequestOutcome.Success), g.Sum(u => (long)u.Record.FallbackCount))).ToListAsync(ct);
+                    g.LongCount(), g.Sum(u => u.InputTokens), g.Sum(u => u.OutputTokens),
+                    g.Sum(u => u.CostSek), g.LongCount(u => u.Outcome != RequestOutcome.Success), g.Sum(u => (long)u.FallbackCount))).ToListAsync(ct);
+                if (retained.TotalsUntil is { } until)
+                {
+                    var totals = ctx.UsageTotals(user).Where(t => t.MonthStart >= retained.FirstMonth && t.MonthStart < until);
+                    if (teamId is { } t1) { totals = totals.Where(t => t.TeamId == t1); }
+                    if (departmentId is { } d1) { totals = totals.Where(t => t.DepartmentId == d1); }
+                    var months = await totals.GroupBy(t => t.MonthStart).Select(g => new
+                    {
+                        g.Key, Requests = g.Sum(t => t.Requests), Input = g.Sum(t => t.InputTokens), Output = g.Sum(t => t.OutputTokens),
+                        Cost = g.Sum(t => t.CostSek), Errors = g.Sum(t => t.Requests - t.SuccessfulRequests), Fallbacks = g.Sum(t => t.Fallbacks),
+                    }).ToListAsync(ct);
+                    rows.InsertRange(0, months.OrderBy(m => m.Key).Select(m =>
+                    {
+                        var label = TimeZoneInfo.ConvertTime(m.Key, BudgetPeriods.Stockholm).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                        return new UsageSummaryRow(label, label, m.Requests, m.Input, m.Output, m.Cost, m.Errors, m.Fallbacks);
+                    }));
+                }
+            }
+            else
+            {
+                var facts = Facts(ctx, user, retained, end);
+                if (teamId is { } team) { facts = facts.Where(f => f.TeamId == team); }
+                if (departmentId is { } department) { facts = facts.Where(f => f.DepartmentId == department); }
+                var names = FactsWithNames(facts, ctx.Db);
+                var groups = grouping switch
+                {
+                    UsageGrouping.Department => names.GroupBy(u => new { Key = u.Fact.DepartmentId.ToString(), Label = u.DepartmentName }),
+                    UsageGrouping.Team => names.GroupBy(u => new { Key = u.Fact.TeamId.ToString(), Label = u.TeamName }),
+                    UsageGrouping.Key => names.GroupBy(u => new { Key = u.Fact.VirtualKeyId.ToString(), Label = u.KeyName }),
+                    UsageGrouping.Model => names.GroupBy(u => new { Key = u.Fact.RequestedModel, Label = u.Fact.RequestedModel }),
+                    UsageGrouping.Provider => names.GroupBy(u => new { Key = u.Fact.ProviderName ?? "-", Label = u.Fact.ProviderName ?? "-" }),
+                    _ => throw new ArgumentOutOfRangeException(nameof(groupBy), grouping, "Unknown grouping."),
+                };
+                rows = await groups.Select(g => new UsageSummaryRow(g.Key.Key, g.Key.Label,
+                    g.Sum(u => u.Fact.Requests), g.Sum(u => u.Fact.InputTokens), g.Sum(u => u.Fact.OutputTokens),
+                    g.Sum(u => u.Fact.CostSek), g.Sum(u => u.Fact.Errors), g.Sum(u => u.Fact.Fallbacks))).ToListAsync(ct);
+            }
+
             return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
-                rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows));
+                rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows, retained.TotalsUntil is null ? null : retained.RecordsFrom));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
         reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
@@ -90,10 +137,10 @@ public static class ReportEndpoints
         reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var (start, end) = Range(from, to, ctx.Now);
-            var query = WithNames(ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end), ctx.Db);
+            var query = FactsWithNames(Facts(ctx, user, await Retained(ctx, start, end, ct), end), ctx.Db);
             var rows = await query.GroupBy(u => new { u.CostCenterCode, u.DepartmentName, u.TeamName, u.KeyName })
                 .Select(g => new { g.Key.CostCenterCode, g.Key.DepartmentName, g.Key.TeamName, g.Key.KeyName,
-                    Requests = g.LongCount(), Tokens = g.Sum(u => u.Record.InputTokens + u.Record.OutputTokens), Cost = g.Sum(u => u.Record.CostSek) }).ToListAsync(ct);
+                    Requests = g.Sum(u => u.Fact.Requests), Tokens = g.Sum(u => u.Fact.InputTokens + u.Fact.OutputTokens), Cost = g.Sum(u => u.Fact.CostSek) }).ToListAsync(ct);
             var csv = new StringBuilder("ansvarskod;förvaltning;team;nyckel;requests;tokens;kostnad SEK\r\n");
             foreach (var r in rows)
             {
@@ -143,6 +190,63 @@ public static class ReportEndpoints
         join team in db.Teams on u.TeamId equals team.Id
         join department in db.Departments on u.DepartmentId equals department.Id
         select new UsageRow { Record = u, KeyPrefix = key.Prefix, KeyName = key.Name, TeamName = team.Name, DepartmentName = department.Name, CostCenterCode = department.CostCenterCode };
+
+    /// <summary>
+    /// Where a report period's usage comes from after data retention: records from <c>RecordsFrom</c>, and, when the period
+    /// reaches back before the oldest kept record, the monthly totals of months from <c>FirstMonth</c> (the month the period
+    /// starts in) up to <c>TotalsUntil</c>.
+    /// </summary>
+    internal readonly record struct RetainedRange(DateTimeOffset RecordsFrom, DateTimeOffset FirstMonth, DateTimeOffset? TotalsUntil);
+
+    internal static async Task<RetainedRange> Retained(AdminContext ctx, DateTimeOffset start, DateTimeOffset end, CancellationToken ct)
+    {
+        var kept = await ctx.Db.UsageRetainedFromAsync(ct);
+        if (kept is not { } from || from <= start)
+        {
+            return new RetainedRange(start, start, null);
+        }
+
+        return new RetainedRange(from, BudgetPeriods.GetWindow(BudgetPeriod.Monthly, start).Start, from < end ? from : end);
+    }
+
+    /// <summary>Records and, before the oldest kept record, monthly totals, in the user's departments (see <see cref="RetainedRange"/>).</summary>
+    internal static IQueryable<UsageFact> Facts(AdminContext ctx, ClaimsPrincipal user, RetainedRange range, DateTimeOffset end)
+    {
+        var records = ctx.Usage(user).AsNoTracking().Where(u => u.Timestamp >= range.RecordsFrom && u.Timestamp < end).Select(u => new UsageFact
+        {
+            DepartmentId = u.DepartmentId, TeamId = u.TeamId, VirtualKeyId = u.VirtualKeyId, RequestedModel = u.RequestedModel, ProviderName = u.ProviderName,
+            Requests = 1, InputTokens = u.InputTokens, OutputTokens = u.OutputTokens, CostSek = u.CostSek,
+            Errors = u.Outcome != RequestOutcome.Success ? 1 : 0, Fallbacks = u.FallbackCount,
+        });
+        if (range.TotalsUntil is not { } until)
+        {
+            return records;
+        }
+
+        return records.Concat(ctx.UsageTotals(user).Where(t => t.MonthStart >= range.FirstMonth && t.MonthStart < until).Select(t => new UsageFact
+        {
+            DepartmentId = t.DepartmentId, TeamId = t.TeamId, VirtualKeyId = t.VirtualKeyId, RequestedModel = t.RequestedModel, ProviderName = t.ProviderName,
+            Requests = t.Requests, InputTokens = t.InputTokens, OutputTokens = t.OutputTokens, CostSek = t.CostSek,
+            Errors = t.Requests - t.SuccessfulRequests, Fallbacks = t.Fallbacks,
+        }));
+    }
+
+    // Member initialisers, not a constructor: EF translates GroupBy over the properties only then.
+    internal sealed class UsageFactRow
+    {
+        public required UsageFact Fact { get; init; }
+        public required string KeyName { get; init; }
+        public required string TeamName { get; init; }
+        public required string DepartmentName { get; init; }
+        public required string CostCenterCode { get; init; }
+    }
+
+    internal static IQueryable<UsageFactRow> FactsWithNames(IQueryable<UsageFact> facts, GatewayDbContext db) =>
+        from f in facts
+        join key in db.VirtualKeys on f.VirtualKeyId equals key.Id
+        join team in db.Teams on f.TeamId equals team.Id
+        join department in db.Departments on f.DepartmentId equals department.Id
+        select new UsageFactRow { Fact = f, KeyName = key.Name, TeamName = team.Name, DepartmentName = department.Name, CostCenterCode = department.CostCenterCode };
 
     private static UsageRequestDto UsageDto(UsageRow row)
     {

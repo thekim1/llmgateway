@@ -68,16 +68,21 @@ Roles (OIDC `roles` claim):
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
-allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId }`
+allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
+allowedIpRanges: string[] }`
+(`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
+100; empty = any address; omitted on update = unchanged; returned in canonical form, a network with host bits set such as
+`10.20.1.5/16` is refused with 400; copied to the replacement key on rotation. Behind a reverse proxy it needs the proxy in
+[trusted proxies](#settings). Any key manager may set it.)
 (empty `allowedModels` / `allowedResidencies` = all allowed)
 (`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -175,6 +180,18 @@ and invalidate the gateway catalogue.
 - `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
   Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
   reports its `exchange-rate` readiness check (and so the gateway component in `/api/ops/health`) as Degraded.
+- `GET /api/settings/retention` *(gateway-admin)* → `{ usageRetentionDays, auditRetentionDays (null = kept for ever), usageRetainedFrom,
+  nextUsageCutoff, nextAuditCutoff, enabled, nextRunAt, running, lastRunAt, lastRunDeleted, lastRunError }` · `PUT /api/settings/retention`
+  `{ usageRetentionDays, auditRetentionDays }` (90–3 650; audited as `Settings`) · `POST /api/settings/retention/run` → 202 with the state
+  (409 when a run is going; audited as `run`). See *Data retention* in [the runbook](runbook.md). `usageRetainedFrom` is the oldest instant
+  usage records cover; `GET /api/usage/summary` returns `monthlyTotalsBefore` when its period reaches before it (usage before that instant
+  comes from whole-month totals; `groupBy=day` shows those months as `yyyy-MM`). The CSV export and budget spend use the totals the same way.
+- <a id="settings"></a>`GET /api/settings/network` *(gateway-admin)* → `{ trustedProxies: string[], updatedAt, observed: { remoteAddress, forwardedFor } }`
+  · `PUT /api/settings/network` `{ trustedProxies: string[] }` *(gateway-admin)*. Trusted reverse proxies: the gateway takes the
+  client address from `X-Forwarded-For` only on connections from these addresses (single IPs or CIDR networks, at most 100,
+  canonicalised; `/0` networks are refused). `observed` is the connection the admin API saw for this request, to help find
+  the proxy's address. Saving is audited (`Settings`) and publishes a configuration change, so the gateways apply it within
+  seconds. See *Client addresses and trusted proxies* in [the runbook](runbook.md).
 - Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
   also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
   full the alert is stored but not sent (a warning is logged).
@@ -257,7 +274,8 @@ and invalidate the gateway catalogue.
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
-  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
+  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
+  client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).

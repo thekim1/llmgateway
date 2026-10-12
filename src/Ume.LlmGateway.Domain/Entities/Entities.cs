@@ -1,4 +1,6 @@
 using System.Collections.Frozen;
+using System.Net;
+using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Domain.Entities;
 
@@ -70,6 +72,13 @@ public sealed class VirtualKey
     /// <summary>Allowed provider account names (<see cref="ProviderAccount.Name"/>). Empty = all providers.</summary>
     public List<string> AllowedProviders { get; set; } = [];
 
+    /// <summary>
+    /// Client addresses the key may be used from: single addresses or CIDR networks in canonical form
+    /// (<see cref="Services.NetworkRanges"/>). Empty = any address. Behind a reverse proxy this only works once the proxy is
+    /// listed in <see cref="GatewaySettings.TrustedProxies"/>.
+    /// </summary>
+    public List<string> AllowedIpRanges { get; set; } = [];
+
     public PiiPolicy PiiPolicy { get; set; } = PiiPolicy.Off;
     public AttachmentPolicy AttachmentPolicy { get; set; } = AttachmentPolicy.Allowed;
     public int? RequestsPerMinute { get; set; }
@@ -102,20 +111,49 @@ public sealed class VirtualKey
 
     public bool IsUsable(DateTimeOffset now) => GetStatus(now) is KeyStatus.Active or KeyStatus.InGracePeriod;
 
-    // Case-insensitive index of AllowedModels, built once by IndexAllowedModels for keys held in a read-only cache.
+    // Case-insensitive index of AllowedModels and parsed AllowedIpRanges, built once by IndexAllowLists for keys held in a read-only cache.
     private FrozenSet<string>? _allowedModelIndex;
     private List<string>? _indexedModels;
     private int _indexedCount;
+    private IPNetwork[]? _allowedNetworks;
+    private List<string>? _indexedRanges;
+    private int _indexedRangeCount;
 
     /// <summary>
-    /// Builds the lookup <see cref="IsModelAllowed"/> uses, so a cached key answers without allocating. Call once the key is
-    /// loaded for read-only use; if <see cref="AllowedModels"/> is replaced or resized afterwards the index is ignored.
+    /// Builds the lookups <see cref="IsModelAllowed"/> and <see cref="IsAddressAllowed"/> use, so a cached key answers without
+    /// allocating or parsing. Call once the key is loaded for read-only use; if a list is replaced or resized afterwards its
+    /// index is ignored.
     /// </summary>
-    public void IndexAllowedModels()
+    public void IndexAllowLists()
     {
         _allowedModelIndex = AllowedModels.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         _indexedModels = AllowedModels;
         _indexedCount = AllowedModels.Count;
+        _allowedNetworks = NetworkRanges.ParseValid(AllowedIpRanges);
+        _indexedRanges = AllowedIpRanges;
+        _indexedRangeCount = AllowedIpRanges.Count;
+    }
+
+    /// <summary>
+    /// The key's address allow-list. Empty = every address. An unknown address (no connection address) is refused when a
+    /// list is set, and so is every address if no entry parses: a broken list must not open the key to everyone.
+    /// </summary>
+    public bool IsAddressAllowed(IPAddress? address)
+    {
+        if (AllowedIpRanges.Count == 0)
+        {
+            return true;
+        }
+
+        if (address is null)
+        {
+            return false;
+        }
+
+        var networks = _allowedNetworks is { } index && ReferenceEquals(_indexedRanges, AllowedIpRanges) && _indexedRangeCount == AllowedIpRanges.Count
+            ? index
+            : NetworkRanges.ParseValid(AllowedIpRanges);
+        return NetworkRanges.Contains(networks, address);
     }
 
     /// <summary>The key's model allow-list (route aliases and model names, case-insensitive). Empty = every model.</summary>
@@ -340,6 +378,79 @@ public sealed class Budget
 
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Gateway-wide settings edited on the admin UI's Settings page. One row (<see cref="SingletonId"/>); no row means the
+/// defaults. The gateway reads it with the catalogue, so a change takes effect when the admin API publishes it.
+/// </summary>
+public sealed class GatewaySettings
+{
+    public const int SingletonId = 1;
+
+    public int Id { get; set; } = SingletonId;
+
+    /// <summary>
+    /// Reverse proxies whose <c>X-Forwarded-For</c> the gateway believes: single addresses or CIDR networks in canonical form.
+    /// Empty = the connection address is the client address and the header is ignored.
+    /// </summary>
+    public List<string> TrustedProxies { get; set; } = [];
+
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Days usage records, refused-credential records and budget alerts are kept (<see cref="RetentionPolicy"/>). Whole
+    /// months are removed, after their monthly totals are saved in <see cref="UsageMonthlyTotal"/>.
+    /// </summary>
+    public int UsageRetentionDays { get; set; } = RetentionPolicy.DefaultDays;
+
+    /// <summary>Days admin audit entries are kept; null keeps them for ever.</summary>
+    public int? AuditRetentionDays { get; set; } = RetentionPolicy.DefaultDays;
+
+    /// <summary>
+    /// The oldest instant usage records cover (a Europe/Stockholm month start), set by the retention job; null until it
+    /// first removes anything. Usage before it is only in <see cref="UsageMonthlyTotal"/>, so reports and budget spend read
+    /// totals before it and records from it on. Written only by the database function <c>ume_retention_step</c>.
+    /// </summary>
+    public DateTimeOffset? UsageRetainedFrom { get; set; }
+
+    public DateTimeOffset? RetentionLastRunAt { get; set; }
+
+    /// <summary>Rows removed by the last run, all tables together.</summary>
+    public long? RetentionLastRunDeleted { get; set; }
+
+    /// <summary>Why the last run failed (no exception text, which could hold connection details); null when it succeeded.</summary>
+    public string? RetentionLastRunError { get; set; }
+}
+
+/// <summary>
+/// Usage for one Europe/Stockholm month, key, model, provider and endpoint, kept after the month's usage records are
+/// removed by the retention job. Written only by the database function <c>ume_retention_step</c>; never edited.
+/// </summary>
+public sealed class UsageMonthlyTotal
+{
+    public long Id { get; set; }
+
+    /// <summary>The month's start (Europe/Stockholm midnight on the 1st) as an instant.</summary>
+    public DateTimeOffset MonthStart { get; set; }
+
+    public Guid VirtualKeyId { get; set; }
+    public Guid TeamId { get; set; }
+    public Guid DepartmentId { get; set; }
+    public GatewayEndpoint Endpoint { get; set; }
+    public required string RequestedModel { get; set; }
+    public Guid? ProviderAccountId { get; set; }
+    public string? ProviderName { get; set; }
+    public Guid? ModelDeploymentId { get; set; }
+    public long Requests { get; set; }
+    public long SuccessfulRequests { get; set; }
+    public long Fallbacks { get; set; }
+    public long InputTokens { get; set; }
+    public long CachedInputTokens { get; set; }
+    public long OutputTokens { get; set; }
+    public decimal AudioSeconds { get; set; }
+    public decimal CostUsd { get; set; }
+    public decimal CostSek { get; set; }
 }
 
 public sealed class ExchangeRate

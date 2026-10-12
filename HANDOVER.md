@@ -27,13 +27,12 @@ The POC is not a production approval, legal attestation or WCAG certification (s
    live regions, focus after drawers and dialogs, the segmented controls, the `<details>` disclosures and `aria-disabled` move buttons.
 2. **Decide:** a duplicate rule name (409) is shown as a form-level message, not on the *Name* field.
 3. **Decide:** the "Skip to main content" link is hidden from 768 px (`md:hidden`); the sidebar has about 15 tab stops before `main`. Landmarks are sufficient, but a skip link is cheap.
-4. **Fix:** `SettingsView` says theme options are in the top bar, but the theme control is in the sidebar and only visible from 1024 px.
-5. **Test gap:** `DiscoverModelsDialog.vue` has no automated UI test (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
-6. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
-7. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Usage writer ceiling.** One gateway instance tops out at about 11 000 messages/s because the single
+4. **Test gap:** `DiscoverModelsDialog.vue` has no automated UI test (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
+5. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
+6. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Usage writer ceiling.** One gateway instance tops out at about 11 000 messages/s because the single
    usage writer (batched EF inserts) cannot write faster; its queue fills and back-pressure slows requests. Postgres `COPY`
    for batches or parallel writers would raise it (see *Scaling* in [docs/performance.md](docs/performance.md)).
-8. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
+7. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
    (about 1.8 MB per 300-chunk stream); rewriting `AnthropicStreamTranslator` with `Utf8JsonWriter` would remove most of it. See [docs/performance.md](docs/performance.md).
 
 ## Conventions and gotchas
@@ -49,6 +48,12 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Endpoint semantics (routing name, paths, capability, model kinds, audio/realtime/streaming flags) only in `GatewayEndpoints` (Domain); do not add endpoint switches.
   - Redis keys and channels only in `RedisKeys` (all under `ume:`; the ACL in `deploy/redis/users.acl.example` depends on it).
   - Exchange rate, key rotation lineage and budget spend queries in `GatewayQueries` (Infrastructure), shared by gateway and admin API.
+  - Data retention (ADR 016): usage before `GatewaySettings.UsageRetainedFrom` exists only in `UsageMonthlyTotals`. New code that sums
+    usage must read totals before that boundary and records from it on (`GatewayQueries.CostsIn`, `ReportEndpoints.Facts`, the Data API
+    aggregate SQL). Only the database function `ume_retention_step` deletes usage, refused-key, alert or audit rows; change it in a new
+    migration (`CREATE OR REPLACE`), never by granting `DELETE` to an app role.
+  - Gateway-wide settings live in the single `GatewaySettings` row; the gateway reads it with the catalogue (trusted proxies), so a
+    change the gateway must see publishes `InvalidationKind.Config`.
   - Provider failures carry a `FailureKind`: only `Transient` counts toward the circuit breaker; `ClientError` is answered without fallback.
   - Every accepted gateway request is accounted exactly once (`AccountAsync`); new failure paths must go through it.
   - Admin API endpoints stay thin; logic belongs in the services (`RoutingRuleService`, `ProviderCatalogService`, `BudgetAdminService`,
