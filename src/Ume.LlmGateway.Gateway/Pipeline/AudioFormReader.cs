@@ -23,8 +23,8 @@ public sealed record AudioForm(JsonObject? Fields, AudioUpload? Audio, int Statu
 /// </summary>
 public static class AudioFormReader
 {
-    private const int MaxFieldBytes = 64 * 1024;
-    private const int MaxFields = 50;
+    internal const int MaxFieldBytes = 64 * 1024;
+    internal const int MaxFields = 50;
 
     public static async Task<AudioForm> ReadAsync(HttpRequest request, long maxBytes, CancellationToken ct)
     {
@@ -110,7 +110,7 @@ public static class AudioFormReader
     /// Form values are strings. <c>stream</c> becomes a boolean (the pipeline reads it as one); a repeated name, or one
     /// ending in <c>[]</c>, becomes an array so each value is sent upstream again.
     /// </summary>
-    private static void Add(JsonObject fields, string name, string value)
+    internal static void Add(JsonObject fields, string name, string value)
     {
         JsonNode node = name == "stream" && bool.TryParse(value, out var flag) ? JsonValue.Create(flag) : JsonValue.Create(value);
         if (fields[name] is JsonArray values)
@@ -129,7 +129,7 @@ public static class AudioFormReader
         }
     }
 
-    private static async Task<string?> ReadFieldAsync(Stream body, CancellationToken ct)
+    internal static async Task<string?> ReadFieldAsync(Stream body, CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(MaxFieldBytes + 1);
         try
@@ -153,7 +153,7 @@ public static class AudioFormReader
         }
     }
 
-    private static async Task<(byte[] Buffer, int Length)> ReadFileAsync(Stream body, long? contentLength, long maxBytes, CancellationToken ct)
+    internal static async Task<(byte[] Buffer, int Length)> ReadFileAsync(Stream body, long? contentLength, long maxBytes, CancellationToken ct)
     {
         // Content-Length covers the whole form, so it is a slight over-size for the file: one rent, no regrowth.
         var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(contentLength ?? 1024 * 1024, 1, maxBytes) + 1);
@@ -187,7 +187,7 @@ public static class AudioFormReader
         }
     }
 
-    private static void Return(byte[]? buffer)
+    internal static void Return(byte[]? buffer)
     {
         if (buffer is not null)
         {
@@ -200,5 +200,5 @@ public static class AudioFormReader
 
     private static AudioForm Error(int status, string code, string message) => new(null, null, status, code, message);
 
-    private sealed class FileTooLargeException : Exception;
+    internal sealed class FileTooLargeException : Exception;
 }

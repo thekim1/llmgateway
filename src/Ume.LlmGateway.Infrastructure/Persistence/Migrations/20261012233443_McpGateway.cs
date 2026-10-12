@@ -113,6 +113,8 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     McpServerId = table.Column<Guid>(type: "uuid", nullable: false),
                     AllowedTools = table.Column<List<string>>(type: "text[]", nullable: false),
                     ApprovalPolicy = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    AllowResources = table.Column<bool>(type: "boolean", nullable: false),
+                    AllowPrompts = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>

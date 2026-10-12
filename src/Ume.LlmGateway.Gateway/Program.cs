@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -30,6 +31,10 @@ builder.Services.AddOptions<GatewayOptions>()
     .BindConfiguration(GatewayOptions.SectionName)
     .ValidateDataAnnotations()
     .ValidateOnStart();
+
+// Client addresses come only from the trusted proxies set in the admin UI (ClientAddressMiddleware).
+// ASPNETCORE_FORWARDEDHEADERS_ENABLED would believe X-Forwarded-For from any caller, so it is switched off here.
+builder.Services.PostConfigure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.None);
 
 builder.Services.AddSingleton<KeyAuthenticator>();
 builder.Services.AddSingleton<GatewayCatalog>();
@@ -67,6 +72,9 @@ var app = builder.Build();
 app.UseUmeHsts();
 
 app.UseMiddleware<RequestIdMiddleware>();
+// Before anything reads the client address; only the client API, so health probes never wait on the catalogue.
+app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1", StringComparison.OrdinalIgnoreCase),
+    branch => branch.UseMiddleware<ClientAddressMiddleware>());
 // Only on the live audio paths: the middleware would otherwise add a handshake object to every request.
 app.UseWhen(http => http.Request.Path.StartsWithSegments("/v1/realtime", StringComparison.OrdinalIgnoreCase),
     branch => branch.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) }));
@@ -124,6 +132,14 @@ v1.MapPost("/audio/transcriptions", (HttpContext http, GatewayRequestHandler h) 
 
 v1.MapPost("/audio/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranslations))
     .WithSummary("Tal till engelsk text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/images/generations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageGenerations))
+    .WithSummary("Bildgenerering från text (OpenAI-kompatibel, JSON)")
+    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+
+v1.MapPost("/images/edits", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageEdits))
+    .WithSummary("Bildredigering (OpenAI-kompatibel, multipart/form-data med fälten 'image' och eventuellt 'mask')")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 // Live audio: WebSocket (OpenAI Realtime protocol). HTTP/2 extended CONNECT is presented as GET as well.

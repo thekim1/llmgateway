@@ -58,6 +58,22 @@ public static class RequestRewriter
         return null;
     }
 
+    /// <summary>Largest <c>n</c> taken into account for the budget estimate of an image request.</summary>
+    public const int MaxEstimatedImages = 100;
+
+    /// <summary>
+    /// Pictures the client asked for (<c>n</c>, default 1). Multipart forms carry it as a string, JSON bodies as a number.
+    /// Clamped to 1..<see cref="MaxEstimatedImages"/>: the provider refuses what it cannot make.
+    /// </summary>
+    public static int RequestedImageCount(JsonObject body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var n = body["n"] is JsonValue v && (v.TryGetValue<int>(out var number) || (v.TryGetValue<string>(out var text) && int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out number)))
+            ? number
+            : 1;
+        return Math.Clamp(n, 1, MaxEstimatedImages);
+    }
+
     public static bool IsStreaming(JsonObject body)
     {
         ArgumentNullException.ThrowIfNull(body);

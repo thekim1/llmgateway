@@ -111,6 +111,58 @@ internal static class ProviderJson
         return (usage, reported);
     }
 
+    /// <summary>
+    /// Usage of an image answer: the top-level <c>usage</c> object (token-billed models such as gpt-image-1) and the
+    /// number of pictures in <c>data</c>, counted without materialising them (each may be megabytes of base64).
+    /// Throws <see cref="JsonException"/> for invalid JSON.
+    /// </summary>
+    public static TokenUsage ReadImageUsage(ReadOnlySpan<byte> json)
+    {
+        var reader = new Utf8JsonReader(json);
+        TokenUsage usage = default;
+        var images = 0;
+        if (!reader.Read())
+        {
+            throw new JsonException("Empty response body.");
+        }
+
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+        }
+        else
+        {
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+            {
+                var isUsage = reader.ValueTextEquals("usage"u8);
+                var isData = reader.ValueTextEquals("data"u8);
+                reader.Read();
+                if (isUsage && reader.TokenType == JsonTokenType.StartObject)
+                {
+                    UsageParser.TryRead(JsonNode.Parse(ref reader), out usage);
+                }
+                else if (isData && reader.TokenType == JsonTokenType.StartArray)
+                {
+                    while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                    {
+                        images++;
+                        reader.Skip();
+                    }
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+        }
+
+        while (reader.Read())
+        {
+        }
+
+        return usage with { Images = images };
+    }
+
     /// <summary>Characters of generated text in an OpenAI chunk: <c>choices[].delta.content</c> (chat) or a top-level <c>delta</c> string (Responses API).</summary>
     public static long OpenAIContentLength(string json) => TextLength(json, anthropic: false);
 

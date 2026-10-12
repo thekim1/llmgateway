@@ -10,6 +10,8 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
+import RetentionCard from '@/components/settings/RetentionCard.vue'
+import TrustedProxiesCard from '@/components/settings/TrustedProxiesCard.vue'
 
 const budgets = useBudgetsStore()
 const ui = useUiStore()
@@ -47,7 +49,7 @@ onMounted(load)
 </script>
 
 <template>
-  <PageHeader title="Settings" description="Gateway-wide settings. Theme and display options are in the top bar." />
+  <PageHeader title="Settings" description="Gateway-wide settings. Only gateway admins can change them." />
 
   <UiCard title="Exchange rate" meta="USD to SEK" heading-id="rate-h" class="max-w-xl">
     <AsyncState :loading="loading" :error="budgets.exchangeRateError" :empty="false" @retry="load">
@@ -61,6 +63,14 @@ onMounted(load)
       </form>
     </AsyncState>
   </UiCard>
+
+  <div class="mt-6">
+    <TrustedProxiesCard />
+  </div>
+
+  <div class="mt-6">
+    <RetentionCard />
+  </div>
 
   <ConfirmDialog
     v-model:open="confirmOpen"

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
@@ -23,9 +25,11 @@ public sealed class CatalogSnapshot
         IReadOnlyList<RuleBuildError>? ruleErrors = null,
         bool usesFallbackRate = false,
         IReadOnlyList<McpServer>? mcpServers = null,
-        IReadOnlyList<VirtualKeyMcpGrant>? mcpGrants = null)
+        IReadOnlyList<VirtualKeyMcpGrant>? mcpGrants = null,
+        ImmutableArray<IPNetwork> trustedProxies = default)
     {
         Providers = providers;
+        TrustedProxies = trustedProxies.IsDefault ? [] : trustedProxies;
         var duplicates = new List<string>();
         Routes = ByName(routes, r => r.Name, duplicates);
 
@@ -134,6 +138,9 @@ public sealed class CatalogSnapshot
     public IReadOnlyList<string>? AmbiguousChoices(string model) => Routes.ContainsKey(model) ? null : _ambiguous.GetValueOrDefault(model);
     public ILookup<(BudgetScope Scope, Guid ScopeId), Budget> Budgets { get; }
     public decimal SekPerUsd { get; }
+
+    /// <summary>Proxies whose <c>X-Forwarded-For</c> is believed (<see cref="ClientAddressMiddleware"/>). Empty = none.</summary>
+    public ImmutableArray<IPNetwork> TrustedProxies { get; }
 
     /// <summary>No USD exchange rate was in effect: <see cref="SekPerUsd"/> is <c>Gateway:FallbackSekPerUsd</c>.</summary>
     public bool UsesFallbackRate { get; }
@@ -278,6 +285,9 @@ public sealed partial class GatewayCatalog : IDisposable
         _snapshot = null;
     }
 
+    /// <summary>The snapshot in memory, possibly past its TTL; null before the first load and right after a change.</summary>
+    public CatalogSnapshot? Current => _snapshot;
+
     public async Task<CatalogSnapshot> GetAsync(CancellationToken cancellationToken)
     {
         var current = _snapshot;
@@ -397,6 +407,7 @@ public sealed partial class GatewayCatalog : IDisposable
             .ToListAsync(cancellationToken);
         var mcpGrants = await db.VirtualKeyMcpGrants.AsNoTracking().ToListAsync(cancellationToken);
         var replacements = await db.KeyRotationMapAsync(cancellationToken);
+        var settings = await db.Settings.AsNoTracking().SingleOrDefaultAsync(cancellationToken) ?? new GatewaySettings();
         var now = _time.GetUtcNow();
         var rate = (await db.CurrentRateAsync(now, cancellationToken))?.SekPerUnit;
         if (rate is null)
@@ -436,7 +447,7 @@ public sealed partial class GatewayCatalog : IDisposable
         }
 
         var snapshot = new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
-            usesFallbackRate: rate is null, mcpServers, mcpGrants);
+            usesFallbackRate: rate is null, mcpServers, mcpGrants, trustedProxies: [.. NetworkRanges.ParseValid(settings.TrustedProxies)]);
         foreach (var name in snapshot.DuplicateNames)
         {
             LogDuplicateName(_logger, name);

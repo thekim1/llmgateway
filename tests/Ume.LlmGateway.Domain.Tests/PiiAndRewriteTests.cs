@@ -264,4 +264,17 @@ public class RequestRewriterTests
         RequestRewriter.IsStreaming(body).ShouldBeTrue();
         RequestRewriter.RequestedMaxOutputTokens(new JsonObject()).ShouldBeNull();
     }
+
+    [Theory]
+    [InlineData("""{}""", 1)]
+    [InlineData("""{"n":3}""", 3)]
+    [InlineData("""{"n":"4"}""", 4)] // multipart forms carry every value as a string
+    [InlineData("""{"n":0}""", 1)]
+    [InlineData("""{"n":-2}""", 1)]
+    [InlineData("""{"n":"-2"}""", 1)]
+    [InlineData("""{"n":"x"}""", 1)]
+    [InlineData("""{"n":null}""", 1)]
+    [InlineData("""{"n":1000000}""", RequestRewriter.MaxEstimatedImages)]
+    public void Reads_the_requested_image_count(string json, int expected) =>
+        RequestRewriter.RequestedImageCount(JsonNode.Parse(json)!.AsObject()).ShouldBe(expected);
 }

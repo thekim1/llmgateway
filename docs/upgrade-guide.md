@@ -15,6 +15,36 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - Admin API clients: send `scopeIds: [...]` instead of `scopeId` when creating, updating or reassigning a rule, and
   `{ scope, ruleIds }` to reorder. Responses carry `scopeIds` and `owners` instead of `scopeId`/`scopeName`.
 
+## Next release: data retention
+
+- **Data older than 365 days is removed the first night after the upgrade** (usage records, refused-key records, ended
+  budget alerts, audit entries), with monthly usage totals kept. If your records-retention decision says otherwise, set
+  *Settings > Data retention* right after deploying, or deploy with `Retention__Enabled=false` on the admin API until it is set.
+- The migration `DataRetention` adds retention columns to `GatewaySettings`, the table `UsageMonthlyTotals` and the function
+  `ume_retention_step`; it is additive. Re-run the role grants (the migration service does it) so `ume_admin` may execute the
+  function: until then runs fail with `SQL state 42501`, shown on the Settings page.
+
+## Next release: client address restrictions
+
+- The migration `KeyIpRangesTrustedProxies` adds `VirtualKeys.AllowedIpRanges` (`text[]`, default empty) and the table
+  `GatewaySettings`. It is additive: the previous gateway and admin API keep working against the new schema. `app-roles.sql`
+  grants the admin role writes on `GatewaySettings` and the Data API role `SELECT` on the new column; the migration service
+  applies it on start. Run the migration before starting the new Data API, whose key inventory reads the column.
+- `UME_FORWARDED_HEADERS` / `ASPNETCORE_FORWARDEDHEADERS_ENABLED` no longer affect the gateway. Behind a reverse proxy, list
+  the proxy under *Settings > Trusted proxies* after the upgrade, or refused keys are recorded with the proxy's address and
+  keys given an address restriction are refused. Check the proxy sends `X-Forwarded-For` (see the runbook).
+- New 403 error code `address_not_allowed` for clients of keys with an address restriction.
+
+## Next release: usage dashboard
+
+- The migration `RequestTimings` adds the nullable columns `UsageRecords.UpstreamMs` and `TimeToFirstTokenMs` (no table
+  rewrite). It is additive: the previous gateway keeps writing records without them. The existing grants cover the new
+  columns (the gateway inserts and the Data API reads the whole table).
+- Records written before the upgrade have no provider time or time to first token, so the *Gateway overhead* and
+  *Time to first token* cards fill in from the upgrade on.
+- The Data API usage feed and `GET /api/usage/requests` have the new fields `upstreamMs` and `timeToFirstTokenMs`
+  (`/api/usage/requests` also `costUsd`); clients that ignore unknown fields need no change.
+
 ## Upgrade procedure
 
 1. Review release/source changes, package/image advisories, licenses and SBOM; approve exact
@@ -45,6 +75,12 @@ so it is additive and needs no new grants. After deploying, give the providers t
 text* capability, add the models with kind *Speech to text* (or rediscover them) and their per-minute or per-token
 price, and create an alias such as `ume/transcribe`. If a proxy sits in front of the gateway, allow at least 32 MB
 bodies and turn request buffering off (see the runbook).
+
+Image generation (`/v1/images/generations`, `/v1/images/edits`) adds the migration `ImageGeneration`: `PerImageUsd` on
+`ModelPrices`, `NOT NULL DEFAULT 0`, so it is additive and needs no new grants. After deploying, give the providers that serve
+image models the *Image generation and editing* capability, add the models with kind *Image generation* (or rediscover them)
+and their per-picture or per-token price, and create an alias such as `ume/image`. Image edits upload up to 50 MB: allow at
+least 52 MB bodies at the proxy (`Gateway__MaxImageRequestBodyBytes`; raise both together).
 
 Live audio (`/v1/realtime`, `/v1/realtime/translations`) needs three more steps:
 - **Redis ACL.** The per-key session limit uses a sorted set: add `+zadd +zrem +zcard +zremrangebyscore` to the

@@ -31,13 +31,13 @@ public sealed record KeyDto(
     KeyStatus Status, bool IsEnabled, DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    Guid? RotatedToKeyId, bool CanReveal, int? McpCallsPerMinute)
+    Guid? RotatedToKeyId, bool CanReveal, int? McpCallsPerMinute, IReadOnlyList<string> AllowedIpRanges)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.RotatedToKeyId, k.EncryptedSecret is not null, k.McpCallsPerMinute);
+        k.RotatedToKeyId, k.EncryptedSecret is not null, k.McpCallsPerMinute, k.AllowedIpRanges);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>
@@ -77,11 +77,11 @@ public sealed record ProviderDto(
 
 public sealed record PriceDto(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd, decimal AudioPerMinuteUsd,
-    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom)
+    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom, decimal PerImageUsd = 0)
 {
     public static PriceDto Of(ModelPrice p) => new(
         p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd,
-        p.AudioOutputPerMillionUsd, p.EffectiveFrom);
+        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd);
 }
 
 public sealed record ModelDto(
@@ -219,15 +219,46 @@ public sealed record IgnoredRuleView(Guid RuleId, string RuleName, string Messag
 
 // ---- reports and operations ------------------------------------------------------------------------------
 
+/// <summary>Average and percentiles in milliseconds; null when no request in the bucket had the timing.</summary>
+public sealed record LatencyStatsDto(double? Avg, int? P50, int? P90, int? P95, int? P99);
+
+public sealed record FirstTokenStatsDto(double? Avg, int? P50, int? P95);
+
+/// <summary>
+/// <c>/api/usage/metrics</c>: the Usage dashboard. Cost is in USD (SEK is only a display currency). <c>RecordsFrom</c> is
+/// set when the period reaches back before the oldest kept usage record; the figures start there.
+/// </summary>
+public sealed record UsageMetricsDto(
+    DateTimeOffset From, DateTimeOffset To, string Bucket, string TimeZone, DateTimeOffset? RecordsFrom,
+    UsageMetricsTotalsDto Totals, UsageMetricsBucketDto[] Buckets, UsageModelSeriesDto[] Models);
+
+public sealed record UsageMetricsTotalsDto(
+    long Requests, long Successes, long ProviderErrors, long Refused, long Cancelled, long Fallbacks, decimal CostUsd,
+    long InputTokens, long CachedInputTokens, long OutputTokens, double? CacheHitRate, LatencyStatsDto Latency, LatencyStatsDto Overhead,
+    FirstTokenStatsDto FirstToken, double? TokensPerSecond);
+
+public sealed record UsageMetricsBucketDto(
+    DateTimeOffset Start, long Requests, long Successes, long ProviderErrors, long Refused, long Cancelled, long Fallbacks, decimal CostUsd,
+    long InputTokens, long CachedInputTokens, long OutputTokens, LatencyStatsDto Latency, LatencyStatsDto Overhead,
+    double? FirstTokenAvgMs, int? FirstTokenP95Ms, double? TokensPerSecond);
+
+/// <summary>A requested model's requests and cost per bucket (aligned with the buckets); a null model is all the others together.</summary>
+public sealed record UsageModelSeriesDto(string? Model, long Requests, decimal CostUsd, long[] RequestsPerBucket, decimal[] CostUsdPerBucket);
+
 public sealed record UsageRequestDto(
     string RequestId, DateTimeOffset Timestamp, string KeyPrefix, string KeyName, string TeamName, string DepartmentName, string Endpoint,
     string RequestedModel, string? ProviderName, string? UpstreamModel, long InputTokens, long CachedInputTokens, long OutputTokens,
     decimal CostSek, int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
-    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName);
+    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs);
 
+/// <summary>
+/// <c>MonthlyTotalsBefore</c> is set when the period reaches back before the oldest kept usage record (data retention): usage
+/// before that instant comes from monthly totals, whole months that overlap the period, and grouping by day shows those
+/// months as <c>yyyy-MM</c>.
+/// </summary>
 public sealed record UsageSummaryDto(
     DateTimeOffset From, DateTimeOffset To, decimal TotalCostSek, long TotalRequests, long TotalInputTokens, long TotalOutputTokens,
-    long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows);
+    long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows, DateTimeOffset? MonthlyTotalsBefore = null);
 
 /// <summary>A request in which PII was detected (any policy except <c>Off</c>: <c>Allow</c> counts as "detected and forwarded").</summary>
 public sealed record PiiIncidentDto(

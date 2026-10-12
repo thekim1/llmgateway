@@ -24,7 +24,7 @@ prices and fallback targets are data-driven.
 Compose: `data` is internal and has no DB/cache host ports. `edge` contains the two
 HTTPS APIs on separate loopback-bound listeners by default. `llm` is a separate gateway
 network for provider connectivity; it is not itself an egress firewall. An internal `mcp`
-network (ADR 016) connects the gateway and the admin API (which syncs tool lists) to MCP servers, including stdio servers
+network (ADR 017) connects the gateway and the admin API (which syncs tool lists) to MCP servers, including stdio servers
 that run as separate hardened bridge containers; it is added by an extra Compose file per deployment
 (`deploy/mcp/compose.mcp-stdio-example.yaml`, see docs/mcp.md), not by the base files. Municipal
 firewall/DNS controls must enforce actual allowed destinations, management access and
@@ -33,7 +33,8 @@ isolating Redis to the gateway alone would break these control-plane functions.
 
 ## Request and accounting flow
 
-Bounded JSON request -> HMAC authentication -> key attachment policy -> model/endpoint authorization -> Redis
+Client address (from `X-Forwarded-For` only on connections from trusted proxies, held in the catalogue snapshot) ->
+bounded JSON request -> HMAC authentication -> key address allow-list -> key attachment policy -> model/endpoint authorization -> Redis
 rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
 budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
 Fallback occurs for transient failures (408, 409, 429, 5xx, timeouts, connection errors, invalid JSON) and
@@ -94,7 +95,8 @@ availability objectives; this POC must not be presented as exact invoicing.
 
 ## Stored and transient data
 
-Postgres stores organization, key HMACs/prefixes, encrypted provider credentials,
+Postgres stores organization, key HMACs/prefixes, gateway-wide settings (trusted proxies, retention; one `GatewaySettings` row),
+monthly usage totals kept after the nightly retention job removes old usage records (ADR 016), encrypted provider credentials,
 certificate-protected Data Protection keys, routes/routing rules/prices/budgets, metadata-only usage,
 alerts and masked append-only audit entries. Redis stores namespaced numerical counters,
 circuit state and invalidation signals. Neither stores conversation content.
@@ -127,12 +129,12 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Content logging | Metadata only; prompts and responses are never persisted |
 | PII guard | Optional, per key: Off / Allow / Redact / Block / Reroute to on-prem |
 | Currency | Budgets in SEK; prices in USD with a configurable USD to SEK rate |
-| Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`, `/v1/audio/transcriptions` and `/v1/audio/translations` (multipart, held in memory), live audio over WebSocket on `/v1/realtime` and `/v1/realtime/translations` (OpenAI Realtime protocol, relayed and metered); Anthropic `/v1/messages` |
+| Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`, `/v1/audio/transcriptions` and `/v1/audio/translations` (multipart, held in memory), `/v1/images/generations` and `/v1/images/edits` (JSON; multipart held in memory), live audio over WebSocket on `/v1/realtime` and `/v1/realtime/translations` (OpenAI Realtime protocol, relayed and metered); Anthropic `/v1/messages` |
 | Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
 | Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |
 | Provider classification | OnPrem / EU / External; drives PII rerouting and key residency limits |
-| MCP gateway | Implemented (ADR 016): `/mcp` and `/mcp/{slug}` proxy remote Streamable HTTP MCP servers under virtual-key grants, with pinned tool definitions, PII policy, residency and usage accounting; `/v1/mcp/tools*` and gateway-run tool loops for the Responses `mcp` tool and the Anthropic MCP connector |
+| MCP gateway | Implemented (ADR 017): `/mcp` and `/mcp/{slug}` proxy remote Streamable HTTP MCP servers under virtual-key grants, with pinned tool definitions, PII policy, residency and usage accounting; `/v1/mcp/tools*` and gateway-run tool loops for the Responses `mcp` tool and the Anthropic MCP connector |
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
 Out of scope for the POC: semantic caching, SSO for gateway clients (keys only),

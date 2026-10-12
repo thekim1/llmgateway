@@ -43,6 +43,13 @@ public sealed partial class GatewayRequestHandler
             _ => (0, string.Empty, string.Empty, default),
         };
 
+        // After the status checks, so a revoked key is reported as revoked from wherever it is used.
+        if (status == 0 && !key.IsAddressAllowed(http.Connection.RemoteIpAddress))
+        {
+            (status, code, message, reason) = (403, GatewayErrorCodes.AddressNotAllowed,
+                "API-nyckeln får inte användas från den här adressen. Be administratören lägga till adressen på nyckeln.", AuthFailureReason.AddressNotAllowed);
+        }
+
         if (status != 0)
         {
             authFailures.Record(reason, endpoint, key, http.Connection.RemoteIpAddress);

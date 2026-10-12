@@ -9,7 +9,9 @@ import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
 import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
+import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
+import AddressListField from '@/components/ui/AddressListField.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import CheckField from '@/components/ui/CheckField.vue'
@@ -45,6 +47,7 @@ const ids = {
   attachmentPolicy: 'key-attachments',
   allowedModels: 'key-models',
   allowedProviders: 'key-providers',
+  allowedIpRanges: 'key-addresses',
   requestsPerMinute: 'key-rpm',
   tokensPerMinute: 'key-tpm',
   mcpCallsPerMinute: 'key-mcp-rpm',
@@ -62,6 +65,7 @@ const values = reactive({
   models: [] as string[],
   allProviders: true,
   providerNames: [] as string[],
+  addresses: '',
   requestsPerMinute: '60',
   tokensPerMinute: '',
   mcpCallsPerMinute: '',
@@ -130,6 +134,7 @@ function reset(): void {
   values.models = [...(key?.allowedModels ?? [])]
   values.allProviders = key ? (key.allowedProviders ?? []).length === 0 : true
   values.providerNames = [...(key?.allowedProviders ?? [])]
+  values.addresses = formatAddressList(key?.allowedIpRanges)
   values.requestsPerMinute = key ? (key.requestsPerMinute?.toString() ?? '') : '60'
   values.tokensPerMinute = key?.tokensPerMinute?.toString() ?? ''
   values.mcpCallsPerMinute = key?.mcpCallsPerMinute?.toString() ?? ''
@@ -180,6 +185,7 @@ async function submit(): Promise<void> {
     name: isBlank(values.name) && 'Give the key a name so people can recognise it.',
     allowedModels: !values.allowAll && values.models.length === 0 && 'Select at least one model, or allow all models.',
     allowedProviders: canPickProviders.value && !values.allProviders && values.providerNames.length === 0 && 'Select at least one provider, or allow all providers.',
+    allowedIpRanges: addressListError(parseAddressList(values.addresses)),
     requestsPerMinute: limitError(values.requestsPerMinute, 'Requests per minute'),
     tokensPerMinute: limitError(values.tokensPerMinute, 'Tokens per minute'),
     mcpCallsPerMinute: limitError(values.mcpCallsPerMinute, 'MCP calls per minute'),
@@ -193,6 +199,7 @@ async function submit(): Promise<void> {
     allowedModels: values.allowAll ? [] : [...values.models],
     allowedResidencies: [...values.residencies],
     ...(canPickProviders.value ? { allowedProviders: values.allProviders ? [] : [...values.providerNames] } : {}),
+    allowedIpRanges: parseAddressList(values.addresses),
     piiPolicy: values.piiPolicy,
     attachmentPolicy: values.attachmentPolicy,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
@@ -334,6 +341,15 @@ async function submit(): Promise<void> {
             </template>
             <span v-if="errors.allowedModels" class="flex items-start gap-1 text-small text-danger">{{ errors.allowedModels }}</span>
           </div>
+
+          <AddressListField
+            :id="ids.allowedIpRanges"
+            v-model="values.addresses"
+            label="Allowed client addresses (optional)"
+            placeholder="203.0.113.0/24&#10;2001:db8::10"
+            :error="errors.allowedIpRanges"
+            hint="One IP address or CIDR network per line. Leave empty to allow any address. Behind a reverse proxy this only works once a gateway admin has listed the proxy under Settings, Trusted proxies."
+          />
 
         </FieldGroup>
 

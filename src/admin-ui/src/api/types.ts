@@ -29,10 +29,11 @@ export const PROVIDER_CAPABILITIES = [
   'Streaming',
   'AudioTranscriptions',
   'Realtime',
+  'Images',
 ] as const
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]
 
-export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation'] as const
+export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation', 'Image'] as const
 export type ModelKind = (typeof MODEL_KINDS)[number]
 
 export const PARAMETER_PROFILES = ['Standard', 'OpenAIReasoning'] as const
@@ -179,6 +180,8 @@ export interface VirtualKey {
   rotatedToKeyId: string | null
   /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
   canReveal?: boolean
+  /** Client addresses (single IPs or CIDR networks) the key may be used from. Empty = any address. */
+  allowedIpRanges?: string[]
 }
 
 export interface KeyFilter {
@@ -203,6 +206,8 @@ export interface CreateKeyRequest {
   tokensPerMinute?: number | null
   /** Like requestsPerMinute: omitted or null = no limit, so the form always sends it. */
   mcpCallsPerMinute: number | null
+  /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
+  allowedIpRanges?: string[]
 }
 
 export interface CreateKeyResponse {
@@ -225,6 +230,7 @@ export interface UpdateKeyRequest {
   tokensPerMinute?: number | null
   /** Like requestsPerMinute: omitted or null = no limit, so the form always sends it. */
   mcpCallsPerMinute: number | null
+  allowedIpRanges?: string[]
   isEnabled: boolean
 }
 
@@ -323,6 +329,8 @@ export interface Price {
   /** Audio tokens of realtime and gpt-4o-transcribe models; 0 bills them as text tokens. */
   audioInputPerMillionUsd: number
   audioOutputPerMillionUsd: number
+  /** Image models billed per picture (DALL·E, FLUX). Token-billed image models (gpt-image-1) use the token prices. */
+  perImageUsd: number
   effectiveFrom: IsoDateTime
 }
 
@@ -335,6 +343,8 @@ export interface NewPrice {
   /** Optional, defaults to 0 (audio tokens billed as text tokens). */
   audioInputPerMillionUsd?: number
   audioOutputPerMillionUsd?: number
+  /** Optional, defaults to 0. */
+  perImageUsd?: number
   /** Optional, defaults to now. */
   effectiveFrom?: IsoDateTime | null
 }
@@ -459,6 +469,35 @@ export interface ExchangeRate {
   effectiveFrom: IsoDateTime
 }
 
+/** The connection the admin API saw for the settings request; helps find the reverse proxy's address. */
+export interface ObservedConnection {
+  remoteAddress: string | null
+  forwardedFor: string | null
+}
+
+export interface NetworkSettings {
+  /** Reverse proxies whose X-Forwarded-For the gateway believes. Empty = the header is ignored. */
+  trustedProxies: string[]
+  updatedAt: IsoDateTime | null
+  observed: ObservedConnection
+}
+
+export interface RetentionSettings {
+  usageRetentionDays: number
+  /** null = audit entries are kept for ever. */
+  auditRetentionDays: number | null
+  /** The oldest instant usage records cover; before it only monthly totals exist. */
+  usageRetainedFrom: IsoDateTime | null
+  nextUsageCutoff: IsoDateTime
+  nextAuditCutoff: IsoDateTime | null
+  enabled: boolean
+  nextRunAt: IsoDateTime | null
+  running: boolean
+  lastRunAt: IsoDateTime | null
+  lastRunDeleted: number | null
+  lastRunError: string | null
+}
+
 export interface UpdateExchangeRateRequest {
   sekPerUnit: number
 }
@@ -495,6 +534,8 @@ export interface UsageSummary {
   totalOutputTokens: number
   totalErrors: number
   rows: UsageSummaryRow[]
+  /** Set when the period reaches before the oldest kept record: usage before it comes from whole-month totals. */
+  monthlyTotalsBefore?: IsoDateTime | null
 }
 
 export interface UsageRequestsQuery {
@@ -538,6 +579,112 @@ export interface UsageRequest {
   /** The routing rule that decided where the request went (the last one when rules were chained); null when none applied. */
   routingRuleId: string | null
   routingRuleName: string | null
+  costUsd: number
+  /** Time spent waiting on providers (failed fallback attempts included); null when no provider was called. */
+  upstreamMs: number | null
+  /** Streamed answers: time until the first event reached the client. */
+  timeToFirstTokenMs: number | null
+}
+
+export const GATEWAY_ENDPOINTS = [
+  'ChatCompletions',
+  'Responses',
+  'AnthropicMessages',
+  'Embeddings',
+  'AudioTranscriptions',
+  'AudioTranslations',
+  'Realtime',
+  'RealtimeTranslations',
+  'ImageGenerations',
+  'ImageEdits',
+] as const
+export type GatewayEndpointName = (typeof GATEWAY_ENDPOINTS)[number]
+
+export const METRICS_BUCKETS = ['auto', 'hour', 'day'] as const
+export type MetricsBucket = (typeof METRICS_BUCKETS)[number]
+
+export interface UsageMetricsQuery {
+  from?: string
+  to?: string
+  bucket?: MetricsBucket
+  departmentId?: string
+  teamId?: string
+  keyId?: string
+  model?: string
+  provider?: string
+  outcome?: RequestOutcome
+  endpoint?: GatewayEndpointName
+}
+
+/** Milliseconds; null when no request in the bucket had the timing. */
+export interface LatencyStats {
+  avg: number | null
+  p50: number | null
+  p90: number | null
+  p95: number | null
+  p99: number | null
+}
+
+export interface UsageMetricsTotals {
+  requests: number
+  successes: number
+  providerErrors: number
+  /** Refused by the gateway: over budget, rate limited, PII blocked or rejected. */
+  refused: number
+  cancelled: number
+  fallbacks: number
+  costUsd: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  /** Cached ÷ input tokens (0-1); null without input tokens. */
+  cacheHitRate: number | null
+  latency: LatencyStats
+  /** The gateway's own time: latency minus time spent waiting on providers. */
+  overhead: LatencyStats
+  firstToken: { avg: number | null; p50: number | null; p95: number | null }
+  /** Output tokens per second of provider time. */
+  tokensPerSecond: number | null
+}
+
+export interface UsageMetricsBucket {
+  start: IsoDateTime
+  requests: number
+  successes: number
+  providerErrors: number
+  refused: number
+  cancelled: number
+  fallbacks: number
+  costUsd: number
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  latency: LatencyStats
+  overhead: LatencyStats
+  firstTokenAvgMs: number | null
+  firstTokenP95Ms: number | null
+  tokensPerSecond: number | null
+}
+
+export interface UsageModelSeries {
+  /** Null for all other models together. */
+  model: string | null
+  requests: number
+  costUsd: number
+  requestsPerBucket: number[]
+  costUsdPerBucket: number[]
+}
+
+export interface UsageMetrics {
+  from: IsoDateTime
+  to: IsoDateTime
+  bucket: 'hour' | 'day'
+  timeZone: string
+  /** Set when the period reaches back before the oldest kept usage record; the figures start there. */
+  recordsFrom: IsoDateTime | null
+  totals: UsageMetricsTotals
+  buckets: UsageMetricsBucket[]
+  models: UsageModelSeries[]
 }
 
 export interface Paged<T> {

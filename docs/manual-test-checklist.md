@@ -81,7 +81,75 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 - [ ] **Empty period:** a period without incidents shows the explanation that scanning is per key.
 - [ ] **Department admin:** sees only incidents from their own departments.
 
+## Client address restrictions and trusted proxies (uncommitted)
+
+Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge address. A refused request's *Source address*
+(Data API `security/auth-failures`, or `AuthFailures` in the database) shows what the gateway saw.
+
+- [ ] **Key form:** edit a key, enter `203.0.113.0/24` under *Allowed client addresses*, save. The key details show *Client addresses* `203.0.113.0/24`.
+- [ ] **Typo caught:** enter `10.20.1.5/16`: the form says *Did you mean 10.20.0.0/16?* and does not save; `example.se` is refused too.
+- [ ] **Refused from elsewhere:** call the gateway with that key: `403` with `"code": "address_not_allowed"` and a Swedish message. Within 10 s the
+  refused-key record has reason `AddressNotAllowed` and your (truncated) address; `gateway.auth.failed` has `address_not_allowed`.
+- [ ] **Allowed from here:** change the list to your own address (`127.0.0.1` and `::1` locally): the call answers 200 within 30 s
+  (key cache) or at once after saving (the admin API clears the cache).
+- [ ] **Empty list:** clear the field and save: the key works from anywhere again.
+- [ ] **Rotation:** rotate a restricted key: the new key shows the same client addresses.
+- [ ] **Department admin:** can set client addresses on own keys; does not see *Settings*, and `/api/settings/network` answers 403.
+- [ ] **Settings card:** as gateway-admin open *Settings*: the *Trusted proxies* card explains the setting, shows the address the admin API
+  saw, and *Before you change this* lists the caveats. `0.0.0.0/0` and `10.0.0.5/24` are refused before the confirmation.
+- [ ] **Behind the proxy (test server with Nginx Proxy Manager):** with no trusted proxies, a key restricted to your workstation's address is
+  refused (the gateway sees the proxy). The Settings card shows *X-Forwarded-For* and offers *Add <proxy address>*; add it, review and save.
+  Within a few seconds the same request answers 200, and a refused request now records the workstation's address, not the proxy's.
+- [ ] **Spoofing ignored:** from the workstation, call the gateway port directly (bypassing the proxy, if the firewall allows it) with
+  `-H "X-Forwarded-For: <an allowed address>"`: still `403 address_not_allowed`.
+- [ ] **Audit:** the audit log has `update Settings` with the before/after proxy lists, and `update VirtualKey` with `allowedIpRanges`.
+- [ ] **Upgrade:** the migration `KeyIpRangesTrustedProxies` runs once; existing keys show *Any address*; the Data API `/v1/security/keys`
+  includes `allowedIpRanges` (no `42501`). If the deployment set `UME_FORWARDED_HEADERS=true`, list the proxy in *Settings* instead.
+
+## Data retention (uncommitted)
+
+- [ ] **Card:** as gateway-admin open *Settings*: *Data retention* shows 365 / 365 days, *What is kept and what is removed*,
+  "No usage has been removed yet", the next usage/audit cutoff and *Next run* tonight at 03:00.
+- [ ] **Validation:** `30` or `4000` days is refused before the confirmation; ticking *Keep the audit log for ever* hides the audit field.
+- [ ] **Run now on a fresh database:** *Run now* → "Running now…", then *Last run … 0 rows removed* within a few seconds; the admin
+  API log has `Data retention run removed 0 rows`; the audit log has `run Settings`.
+- [ ] **Old data goes, totals stay:** in a test database insert a usage record 200 days old for an existing key (or use an old
+  restored database). Set usage to 90 days, *Run now*. The record is gone from *Usage > Requests*; *Usage* summary for the
+  last 250 days still counts it, shows the note *Usage before … is only kept as monthly totals*, and by day shows a `yyyy-MM` row.
+  The CSV export for that period includes it.
+- [ ] **Yearly budget unchanged:** note a yearly budget's spent amount before the run above; it is the same after.
+- [ ] **Audit kept for ever:** tick *Keep the audit log for ever*, save, *Run now*: audit entries older than 90 days remain.
+- [ ] **Department admin:** does not see *Settings*; `/api/settings/retention` answers 403.
+- [ ] **Production roles:** after deploying, *Run now* succeeds (no `SQL state 42501` on the card); in psql as `ume_admin`,
+  `DELETE FROM "AuditLog" WHERE false;` fails with permission denied.
+- [ ] **Data API:** `/v1/usage/aggregate?granularity=month` for a period before the oldest kept record returns the monthly totals.
+- [ ] **Upgrade:** set the periods from the records-retention decision before the first night, or start with `Retention__Enabled=false`.
+
+## Usage dashboard (uncommitted)
+
+- [ ] **Upgrade:** the migration `RequestTimings` runs once; existing usage still shows on *Usage*.
+- [ ] **Timings recorded:** send a non-streamed and a streamed chat request through the gateway. *Usage > Requests and costs*,
+  open each: *Provider time* and *Gateway overhead* are shown (overhead a few ms); the streamed one also has *Time to first
+  token*, below its latency. A request refused by a rate limit or budget shows neither.
+- [ ] **Fallback counts as provider time:** with a route whose first target fails (e.g. a drained or wrong-URL provider),
+  the request's provider time includes the failed attempt; overhead stays small.
+- [ ] **Dashboard against real traffic:** *Usage* opens on *Dashboard* with *7 days*. The totals match the *Requests and costs*
+  summary for the same days (requests, tokens; cost now in US$). Hover a bar: the tooltip lists the series and a total.
+- [ ] **Time ranges:** *24 hours* shows hourly bars with times on the axis; *30 days* and *90 days* daily; *Custom* with dates
+  and *Apply*. Days follow Swedish midnight.
+- [ ] **Filters:** pick a department, model, *Outcome: Provider error* and *Endpoint*; each reloads at once and *Clear filters*
+  resets them. A department viewer sees only their department and no *Provider* filter.
+- [ ] **Views:** switch a card between bar, line and table; the table lists every period.
+- [ ] **Themes and size:** check Light, Dark and Lumen, and a phone-width window (cards stack, no sideways scrolling).
+- [ ] **Speed:** the 30- and 90-day views of the production database load within a few seconds (see docs/performance.md).
+- [ ] **Link from PII incidents:** a request link from *PII incidents* opens the *Requests and costs* tab with the drawer.
+- [ ] **OpenTelemetry:** the Aspire dashboard (or your collector) has `ume.gateway.overhead` and `ume.gateway.time_to_first_token`.
+
 ## Whole release
 
+- [ ] **Portainer upgrade to 0.3.0:** new stack file pasted, image variables at 0.3.0, Redis restarted after the redeploy;
+  the gateway log has no `NOPERM ... decrby` after a cancelled or failed request.
+- [ ] **Data API in Portainer:** `COMPOSE_PROFILES=data` starts `dataapi` (healthy); port 10443 reachable; a Data API key from
+  the admin UI works against `https://<host>:10443/v1/usage/aggregate?...`.
 - [ ] **Upgrade the deployed instance:** the migration `SharedRulesDataKeysPii` runs once; gateway and admin API are deployed together
   (the routing rule API changed from `scopeId` to `scopeIds`, see docs/upgrade-guide.md).

@@ -51,7 +51,9 @@ public sealed record PriceRequest(
     [property: Range(typeof(decimal), "0", "1000000")] decimal AudioPerMinuteUsd = 0,
     // Audio tokens of realtime and gpt-4o-transcribe models. Omitted = 0 (billed as text tokens).
     [property: Range(typeof(decimal), "0", "1000000")] decimal AudioInputPerMillionUsd = 0,
-    [property: Range(typeof(decimal), "0", "1000000")] decimal AudioOutputPerMillionUsd = 0) : AdminRequest;
+    [property: Range(typeof(decimal), "0", "1000000")] decimal AudioOutputPerMillionUsd = 0,
+    // Image models billed per picture (DALL·E, FLUX). Omitted = 0 (token-billed models such as gpt-image-1 use the token prices).
+    [property: Range(typeof(decimal), "0", "1000000")] decimal PerImageUsd = 0) : AdminRequest;
 public sealed record ModelRequest(
     Guid ProviderId,
     [property: Required, StringLength(200)] string Name,

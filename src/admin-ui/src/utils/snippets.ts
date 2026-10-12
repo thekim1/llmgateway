@@ -5,12 +5,25 @@ export function snippets(baseUrl: string, model: string, kind: ModelKind = 'Chat
   const quotedModel = JSON.stringify(model)
   if (kind === 'Transcription') return [...transcriptionSnippets(base, model), ...liveSnippets(base, model, kind).slice(0, 1)]
   if (kind === 'Realtime' || kind === 'SpeechTranslation') return liveSnippets(base, model, kind)
+  if (kind === 'Image') return imageSnippets(base, model)
   return [
     { label: 'curl', language: 'bash', code: `curl ${JSON.stringify(base + '/chat/completions')} \\\n  -H "Authorization: Bearer $UME_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ model, messages: [{ role: 'user', content: 'Hej!' }] }).replace(/'/g, "'\\''")}'` },
     { label: '.NET OpenAI SDK', language: 'csharp', code: `using OpenAI;\nusing System.ClientModel;\n\nvar client = new OpenAIClient(\n    new ApiKeyCredential(Environment.GetEnvironmentVariable("UME_API_KEY")!),\n    new OpenAIClientOptions { Endpoint = new Uri(${JSON.stringify(base)}) });\nvar chat = client.GetChatClient(${quotedModel});\nvar result = await chat.CompleteChatAsync("Hej!");\n// Do not log or persist the response.` },
     { label: 'Python OpenAI SDK', language: 'python', code: `import os\nfrom openai import OpenAI\n\nclient = OpenAI(api_key=os.environ["UME_API_KEY"], base_url=${JSON.stringify(base)})\nresult = client.chat.completions.create(\n    model=${quotedModel},\n    messages=[{"role": "user", "content": "Hej!"}])\n# Do not log or persist the response.` },
     { label: 'JavaScript / TypeScript OpenAI SDK', language: 'typescript', code: `import OpenAI from 'openai';\n\nconst client = new OpenAI({ apiKey: process.env.UME_API_KEY, baseURL: ${JSON.stringify(base)} });\nconst result = await client.chat.completions.create({\n  model: ${quotedModel},\n  messages: [{ role: 'user', content: 'Hej!' }],\n});\n// Do not log or persist the response.` },
     { label: 'Anthropic SDK (Anthropic model required)', language: 'python', code: `import os\nfrom anthropic import Anthropic\n\nclient = Anthropic(api_key=os.environ["UME_API_KEY"], base_url=${JSON.stringify(baseUrl.replace(/\/+$/, ''))})\nresult = client.messages.create(\n    model=${quotedModel}, max_tokens=100,\n    messages=[{"role": "user", "content": "Hej!"}])\n# Select an alias with AnthropicMessages capability. Never log the response.` },
+  ]
+}
+
+/** Images: JSON to /v1/images/generations; /v1/images/edits takes a multipart upload of the pictures (and an optional mask). */
+function imageSnippets(base: string, model: string): { label: string; language: string; code: string }[] {
+  const quotedModel = JSON.stringify(model)
+  const prompt = 'En röd stuga vid en sjö i Västerbotten, akvarell'
+  return [
+    { label: 'curl', language: 'bash', code: `curl ${JSON.stringify(base + '/images/generations')} \\\n  -H "Authorization: Bearer $UME_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ model, prompt, size: '1024x1024' })}'\n\n# Edit pictures (png, jpg or webp; a mask is optional):\ncurl ${JSON.stringify(base + '/images/edits')} \\\n  -H "Authorization: Bearer $UME_API_KEY" \\\n  -F model=${quotedModel} \\\n  -F prompt="Gör himlen blå" \\\n  -F image=@stuga.png` },
+    { label: '.NET OpenAI SDK', language: 'csharp', code: `using OpenAI;\nusing OpenAI.Images;\nusing System.ClientModel;\n\nvar client = new OpenAIClient(\n    new ApiKeyCredential(Environment.GetEnvironmentVariable("UME_API_KEY")!),\n    new OpenAIClientOptions { Endpoint = new Uri(${JSON.stringify(base)}) });\nvar images = client.GetImageClient(${quotedModel});\nvar result = await images.GenerateImageAsync(${JSON.stringify(prompt)});\n// result.Value.ImageBytes (or ImageUri) is the picture. Do not log or persist it.` },
+    { label: 'Python OpenAI SDK', language: 'python', code: `import base64, os\nfrom openai import OpenAI\n\nclient = OpenAI(api_key=os.environ["UME_API_KEY"], base_url=${JSON.stringify(base)})\nresult = client.images.generate(model=${quotedModel}, prompt=${JSON.stringify(prompt)}, size="1024x1024")\nimage = result.data[0]  # b64_json or url, depending on the model\nif image.b64_json:\n    open("stuga.png", "wb").write(base64.b64decode(image.b64_json))` },
+    { label: 'JavaScript / TypeScript OpenAI SDK', language: 'typescript', code: `import fs from 'node:fs';\nimport OpenAI from 'openai';\n\nconst client = new OpenAI({ apiKey: process.env.UME_API_KEY, baseURL: ${JSON.stringify(base)} });\nconst result = await client.images.generate({ model: ${quotedModel}, prompt: ${JSON.stringify(prompt)}, size: '1024x1024' });\nconst image = result.data?.[0];\nif (image?.b64_json) fs.writeFileSync('stuga.png', Buffer.from(image.b64_json, 'base64'));` },
   ]
 }
 

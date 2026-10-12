@@ -7,7 +7,7 @@ exchange flavour (D8) step B builds first, and whether it also needs the other. 
 today, so the plan stays IdP-agnostic like the admin side (`Oidc`: Entra ID, Keycloak, AD FS). Where a step depends on the
 IdP, it says so.
 
-MCP v1 (ADR 016, [docs/mcp.md](docs/mcp.md)) authenticates clients with a team-owned virtual key and authenticates to each
+MCP v1 (ADR 017, [docs/mcp.md](docs/mcp.md)) authenticates clients with a team-owned virtual key and authenticates to each
 upstream MCP server with one shared credential per server (`McpAuthType`: `None`, `StaticHeaders`,
 `OAuthClientCredentials`; `src/Ume.LlmGateway.Infrastructure/Mcp/McpUpstreamAuth.cs`). Upstream servers never learn who the
 user is, so personal tools ("my mail", "my cases", "my calendar") cannot be offered. This plan adds per-user authorization in
@@ -18,7 +18,7 @@ four steps:
 - **C.** The same user identity reaches the gateway-run MCP tools on the LLM endpoints.
 - **D.** (Later, outline only) third-party SaaS servers with stored per-user refresh tokens.
 
-It needs ADR 017. Each step is sized for one subagent, as in v1.
+It needs ADR 018. Each step is sized for one subagent, as in v1.
 
 ---
 
@@ -505,7 +505,7 @@ Each step ends with `dotnet test --solution UmeLlmGateway.slnx`, the UI gate (se
 **A. Inbound user identity on `/mcp`**
 
 A1. Identity core (Gateway, Infrastructure)
-- [ ] ADR 017 row in `docs/adr.md` (text in Part 4); scope row in `docs/architecture.md`.
+- [ ] ADR 018 row in `docs/adr.md` (text in Part 4); scope row in `docs/architecture.md`.
 - [ ] `UserAuthOptions` with validation; `UserTokenValidator` (`JsonWebTokenHandler`, `ConfigurationManager<OpenIdConnectConfiguration>`,
       issuer, audience, lifetime with 60 s skew, scopes, `tid`, app-only refusal, `alg` allow-list RS256/ES256/PS256).
 - [ ] Principal resolution in `AuthenticateAsync`: a `ume-sk-` bearer or `x-api-key` gives a key; a JWT bearer gives a user;
@@ -711,9 +711,9 @@ questions remain open; the municipality's records retention decision must still 
 
 ---
 
-## Part 4: Proposed ADR 017 (add to `docs/adr.md` in step A1)
+## Part 4: Proposed ADR 018 (add to `docs/adr.md` in step A1)
 
-| 017 | MCP users sign in with the municipal IdP; the gateway exchanges their token per upstream and never passes it through |
+| 018 | MCP users sign in with the municipal IdP; the gateway exchanges their token per upstream and never passes it through |
 Signed-in users are an addition to virtual keys, not a replacement:
 - The gateway is an OAuth 2.1 protected resource (RFC 9728 metadata, RFC 8707 audience) for `/mcp` and, by configuration,
   for `/v1`.

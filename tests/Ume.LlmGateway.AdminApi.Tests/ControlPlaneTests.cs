@@ -210,6 +210,8 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
     [InlineData(GatewayEndpoint.AudioTranslations, "/v1/audio/translations")]
     [InlineData(GatewayEndpoint.Realtime, "/v1/realtime")]
     [InlineData(GatewayEndpoint.RealtimeTranslations, "/v1/realtime/translations")]
+    [InlineData(GatewayEndpoint.ImageGenerations, "/v1/images/generations")]
+    [InlineData(GatewayEndpoint.ImageEdits, "/v1/images/edits")]
     [InlineData(GatewayEndpoint.Mcp, "/mcp")]
     [InlineData(GatewayEndpoint.McpToolCall, "/v1/mcp/tools/call")]
     public void Every_endpoint_has_a_path(GatewayEndpoint endpoint, string path) => GatewayEndpoints.Info(endpoint).ClientPath.ShouldBe(path);

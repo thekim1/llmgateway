@@ -24,7 +24,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<VirtualKeyMcpGrant> VirtualKeyMcpGrants => Set<VirtualKeyMcpGrant>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
+    public DbSet<GatewaySettings> Settings => Set<GatewaySettings>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
+    public DbSet<UsageMonthlyTotal> UsageMonthlyTotals => Set<UsageMonthlyTotal>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<AlertEvent> AlertEvents => Set<AlertEvent>();
     public DbSet<AuthFailure> AuthFailures => Set<AuthFailure>();
@@ -113,6 +115,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioOutputPerMillionUsd).HasPrecision(18, 6);
+            e.Property(x => x.PerImageUsd).HasPrecision(18, 6);
             e.HasIndex(x => new { x.ModelDeploymentId, x.EffectiveFrom }).IsUnique();
         });
 
@@ -189,6 +192,20 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.HasIndex(x => new { x.Scope, x.ScopeId });
         });
 
+        modelBuilder.Entity<GatewaySettings>(e =>
+        {
+            e.ToTable("GatewaySettings", t =>
+            {
+                t.HasCheckConstraint("CK_GatewaySettings_Singleton", $"\"Id\" = {GatewaySettings.SingletonId}");
+                t.HasCheckConstraint("CK_GatewaySettings_UsageRetention", $"\"UsageRetentionDays\" BETWEEN {RetentionPolicy.MinimumDays} AND {RetentionPolicy.MaximumDays}");
+                t.HasCheckConstraint("CK_GatewaySettings_AuditRetention",
+                    $"\"AuditRetentionDays\" IS NULL OR \"AuditRetentionDays\" BETWEEN {RetentionPolicy.MinimumDays} AND {RetentionPolicy.MaximumDays}");
+            });
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.UsageRetentionDays).HasDefaultValue(RetentionPolicy.DefaultDays);
+            e.Property(x => x.RetentionLastRunError).HasMaxLength(500);
+        });
+
         modelBuilder.Entity<ExchangeRate>(e =>
         {
             e.Property(x => x.Currency).HasMaxLength(3);
@@ -223,6 +240,19 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             // PII incidents report: only the few requests in which PII was found.
             e.HasIndex(x => x.Timestamp, "IX_UsageRecords_Timestamp_Pii").HasFilter("\"PiiCategories\" IS NOT NULL");
             e.HasIndex(x => new { x.McpServerId, x.Timestamp }).HasFilter("\"McpServerId\" IS NOT NULL");
+        });
+
+        modelBuilder.Entity<UsageMonthlyTotal>(e =>
+        {
+            e.Property(x => x.RequestedModel).HasMaxLength(200);
+            e.Property(x => x.ProviderName).HasMaxLength(100);
+            e.Property(x => x.CostUsd).HasPrecision(18, 8);
+            e.Property(x => x.CostSek).HasPrecision(18, 6);
+            e.Property(x => x.AudioSeconds).HasPrecision(14, 3);
+            e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
+            e.HasIndex(x => new { x.MonthStart, x.DepartmentId });
+            e.HasIndex(x => new { x.VirtualKeyId, x.MonthStart });
+            e.HasIndex(x => new { x.TeamId, x.MonthStart });
         });
 
         modelBuilder.Entity<AuditLogEntry>(e =>

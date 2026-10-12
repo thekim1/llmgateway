@@ -4,8 +4,8 @@ How organisations running the gateway get its data into their own reporting, dat
 how different consumers get different data.
 
 > **Status.** Design accepted 2026-10-10. **Phase 1 (security events and persisted authentication failures) and
-> phase 2 (the Data API) are implemented.** Of phase 3, the minimum group size and the PII-category toggle exist;
-> retention and purging are still a proposal. Sections say which phase they belong to.
+> phase 2 (the Data API) are implemented.** Of phase 3, the minimum group size, the PII-category toggle and data
+> retention exist. Sections say which phase they belong to.
 
 ## Goals and constraints
 
@@ -74,7 +74,8 @@ renamed or removed, within a major version.
 | 3002 | `data.auth.failed` | Data API | A revoked or expired Data API key was used (at most once a minute per key) | `Reason`, `KeyId`, `KeyPrefix` |
 
 `Reason` for `gateway.auth.failed` is one of `missing_key`, `invalid_key`, `key_revoked`, `key_expired`,
-`key_disabled`, `owner_inactive`. `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
+`key_disabled`, `owner_inactive`, `address_not_allowed` (the key is restricted to other client addresses; `SourceAddress`
+shows where it was used from). `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
 values. Audit `Details` (before and after values) are **not** included in `admin.change`; they stay in the audit
 log, where secrets are already masked.
 
@@ -110,9 +111,9 @@ The client address is personal data in many jurisdictions, so how much of it is 
 | `Full` | The full address |
 | `None` | Nothing |
 
-Behind a reverse proxy the gateway only sees the proxy's address unless forwarded headers are enabled
-(`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`, `UME_FORWARDED_HEADERS=true` in the Compose files). Only
-enable this when the gateway cannot be reached except through the proxy, or the header can be spoofed.
+Behind a reverse proxy the gateway only sees the proxy's address until a gateway admin lists the proxy under
+*Settings > Trusted proxies* in the admin UI; `X-Forwarded-For` is then believed from those addresses only (see the
+[runbook](runbook.md), *Client addresses and trusted proxies*).
 
 ### Shipping to a SIEM
 
@@ -152,7 +153,7 @@ are in the [runbook](runbook.md#data-api-optional); the contract is the OpenAPI 
 | Permission | Endpoints | Data |
 |---|---|---|
 | `usage.aggregate` | `GET /v1/usage/aggregate?from=&to=&granularity=day\|month` | Totals per period, department (with cost-centre code), model, provider, residency and endpoint: requests, successful requests, tokens, audio seconds, cost in SEK and USD. No key- or team-level rows; small departments folded (see phase 3). `from`/`to` are inclusive dates in `DataApi:TimeZone`. |
-| `usage.detail` | `GET /v1/usage/records` (feed) | One row per request with key, team and department ids, model, provider, tokens, audio seconds (speech to text), cost, latency, outcome, routing rule. A live audio session (endpoint `Realtime` or `RealtimeTranslations`) is one row; its latency is the session length. PII categories only if `DataApi:Detail:IncludePiiCategories`. |
+| `usage.detail` | `GET /v1/usage/records` (feed) | One row per request with key, team and department ids, model, provider, tokens, audio seconds (speech to text), cost, latency, provider time (`upstreamMs`) and time to first token (`timeToFirstTokenMs`, streamed answers), outcome, routing rule. A live audio session (endpoint `Realtime` or `RealtimeTranslations`) is one row; its latency is the session length. PII categories only if `DataApi:Detail:IncludePiiCategories`. |
 | `security.read` | `GET /v1/security/auth-failures`, `/requests`, `/audit` (feeds); `GET /v1/security/keys` | Refused keys; requests with a PII action or a policy refusal (with PII categories); the admin audit log with its masked before/after details; every key's status, expiry, last use and policies. |
 | `catalog.read` | `GET /v1/catalog/departments`, `teams`, `keys`, `providers`, `models`, `prices`, `budgets`, `exchange-rates` | Dimensions for joining. Keys are id, team, name and prefix only. |
 
@@ -231,7 +232,16 @@ Settings, with defaults chosen so that an adopter who does nothing exposes the l
 |---|---|---|
 | `DataApi:MinimumGroupSize` | 5 | **Implemented.** In each period, departments with fewer distinct keys than this are reported together without a department (`departmentId` null), so a one-person team's use is not visible as personal performance data. |
 | `DataApi:Detail:IncludePiiCategories` | `false` | **Implemented.** Whether `usage.detail` includes PII category counts (always included for `security.read`). |
-| `Retention:UsageDays`, `Retention:AuthFailureDays`, `Retention:AuditDays` | unset (keep) | **Proposal.** A purge job in the migration service deletes older rows. Each adopter sets these from its records-retention decision. |
+| Admin UI *Settings > Data retention* | 365 / 365 days | **Implemented.** Nightly, usage records, refused-key records and budget alerts older than the usage retention (whole months), and audit entries older than the audit retention, are removed; monthly usage totals are kept. 90–3 650 days; the audit log can be kept for ever. Each adopter sets these from its records-retention decision. See *Data retention and the Data API* below. |
+
+### Data retention and the Data API
+
+- **Feeds** (`/v1/usage/records`, `/v1/security/*`): removed rows are gone. A consumer must read at least as often as
+  the retention allows (in practice daily); cursors keep working, they just never return removed rows.
+- **`/v1/usage/aggregate?granularity=month`** adds the monthly totals for months before the oldest kept record, so a
+  warehouse can reload monthly figures for any period. Totals are Europe/Stockholm months; with another
+  `DataApi:TimeZone` the edge months differ slightly. **`granularity=day`** only covers kept records.
+- The Data API role reads `UsageMonthlyTotals` and only the `UsageRetainedFrom` column of `GatewaySettings`.
 
 Adopters document in their DPIA: which consumers get which scope, retention, minimum group size, source address
 mode, and where the SIEM and warehouse copies are kept (each copy is a new record with its own retention).

@@ -3,18 +3,19 @@ using Ume.LlmGateway.Domain.Entities;
 namespace Ume.LlmGateway.Domain.Services;
 
 /// <summary>
-/// What a request consumed. <paramref name="AudioSeconds"/> is set by the audio and realtime endpoints only.
+/// What a request consumed. <paramref name="AudioSeconds"/> is set by the audio and realtime endpoints only,
+/// <paramref name="Images"/> (generated images) by the image endpoints.
 /// <paramref name="AudioInputTokens"/> and <paramref name="AudioOutputTokens"/> are the audio part of the input and
 /// output tokens (already included in them), as reported by audio-capable models.
 /// </summary>
 public readonly record struct TokenUsage(long InputTokens, long CachedInputTokens, long OutputTokens, decimal AudioSeconds = 0,
-    long AudioInputTokens = 0, long AudioOutputTokens = 0)
+    long AudioInputTokens = 0, long AudioOutputTokens = 0, int Images = 0)
 {
     public long Total => InputTokens + OutputTokens;
 
     public static TokenUsage operator +(TokenUsage a, TokenUsage b) => new(
         a.InputTokens + b.InputTokens, a.CachedInputTokens + b.CachedInputTokens, a.OutputTokens + b.OutputTokens,
-        a.AudioSeconds + b.AudioSeconds, a.AudioInputTokens + b.AudioInputTokens, a.AudioOutputTokens + b.AudioOutputTokens);
+        a.AudioSeconds + b.AudioSeconds, a.AudioInputTokens + b.AudioInputTokens, a.AudioOutputTokens + b.AudioOutputTokens, a.Images + b.Images);
 }
 
 public readonly record struct Cost(decimal Usd, decimal Sek);
@@ -46,7 +47,8 @@ public static class CostCalculator
                    + cached * price.CachedInputPerMillionUsd
                    + (output - audioOut) * price.OutputPerMillionUsd
                    + audioOut * price.AudioOutputPerMillionUsd) / Million
-                  + Math.Max(usage.AudioSeconds, 0) / 60m * price.AudioPerMinuteUsd;
+                  + Math.Max(usage.AudioSeconds, 0) / 60m * price.AudioPerMinuteUsd
+                  + Math.Max(usage.Images, 0) * price.PerImageUsd;
         usd = Math.Round(usd, 8, MidpointRounding.AwayFromZero);
         var sek = Math.Round(usd * sekPerUsd, 6, MidpointRounding.AwayFromZero);
         return new Cost(usd, sek);
@@ -86,6 +88,20 @@ public static class CostCalculator
         var audioTokens = (long)Math.Ceiling(audioSeconds * AudioTokensPerSecond);
         return new(audioTokens, 0, (long)Math.Ceiling(audioSeconds * TranscriptTokensPerSecond), audioSeconds, AudioInputTokens: audioTokens);
     }
+
+    /// <summary>
+    /// Output tokens assumed per requested image for the budget reservation: a high-quality 1024×1536 gpt-image-1 picture
+    /// is 6 240 tokens, the most a token-billed image model produces for one image.
+    /// </summary>
+    public const int ImageOutputTokensEstimate = 6_400;
+
+    /// <summary>
+    /// Pre-flight estimate for <paramref name="images"/> requested images: covers per-image pricing through
+    /// <see cref="TokenUsage.Images"/> and token pricing through the output tokens. Each model has one of the two prices,
+    /// so the other part costs nothing.
+    /// </summary>
+    public static TokenUsage EstimateImages(long promptTokens, int images) =>
+        new(promptTokens, 0, (long)images * ImageOutputTokensEstimate, Images: images);
 
     /// <summary>
     /// Pre-flight estimate for <paramref name="audioSeconds"/> of a live session, for the budget reservation: the

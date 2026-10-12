@@ -132,6 +132,20 @@ public sealed class ProviderUnitTests
         usage.AudioSeconds.ShouldBe((decimal)seconds);
     }
 
+    [Theory]
+    [InlineData("""{"created":1,"data":[{"url":"https://x/a.png"},{"b64_json":"AAAA"}]}""", 0, 0, 2)]
+    [InlineData("""{"created":1,"data":[{"b64_json":"AAAA"}],"usage":{"input_tokens":500,"output_tokens":1000,"input_tokens_details":{"text_tokens":100,"image_tokens":400}}}""", 500, 1000, 1)]
+    [InlineData("""{"usage":{"input_tokens":7,"output_tokens":9},"data":[]}""", 7, 9, 0)] // the usage may come first
+    [InlineData("""{"created":1}""", 0, 0, 0)]
+    public void Image_usage_counts_pictures_and_reads_reported_tokens(string json, long input, long output, int images) =>
+        ProviderJson.ReadImageUsage(Encoding.UTF8.GetBytes(json)).ShouldBe(new TokenUsage(input, 0, output, Images: images));
+
+    [Theory]
+    [InlineData("""{"data":[{"b64_json":"AAAA"}""")]
+    [InlineData("")]
+    public void Image_usage_refuses_invalid_json(string json) =>
+        Should.Throw<System.Text.Json.JsonException>(() => ProviderJson.ReadImageUsage(Encoding.UTF8.GetBytes(json)));
+
     [Fact]
     public void Stream_usage_falls_back_to_the_estimated_audio_length()
     {

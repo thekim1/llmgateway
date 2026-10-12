@@ -74,10 +74,11 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
     {
         var spent = budgets.ToDictionary(b => b.Id, _ => 0m);
         var rotations = budgets.Any(b => b.Scope == BudgetScope.VirtualKey) ? await ctx.Db.KeyRotationMapAsync(ct) : null;
+        var retainedFrom = budgets.Count > 0 ? await ctx.Db.UsageRetainedFromAsync(ct) : null;
         foreach (var group in budgets.GroupBy(b => (b.Scope, b.Period)))
         {
             var window = BudgetPeriods.GetWindow(group.Key.Period, ctx.Now);
-            var usage = ctx.Db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= window.Start && u.Timestamp < window.End);
+            var usage = ctx.Db.CostsIn(window, retainedFrom);
             switch (group.Key.Scope)
             {
                 case BudgetScope.Department:

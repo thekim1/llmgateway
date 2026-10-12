@@ -54,6 +54,7 @@ public sealed class GatewayFixture : IAsyncLifetime
             builder.UseSetting("Gateway:CatalogCacheSeconds", "0");
             builder.UseSetting("Gateway:MaxRequestBodyBytes", "4096");
             builder.UseSetting("Gateway:MaxAudioRequestBodyBytes", (256 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            builder.UseSetting("Gateway:MaxImageRequestBodyBytes", (256 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("Gateway:Realtime:BudgetCheckSeconds", "1");
             builder.UseSetting("Gateway:Realtime:MaxSessionsPerKey", "2");
             builder.ConfigureLogging(logging =>
@@ -127,6 +128,27 @@ public sealed class GatewayFixture : IAsyncLifetime
 
             MapSpeech();
 
+            // Images: imgpic bills per picture (DALL·E: no usage in the answer), imgtokens by tokens (gpt-image-1), imgfail is down.
+            foreach (var (name, price) in new[]
+            {
+                ("imgpic", new ModelPrice { PerImageUsd = 0.04m }),
+                ("imgtokens", new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40 }),
+                ("imgfail", new ModelPrice { PerImageUsd = 0.04m }),
+            })
+            {
+                price.EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1);
+                var deployment = new ModelDeployment { Name = name + "/image", UpstreamModel = name + "-image", Kind = ModelKind.Image, Prices = [price] };
+                db.ProviderAccounts.Add(new ProviderAccount
+                {
+                    Name = name, Type = ProviderType.OpenAICompatible, Residency = DataResidency.Eu, BaseUrl = $"{Upstream.Url}/{name}/v1",
+                    AuthMode = ProviderAuthMode.Bearer, EncryptedCredential = protector.Protect(ProviderSecret),
+                    Capabilities = ProviderCapabilities.Images, TimeoutSeconds = 10, CreatedAt = DateTimeOffset.UtcNow, Deployments = [deployment],
+                });
+                _models.Add(deployment.Name, deployment);
+            }
+
+            MapImages();
+
             // Live audio: providers on the scripted WebSocket upstream, told apart by base path (livefail refuses the handshake).
             foreach (var (name, residency) in new[] { ("live", DataResidency.Eu), ("livefail", DataResidency.Eu), ("liveonprem", DataResidency.OnPrem) })
             {
@@ -158,8 +180,12 @@ public sealed class GatewayFixture : IAsyncLifetime
     }
 
     /// <summary>A second gateway on the same database and upstreams, with some services replaced. Dispose it.</summary>
-    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> configure) =>
-        _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(configure));
+    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> configure, Action<IWebHostBuilder>? host = null) =>
+        _factory.WithWebHostBuilder(builder =>
+        {
+            host?.Invoke(builder);
+            builder.ConfigureTestServices(configure);
+        });
 
     private void Map(string model, ProviderType type, string behavior)
     {
@@ -215,6 +241,58 @@ public sealed class GatewayFixture : IAsyncLifetime
                 """));
         Upstream.Given(Speech("speechfail")).RespondWith(Response.Create().WithStatusCode(503).WithHeader("Content-Type", "application/json")
             .WithBody("""{"error":{"message":"Fake provider unavailable","type":"server_error"}}"""));
+    }
+
+    private void MapImages()
+    {
+        IRequestBuilder Images(string provider) => Request.Create().WithPath($"/{provider}/v1/images/*").UsingPost();
+        Upstream.Given(Images("imgpic")).RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"created":1,"data":[{"b64_json":"AAAA","revised_prompt":"a"},{"url":"https://example.invalid/b.png"}]}"""));
+        Upstream.Given(Images("imgtokens")).RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"created":1,"data":[{"b64_json":"AAAA"}],"usage":{"total_tokens":1500,"input_tokens":500,"output_tokens":1000,"input_tokens_details":{"text_tokens":100,"image_tokens":400}}}"""));
+        Upstream.Given(Images("imgfail")).RespondWith(Response.Create().WithStatusCode(503).WithHeader("Content-Type", "application/json")
+            .WithBody("""{"error":{"message":"Fake provider unavailable","type":"server_error"}}"""));
+    }
+
+    /// <summary>A minimal PNG signature plus padding: the gateway never decodes pictures.</summary>
+    public static byte[] Png(int length = 64)
+    {
+        var png = new byte[length];
+        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(png, 0);
+        return png;
+    }
+
+    /// <summary>POST /v1/images/edits: the pictures go in <c>image</c> (or <c>image[]</c> when several), the mask in <c>mask</c>.</summary>
+    public async Task<HttpResponseMessage> SendImageEditAsync(TestKey? key, string model, IReadOnlyList<byte[]> images, byte[]? mask = null,
+        IDictionary<string, string>? fields = null, string imageField = "image")
+    {
+        using var form = new MultipartFormDataContent { { new StringContent(model), "model" }, { new StringContent("Gör den blå"), "prompt" } };
+        foreach (var (name, value) in fields ?? new Dictionary<string, string>())
+        {
+            form.Add(new StringContent(value), name);
+        }
+
+        foreach (var (image, index) in images.Select((image, index) => (image, index)))
+        {
+            var content = new ByteArrayContent(image);
+            content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            form.Add(content, imageField, $"bild{index}.png");
+        }
+
+        if (mask is not null)
+        {
+            var content = new ByteArrayContent(mask);
+            content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            form.Add(content, "mask", "mask.png");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/images/edits") { Content = form };
+        if (key is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        }
+
+        return await Client.SendAsync(request);
     }
 
     /// <summary>A PCM WAV file (16 kHz, mono, 16-bit) of the given length; its header gives the exact duration.</summary>

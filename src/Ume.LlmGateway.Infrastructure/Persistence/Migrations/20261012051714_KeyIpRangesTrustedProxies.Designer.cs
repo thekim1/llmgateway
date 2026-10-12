@@ -13,8 +13,8 @@ using Ume.LlmGateway.Infrastructure.Persistence;
 namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261012053413_McpGateway")]
-    partial class McpGateway
+    [Migration("20261012051714_KeyIpRangesTrustedProxies")]
+    partial class KeyIpRangesTrustedProxies
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -345,157 +345,24 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("ExchangeRates");
                 });
 
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.McpServer", b =>
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.GatewaySettings", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AuthType")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<bool>("AutoApproveNewTools")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("Capabilities")
+                    b.Property<int>("Id")
                         .HasColumnType("integer");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("EncryptedCredential")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
-
-                    b.PrimitiveCollection<List<string>>("ForwardHeaders")
+                    b.PrimitiveCollection<List<string>>("TrustedProxies")
                         .IsRequired()
                         .HasColumnType("text[]");
 
-                    b.Property<string>("Instructions")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset?>("LastCheckedAt")
+                    b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<int>("MaxResultBytes")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("OwnerDepartmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Residency")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Slug")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<int>("TimeoutSeconds")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Slug")
-                        .IsUnique();
-
-                    b.ToTable("McpServers");
-                });
-
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.McpTool", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApprovalState")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ApprovedBy")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ApprovedDefinition")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("Definition")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("DefinitionHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("DiscoveredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ExposedName")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("McpServerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<decimal?>("PriceSek")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExposedName")
-                        .IsUnique();
-
-                    b.HasIndex("McpServerId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("McpTools");
+                    b.ToTable("GatewaySettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GatewaySettings_Singleton", "\"Id\" = 1");
+                        });
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>
@@ -867,17 +734,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<int>("LatencyMs")
                         .HasColumnType("integer");
 
-                    b.Property<string>("McpMethod")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<Guid?>("McpServerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("McpTool")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<Guid?>("ModelDeploymentId")
                         .HasColumnType("uuid");
 
@@ -888,10 +744,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("OutputTokens")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("ParentRequestId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("PiiActionApplied")
                         .HasMaxLength(30)
@@ -957,9 +809,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DepartmentId", "Timestamp");
 
-                    b.HasIndex("McpServerId", "Timestamp")
-                        .HasFilter("\"McpServerId\" IS NOT NULL");
-
                     b.HasIndex("TeamId", "Timestamp");
 
                     b.HasIndex("VirtualKeyId", "Timestamp");
@@ -975,6 +824,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<string>>("AllowedIpRanges")
+                        .IsRequired()
+                        .HasColumnType("text[]");
 
                     b.PrimitiveCollection<List<string>>("AllowedModels")
                         .IsRequired()
@@ -1025,9 +878,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int?>("McpCallsPerMinute")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1068,49 +918,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.HasIndex("TeamId");
 
                     b.ToTable("VirtualKeys");
-                });
-
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.VirtualKeyMcpGrant", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.PrimitiveCollection<List<string>>("AllowedTools")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<string>("ApprovalPolicy")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("McpServerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("VirtualKeyId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("McpServerId");
-
-                    b.HasIndex("VirtualKeyId", "McpServerId")
-                        .IsUnique();
-
-                    b.ToTable("VirtualKeyMcpGrants");
-                });
-
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.McpTool", b =>
-                {
-                    b.HasOne("Ume.LlmGateway.Domain.Entities.McpServer", null)
-                        .WithMany("Tools")
-                        .HasForeignKey("McpServerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>
@@ -1181,29 +988,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Navigation("Team");
                 });
 
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.VirtualKeyMcpGrant", b =>
-                {
-                    b.HasOne("Ume.LlmGateway.Domain.Entities.McpServer", null)
-                        .WithMany()
-                        .HasForeignKey("McpServerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Ume.LlmGateway.Domain.Entities.VirtualKey", null)
-                        .WithMany()
-                        .HasForeignKey("VirtualKeyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Department", b =>
                 {
                     b.Navigation("Teams");
-                });
-
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.McpServer", b =>
-                {
-                    b.Navigation("Tools");
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>

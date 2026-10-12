@@ -12,7 +12,7 @@ public sealed record UsageRecordItem(
     string RequestedModel, Guid? ProviderId, string? ProviderName, Guid? ModelId, string? UpstreamModel,
     long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, decimal CostSek, int LatencyMs, int StatusCode,
     RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiAction, string? PiiCategories, string? ErrorCode,
-    Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds) : IFeedItem;
+    Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds, int? UpstreamMs, int? TimeToFirstTokenMs) : IFeedItem;
 
 public sealed record SecurityRequestItem(
     long Id, string RequestId, DateTimeOffset Timestamp, Guid KeyId, Guid TeamId, Guid DepartmentId, GatewayEndpoint Endpoint,
@@ -29,7 +29,7 @@ public sealed record KeyInventoryItem(
     Guid Id, string Prefix, string Name, Guid TeamId, Guid? DepartmentId, KeyStatus Status, DateTimeOffset CreatedAt, string? CreatedBy,
     DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, DateTimeOffset? LastUsedAt,
     PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, IReadOnlyList<string> AllowedModels, IReadOnlyList<string> AllowedProviders,
-    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute);
+    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges);
 
 public sealed record AggregateItem(
     DateOnly Period, Guid? DepartmentId, string? CostCenterCode, string? DepartmentName, Guid? ModelId, string? ModelName, Guid? ProviderId,
@@ -71,7 +71,8 @@ public static class DataEndpoints
                 .Select(u => new UsageRecordItem(u.Id, u.RequestId, u.Timestamp, u.VirtualKeyId, u.TeamId, u.DepartmentId, u.Endpoint,
                     u.RequestedModel, u.ProviderAccountId, u.ProviderName, u.ModelDeploymentId, u.UpstreamModel, u.InputTokens,
                     u.CachedInputTokens, u.OutputTokens, u.CostUsd, u.CostSek, u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount,
-                    u.Streamed, u.PiiActionApplied, pii ? u.PiiCategories : null, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName, u.RecordedAt, u.AudioSeconds))
+                    u.Streamed, u.PiiActionApplied, pii ? u.PiiCategories : null, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName, u.RecordedAt, u.AudioSeconds,
+                    u.UpstreamMs, u.TimeToFirstTokenMs))
                 .ToListAsync(ct);
             return DataResults.Feed(http, Feeds.Page(rows, cursor, size, Feeds.Cutoff(time, settings)));
         }).RequireAuthorization(DataPermissions.UsageDetail)
@@ -122,12 +123,12 @@ public static class DataEndpoints
             {
                 k.Id, k.Prefix, k.Name, k.TeamId, DepartmentId = (Guid?)k.Team!.DepartmentId, k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt,
                 k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy, k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders,
-                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute,
+                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges,
             }).ToListAsync(ct);
             return DataResults.List(http, keys.Select(k => new KeyInventoryItem(k.Id, k.Prefix, k.Name, k.TeamId, k.DepartmentId,
                 new VirtualKey { Name = k.Name, Prefix = k.Prefix, KeyHash = string.Empty, IsEnabled = k.IsEnabled, ExpiresAt = k.ExpiresAt, RevokedAt = k.RevokedAt, GraceUntil = k.GraceUntil }.GetStatus(now),
                 k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy,
-                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute)).ToList());
+                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges)).ToList());
         }).WithSummary("Every key with its status and policies (never the secret or its hash)");
 
         var catalog = v1.MapGroup("/catalog").WithTags("Catalog").RequireAuthorization(DataPermissions.CatalogRead);
@@ -148,7 +149,7 @@ public static class DataEndpoints
                 .Select(m => new { m.Id, m.Name, m.UpstreamModel, m.Kind, ProviderId = m.ProviderAccountId, m.IsEnabled }).ToListAsync(ct)));
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
-                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd }).ToListAsync(ct)));
+                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd }).ToListAsync(ct)));
         catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
                 .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitSek, b.IsActive }).ToListAsync(ct)));
@@ -183,13 +184,26 @@ public static class DataEndpoints
         var minimum = options.MinimumGroupSize;
         var tz = options.TimeZone;
 
+        // Data retention: records from the oldest kept instant on; before it, monthly totals (Europe/Stockholm months), which
+        // only a month granularity can use. Records older than it may still exist while the job removes them; they are skipped.
+        var retainedFrom = await db.UsageRetainedFromAsync(ct);
+        var recordsFrom = retainedFrom is { } kept && kept > start ? kept : start;
+        var totalsUntil = granularity == AggregateGranularity.Month && retainedFrom is { } k && k > start ? (k < end ? k : end) : start;
+
         var rows = await db.Database.SqlQuery<AggregateRow>($"""
             WITH u AS (
                 SELECT date_trunc({unit}, "Timestamp" AT TIME ZONE {tz})::date AS "Period", "DepartmentId", "VirtualKeyId",
-                       "ModelDeploymentId", "ProviderAccountId", "Endpoint", "Outcome", "InputTokens", "CachedInputTokens",
-                       "OutputTokens", "CostSek", "CostUsd", "AudioSeconds"
+                       "ModelDeploymentId", "ProviderAccountId", "Endpoint", 1::bigint AS "Requests",
+                       CASE WHEN "Outcome" = 'Success' THEN 1 ELSE 0 END::bigint AS "SuccessfulRequests", "InputTokens",
+                       "CachedInputTokens", "OutputTokens", "CostSek", "CostUsd", "AudioSeconds"
                 FROM "UsageRecords"
-                WHERE "Timestamp" >= {start} AND "Timestamp" < {end}
+                WHERE "Timestamp" >= {recordsFrom} AND "Timestamp" < {end}
+                UNION ALL
+                SELECT ("MonthStart" AT TIME ZONE 'Europe/Stockholm')::date, "DepartmentId", "VirtualKeyId",
+                       "ModelDeploymentId", "ProviderAccountId", "Endpoint", "Requests", "SuccessfulRequests", "InputTokens",
+                       "CachedInputTokens", "OutputTokens", "CostSek", "CostUsd", "AudioSeconds"
+                FROM "UsageMonthlyTotals"
+                WHERE "MonthStart" >= {start} AND "MonthStart" < {totalsUntil}
             ), small AS (
                 SELECT "Period", "DepartmentId" FROM u
                 GROUP BY "Period", "DepartmentId"
@@ -198,8 +212,8 @@ public static class DataEndpoints
             SELECT u."Period",
                    CASE WHEN small."DepartmentId" IS NULL THEN u."DepartmentId" END AS "DepartmentId",
                    u."ModelDeploymentId" AS "ModelId", u."ProviderAccountId" AS "ProviderId", u."Endpoint",
-                   count(*) AS "Requests",
-                   count(*) FILTER (WHERE u."Outcome" = 'Success') AS "SuccessfulRequests",
+                   sum(u."Requests")::bigint AS "Requests",
+                   sum(u."SuccessfulRequests")::bigint AS "SuccessfulRequests",
                    sum(u."InputTokens")::bigint AS "InputTokens", sum(u."CachedInputTokens")::bigint AS "CachedInputTokens",
                    sum(u."OutputTokens")::bigint AS "OutputTokens", sum(u."CostSek") AS "CostSek", sum(u."CostUsd") AS "CostUsd",
                    sum(u."AudioSeconds") AS "AudioSeconds"

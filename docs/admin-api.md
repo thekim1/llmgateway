@@ -71,16 +71,21 @@ Roles (OIDC `roles` claim):
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
-allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, mcpCallsPerMinute, rotatedToKeyId }`
+allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, mcpCallsPerMinute, rotatedToKeyId,
+allowedIpRanges: string[] }`
+(`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
+100; empty = any address; omitted on update = unchanged; returned in canonical form, a network with host bits set such as
+`10.20.1.5/16` is refused with 400; copied to the replacement key on rotation. Behind a reverse proxy it needs the proxy in
+[trusted proxies](#settings). Any key manager may set it.)
 (empty `allowedModels` / `allowedResidencies` = all allowed)
 (`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute?, isEnabled }` → `VirtualKey`
   (`mcpCallsPerMinute`: MCP calls the key may send to servers per minute, null = no limit; like `requestsPerMinute`, omitted = no limit)
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
@@ -114,15 +119,15 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
-- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, effectiveFrom }`
+- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
   (`audioPerMinuteUsd` is for models billed by duration, such as Whisper and gpt-realtime-translate; `audioInputPerMillionUsd`
   and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
-  as text tokens; all three omitted on create = 0)
+  as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0)
 - `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
-  (speech to text), `Realtime` (live audio over WebSocket). `ModelKind` (models and routes): `Chat`, `Embedding`,
-  `Transcription`, `Realtime`, `SpeechTranslation`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
-  `*realtime-translate*` as `SpeechTranslation` and other `*realtime*` models as `Realtime`; speech synthesis, image and
-  chat-with-audio models are still left out.
+  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). `ModelKind` (models and
+  routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
+  `*realtime-translate*` as `SpeechTranslation`, other `*realtime*` models as `Realtime` and `gpt-image*`, `dall-e*`,
+  `flux*`, `imagen*` and `stable-diffusion*` models as `Image`; speech synthesis, video and chat-with-audio models are still left out.
 - `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
   gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
 - `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null }`
@@ -237,6 +242,18 @@ and invalidate the gateway catalogue.
 - `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
   Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
   reports its `exchange-rate` readiness check (and so the gateway component in `/api/ops/health`) as Degraded.
+- `GET /api/settings/retention` *(gateway-admin)* → `{ usageRetentionDays, auditRetentionDays (null = kept for ever), usageRetainedFrom,
+  nextUsageCutoff, nextAuditCutoff, enabled, nextRunAt, running, lastRunAt, lastRunDeleted, lastRunError }` · `PUT /api/settings/retention`
+  `{ usageRetentionDays, auditRetentionDays }` (90–3 650; audited as `Settings`) · `POST /api/settings/retention/run` → 202 with the state
+  (409 when a run is going; audited as `run`). See *Data retention* in [the runbook](runbook.md). `usageRetainedFrom` is the oldest instant
+  usage records cover; `GET /api/usage/summary` returns `monthlyTotalsBefore` when its period reaches before it (usage before that instant
+  comes from whole-month totals; `groupBy=day` shows those months as `yyyy-MM`). The CSV export and budget spend use the totals the same way.
+- <a id="settings"></a>`GET /api/settings/network` *(gateway-admin)* → `{ trustedProxies: string[], updatedAt, observed: { remoteAddress, forwardedFor } }`
+  · `PUT /api/settings/network` `{ trustedProxies: string[] }` *(gateway-admin)*. Trusted reverse proxies: the gateway takes the
+  client address from `X-Forwarded-For` only on connections from these addresses (single IPs or CIDR networks, at most 100,
+  canonicalised; `/0` networks are refused). `observed` is the connection the admin API saw for this request, to help find
+  the proxy's address. Saving is audited (`Settings`) and publishes a configuration change, so the gateways apply it within
+  seconds. See *Client addresses and trusted proxies* in [the runbook](runbook.md).
 - Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
   also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
   full the alert is stored but not sent (a warning is logged).
@@ -244,8 +261,26 @@ and invalidate the gateway catalogue.
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
   → `{ from, to, totalCostSek, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costSek, errors, fallbacks }] }`
+- `GET /api/usage/metrics?from=&to=&bucket=auto|hour|day&departmentId=&teamId=&keyId=&model=&provider=&outcome=&endpoint=` (any role, own departments)
+  → `{ from, to, bucket, timeZone, recordsFrom, totals, buckets: [...], models: [...] }`, the Usage dashboard. Cost is in **USD**.
+  - `bucket`: `auto` (default) is `hour` for periods up to two days, else `day`. Hours are cut in UTC, days at Europe/Stockholm midnight
+    (`timeZone`). `hour` allows at most 7 days; the period is at most one year (default: the last 30 days). Every bucket in the
+    period is returned, empty ones with zeros and `null` timings, so the series have no gaps.
+  - Filters: `model` is the requested model (alias or deployment name), `provider` the provider account name, `outcome` a
+    `RequestOutcome`, `endpoint` a `GatewayEndpoint` name. Anything else is 400.
+  - `totals` and each bucket: `requests`, `successes`, `providerErrors`, `refused` (BudgetExceeded, RateLimited, PiiBlocked,
+    Rejected), `cancelled`, `fallbacks` (requests with at least one fallback), `costUsd`, `inputTokens`, `cachedInputTokens`,
+    `outputTokens`, `latency` and `overhead` (each `{ avg, p50, p90, p95, p99 }` in ms) and `tokensPerSecond`. `totals` also
+    has `cacheHitRate` (cached ÷ input tokens) and `firstToken: { avg, p50, p95 }`; a bucket has `firstTokenAvgMs` and `firstTokenP95Ms`.
+  - Timings: `latency` leaves out live audio sessions and requests no provider handled; `overhead` is `latencyMs − upstreamMs`
+    for records that have it; time to first token covers streamed answers; `tokensPerSecond` is output tokens ÷ provider time
+    over successful requests with output. Percentiles are nearest-rank (`percentile_disc`), over the whole period for `totals`.
+  - `models`: `[{ model, requests, costUsd, requestsPerBucket[], costUsdPerBucket[] }]`, the 8 requested models with the most
+    requests, then one entry with `model: null` for all others together; the arrays line up with `buckets`.
+  - `recordsFrom` is set when the period starts before the oldest kept usage record (data retention): monthly totals have no
+    timings or days, so the figures cover only `recordsFrom`..`to`.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&traffic=&page=1&pageSize=50`
-  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied)
+  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only)
 - `traffic` (both lists, case-insensitive): `mcp` = MCP calls (endpoints `/mcp` and `/v1/mcp/...`), `llm` = everything else; anything else → 400.
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
 - `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&traffic=&page=1&pageSize=50` (any role, own departments)
@@ -326,6 +361,14 @@ and invalidate the gateway catalogue.
   Billing: provider-reported duration (`usage.seconds` or the `duration` of `verbose_json`) × `audioPerMinuteUsd`, plus
   reported tokens × token prices (gpt-4o-transcribe); whatever is not reported is estimated from the file (exact for
   WAV and FLAC, from the bitrate for MP3, 32 kbps otherwise). Usage records carry `audioSeconds`.
+- `POST /v1/images/generations` (JSON: `model` an `Image` alias or model, `prompt`, `n`, `size`, `quality`, `response_format` …) and
+  `POST /v1/images/edits` (`multipart/form-data`: the pictures in `image` or `image[]`, at most 16, an optional `mask`, and the text
+  fields `model`, `prompt`, `n`, `size` …): OpenAI format; every field except the files is passed on unchanged and the answer comes
+  back as the provider sent it (`data[]` with `b64_json` or `url`, `usage` for token-billed models). Only providers with the `Images`
+  capability are used. Edits are limited to `Gateway:MaxImageRequestBodyBytes` (50 MB for all pictures together) and held in memory,
+  never on disk. `stream` is refused with `400 invalid_request`. The PII policy scans the text fields; the pictures count as image
+  attachments, so keys set to `None` get `attachment_not_allowed` on edits. Billing: the number of pictures in `data` ×
+  `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
 - MCP: `POST /mcp` and `POST /mcp/{slug}` (JSON-RPC; see [mcp.md](mcp.md)). HTTP-level errors use the error body
   below (`invalid_api_key` with `WWW-Authenticate: Bearer`, `mcp_server_not_found` for an unknown or not granted slug);
@@ -352,7 +395,8 @@ and invalidate the gateway catalogue.
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
-  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
+  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
+  client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).

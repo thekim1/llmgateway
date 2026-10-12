@@ -201,6 +201,37 @@ public class CostCalculatorTests
     }
 
     [Fact]
+    public void Images_are_billed_per_picture_on_top_of_tokens()
+    {
+        var perPicture = new ModelPrice { PerImageUsd = 0.04m };
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: 3), perPicture, 10).ShouldBe(new Cost(0.12m, 1.2m));
+
+        // gpt-image-1 style: tokens only; a model with both prices is billed both ways.
+        var perToken = new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40 };
+        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), perToken, 10).Usd.ShouldBe(0.0425m);
+        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40, PerImageUsd = 0.01m }, 10).Usd.ShouldBe(0.0525m);
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: -1), perPicture, 10).Usd.ShouldBe(0m);
+    }
+
+    [Fact]
+    public void Image_estimate_covers_both_pricing_models()
+    {
+        var estimate = CostCalculator.EstimateImages(120, 2);
+        estimate.ShouldBe(new TokenUsage(120, 0, 2 * CostCalculator.ImageOutputTokensEstimate, Images: 2));
+
+        // The most a token-billed picture costs is within the estimate (6 240 tokens at 40 USD per million).
+        var perToken = new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40 };
+        CostCalculator.Calculate(estimate, perToken, 10).Usd.ShouldBeGreaterThanOrEqualTo(2 * 6_240 * 40m / 1_000_000m);
+        CostCalculator.Calculate(estimate, new ModelPrice { PerImageUsd = 0.17m }, 10).Usd.ShouldBe(0.34m);
+    }
+
+    [Fact]
+    public void Usage_adds_up_pictures()
+    {
+        (new TokenUsage(1, 0, 2, Images: 1) + new TokenUsage(3, 0, 4, Images: 2)).ShouldBe(new TokenUsage(4, 0, 6, Images: 3));
+    }
+
+    [Fact]
     public void Audio_tokens_are_billed_at_the_audio_price_when_one_is_set()
     {
         // gpt-realtime-like: text 4/16, audio 32/64 USD per million.

@@ -4,9 +4,12 @@ GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures", "DataProtectionKe
 GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
 GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
   "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-  "Budgets", "ExchangeRates", "DataApiKeys", "McpServers", "McpTools", "VirtualKeyMcpGrants" TO ume_admin;
+  "Budgets", "ExchangeRates", "DataApiKeys", "McpServers", "McpTools", "VirtualKeyMcpGrants", "GatewaySettings" TO ume_admin;
 GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
 GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
+-- Data retention: old rows are removed only through this function (owner's rights, minimum 90 days); the admin role
+-- has no DELETE on usage, refused-credential, alert or audit rows.
+GRANT EXECUTE ON FUNCTION ume_retention_step(integer) TO ume_admin;
 -- Data API (optional): read-only, and column by column where a table holds secrets, so the role cannot
 -- read key hashes, encrypted key secrets or provider credentials even through a bug. Skipped while the
 -- role does not exist (it is created by init.sql on new installs; see docs/upgrade-guide.md for existing ones).
@@ -16,10 +19,11 @@ BEGIN
     GRANT CONNECT ON DATABASE gatewaydb TO ume_data;
     GRANT USAGE ON SCHEMA public TO ume_data;
     GRANT SELECT ON "UsageRecords", "AuthFailures", "AuditLog", "Departments", "Teams", "ModelDeployments",
-      "ModelPrices", "Budgets", "ExchangeRates", "McpTools", "VirtualKeyMcpGrants" TO ume_data;
+      "ModelPrices", "Budgets", "ExchangeRates", "McpTools", "VirtualKeyMcpGrants", "UsageMonthlyTotals" TO ume_data;
+    GRANT SELECT ("UsageRetainedFrom") ON "GatewaySettings" TO ume_data;
     GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
       "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
-      "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute", "McpCallsPerMinute") ON "VirtualKeys" TO ume_data;
+      "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute", "McpCallsPerMinute") ON "VirtualKeys" TO ume_data;
     GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
     GRANT SELECT ("Id", "Slug", "DisplayName", "Description", "Url", "Residency", "IsEnabled", "OwnerDepartmentId", "AuthType",
       "Status", "LastCheckedAt", "Capabilities", "CreatedAt") ON "McpServers" TO ume_data;

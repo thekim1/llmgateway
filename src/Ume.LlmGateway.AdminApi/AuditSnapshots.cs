@@ -25,6 +25,7 @@ public static class AuditActions
     public const string Deactivate = "deactivate";
     public const string Acknowledge = "acknowledge";
     public const string Circuit = "circuit";
+    public const string Run = "run";
     public const string Import = "import";
     public const string Invalidate = "invalidate";
     public const string Approve = "approve";
@@ -46,6 +47,7 @@ public static class AuditEntities
     public const string Budget = "Budget";
     public const string Alert = "Alert";
     public const string ExchangeRate = "ExchangeRate";
+    public const string Settings = "Settings";
     public const string Config = "Config";
     public const string Keys = "Keys";
     public const string McpServer = "McpServer";
@@ -79,12 +81,24 @@ public sealed record KeyAudit(
     Guid Id, Guid TeamId, string Name, string? Description, string Prefix, bool IsEnabled, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    int? McpCallsPerMinute)
+    int? McpCallsPerMinute,
+    IReadOnlyList<string> AllowedIpRanges)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.McpCallsPerMinute);
+        k.McpCallsPerMinute,
+        [.. k.AllowedIpRanges]);
+}
+
+public sealed record RetentionSettingsAudit(int UsageRetentionDays, int? AuditRetentionDays)
+{
+    public static RetentionSettingsAudit Of(GatewaySettings s) => new(s.UsageRetentionDays, s.AuditRetentionDays);
+}
+
+public sealed record NetworkSettingsAudit(IReadOnlyList<string> TrustedProxies)
+{
+    public static NetworkSettingsAudit Of(GatewaySettings s) => new([.. s.TrustedProxies]);
 }
 
 /// <summary><c>McpGrants</c>: the MCP grants copied to the replacement key.</summary>

@@ -2,7 +2,7 @@
 
 The gateway exposes the municipality's MCP servers ([Model Context Protocol](https://modelcontextprotocol.io)) to MCP
 clients such as Claude Code, VS Code and Claude Desktop, under the same virtual keys, budgets, PII policy and residency rules
-as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
+as the LLM API. See ADR 017 in [adr.md](adr.md) for the decision.
 
 > **Status.** Tools, resources and prompts work end to end (listing, calling and reading, authorisation, PII guard, rate
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications

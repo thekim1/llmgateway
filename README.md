@@ -12,7 +12,7 @@ with weights, fallbacks and chaining) are applied to live requests and described
 [Routing rules](docs/routing-rules.md). The `x-ume-rule` response header shows which rule applied. Administrators manage rules through the admin API
 (create, validate, dry-run, reorder, reassign); deleting a team or department that has rules asks whether to delete
 the rules or deactivate them until a new team or department is assigned.
-The gateway is also a governed MCP gateway ([MCP gateway](docs/mcp.md), ADR 016): municipal MCP servers are exposed on `/mcp` to clients such as Claude Code,
+The gateway is also a governed MCP gateway ([MCP gateway](docs/mcp.md), ADR 017): municipal MCP servers are exposed on `/mcp` to clients such as Claude Code,
 VS Code and Claude Desktop under the same virtual keys, budgets, PII policy and residency rules, with admin-approved (pinned) tool definitions, and the gateway can run
 the tool loop itself for the Responses `mcp` tool and Anthropic's MCP connector with any model.
 
@@ -113,6 +113,35 @@ in the statistics (only its circuit breaker sees it); a request on which every p
 7 days (per hour) or 30 days (per day, Swedish time), plus a ranking with the most stable provider first (availability,
 then p95). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
 ([docs/admin-api.md](docs/admin-api.md)).
+
+#### Usage dashboard
+
+**Monitor > Usage** opens on a **Dashboard** tab with a quick overview of how the gateway is used and how it performs. The
+earlier summary, request list and request lookup are on the **Requests and costs** tab (`/usage?tab=requests`). The
+dashboard has a time range (24 hours, 7 days, 30 days, 90 days or custom dates; up to two days per hour, otherwise per
+day in Swedish time) and filters for department, team, key, model, provider (gateway-admin), outcome and endpoint, which
+apply at once. Department admins and viewers see only their own departments. Nine cards, each with a bar, line and table
+view:
+
+| Card | Shows |
+|---|---|
+| Cost | Cost in **USD** per bucket, stacked by requested model (the 8 busiest models, the rest as *Other models*) |
+| Requests | Success, provider error, refused by the gateway (budget, rate limit, PII, invalid) and cancelled; error and fallback share |
+| Tokens | Uncached input, cached input and output tokens |
+| Provider cache hit rate | Cached ÷ input tokens over the period (prompt caching at the provider) |
+| Requests by model | Requests per requested model, same colours as the cost card |
+| Latency | Avg, P50, P95 and P99 of the whole request as the client saw it |
+| Gateway overhead | Avg, P50, P95 and P99 of the gateway's own time: latency minus time spent waiting on providers |
+| Time to first token | Avg and P95 for streamed answers: until the first event reached the client |
+| Throughput | Output tokens per second of provider time, over successful requests with output |
+
+To make overhead and time to first token possible the gateway records two more timings per request (`UsageRecords.UpstreamMs`,
+`TimeToFirstTokenMs`): provider time is every attempt, failed fallback attempts included, plus reading a streamed answer.
+Timings leave out live audio sessions (their latency is the session length) and requests refused before a provider was
+called. Requests recorded before the upgrade have no overhead or time to first token. Usage older than the retention
+period is only kept as monthly totals without timings, so the charts start at the oldest kept record (the page says so).
+The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](docs/admin-api.md)); the dashboard's query takes about
+0.1 s for 24 hours and 1.8 s for 30 days of 2 million requests (see [docs/performance.md](docs/performance.md)).
 
 #### Routing rules page
 
@@ -334,6 +363,46 @@ To regenerate the screenshots after a UI change, start the test stack (`.\script
 `npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
 changes the (disposable) test database only.
 
+## Restricting a key to client addresses
+
+A key can be limited to the addresses it may be used from, so a leaked key does not work elsewhere. In the admin UI,
+edit the key (*Keys*) and enter **Allowed client addresses**: one IP address (`192.0.2.10`, `2001:db8::10`) or CIDR
+network (`203.0.113.0/24`) per line, at most 100. Empty means any address. A request from anywhere else is refused with
+`403 address_not_allowed` and recorded with its source address like other refused keys. The list is copied to the new key
+on rotation.
+
+**Behind a reverse proxy** (the usual production setup), every request reaches the gateway from the proxy. A gateway admin
+must list the proxy under **Settings > Trusted proxies**; the gateway then takes the client address from
+`X-Forwarded-For`, but only on connections from those addresses. Until then, keys with an address restriction are refused.
+Caveats:
+
+- Trust only proxies you operate, never a network that also holds clients: a trusted address can claim to be anyone.
+  `0.0.0.0/0` is refused.
+- The proxy must append the client address (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`; Nginx Proxy
+  Manager does it by default). With several proxies in a row, list them all.
+- The Settings page shows the address your own request to the admin API came from, which is usually the proxy.
+- `ASPNETCORE_FORWARDEDHEADERS_ENABLED` / `UME_FORWARDED_HEADERS` no longer affect the gateway: they would believe the
+  header from anyone.
+- An address restriction narrows where a key works; it does not replace the key or the firewall.
+
+Both checks run in memory (no database or Redis call): well under a microsecond per request, and nothing at all when
+unused (see [performance](docs/performance.md)). Details and troubleshooting: *Client addresses and trusted proxies* in the
+[runbook](docs/runbook.md).
+
+## Data retention
+
+Request data is removed automatically so the database does not keep growing. Under **Settings > Data retention** a
+gateway admin sets two periods (90–3 650 days, both 365 by default):
+
+- **Usage data:** usage records, refused-key records and old budget alerts. Whole months go, and each month's totals
+  per key, model and provider are saved first, so costs, budgets (yearly ones too), the usage summary, the CSV export and the
+  Data API monthly figures stay complete. The request list, PII incidents and Data API feeds no longer show removed months.
+- **Audit log:** a separate period, or kept for ever.
+
+The admin API runs the removal every night at 03:00 (and on *Run now*) through a database function, so it never needs
+delete rights on those tables itself. Set both periods from your records-retention decision (gallringsbeslut) before going
+live: removed rows cannot be restored except from a backup. Details: *Data retention* in the [runbook](docs/runbook.md).
+
 ## Personal data (PII)
 
 Each key has a **PII policy**; the default is **Off**, which means the key's requests are **not scanned at all**. To test
@@ -429,6 +498,40 @@ duration of the request only, never written to disk or logged, and sent again fr
 scans the `prompt` field but cannot hear the recording or read the transcript, so use *Text only*, an on-prem-only
 alias or allowed residencies for recordings with personal data.
 
+## Images
+
+Image models (gpt-image-1, DALL·E 3, FLUX and others with an OpenAI-compatible API) are served at
+`POST /v1/images/generations` (a JSON body) and `POST /v1/images/edits` (a `multipart/form-data` upload of one or more
+pictures in `image` or `image[]`, and an optional `mask`). Clients use the OpenAI SDKs unchanged:
+
+```bash
+curl https://<gateway>/v1/images/generations -H "Authorization: Bearer $UME_API_KEY" \
+  -H "Content-Type: application/json" -d '{"model":"ume/image","prompt":"En röd stuga vid en sjö","size":"1024x1024"}'
+curl https://<gateway>/v1/images/edits -H "Authorization: Bearer $UME_API_KEY" \
+  -F model=ume/image -F prompt="Gör himlen blå" -F image=@stuga.png
+```
+
+**Setting it up.** Give the provider the *Image generation and editing* capability (`Images`), add the model with kind
+*Image generation* (`Image`; discovery does this for `gpt-image*`, `dall-e*`, `flux*`, `imagen*` and `stable-diffusion*`
+models) and put it behind an alias with the same kind. Fallback, residency, provider allow-lists, rate limits, budgets
+and routing rules (`endpoint == "image_generations"` or `"image_edits"`) work as for chat. The dev seed has `ume/image`
+on FakeLlm.
+
+**Prices.** DALL·E-style models are priced per picture (*Image (USD per picture)* in the price form, `perImageUsd`);
+gpt-image-1 per token (the usual input and output prices; the answer's `usage` is read). The pictures are counted from
+the answer's `data` array, so a request for `n=4` that returns three is billed for three. A per-picture price is one
+flat amount for every size and quality, so it is an estimate for models that price by them; token pricing (gpt-image-1) is exact.
+Image input tokens of an edit are billed at the text input price. Migration `ImageGeneration` adds `PerImageUsd`.
+Before the call, the budget reserves the most the request could cost (`n` pictures, up to 6 400 output tokens each).
+
+**Limits and privacy.** Edits may upload 50 MB in all (`Gateway__MaxImageRequestBodyBytes`, at most 16 pictures; raise
+the proxy's `client_max_body_size` with it). Pictures are held in memory for the duration of the request only, never
+written to disk or logged, and sent again from memory on fallback. A key whose **Attached files** setting is *Text only*
+cannot edit pictures (`attachment_not_allowed`); *Images only* may. The PII policy scans the `prompt` (and the other
+form fields) but cannot see inside pictures, and generated pictures are returned as the provider made them. Streaming
+(`stream`, `partial_images`) is not supported and answers `400 invalid_request`. Pictures a provider returns as a URL
+(DALL·E) point at the provider's storage; ask for `response_format: "b64_json"` to keep them off third-party links.
+
 ## Live audio (realtime)
 
 Live transcription, live interpreting and realtime sessions use WebSockets with the
@@ -505,7 +608,7 @@ Settings (`Gateway:Security:*`):
 
 | Setting | Default | |
 |---|---|---|
-| `SourceAddress` | `Truncated` | Client address kept for refused keys: `Truncated` (IPv4 /24, IPv6 /48), `Full` or `None`. Behind a reverse proxy, also set `UME_FORWARDED_HEADERS=true` (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`). |
+| `SourceAddress` | `Truncated` | Client address kept for refused keys: `Truncated` (IPv4 /24, IPv6 /48), `Full` or `None`. Behind a reverse proxy, list the proxy under *Settings > Trusted proxies* in the admin UI, or every address is the proxy's. |
 | `AuthFailureFlushSeconds` | `10` | How often refused keys are written and logged. |
 | `MaxAuthFailureBuckets` | `1000` | Distinct rows per interval; anything beyond is folded into one row per reason and endpoint. |
 

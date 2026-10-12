@@ -67,6 +67,7 @@ dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- audit
 | `ProviderBenchmarks` | The provider leg: serialise, call upstream, read JSON or SSE, write to the client. OpenAI-compatible, Anthropic passthrough and Anthropic translation. |
 | `RequestBenchmarks` | Parsing the client body, PII scan, per-attempt rewrite and serialisation (0.5 KB and 64 KB requests). |
 | `RoutingBenchmarks` | Model resolution and candidate selection, budget lookup (with 0 and 10 000 rotated keys), key hashing. |
+| `ClientAddressBenchmarks` | Resolving the client address behind trusted proxies and checking a key's address allow-list, with and without the features in use. |
 | `audit` | Postgres statements on the request path vs. in the background writer, and Redis commands, per request; then requests/s and tail latency for 64 concurrent streaming clients with 1 s cache TTLs. |
 
 Absolute numbers depend on the machine; compare runs on the same host. In the results below, Postgres and Redis run in
@@ -144,6 +145,58 @@ same machine, run back to back. Same requests, same external calls: 0 Postgres s
 
 The steadier chat time comes mainly from caching decrypted provider credentials per catalogue snapshot instead of
 decrypting them on every attempt. The load-test difference is within run-to-run noise.
+
+### Client address restrictions (2026-10-12)
+
+Key address allow-lists and trusted proxies (see *Client addresses and trusted proxies* in the [runbook](runbook.md)) add
+no external call: trusted proxies come with the catalogue snapshot and a key's networks are parsed once when the key is
+cached. Same machine, run back to back:
+
+| Benchmark | Time | Allocated |
+|---|---:|---:|
+| Resolve client address, no trusted proxies (every request when unused) | 0.4 ns | 0 B |
+| Resolve client address through a trusted proxy, `X-Forwarded-For` with 2 hops | 51 ns | 72 B |
+| Key without address restriction (every request when unused) | 0.1 ns | 0 B |
+| Key with 5 allowed networks, the last one matching | 6.2 ns | 0 B |
+
+| `PipelineBenchmarks` | Before | After |
+|---|---:|---:|
+| `POST /v1/chat/completions`, in-memory / Redis | 216 ± 41 / 1,474 ± 67 μs | 195 ± 7 / 1,498 ± 53 μs |
+| Chat stream (300 chunks), in-memory / Redis | 734 ± 245 / 1,869 ± 302 μs | 514 ± 101 / 1,874 ± 263 μs |
+| Embeddings (16×1536), in-memory / Redis | 1,008 ± 69 / 2,327 ± 84 μs | 1,010 ± 48 / 2,582 ± 256 μs |
+
+The pipeline differences are within run-to-run noise (the error columns overlap); allocations per request are unchanged
+within 0.3 KB.
+
+With data retention added as well (`audit`, three runs each, back to back): warm requests still make 0 Postgres calls and
+9 Redis commands. A key + catalogue cache miss makes 10 statements instead of 9 (the catalogue also reads the
+`GatewaySettings` row), and seeding a budget counter reads `UsageRetainedFrom` once. Load test, 64 streaming clients
+with 1 s cache TTLs: 7,756–8,160 req/s (mean 7,968) against 7,755–8,317 req/s (mean 8,096) before, within run-to-run noise.
+The nightly removal runs in the admin API in batches of 5 000 rows, each its own short transaction, so it does not hold
+locks the gateway's usage writer waits on.
+
+### Usage dashboard timings (2026-10-13)
+
+The gateway records provider time (`UpstreamMs`) and time to first token (`TimeToFirstTokenMs`) for the Usage dashboard:
+two `TimeProvider.GetTimestamp()` reads around each provider attempt and the stream, one more on the first streamed event,
+no allocation and no external call. `audit`, same machine, back to back:
+
+| Scenario | Before | After |
+|---|---:|---:|
+| chat (warm caches), mean / p99 | 2.056 / 2.354 ms | 2.047 / 2.443 ms |
+| chat stream (warm caches), mean / p99 | 2.591 / 3.468 ms | 2.525 / 3.674 ms |
+| embeddings (warm caches), mean / p99 | 2.794 / 4.078 ms | 2.676 / 3.582 ms |
+| Load, 64 streaming clients | 7,272 req/s, p99 41.5 ms | 7,162 req/s, p99 42.0 ms |
+
+Postgres (0 on the request path, 1 in the background) and Redis (9) calls per request are unchanged; the differences are
+within run-to-run noise. The migration adds two nullable columns, which Postgres does without rewriting the table.
+
+`GET /api/usage/metrics` (admin API, not the request path) aggregates in one scan per query (`GROUPING SETS` gives the
+buckets and the period's percentiles together) plus one for the per-model series. On 2 million records spread over 30
+days (Postgres 17, default settings): 24 hours per hour 0.11 s, 7 days 0.63 s, 30 days 1.8 s for a gateway-admin (all
+departments); a department's view uses the `(DepartmentId, Timestamp)` index and took 0.02 / 0.13 / 0.40 s. The cost
+grows with the number of records in the period (the percentile sorts), so a 90-day view of a very busy gateway takes a
+few seconds.
 
 ## Comparison with eneo
 

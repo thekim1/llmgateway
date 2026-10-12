@@ -47,6 +47,8 @@ public sealed class RealtimeTests(GatewayFixture fixture)
         usage.UpstreamModel.ShouldBe("live-whisper");
         usage.AudioSeconds.ShouldBe(2m);
         usage.CostUsd.ShouldBe(0.0002m); // 2 s at 0.006 USD per minute
+        usage.UpstreamMs.ShouldBeNull(); // a session's length is not request timing
+        usage.TimeToFirstTokenMs.ShouldBeNull();
     }
 
     [Fact]

@@ -111,6 +111,10 @@ const reason = computed(() => {
           <span v-if="!keyData.allowedProviders?.length">Any provider</span>
           <span v-else class="font-mono text-small">{{ keyData.allowedProviders.join(', ') }}</span>
         </DetailRow>
+        <DetailRow label="Client addresses">
+          <span v-if="!keyData.allowedIpRanges?.length">Any address</span>
+          <span v-else class="font-mono text-small">{{ keyData.allowedIpRanges.join(', ') }}</span>
+        </DetailRow>
         <DetailRow label="PII policy">
           {{ PII_LABEL[keyData.piiPolicy] }}
           <span class="block text-small text-fg-3">{{ PII_HINT[keyData.piiPolicy] }}</span>

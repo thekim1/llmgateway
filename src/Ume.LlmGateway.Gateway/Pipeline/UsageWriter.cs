@@ -238,6 +238,8 @@ public sealed class GatewayMetrics
     private readonly Counter<long> _fallbacks;
     private readonly Counter<long> _ruleRouted;
     private readonly Histogram<double> _latency;
+    private readonly Histogram<double> _overhead;
+    private readonly Histogram<double> _timeToFirstToken;
     private readonly Histogram<double> _sessionDuration;
     private readonly UpDownCounter<long> _openSessions;
     private readonly Counter<double> _audioSeconds;
@@ -256,6 +258,8 @@ public sealed class GatewayMetrics
         _fallbacks = _meter.CreateCounter<long>("ume.gateway.fallbacks", description: "Fallback attempts");
         _ruleRouted = _meter.CreateCounter<long>("ume.gateway.routing.rule_routed", description: "Requests routed by a routing rule (no per-rule label: rule names are unbounded)");
         _latency = _meter.CreateHistogram<double>("ume.gateway.request.duration", unit: "ms", description: "End-to-end latency");
+        _overhead = _meter.CreateHistogram<double>("ume.gateway.overhead", unit: "ms", description: "The gateway's own time: end-to-end latency minus time spent waiting on providers");
+        _timeToFirstToken = _meter.CreateHistogram<double>("ume.gateway.time_to_first_token", unit: "ms", description: "Streamed answers: time until the first event reached the client");
         _sessionDuration = _meter.CreateHistogram<double>("ume.gateway.realtime.session.duration", unit: "s", description: "Length of live audio sessions");
         _openSessions = _meter.CreateUpDownCounter<long>("ume.gateway.realtime.sessions", description: "Live audio sessions open on this instance");
         _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
@@ -300,6 +304,15 @@ public sealed class GatewayMetrics
         else
         {
             _latency.Record(record.LatencyMs, tags);
+            if (record.UpstreamMs is { } upstream)
+            {
+                _overhead.Record(Math.Max(0, record.LatencyMs - upstream), tags);
+            }
+
+            if (record.TimeToFirstTokenMs is { } firstToken)
+            {
+                _timeToFirstToken.Record(firstToken, tags);
+            }
         }
 
         if (record.AudioSeconds > 0)

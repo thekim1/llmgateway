@@ -77,7 +77,9 @@ public sealed partial class GatewayRequestHandler
             AudioSeconds = decimal.Round(usage.AudioSeconds, 3),
             CostUsd = decimal.Round(cost.Usd, 6),
             CostSek = decimal.Round(cost.Sek, 6),
-            LatencyMs = (int)Math.Min(int.MaxValue, time.GetElapsedTime(state.StartTimestamp).TotalMilliseconds),
+            LatencyMs = Milliseconds(time.GetElapsedTime(state.StartTimestamp)),
+            UpstreamMs = state.UpstreamTicks is { } upstream ? Milliseconds(time.GetElapsedTime(0, upstream)) : null,
+            TimeToFirstTokenMs = state.FirstEventTimestamp != 0 ? Milliseconds(time.GetElapsedTime(state.StartTimestamp, state.FirstEventTimestamp)) : null,
             StatusCode = status,
             Outcome = outcome,
             FallbackCount = state.Fallbacks,
@@ -124,6 +126,8 @@ public sealed partial class GatewayRequestHandler
         }
     }
 
+    private static int Milliseconds(TimeSpan elapsed) => (int)Math.Min(int.MaxValue, elapsed.TotalMilliseconds);
+
     /// <summary>The <c>Action</c> attribute of the <c>gateway.pii.action</c> security event.</summary>
     private static string PiiActionName(PiiPolicy policy) => policy switch
     {
@@ -158,6 +162,17 @@ public sealed partial class GatewayRequestHandler
 
         /// <summary>Set by the one <see cref="AccountAsync"/> call that counts.</summary>
         public bool Accounted { get; set; }
+
+        /// <summary>
+        /// <see cref="TimeProvider.GetTimestamp"/> ticks spent waiting on providers: every attempt, failed fallbacks included,
+        /// and the relayed stream. Null when no provider was called (the request was refused first, or a live session).
+        /// </summary>
+        public long? UpstreamTicks { get; private set; }
+
+        /// <summary>When the first stream event was sent to the client; 0 when none was (not streamed, or failed first).</summary>
+        public long FirstEventTimestamp { get; set; }
+
+        public void AddUpstreamTime(long ticks) => UpstreamTicks = (UpstreamTicks ?? 0) + ticks;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Request {RequestId} key {KeyPrefix} model {Model} provider {Provider} status {Status} in {LatencyMs} ms (fallbacks {Fallbacks})")]
