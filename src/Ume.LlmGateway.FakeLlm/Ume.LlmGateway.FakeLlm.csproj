@@ -5,6 +5,9 @@
     <NoWarn>$(NoWarn);CA1861</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.ServiceDefaults\Ume.LlmGateway.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 
 // Fake LLM provider for demos and automated tests. Implements just enough of the OpenAI (chat, embeddings,
 // responses, models, audio transcriptions/translations) and Anthropic (messages) APIs. Speech to text pretends the
@@ -10,11 +13,16 @@ using System.Text.Json.Nodes;
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
 // response.create in text, and translation sessions (fake-interpret) send transcript deltas per second of audio.
+// A demo MCP server (Streamable HTTP) on /mcp offers echo (text), get_time (structured content) and get_image (an image).
 // NOT for production. It echoes the last user message so demos can show PII redaction.
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+builder.Services.AddMcpServer(o => o.ServerInfo = new Implementation { Name = "ume-fake-mcp", Version = "1.0.0" })
+    .WithHttpTransport()
+    .WithToolsFromAssembly();
 var app = builder.Build();
 app.MapDefaultEndpoints();
+app.MapMcp("/mcp");
 app.UseWebSockets();
 
 app.MapGet("/", () => "Ume fake LLM – endast för test och demo.");
@@ -438,3 +446,28 @@ static async Task Sse(HttpContext ctx, string? eventName, object payload)
 }
 
 public partial class Program;
+
+[McpServerToolType]
+internal static class FakeMcpTools
+{
+    private static readonly byte[] Pixel = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+    [McpServerTool(Name = "echo", ReadOnly = true, Idempotent = true, OpenWorld = false), Description("Returns the text it was given.")]
+    public static string Echo([Description("The text to return.")] string text) => text;
+
+    [McpServerTool(Name = "get_time", ReadOnly = true, OpenWorld = false, UseStructuredContent = true), Description("The current time in UTC and in Sweden.")]
+    public static FakeTime GetTime()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var stockholm = TimeZoneInfo.ConvertTime(now, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
+        return new FakeTime(now.ToString("O", System.Globalization.CultureInfo.InvariantCulture), stockholm.ToString("O", System.Globalization.CultureInfo.InvariantCulture), now.ToUnixTimeSeconds());
+    }
+
+    [McpServerTool(Name = "get_image", ReadOnly = true, Idempotent = true, OpenWorld = false), Description("A 1x1 PNG test image.")]
+    public static CallToolResult GetImage() => new()
+    {
+        Content = [new TextContentBlock { Text = "A test image:" }, ImageContentBlock.FromBytes(Pixel, "image/png")],
+    };
+}
+
+internal sealed record FakeTime(string Utc, string Stockholm, long UnixSeconds);

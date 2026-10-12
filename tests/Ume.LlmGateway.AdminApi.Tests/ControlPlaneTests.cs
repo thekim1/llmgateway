@@ -210,11 +210,13 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
     [InlineData(GatewayEndpoint.AudioTranslations, "/v1/audio/translations")]
     [InlineData(GatewayEndpoint.Realtime, "/v1/realtime")]
     [InlineData(GatewayEndpoint.RealtimeTranslations, "/v1/realtime/translations")]
+    [InlineData(GatewayEndpoint.Mcp, "/mcp")]
+    [InlineData(GatewayEndpoint.McpToolCall, "/v1/mcp/tools/call")]
     public void Every_endpoint_has_a_path(GatewayEndpoint endpoint, string path) => GatewayEndpoints.Info(endpoint).ClientPath.ShouldBe(path);
 
     [Fact]
     public void No_endpoint_lacks_a_path() =>
-        Enum.GetValues<GatewayEndpoint>().ShouldAllBe(e => GatewayEndpoints.Info(e).ClientPath.StartsWith("/v1/", StringComparison.Ordinal));
+        Enum.GetValues<GatewayEndpoint>().ShouldAllBe(e => GatewayEndpoints.Info(e).ClientPath.StartsWith(e == GatewayEndpoint.Mcp ? "/mcp" : "/v1/", StringComparison.Ordinal));
 
     private async Task<JsonElement> AuditAsync(Guid entityId, string action)
     {

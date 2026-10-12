@@ -5,7 +5,8 @@ namespace Ume.LlmGateway.Infrastructure.Stores;
 
 /// <summary>
 /// Every Redis key and channel the gateway uses, with their lifetimes. All live under <c>ume:</c>: the restricted
-/// gateway ACL user (<c>deploy/redis/users.acl.example</c>) may only touch <c>~ume:*</c> and publish on <c>&amp;ume:invalidate</c>.
+/// gateway ACL user (<c>deploy/redis/users.acl.example</c>) may only touch <c>~ume:*</c> and use the channels
+/// <c>&amp;ume:invalidate</c> and <c>&amp;ume:mcp:events</c>.
 /// </summary>
 internal static class RedisKeys
 {
@@ -15,6 +16,14 @@ internal static class RedisKeys
 
     /// <summary>Cache invalidation (key revoked, configuration changed), published by the admin API.</summary>
     public static readonly RedisChannel InvalidateChannel = RedisChannel.Literal(InvalidateChannelName);
+
+    public const string McpEventsChannelName = Prefix + "mcp:events";
+
+    /// <summary>MCP change notifications (for example an approved tool change), relayed to clients' notification streams.</summary>
+    public static readonly RedisChannel McpEventsChannel = RedisChannel.Literal(McpEventsChannelName);
+
+    /// <summary>Held by the instance that syncs MCP tool lists, with a TTL so a crashed instance releases it.</summary>
+    public const string McpSyncLock = Prefix + "mcp:sync-lock";
 
     /// <summary>A per-minute rate-limit counter outlives its minute a little, so late token reports still land.</summary>
     public const int RateWindowSeconds = 120;

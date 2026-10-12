@@ -36,6 +36,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     public IServiceProvider GatewayServices => _gateway.Services;
     public string RedisHost => _redis.Hostname;
     public ushort RedisPort => _redis.GetMappedPublicPort(6379);
+    public string FakeMcpUrl { get; private set; } = null!;
 
     public async ValueTask InitializeAsync()
     {
@@ -44,6 +45,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         _fake = new WebApplicationFactory<Fake::Program>().WithWebHostBuilder(b => b.UseEnvironment("Testing"));
         _fake.UseKestrel();
         using var fakeClient = _fake.CreateClient();
+        FakeMcpUrl = fakeClient.BaseAddress!.ToString().TrimEnd('/') + "/mcp";
         _gateway = new WebApplicationFactory<Gateway::Program>().WithWebHostBuilder(Configure);
         using (var scope = GatewayServices.CreateScope())
         {
@@ -51,7 +53,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
             var seeder = new Migration::Ume.LlmGateway.MigrationService.DevSeeder(
                 Options.Create(new Migration::Ume.LlmGateway.MigrationService.SeedOptions
                 {
-                    Enabled = true, FakeLlmUrl = fakeClient.BaseAddress!.ToString().TrimEnd('/') + "/v1",
+                    Enabled = true, FakeLlmUrl = fakeClient.BaseAddress!.ToString().TrimEnd('/') + "/v1", FakeMcpUrl = FakeMcpUrl,
                 }),
                 scope.ServiceProvider.GetRequiredService<CredentialProtector>(),
                 scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>(),

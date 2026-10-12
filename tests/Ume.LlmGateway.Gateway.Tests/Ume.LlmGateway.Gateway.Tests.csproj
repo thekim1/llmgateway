@@ -4,6 +4,7 @@
     <PackageReference Include="WireMock.Net" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.TestKit\Ume.LlmGateway.TestKit.csproj" />

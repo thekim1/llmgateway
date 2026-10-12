@@ -78,6 +78,7 @@ public static class KeyRotation
             AttachmentPolicy = oldKey.AttachmentPolicy,
             RequestsPerMinute = oldKey.RequestsPerMinute,
             TokensPerMinute = oldKey.TokensPerMinute,
+            McpCallsPerMinute = oldKey.McpCallsPerMinute,
         };
 
         oldKey.RotatedToKeyId = replacement.Id;

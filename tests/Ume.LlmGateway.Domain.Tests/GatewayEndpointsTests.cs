@@ -13,7 +13,7 @@ public class GatewayEndpointsTests
             var info = GatewayEndpoints.Info(endpoint);
             info.ShouldNotBeNull();
             info.Endpoint.ShouldBe(endpoint);
-            info.ClientPath.ShouldStartWith("/v1/");
+            info.ClientPath.ShouldStartWith(endpoint == GatewayEndpoint.Mcp ? "/mcp" : "/v1/");
             info.RoutingName.ShouldNotBeNullOrWhiteSpace();
         }
 
@@ -33,6 +33,8 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.AudioTranslations, "audio_translations", "/v1/audio/translations", "audio/translations")]
     [InlineData(GatewayEndpoint.Realtime, "realtime", "/v1/realtime", "realtime")]
     [InlineData(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations")]
+    [InlineData(GatewayEndpoint.Mcp, "mcp", "/mcp", null)]
+    [InlineData(GatewayEndpoint.McpToolCall, "mcp_tool_call", "/v1/mcp/tools/call", null)]
     public void Names_and_paths_are_the_documented_ones(GatewayEndpoint endpoint, string routingName, string clientPath, string? upstreamPath)
     {
         var info = GatewayEndpoints.Info(endpoint);
@@ -56,11 +58,14 @@ public class GatewayEndpointsTests
         new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ~capability & (ProviderCapabilities)0x7F }.Supports(endpoint).ShouldBeFalse();
     }
 
-    [Fact]
-    public void Models_endpoint_is_never_served_by_a_provider()
+    [Theory]
+    [InlineData(GatewayEndpoint.Models)]
+    [InlineData(GatewayEndpoint.Mcp)]
+    [InlineData(GatewayEndpoint.McpToolCall)]
+    public void Endpoints_without_an_upstream_path_are_never_served_by_a_provider(GatewayEndpoint endpoint)
     {
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = (ProviderCapabilities)0x7F }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ProviderCapabilities.None }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = (ProviderCapabilities)0x7F }.Supports(endpoint).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ProviderCapabilities.None }.Supports(endpoint).ShouldBeFalse();
     }
 
     [Theory]
@@ -73,6 +78,8 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.Realtime, new[] { ModelKind.Realtime, ModelKind.Transcription })]
     [InlineData(GatewayEndpoint.RealtimeTranslations, new[] { ModelKind.SpeechTranslation })]
     [InlineData(GatewayEndpoint.Models, new ModelKind[0])]
+    [InlineData(GatewayEndpoint.Mcp, new ModelKind[0])]
+    [InlineData(GatewayEndpoint.McpToolCall, new ModelKind[0])]
     public void Endpoints_serve_their_model_kinds(GatewayEndpoint endpoint, ModelKind[] kinds)
     {
         var info = GatewayEndpoints.Info(endpoint);
