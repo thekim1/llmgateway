@@ -14,6 +14,7 @@ public static class AdminServices
         services.AddScoped<ConfigTransferService>();
         services.AddScoped<PiiIncidentService>();
         services.AddScoped<DataAccessService>();
+        services.AddScoped<GatewaySettingsService>();
         return services;
     }
 }

@@ -8,7 +8,8 @@ import { useTeamsStore } from '@/stores/teams'
 import { useKeysStore } from '@/stores/keys'
 import { OUTCOME_LABEL } from '@/utils/labels'
 import { problemLang, problemMessage } from '@/utils/problem'
-import { formatDateTime, formatMs, formatNumber, formatSek, todayIso, toIsoDate } from '@/utils/format'
+import { formatDate, formatDateTime, formatMs, formatNumber, formatSek, todayIso, toIsoDate } from '@/utils/format'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
 import DetailRow from '@/components/ui/DetailRow.vue'
@@ -183,6 +184,10 @@ onMounted(() => {
       <p v-if="usage.summary" class="mb-3 text-fg-2">
         {{ formatSek(usage.summary.totalCostSek) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
         {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens.
+      </p>
+      <p v-if="usage.summary?.monthlyTotalsBefore" class="mb-3 flex items-start gap-2 text-small text-fg-2">
+        <AppIcon name="info" :size="18" class="mt-px shrink-0" />
+        Usage before {{ formatDate(usage.summary.monthlyTotalsBefore) }} is only kept as monthly totals (data retention, see Settings). Those months count in full, and by day they show as one row per month.
       </p>
       <DataTable :columns="summaryColumns" :rows="usage.summary?.rows ?? []" :row-key="(r) => r.key" caption="Usage summary" empty-text="No usage in this period.">
         <template #cell-label="{ row }"><span class="font-medium">{{ row.label }}</span></template>

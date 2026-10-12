@@ -33,6 +33,9 @@ builder.Services.AddOptions<DataApiLinkOptions>().BindConfiguration(DataApiLinkO
 builder.Services.AddOptions<OidcOptions>().BindConfiguration(OidcOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOpenApi();
 builder.Services.AddAdminServices();
+builder.Services.AddOptions<RetentionOptions>().BindConfiguration(RetentionOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddSingleton<AzureRetailPrices>();
 builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
@@ -151,6 +154,7 @@ var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("admin
 api.MapOrganisation();
 api.MapKeys();
 api.MapConfiguration();
+api.MapSettings();
 api.MapRoutingRules();
 api.MapReports();
 api.MapOperations();

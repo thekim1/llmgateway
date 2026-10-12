@@ -30,7 +30,8 @@ isolating Redis to the gateway alone would break these control-plane functions.
 
 ## Request and accounting flow
 
-Bounded JSON request -> HMAC authentication -> key attachment policy -> model/endpoint authorization -> Redis
+Client address (from `X-Forwarded-For` only on connections from trusted proxies, held in the catalogue snapshot) ->
+bounded JSON request -> HMAC authentication -> key address allow-list -> key attachment policy -> model/endpoint authorization -> Redis
 rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
 budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
 Fallback occurs for transient failures (408, 409, 429, 5xx, timeouts, connection errors, invalid JSON) and
@@ -91,7 +92,8 @@ availability objectives; this POC must not be presented as exact invoicing.
 
 ## Stored and transient data
 
-Postgres stores organization, key HMACs/prefixes, encrypted provider credentials,
+Postgres stores organization, key HMACs/prefixes, gateway-wide settings (trusted proxies, retention; one `GatewaySettings` row),
+monthly usage totals kept after the nightly retention job removes old usage records (ADR 016), encrypted provider credentials,
 certificate-protected Data Protection keys, routes/routing rules/prices/budgets, metadata-only usage,
 alerts and masked append-only audit entries. Redis stores namespaced numerical counters,
 circuit state and invalidation signals. Neither stores conversation content.

@@ -29,13 +29,13 @@ public sealed record KeyDto(
     KeyStatus Status, bool IsEnabled, DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    Guid? RotatedToKeyId, bool CanReveal)
+    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.RotatedToKeyId, k.EncryptedSecret is not null);
+        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>
@@ -177,9 +177,14 @@ public sealed record UsageRequestDto(
     decimal CostSek, int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
     string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName);
 
+/// <summary>
+/// <c>MonthlyTotalsBefore</c> is set when the period reaches back before the oldest kept usage record (data retention): usage
+/// before that instant comes from monthly totals, whole months that overlap the period, and grouping by day shows those
+/// months as <c>yyyy-MM</c>.
+/// </summary>
 public sealed record UsageSummaryDto(
     DateTimeOffset From, DateTimeOffset To, decimal TotalCostSek, long TotalRequests, long TotalInputTokens, long TotalOutputTokens,
-    long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows);
+    long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows, DateTimeOffset? MonthlyTotalsBefore = null);
 
 /// <summary>A request in which PII was detected (any policy except <c>Off</c>: <c>Allow</c> counts as "detected and forwarded").</summary>
 public sealed record PiiIncidentDto(

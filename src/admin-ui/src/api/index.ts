@@ -24,6 +24,8 @@ import type {
   Department,
   DiscoveredModel,
   ExchangeRate,
+  NetworkSettings,
+  RetentionSettings,
   KeyFilter,
   KeyRotationMode,
   Model,
@@ -162,6 +164,12 @@ export const api = {
     exchangeRate: () => http.get<ExchangeRate>('/api/settings/exchange-rate'),
     updateExchangeRate: (sekPerUnit: number) =>
       http.put<ExchangeRate>('/api/settings/exchange-rate', { sekPerUnit }),
+    network: () => http.get<NetworkSettings>('/api/settings/network'),
+    updateNetwork: (trustedProxies: string[]) => http.put<NetworkSettings>('/api/settings/network', { trustedProxies }),
+    retention: () => http.get<RetentionSettings>('/api/settings/retention'),
+    updateRetention: (usageRetentionDays: number, auditRetentionDays: number | null) =>
+      http.put<RetentionSettings>('/api/settings/retention', { usageRetentionDays, auditRetentionDays }),
+    runRetention: () => http.post<RetentionSettings>('/api/settings/retention/run'),
   },
   usage: {
     summary: (query: UsageSummaryQuery) => http.get<UsageSummary>('/api/usage/summary', { ...query }),

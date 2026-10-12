@@ -342,6 +342,51 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("ExchangeRates");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.GatewaySettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("AuditRetentionDays")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("RetentionLastRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("RetentionLastRunDeleted")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RetentionLastRunError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.PrimitiveCollection<List<string>>("TrustedProxies")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("UsageRetainedFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UsageRetentionDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(365);
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GatewaySettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GatewaySettings_AuditRetention", "\"AuditRetentionDays\" IS NULL OR \"AuditRetentionDays\" BETWEEN 90 AND 3650");
+
+                            t.HasCheckConstraint("CK_GatewaySettings_Singleton", "\"Id\" = 1");
+
+                            t.HasCheckConstraint("CK_GatewaySettings_UsageRetention", "\"UsageRetentionDays\" BETWEEN 90 AND 3650");
+                        });
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -667,6 +712,87 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("Teams");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.UsageMonthlyTotal", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("AudioSeconds")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<long>("CachedInputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("CostSek")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("CostUsd")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
+
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<long>("Fallbacks")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ModelDeploymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("MonthStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ProviderAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestedModel")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Requests")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SuccessfulRequests")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("VirtualKeyId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonthStart", "DepartmentId");
+
+                    b.HasIndex("TeamId", "MonthStart");
+
+                    b.HasIndex("VirtualKeyId", "MonthStart");
+
+                    b.ToTable("UsageMonthlyTotals");
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.UsageRecord", b =>
                 {
                     b.Property<long>("Id")
@@ -801,6 +927,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<string>>("AllowedIpRanges")
+                        .IsRequired()
+                        .HasColumnType("text[]");
 
                     b.PrimitiveCollection<List<string>>("AllowedModels")
                         .IsRequired()

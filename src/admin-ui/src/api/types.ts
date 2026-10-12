@@ -177,6 +177,8 @@ export interface VirtualKey {
   rotatedToKeyId: string | null
   /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
   canReveal?: boolean
+  /** Client addresses (single IPs or CIDR networks) the key may be used from. Empty = any address. */
+  allowedIpRanges?: string[]
 }
 
 export interface KeyFilter {
@@ -199,6 +201,8 @@ export interface CreateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
+  /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
+  allowedIpRanges?: string[]
 }
 
 export interface CreateKeyResponse {
@@ -219,6 +223,7 @@ export interface UpdateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
+  allowedIpRanges?: string[]
   isEnabled: boolean
 }
 
@@ -453,6 +458,35 @@ export interface ExchangeRate {
   effectiveFrom: IsoDateTime
 }
 
+/** The connection the admin API saw for the settings request; helps find the reverse proxy's address. */
+export interface ObservedConnection {
+  remoteAddress: string | null
+  forwardedFor: string | null
+}
+
+export interface NetworkSettings {
+  /** Reverse proxies whose X-Forwarded-For the gateway believes. Empty = the header is ignored. */
+  trustedProxies: string[]
+  updatedAt: IsoDateTime | null
+  observed: ObservedConnection
+}
+
+export interface RetentionSettings {
+  usageRetentionDays: number
+  /** null = audit entries are kept for ever. */
+  auditRetentionDays: number | null
+  /** The oldest instant usage records cover; before it only monthly totals exist. */
+  usageRetainedFrom: IsoDateTime | null
+  nextUsageCutoff: IsoDateTime
+  nextAuditCutoff: IsoDateTime | null
+  enabled: boolean
+  nextRunAt: IsoDateTime | null
+  running: boolean
+  lastRunAt: IsoDateTime | null
+  lastRunDeleted: number | null
+  lastRunError: string | null
+}
+
 export interface UpdateExchangeRateRequest {
   sekPerUnit: number
 }
@@ -489,6 +523,8 @@ export interface UsageSummary {
   totalOutputTokens: number
   totalErrors: number
   rows: UsageSummaryRow[]
+  /** Set when the period reaches before the oldest kept record: usage before it comes from whole-month totals. */
+  monthlyTotalsBefore?: IsoDateTime | null
 }
 
 export interface UsageRequestsQuery {

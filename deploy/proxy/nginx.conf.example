@@ -23,6 +23,9 @@ server {
         proxy_set_header Upgrade $http_upgrade;  # live audio sessions (WebSocket)
         proxy_set_header Connection $ume_connection;
         proxy_set_header Host $host;
+        # The client's address, for keys restricted to client addresses. List this proxy under
+        # Settings > Trusted proxies in the admin UI, or the gateway ignores the header.
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_buffering off;           # stream tokens as they arrive (SSE)
         proxy_request_buffering off;   # pass uploads straight through: no recordings in proxy temp files
         proxy_read_timeout 600s;       # long generations; live sessions stay open through the gateway's 30 s pings
@@ -45,6 +48,7 @@ server {
         proxy_pass https://ume_admin;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # shown on the Settings page to identify this proxy
         # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
         # proxy_ssl_name adminapi;
     }

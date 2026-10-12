@@ -51,6 +51,8 @@ public sealed class AdminContext
         Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => Teams(user).Any(t => t.Id == k.TeamId));
     public IQueryable<UsageRecord> Usage(ClaimsPrincipal user) =>
         Db.UsageRecords.Where(u => Departments(user).Any(d => d.Id == u.DepartmentId));
+    public IQueryable<UsageMonthlyTotal> UsageTotals(ClaimsPrincipal user) =>
+        Db.UsageMonthlyTotals.AsNoTracking().Where(t => Departments(user).Any(d => d.Id == t.DepartmentId));
 
     /// <summary>Who made a change, as written to the audit log: the OIDC subject, else the name.</summary>
     public static string Actor(ClaimsPrincipal user) => user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown";

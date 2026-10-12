@@ -78,8 +78,11 @@ municipalities; confirm the applicable reporting authority/instructions before l
   IdP and contracted infrastructure/subprocessors as applicable.
 - **Transfers:** none permitted merely because a provider is labelled EU; document actual
   access/transfer pathways and mechanism for every recipient.
-- **Retention:** **TBD by approved records/retention decision**. No automatic purge is
-  enabled in this POC. Never silently delete potentially public records.
+- **Retention:** a nightly job removes usage records, refused-key records and ended budget alerts after
+  **365 days** and audit entries after **365 days** by default (admin UI *Settings > Data retention*, 90–3 650 days; the
+  audit log can be kept for ever). Monthly usage totals are kept. **Set both from the approved records/retention
+  decision (gallringsbeslut) before production**: usage metadata and the audit log may be allmänna handlingar, and
+  removal cannot be undone except from a backup. Every settings change and manual run is in the audit log.
 - **Safeguards:** controls above; TLS, least privilege, certificate-protected key ring,
   metadata-only logging, segregated listeners/networks, backups and incident procedures.
 

@@ -15,6 +15,26 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - Admin API clients: send `scopeIds: [...]` instead of `scopeId` when creating, updating or reassigning a rule, and
   `{ scope, ruleIds }` to reorder. Responses carry `scopeIds` and `owners` instead of `scopeId`/`scopeName`.
 
+## Next release: data retention
+
+- **Data older than 365 days is removed the first night after the upgrade** (usage records, refused-key records, ended
+  budget alerts, audit entries), with monthly usage totals kept. If your records-retention decision says otherwise, set
+  *Settings > Data retention* right after deploying, or deploy with `Retention__Enabled=false` on the admin API until it is set.
+- The migration `DataRetention` adds retention columns to `GatewaySettings`, the table `UsageMonthlyTotals` and the function
+  `ume_retention_step`; it is additive. Re-run the role grants (the migration service does it) so `ume_admin` may execute the
+  function: until then runs fail with `SQL state 42501`, shown on the Settings page.
+
+## Next release: client address restrictions
+
+- The migration `KeyIpRangesTrustedProxies` adds `VirtualKeys.AllowedIpRanges` (`text[]`, default empty) and the table
+  `GatewaySettings`. It is additive: the previous gateway and admin API keep working against the new schema. `app-roles.sql`
+  grants the admin role writes on `GatewaySettings` and the Data API role `SELECT` on the new column; the migration service
+  applies it on start. Run the migration before starting the new Data API, whose key inventory reads the column.
+- `UME_FORWARDED_HEADERS` / `ASPNETCORE_FORWARDEDHEADERS_ENABLED` no longer affect the gateway. Behind a reverse proxy, list
+  the proxy under *Settings > Trusted proxies* after the upgrade, or refused keys are recorded with the proxy's address and
+  keys given an address restriction are refused. Check the proxy sends `X-Forwarded-For` (see the runbook).
+- New 403 error code `address_not_allowed` for clients of keys with an address restriction.
+
 ## Upgrade procedure
 
 1. Review release/source changes, package/image advisories, licenses and SBOM; approve exact

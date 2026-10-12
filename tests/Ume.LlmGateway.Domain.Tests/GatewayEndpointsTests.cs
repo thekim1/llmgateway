@@ -110,7 +110,7 @@ public class ModelAllowListTests
         var key = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h", AllowedModels = ["ume/Chat-Standard"] };
         if (indexed)
         {
-            key.IndexAllowedModels();
+            key.IndexAllowLists();
         }
 
         key.IsModelAllowed("UME/chat-standard").ShouldBeTrue();
@@ -121,12 +121,12 @@ public class ModelAllowListTests
     public void Index_is_ignored_once_the_list_is_replaced_or_changed()
     {
         var key = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h", AllowedModels = ["a"] };
-        key.IndexAllowedModels();
+        key.IndexAllowLists();
         key.AllowedModels = ["b"];
         key.IsModelAllowed("b").ShouldBeTrue();
         key.IsModelAllowed("a").ShouldBeFalse();
 
-        key.IndexAllowedModels();
+        key.IndexAllowLists();
         key.AllowedModels.Add("c");
         key.IsModelAllowed("c").ShouldBeTrue();
     }

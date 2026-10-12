@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+**Data retention.** Old data is removed every night so the database stays bounded. New card *Settings > Data retention*
+(gateway-admin): **usage data** (usage records, refused-key records, budget alerts of periods that ended over a year ago)
+and the **audit log** each have a period of 90–3 650 days, both **365 by default**; the audit log can be kept for ever.
+Usage goes in whole Europe/Stockholm months after each month's totals per key, team, department, model, provider and
+endpoint are saved in the new table `UsageMonthlyTotals`. Budget spend, the usage summary (`monthlyTotalsBefore`; by day,
+removed months are one `yyyy-MM` row), the CSV export and the Data API monthly aggregate read the totals before the oldest
+kept record (`GatewaySettings.UsageRetainedFrom`) and records after it, so yearly budgets and monthly reports stay exact.
+The admin API runs it at 03:00 local time (`Retention:Enabled`, `RunAt`, `BatchSize`) and on *Run now*
+(`POST /api/settings/retention/run`); the card shows the last run, rows removed, errors and the next run. Removal is the
+database function `ume_retention_step` (owner's rights, 90-day floor, batches): `ume_admin` gets `EXECUTE` on it, not
+`DELETE`, so the audit log stays append-only for recent entries (ADR 016). Settings changes and manual runs are audited.
+Migration `DataRetention`; `app-roles.sql` grants the function to `ume_admin` and `UsageMonthlyTotals` plus
+`GatewaySettings.UsageRetainedFrom` to `ume_data`. New automated test of the production database roles (`DatabaseRoleTests`).
+**On upgrade, data older than 365 days is removed at the first night**; set the periods first if you need longer.
+
+**Keys restricted to client addresses, and trusted proxies.** A key can be limited to the client addresses it may be used
+from: single IPs or CIDR networks, IPv4 and IPv6, at most 100 (`VirtualKey.AllowedIpRanges`, admin API `allowedIpRanges`,
+admin UI key form *Allowed client addresses*, shown in the key details, copied on rotation, in the Data API key inventory).
+Empty means any address. Requests from elsewhere get `403 address_not_allowed`, recorded as the refused-key reason
+`AddressNotAllowed` (`address_not_allowed` in `gateway.auth.failed`). Behind a reverse proxy, a gateway admin lists the proxy
+under the new **Settings > Trusted proxies** card (`GET/PUT /api/settings/network`, gateway-admin only, audited as
+`Settings`); the gateway then takes the client address from `X-Forwarded-For`, read from the right, on connections from those
+addresses only, and applies changes within seconds. The card shows the address the admin API saw for the page request (usually
+the proxy) with a button to add it, and explains the caveats; `/0` networks are refused. The address is resolved before
+authentication, so refused-credential records now carry the client's address instead of the proxy's. Both checks run in
+memory with no database or Redis call: 0.4 ns when unused, 51 ns through a trusted proxy, 6 ns for a key with five networks
+(`ClientAddressBenchmarks`); the pipeline benchmarks are unchanged within noise. Migration `KeyIpRangesTrustedProxies` (column
+`VirtualKeys.AllowedIpRanges`, default empty; table `GatewaySettings`); `app-roles.sql` grants `ume_admin` writes on
+`GatewaySettings` and `ume_data` `SELECT` on the new column, applied by the migration service on the next start.
+`deploy/proxy/nginx.conf.example` now sets `X-Forwarded-For`.
+
+**Changed: `UME_FORWARDED_HEADERS` is gone.** The gateway now ignores `ASPNETCORE_FORWARDEDHEADERS_ENABLED`, which made it
+believe `X-Forwarded-For` from any caller and would have let a client claim an allowed address. The Compose files no longer
+pass `UME_FORWARDED_HEADERS`. If you set it, list your proxy under *Settings > Trusted proxies* instead; until then refused
+keys are recorded with the proxy's address.
+
+**Admin UI:** the Settings page no longer says theme options are in the top bar (they are in the sidebar).
+
 **Deploy: the Redis ACL follows upgrades.** `users.acl` is derived from the Redis password and `deploy/redis/users.acl.example`,
 so the Portainer stack's bootstrap and `init-deployment.sh` now rewrite it on every start/run instead of only creating it.
 An existing deployment gets new Redis permissions (such as `+decr +decrby` from 0.3.0) by redeploying the stack (or running

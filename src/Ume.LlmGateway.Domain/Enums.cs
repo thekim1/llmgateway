@@ -226,4 +226,7 @@ public enum AuthFailureReason
 
     /// <summary>The key is valid but its team or department is deactivated.</summary>
     OwnerInactive = 5,
+
+    /// <summary>The key is valid but restricted to other client addresses (<see cref="Entities.VirtualKey.AllowedIpRanges"/>).</summary>
+    AddressNotAllowed = 6,
 }
