@@ -50,7 +50,10 @@ public sealed class RetentionTests(AdminFixture fixture)
             saved["usageRetentionDays"]!.GetValue<int>().ShouldBe(400);
             saved["auditRetentionDays"].ShouldBeNull();
             saved["nextAuditCutoff"].ShouldBeNull();
-            saved["nextUsageCutoff"]!.GetValue<DateTimeOffset>().ShouldBe(RetentionPolicy.UsageCutoff(DateTimeOffset.UtcNow, 400), TimeSpan.FromDays(1));
+            // Rows already removed stay removed, so a retention run by another test (the database is shared) can push the cutoff later.
+            var cutoff = RetentionPolicy.UsageCutoff(DateTimeOffset.UtcNow, 400);
+            var retainedFrom = saved["usageRetainedFrom"]?.GetValue<DateTimeOffset>();
+            saved["nextUsageCutoff"]!.GetValue<DateTimeOffset>().ShouldBe(retainedFrom is { } kept && kept > cutoff ? kept : cutoff, TimeSpan.FromDays(1));
 
             using var read = await client.GetAsync("/api/settings/retention", Ct);
             (await AdminFixture.ReadAsync(read))["auditRetentionDays"].ShouldBeNull();
