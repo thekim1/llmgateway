@@ -1073,6 +1073,12 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AllowPrompts")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowResources")
+                        .HasColumnType("boolean");
+
                     b.PrimitiveCollection<List<string>>("AllowedTools")
                         .IsRequired()
                         .HasColumnType("text[]");

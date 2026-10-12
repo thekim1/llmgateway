@@ -22,8 +22,12 @@ namespace Ume.LlmGateway.Gateway.Tests;
 /// <item><c>flaky_read</c> (read-only) and <c>flaky_delete</c> (destructive): "ok", or HTTP 500 once after <see cref="FailOnce"/>;</item>
 /// <item><c>contact</c>: a phone number in text and structured content;</item>
 /// <item><c>fail_pii</c>: a JSON-RPC error whose long message contains an e-mail address;</item>
-/// <item><c>big</c>: about 100 KB of text.</item>
+/// <item><c>big</c>: about 100 KB of text;</item>
+/// <item><c>link</c>: a resource link to <c>file:///notes/a.txt</c> and an embedded <c>file:///notes/c.txt</c>;</item>
+/// <item><c>progress</c>: two progress notifications, then "done"; <c>slow</c>: 30 s unless cancelled (<see cref="SlowCancelled"/>).</item>
 /// </list>
+/// Resources <c>file:///notes/a.txt</c> (text with an e-mail address) and <c>b.bin</c> (a PNG blob) on the first list page,
+/// <c>c.txt</c> on the second, a template <c>file:///cases/{number}</c>, and the prompt <c>summarize.case</c>.
 /// </summary>
 public sealed class McpUpstreamServer : IAsyncDisposable
 {
@@ -54,7 +58,47 @@ public sealed class McpUpstreamServer : IAsyncDisposable
         builder.Services.AddMcpServer(o => o.ServerInfo = new Implementation { Name = "test-upstream", Version = "1.0.0" })
             .WithHttpTransport()
             .WithListToolsHandler((_, _) => ValueTask.FromResult(new ListToolsResult { Tools = [new Tool { Name = "lookup.case", InputSchema = JsonElement.Parse("""{"type":"object"}""") }] }))
-            .WithCallToolHandler((request, _) => ValueTask.FromResult(Call(request.Params!.Name, request.Params.Arguments)));
+            .WithCallToolHandler(CallAsync)
+            .WithListResourcesHandler((request, _) => ValueTask.FromResult(request.Params?.Cursor == "page2"
+                ? new ListResourcesResult { Resources = [new Resource { Uri = "file:///notes/c.txt", Name = "c" }] }
+                : new ListResourcesResult
+                {
+                    Resources = [new Resource { Uri = "file:///notes/a.txt", Name = "a" }, new Resource { Uri = "file:///notes/b.bin", Name = "b" }],
+                    NextCursor = "page2",
+                }))
+            .WithListResourceTemplatesHandler((_, _) => ValueTask.FromResult(new ListResourceTemplatesResult
+            {
+                ResourceTemplates = [new ResourceTemplate { UriTemplate = "file:///cases/{number}", Name = "case" }],
+            }))
+            .WithReadResourceHandler((request, _) => ValueTask.FromResult(request.Params!.Uri switch
+            {
+                "file:///notes/a.txt" => new ReadResourceResult
+                {
+                    Contents = [new TextResourceContents { Uri = "file:///notes/a.txt", MimeType = "text/plain", Text = "Kontakt: anna.svensson@example.se" }],
+                },
+                "file:///notes/b.bin" => new ReadResourceResult
+                {
+                    Contents = [BlobResourceContents.FromBytes(Convert.FromBase64String(PixelPng), "file:///notes/b.bin", "image/png")],
+                },
+                _ => throw new McpProtocolException("Resource not found", McpErrorCode.InvalidParams),
+            }))
+            .WithListPromptsHandler((_, _) => ValueTask.FromResult(new ListPromptsResult
+            {
+                Prompts = [new Prompt { Name = "summarize.case", Description = "Summarises a case.", Arguments = [new PromptArgument { Name = "number", Required = true }] }],
+            }))
+            .WithGetPromptHandler((request, _) => ValueTask.FromResult(request.Params!.Name == "summarize.case"
+                ? new GetPromptResult
+                {
+                    Messages =
+                    [
+                        new PromptMessage
+                        {
+                            Role = Role.User,
+                            Content = new TextContentBlock { Text = $"Sammanfatta ärende {request.Params.Arguments?["number"].GetString()}. Handläggare: bo@example.se" },
+                        },
+                    ],
+                }
+                : throw new McpProtocolException("Unknown prompt", McpErrorCode.InvalidParams)));
         _app = builder.Build();
         _app.Use(async (http, next) =>
         {
@@ -83,8 +127,48 @@ public sealed class McpUpstreamServer : IAsyncDisposable
         Url = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
     }
 
+    /// <summary>Set when a <c>slow</c> call was cancelled by the gateway.</summary>
+    public TaskCompletionSource SlowCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private async ValueTask<CallToolResult> CallAsync(ModelContextProtocol.Server.RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken)
+    {
+        var name = request.Params!.Name;
+        if (name == "progress" && request.Params.ProgressToken is { } token)
+        {
+            await request.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 1, Total = 2, Message = "Halvvägs" }, cancellationToken: cancellationToken);
+            await request.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 2, Total = 2 }, cancellationToken: cancellationToken);
+            // A long-running tool: the result comes a while after the last progress.
+            await Task.Delay(300, cancellationToken);
+        }
+
+        if (name == "slow")
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                SlowCancelled.TrySetResult();
+                throw;
+            }
+        }
+
+        return Call(name, request.Params.Arguments);
+    }
+
     private static CallToolResult Call(string name, IDictionary<string, JsonElement>? arguments) => name switch
     {
+        "progress" or "slow" => new CallToolResult { Content = [new TextContentBlock { Text = "done" }] },
+        "link" => new CallToolResult
+        {
+            Content =
+            [
+                new ResourceLinkBlock { Uri = "file:///notes/a.txt", Name = "a" },
+                new EmbeddedResourceBlock { Resource = new TextResourceContents { Uri = "file:///notes/c.txt", Text = "c" } },
+            ],
+            StructuredContent = JsonElement.Parse("""{"uri":"file:///notes/a.txt"}"""),
+        },
         "lookup.case" => new CallToolResult
         {
             Content =

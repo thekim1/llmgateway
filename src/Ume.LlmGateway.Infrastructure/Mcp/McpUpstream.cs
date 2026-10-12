@@ -19,13 +19,18 @@ namespace Ume.LlmGateway.Infrastructure.Mcp;
 /// <param name="Params">The request's params. Sent as given (the SDK adds its own protocol <c>_meta</c> to a copy).</param>
 /// <param name="ForwardedHeaders">Caller headers the server's allow-list names; only ever sent with this request.</param>
 /// <param name="MayRetry">Whether the request may be sent again after a failure that may have happened after it ran.</param>
+/// <param name="Progress">
+/// Receives the params of each <c>notifications/progress</c> the server sends for this request; the gateway's own
+/// progress token in them is the caller's business to replace. Null: no progress is asked for.
+/// </param>
 public sealed record McpUpstreamCall(
     McpServer Server,
     McpUpstreamAuth Auth,
     string Method,
     JsonObject Params,
     IReadOnlyList<KeyValuePair<string, string>> ForwardedHeaders,
-    bool MayRetry);
+    bool MayRetry,
+    Func<JsonObject, ValueTask>? Progress = null);
 
 public enum McpUpstreamFailure
 {
@@ -147,10 +152,22 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         }
 
         var context = new CallContext(call.Method, call.ForwardedHeaders, (long)call.Server.MaxResultBytes * 2 + EnvelopeBytes);
+        var parameters = (JsonObject)call.Params.DeepClone();
+        string? progressToken = null;
+        if (call.Progress is { } progress)
+        {
+            // A token of the gateway's own: callers on the shared client must not see, or collide with, each other's tokens.
+            progressToken = "ume-" + Guid.NewGuid().ToString("N");
+            var meta = parameters["_meta"] as JsonObject ?? [];
+            meta["progressToken"] = progressToken;
+            parameters["_meta"] = meta;
+            pooled.Progress[progressToken] = progress;
+        }
+
         Current.Value = context;
         try
         {
-            var response = await client.SendRequestAsync(new JsonRpcRequest { Method = call.Method, Params = call.Params.DeepClone() }, deadline.Token);
+            var response = await client.SendRequestAsync(new JsonRpcRequest { Method = call.Method, Params = parameters }, deadline.Token);
             var result = response.Result;
             if (context.TooLarge || (result is not null && JsonSerializer.SerializeToUtf8Bytes(result).Length > call.Server.MaxResultBytes))
             {
@@ -192,6 +209,10 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         finally
         {
             Current.Value = null;
+            if (progressToken is not null)
+            {
+                pooled.Progress.TryRemove(progressToken, out _);
+            }
         }
     }
 
@@ -256,7 +277,8 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
                 continue;
             }
 
-            var created = new PooledClient(url, call.Auth.Fingerprint, CreateClientAsync(server.Id, server.Slug, url, call.Auth, timeout));
+            var progress = new ConcurrentDictionary<string, Func<JsonObject, ValueTask>>(StringComparer.Ordinal);
+            var created = new PooledClient(url, call.Auth.Fingerprint, CreateClientAsync(server.Id, server.Slug, url, call.Auth, timeout, progress), progress);
             if (_clients.TryAdd(server.Id, created))
             {
                 return created;
@@ -270,7 +292,8 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
     /// Runs with no caller context, and the SDK's own requests (discover, initialize) carry only the server's credential.
     /// Not tied to one caller's cancellation: other callers may be waiting for the same client.
     /// </summary>
-    private async Task<McpClient> CreateClientAsync(Guid serverId, string name, Uri url, McpUpstreamAuth auth, TimeSpan timeout)
+    private async Task<McpClient> CreateClientAsync(Guid serverId, string name, Uri url, McpUpstreamAuth auth, TimeSpan timeout,
+        ConcurrentDictionary<string, Func<JsonObject, ValueTask>> progress)
     {
         await Task.Yield();
         Current.Value = null;
@@ -292,9 +315,23 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         using var deadline = new CancellationTokenSource(timeout);
         // The SDK's loggers can include message content, which must never be logged.
         return await McpClient.CreateAsync(transport,
-            new McpClientOptions { ClientInfo = new Implementation { Name = "ume-llm-gateway", Version = ProviderTransport.UserAgent.Product!.Version ?? "0" } },
+            new McpClientOptions
+            {
+                ClientInfo = new Implementation { Name = "ume-llm-gateway", Version = ProviderTransport.UserAgent.Product!.Version ?? "0" },
+                Handlers = new McpClientHandlers
+                {
+                    NotificationHandlers = [new(NotificationMethods.ProgressNotification, (notification, _) => RelayProgressAsync(notification, progress))],
+                },
+            },
             NullLoggerFactory.Instance, deadline.Token);
     }
+
+    /// <summary>Hands a progress notification to the call that asked for it; a token no call holds any more is dropped.</summary>
+    private static ValueTask RelayProgressAsync(JsonRpcNotification notification, ConcurrentDictionary<string, Func<JsonObject, ValueTask>> progress) =>
+        notification.Params is JsonObject parameters && parameters["progressToken"] is JsonValue token && token.TryGetValue<string>(out var value)
+            && progress.TryGetValue(value, out var relay)
+            ? relay((JsonObject)parameters.DeepClone())
+            : ValueTask.CompletedTask;
 
     private void Evict(Guid serverId, PooledClient pooled)
     {
@@ -314,11 +351,15 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         _clients.Clear();
     }
 
-    private sealed class PooledClient(Uri url, string fingerprint, Task<McpClient> client) : IAsyncDisposable
+    private sealed class PooledClient(Uri url, string fingerprint, Task<McpClient> client, ConcurrentDictionary<string, Func<JsonObject, ValueTask>> progress)
+        : IAsyncDisposable
     {
         public Uri Url { get; } = url;
         public string Fingerprint { get; } = fingerprint;
         public Task<McpClient> Client { get; } = client;
+
+        /// <summary>Progress relays of the calls in flight, by the gateway's progress token.</summary>
+        public ConcurrentDictionary<string, Func<JsonObject, ValueTask>> Progress { get; } = progress;
 
         public async ValueTask DisposeAsync()
         {

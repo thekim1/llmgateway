@@ -444,6 +444,12 @@ public sealed class VirtualKeyMcpGrant
     /// <summary>Used when the gateway runs the server's tools inside an LLM request.</summary>
     public McpApprovalPolicy ApprovalPolicy { get; set; }
 
+    /// <summary>The key may list and read the server's resources (documents). Off by default: a tool grant exposes no documents.</summary>
+    public bool AllowResources { get; set; }
+
+    /// <summary>The key may list and get the server's prompts.</summary>
+    public bool AllowPrompts { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public const string AllTools = "*";

@@ -82,6 +82,17 @@ public interface IRealtimeSessionRegistry
     Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken);
 }
 
+/// <summary>Open MCP <c>subscriptions/listen</c> streams per virtual key, shared by all gateway instances, like <see cref="IRealtimeSessionRegistry"/>.</summary>
+public interface IMcpListenRegistry
+{
+    /// <summary>Takes a slot unless the key already has <paramref name="maxStreams"/> open (0 = no limit).</summary>
+    Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken);
+}
+
 public enum InvalidationKind
 {
     Keys = 0,
@@ -280,6 +291,19 @@ public sealed class InMemoryRealtimeSessionRegistry(TimeProvider time) : IRealti
 
         return Task.CompletedTask;
     }
+}
+
+public sealed class InMemoryMcpListenRegistry(TimeProvider time) : IMcpListenRegistry
+{
+    private readonly InMemoryRealtimeSessionRegistry _slots = new(time);
+
+    public Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.TryOpenAsync(keyId, streamId, maxStreams, timeToLive, cancellationToken);
+
+    public Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.RenewAsync(keyId, streamId, timeToLive, cancellationToken);
+
+    public Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, streamId, cancellationToken);
 }
 
 public sealed class InMemorySpendLedger : ISpendLedger

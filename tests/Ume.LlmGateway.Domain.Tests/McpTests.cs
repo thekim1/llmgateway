@@ -253,3 +253,92 @@ public class McpPiiTests
         result["_meta"]!["m"]!.GetValue<string>().ShouldBe("d@example.se");
     }
 }
+
+public class McpResourceUriTests
+{
+    [Theory]
+    [InlineData("demo", "file:///notes/a.txt")]
+    [InlineData("diarium_v2", "https://x.example/doc?id=1")]
+    [InlineData("demo", "mcp+ume://other/file:///x")]
+    public void Namespaced_uris_round_trip(string slug, string uri)
+    {
+        var namespaced = McpResourceUris.Namespace(slug, uri);
+        namespaced.ShouldBe($"mcp+ume://{slug}/{uri}");
+        McpResourceUris.TryParse(namespaced, out var parsedSlug, out var parsedUri).ShouldBeTrue();
+        parsedSlug.ShouldBe(slug);
+        parsedUri.ShouldBe(uri);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("file:///notes/a.txt")]
+    [InlineData("mcp+ume://")]
+    [InlineData("mcp+ume://demo")]
+    [InlineData("mcp+ume://demo/")]
+    [InlineData("mcp+ume://Demo/file:///a")]
+    [InlineData("mcp+ume:///file:///a")]
+    public void Other_uris_are_not_namespaced(string? uri) => McpResourceUris.TryParse(uri, out _, out _).ShouldBeFalse();
+
+    [Theory]
+    [InlineData("demo__summarize_case", "demo")]
+    [InlineData("a_b__x__y", "a_b")]
+    [InlineData("nounderscore", null)]
+    [InlineData("__x", null)]
+    [InlineData("Demo__x", null)]
+    public void The_slug_of_an_exposed_name_ends_at_the_first_double_underscore(string exposed, string? slug) =>
+        McpResourceUris.SlugOfExposedName(exposed).ShouldBe(slug);
+}
+
+public class McpDocumentAccessTests
+{
+    [Fact]
+    public void Resources_and_prompts_need_their_grant_flag_and_the_servers_capability()
+    {
+        var key = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h" };
+        var server = new McpServer { Slug = "s", DisplayName = "s", Url = "https://s", Capabilities = McpServerCapabilities.Tools | McpServerCapabilities.Resources };
+        var grant = new VirtualKeyMcpGrant { VirtualKeyId = key.Id, McpServerId = server.Id, AllowedTools = ["*"] };
+
+        McpAccess.CheckResources(key, server, grant, false).ShouldBe(McpDenial.ResourcesNotGranted);
+        grant.AllowResources = true;
+        McpAccess.CheckResources(key, server, grant, false).ShouldBe(McpDenial.None);
+        McpAccess.CheckResources(key, server, grant, circuitOpen: true).ShouldBe(McpDenial.CircuitOpen);
+
+        grant.AllowPrompts = true;
+        McpAccess.CheckPrompts(key, server, grant, false).ShouldBe(McpDenial.PromptsNotGranted); // the server offers no prompts
+        server.Capabilities |= McpServerCapabilities.Prompts;
+        McpAccess.CheckPrompts(key, server, grant, false).ShouldBe(McpDenial.None);
+        McpAccess.CheckPrompts(key, server, null, false).ShouldBe(McpDenial.NotGranted);
+    }
+}
+
+public class McpDocumentPiiTests
+{
+    [Fact]
+    public void Resource_text_is_scanned_but_blobs_and_uris_are_not()
+    {
+        var result = JsonNode.Parse("""
+            {"contents":[{"uri":"mailto:a@example.se","mimeType":"text/plain","text":"Mejla b@example.se"},
+                         {"uri":"file:///x","mimeType":"image/png","blob":"c@example.se"}]}
+            """);
+        var scan = McpPii.ScanResourceContents(result, redact: true);
+
+        scan.Summary.ShouldBe("Email:1");
+        result!["contents"]![0]!["text"]!.GetValue<string>().ShouldBe("Mejla [E-POST]");
+        result["contents"]![0]!["uri"]!.GetValue<string>().ShouldBe("mailto:a@example.se");
+        result["contents"]![1]!["blob"]!.GetValue<string>().ShouldBe("c@example.se");
+    }
+
+    [Fact]
+    public void Prompt_messages_and_description_are_scanned()
+    {
+        var result = JsonNode.Parse("""
+            {"description":"För a@example.se","messages":[{"role":"user","content":{"type":"text","text":"Ring 070-123 45 67"}},
+                {"role":"user","content":{"type":"image","data":"b@example.se","mimeType":"image/png"}}]}
+            """);
+        var scan = McpPii.ScanPrompt(result, redact: true);
+
+        scan.Summary.ShouldBe("Email:1,Phone:1");
+        result!["messages"]![0]!["content"]!["text"]!.GetValue<string>().ShouldBe("Ring [TELEFON]");
+        result["messages"]![1]!["content"]!["data"]!.GetValue<string>().ShouldBe("b@example.se");
+    }
+}

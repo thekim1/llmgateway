@@ -327,12 +327,12 @@ public sealed partial class DevSeeder(
             {
                 Slug = DemoMcpSlug,
                 DisplayName = "Testserver (MCP)",
-                Description = "Demoverktyg från FakeLlm: eko, aktuell tid och en testbild.",
+                Description = "Demoverktyg från FakeLlm: eko, aktuell tid och en testbild, en välkomsttext och en sammanfattningsprompt.",
                 Url = o.FakeMcpUrl ?? "http://localhost:5090/mcp",
                 Residency = DataResidency.OnPrem,
                 IsEnabled = !string.IsNullOrWhiteSpace(o.FakeMcpUrl),
                 Status = McpServerStatus.Healthy,
-                Capabilities = McpServerCapabilities.Tools,
+                Capabilities = McpServerCapabilities.Tools | McpServerCapabilities.Resources | McpServerCapabilities.Prompts,
                 CreatedAt = now,
                 Tools = [.. DemoMcpTools.Select(t => new McpTool
                 {
@@ -362,6 +362,8 @@ public sealed partial class DevSeeder(
                 VirtualKeyId = grantTo.Id,
                 McpServerId = server.Id,
                 AllowedTools = [VirtualKeyMcpGrant.AllTools],
+                AllowResources = true,
+                AllowPrompts = true,
                 ApprovalPolicy = McpApprovalPolicy.NeverForReadOnly,
                 CreatedAt = now,
             });

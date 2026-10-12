@@ -233,9 +233,9 @@ Supported MCP methods on `/mcp`:
 - `tools/list`, `tools/call`;
 - `resources/list`, `resources/templates/list`, `resources/read`;
 - `prompts/list`, `prompts/get`;
-- `notifications/cancelled` (forwarded upstream);
+- `notifications/cancelled` (accepted; on HTTP the closed request stream cancels the upstream request);
 - `notifications/progress` (relayed);
-- `completion/complete` (forwarded).
+- `completion/complete` (deferred).
 
 URIs from resources in the aggregated view are namespaced as `mcp+ume://{slug}/{original-uri}`. Sampling, elicitation and roots requests sent *from* upstream servers are refused with a JSON-RPC error at first (open point 4).
 
@@ -343,9 +343,19 @@ MCP tool definitions stay invisible to routing conditions, as `tools` already ar
 - [x] The authorisation stage (grant, residency, approval state). Unknown and forbidden tools give the same error.
 - [x] Upstream session pool with re-initialize, timeout, retry rules and circuit breaker.
 - [x] PII on arguments and results, `McpCallsPerMinute`, budget reservation for priced tools, `UsageRecord` accounting.
-- [ ] Resources, prompts, progress, cancellation, and change notifications with `list_changed` on `subscriptions/listen` (per-key stream cap).
+- [x] Resources, prompts, progress, cancellation, and change notifications with `list_changed` on `subscriptions/listen` (per-key stream cap).
 - [x] Spans, metrics and security events (`gateway.mcp.tool_denied`; `McpToolQuarantined` belongs to the sync in step 3, `McpServerAuthFailed` is deferred, see below).
 - [x] Tests: integration with Testcontainers and a fake MCP server, covering grants, denial, PII redaction in results, image content passed through, any instance serves any request (two gateway instances), and destructive tools not retried. Benchmark that `/v1/chat/completions` latency is unchanged.
+
+Step 2b (resources, prompts, progress, listen) notes and deferrals:
+- Resources and prompts need their own grant flags (`AllowResources`, `AllowPrompts`, default off) and the server's capability flag; a tool grant exposes no documents.
+- Lists are forwarded one server page per request (no catalogue, no caching); the aggregated cursor encodes the server slug and its cursor. A failing server is left out of aggregated lists, with a warning and the failure counted in `ume.gateway.mcp.calls`.
+- In the aggregated view the `uri` of `resource_link` and embedded `resource` blocks in tool results and prompt messages is namespaced too, so returned links can be read through `/mcp`; `structuredContent` is left unchanged.
+- `resources/read` and `prompts/get` are accounted like tool calls (no price). The read URI is not PII-scanned (redacting it would break the read) and not stored.
+- Progress is relayed on an SSE answer with the caller's token; the SDK client delivers upstream notifications concurrently, so late or out-of-order progress is dropped rather than reordered.
+- Cancellation: the request-aborted token cancels the upstream request through the SDK client (tested: the upstream handler is cancelled). Client `notifications/cancelled` is accepted and ignored, since on HTTP closing the stream is the signal.
+- `subscriptions/listen` compares fingerprints of what the key may see after each invalidation and every `ListenCheckSeconds`; it ends on key revocation or shutdown. The admin API does not publish `ume:mcp:events` yet (step 3), so config invalidation is the trigger.
+- Deferred: `completion/complete` (little value through a gateway so far), resource subscriptions (`resources/updated`), noticing upstream changes to prompt and resource lists, and announcing circuit changes.
 
 Step 2a (tools) notes and deferrals:
 - The gateway implements the Streamable HTTP POST handling itself instead of the SDK's `MapMcp`, so authentication, error format, middleware and accounting stay in the gateway pipeline; the SDK is used for the upstream client and its protocol constants. Answers are `application/json`; `GET`/`DELETE` answer 405.

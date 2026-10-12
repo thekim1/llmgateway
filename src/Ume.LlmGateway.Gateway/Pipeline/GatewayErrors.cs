@@ -35,6 +35,10 @@ public static class GatewayErrorCodes
     /// <summary>Recorded for a <c>tools/call</c> of an unknown tool or one the key may not use (the client sees "Unknown tool").</summary>
     public const string McpToolNotFound = "mcp_tool_not_found";
     public const string McpInvalidArguments = "mcp_invalid_arguments";
+
+    /// <summary>Recorded for a <c>resources/read</c> or <c>prompts/get</c> of something unknown or not allowed (the client sees "not found").</summary>
+    public const string McpResourceNotFound = "mcp_resource_not_found";
+    public const string McpPromptNotFound = "mcp_prompt_not_found";
     public const string McpUpstreamFailed = "mcp_upstream_failed";
     public const string McpResultTooLarge = "mcp_result_too_large";
 }

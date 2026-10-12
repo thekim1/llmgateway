@@ -65,7 +65,7 @@ public sealed class McpIntegrationTests(IntegrationFixture fixture)
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
             var demo = await db.McpServers.SingleAsync(s => s.Slug == "demo", Cancellation);
-            db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant { VirtualKeyId = key.Id, McpServerId = demo.Id, AllowedTools = ["get_image", "echo"], CreatedAt = DateTimeOffset.UtcNow });
+            db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant { VirtualKeyId = key.Id, McpServerId = demo.Id, AllowedTools = ["get_image", "echo"], AllowResources = true, AllowPrompts = true, CreatedAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync(Cancellation);
         }
 
@@ -91,6 +91,20 @@ public sealed class McpIntegrationTests(IntegrationFixture fixture)
             usage.McpMethod.ShouldBe("tools/call");
             usage.Endpoint.ShouldBe(Domain.GatewayEndpoint.Mcp);
         }
+
+        async Task<JsonNode> RpcAsync(string method, JsonObject parameters)
+        {
+            var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = method, ["params"] = parameters };
+            using var answer = await gateway.PostAsync("/mcp", new StringContent(request.ToJsonString(), Encoding.UTF8, "application/json"), Cancellation);
+            return (await IntegrationFixture.ReadAsync(answer))["result"]!;
+        }
+
+        var resources = (await RpcAsync("resources/list", []))["resources"]!.AsArray();
+        resources.Select(r => r!["uri"]!.GetValue<string>()).ShouldBe(["mcp+ume://demo/ume://demo/welcome"]);
+        (await RpcAsync("resources/read", new JsonObject { ["uri"] = "mcp+ume://demo/ume://demo/welcome" }))["contents"]![0]!["text"]!
+            .GetValue<string>().ShouldStartWith("Välkommen");
+        (await RpcAsync("prompts/get", new JsonObject { ["name"] = "demo__summarize", ["arguments"] = new JsonObject { ["text"] = "hej" } }))["messages"]![0]!
+            ["content"]!["text"]!.GetValue<string>().ShouldBe("Sammanfatta kort: hej");
     }
 
     [Fact]
@@ -106,5 +120,18 @@ public sealed class McpIntegrationTests(IntegrationFixture fixture)
         refused.Allowed.ShouldBeFalse();
         refused.RetryAfter.ShouldBeGreaterThan(TimeSpan.Zero);
         (await limiter.AcquireMcpCallAsync(keyId, null, Cancellation)).Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Redis_caps_listen_streams_per_key_across_instances()
+    {
+        var registry = fixture.GatewayServices.GetRequiredService<IMcpListenRegistry>();
+        registry.ShouldBeOfType<RedisMcpListenRegistry>();
+        var keyId = Guid.NewGuid();
+
+        (await registry.TryOpenAsync(keyId, "a", 1, TimeSpan.FromMinutes(1), Cancellation)).ShouldBeTrue();
+        (await registry.TryOpenAsync(keyId, "b", 1, TimeSpan.FromMinutes(1), Cancellation)).ShouldBeFalse();
+        await registry.CloseAsync(keyId, "a", Cancellation);
+        (await registry.TryOpenAsync(keyId, "b", 1, TimeSpan.FromMinutes(1), Cancellation)).ShouldBeTrue();
     }
 }

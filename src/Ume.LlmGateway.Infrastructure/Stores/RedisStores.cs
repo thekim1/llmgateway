@@ -95,6 +95,34 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
 /// <summary>Open sessions per key as a sorted set of session id → expiry (ms). Expired members are dropped on open.</summary>
 public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, TimeProvider time) : IRealtimeSessionRegistry
 {
+    private readonly RedisSlots _slots = new(redis, time, RedisKeys.RealtimeSessions);
+
+    public Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.TryOpenAsync(keyId, sessionId, maxSessions, timeToLive);
+
+    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.RenewAsync(keyId, sessionId, timeToLive);
+
+    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, sessionId);
+}
+
+/// <summary>Open MCP <c>subscriptions/listen</c> streams per key, like <see cref="RedisRealtimeSessionRegistry"/>.</summary>
+public sealed class RedisMcpListenRegistry(IConnectionMultiplexer redis, TimeProvider time) : IMcpListenRegistry
+{
+    private readonly RedisSlots _slots = new(redis, time, RedisKeys.McpListenStreams);
+
+    public Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.TryOpenAsync(keyId, streamId, maxStreams, timeToLive);
+
+    public Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.RenewAsync(keyId, streamId, timeToLive);
+
+    public Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, streamId);
+}
+
+/// <summary>Slots per key in a sorted set of slot id → expiry (ms); a slot that is not renewed frees itself.</summary>
+internal sealed class RedisSlots(IConnectionMultiplexer redis, TimeProvider time, Func<Guid, string> key)
+{
     private const string OpenScript = """
         redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
         local max = tonumber(ARGV[3])
@@ -110,24 +138,23 @@ public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, T
         return 1
         """;
 
-    public async Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken)
+    public async Task<bool> TryOpenAsync(Guid keyId, string slotId, int maxSlots, TimeSpan timeToLive)
     {
         var now = time.GetUtcNow().ToUnixTimeMilliseconds();
         var ttl = (long)timeToLive.TotalMilliseconds;
-        var result = await redis.GetDatabase().ScriptEvaluateAsync(OpenScript, [Key(keyId)], [now, now + ttl, maxSessions, sessionId, ttl]);
+        var result = await redis.GetDatabase().ScriptEvaluateAsync(OpenScript, [Key(keyId)], [now, now + ttl, maxSlots, slotId, ttl]);
         return (long)result == 1;
     }
 
-    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken)
+    public Task RenewAsync(Guid keyId, string slotId, TimeSpan timeToLive)
     {
         var ttl = (long)timeToLive.TotalMilliseconds;
-        return redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [Key(keyId)], [time.GetUtcNow().ToUnixTimeMilliseconds() + ttl, sessionId, ttl]);
+        return redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [Key(keyId)], [time.GetUtcNow().ToUnixTimeMilliseconds() + ttl, slotId, ttl]);
     }
 
-    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) =>
-        redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), sessionId);
+    public Task CloseAsync(Guid keyId, string slotId) => redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), slotId);
 
-    private static RedisKey Key(Guid keyId) => RedisKeys.RealtimeSessions(keyId);
+    private RedisKey Key(Guid keyId) => key(keyId);
 }
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger

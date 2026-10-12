@@ -13,13 +13,16 @@ using ModelContextProtocol.Server;
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
 // response.create in text, and translation sessions (fake-interpret) send transcript deltas per second of audio.
-// A demo MCP server (Streamable HTTP) on /mcp offers echo (text), get_time (structured content) and get_image (an image).
+// A demo MCP server (Streamable HTTP) on /mcp offers echo (text), get_time (structured content) and get_image (an image),
+// the resource ume://demo/welcome and the prompt summarize.
 // NOT for production. It echoes the last user message so demos can show PII redaction.
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddMcpServer(o => o.ServerInfo = new Implementation { Name = "ume-fake-mcp", Version = "1.0.0" })
     .WithHttpTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly()
+    .WithResourcesFromAssembly()
+    .WithPromptsFromAssembly();
 var app = builder.Build();
 app.MapDefaultEndpoints();
 app.MapMcp("/mcp");
@@ -471,3 +474,17 @@ internal static class FakeMcpTools
 }
 
 internal sealed record FakeTime(string Utc, string Stockholm, long UnixSeconds);
+
+[McpServerResourceType]
+internal static class FakeMcpResources
+{
+    [McpServerResource(UriTemplate = "ume://demo/welcome", Name = "welcome", MimeType = "text/plain"), Description("A short welcome text.")]
+    public static string Welcome() => "Välkommen till testservern för MCP. Allt här är påhittat.";
+}
+
+[McpServerPromptType]
+internal static class FakeMcpPrompts
+{
+    [McpServerPrompt(Name = "summarize"), Description("Asks for a short summary of a text.")]
+    public static string Summarize([Description("The text to summarise.")] string text) => $"Sammanfatta kort: {text}";
+}

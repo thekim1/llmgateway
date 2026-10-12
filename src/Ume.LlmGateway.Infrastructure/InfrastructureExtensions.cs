@@ -108,6 +108,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<IInvalidationBus, RedisInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, RedisCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
+            builder.Services.TryAddSingleton<IMcpListenRegistry, RedisMcpListenRegistry>();
         }
         else
         {
@@ -116,6 +117,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<IInvalidationBus, InMemoryInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, InMemoryCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();
+            builder.Services.TryAddSingleton<IMcpListenRegistry, InMemoryMcpListenRegistry>();
         }
 
         return builder;

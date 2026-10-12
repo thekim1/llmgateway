@@ -49,6 +49,24 @@ public sealed class GatewayOptions
     /// <summary>Live audio sessions on <c>/v1/realtime</c> and <c>/v1/realtime/translations</c>.</summary>
     [ValidateObjectMembers]
     public RealtimeOptions Realtime { get; set; } = new();
+
+    /// <summary>The MCP gateway on <c>/mcp</c>.</summary>
+    [ValidateObjectMembers]
+    public McpOptions Mcp { get; set; } = new();
+}
+
+public sealed class McpOptions
+{
+    /// <summary>Open <c>subscriptions/listen</c> streams per key across all instances; 0 means no limit.</summary>
+    [Range(0, 1000)]
+    public int MaxListenStreamsPerKey { get; set; } = 10;
+
+    /// <summary>How often an open stream checks the key and what it may see (also after every configuration change), and sends a keep-alive.</summary>
+    [Range(1, 600)]
+    public int ListenCheckSeconds { get; set; } = 25;
+
+    /// <summary>How long a stream's slot is held without renewal, so slots of a crashed instance free themselves.</summary>
+    public TimeSpan ListenSlotLifetime => TimeSpan.FromSeconds(ListenCheckSeconds * 3 + 30);
 }
 
 public sealed class RealtimeOptions

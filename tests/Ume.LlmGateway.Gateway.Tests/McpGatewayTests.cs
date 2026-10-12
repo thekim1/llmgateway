@@ -13,6 +13,7 @@ using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
+using Ume.LlmGateway.Infrastructure.Stores;
 using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
@@ -54,6 +55,7 @@ public sealed class McpGatewayTests(GatewayFixture fixture) : IAsyncLifetime
         {
             Slug = slug, DisplayName = "Test " + slug, Url = _upstream.Endpoint(slug), Residency = DataResidency.OnPrem,
             Status = McpServerStatus.Healthy, CreatedAt = DateTimeOffset.UtcNow,
+            Capabilities = McpServerCapabilities.Tools | McpServerCapabilities.Resources | McpServerCapabilities.Prompts,
             Tools = [.. tools.Select(t => new McpTool
             {
                 Name = t.Name, Definition = t.Definition, DefinitionHash = new string('0', 64), ApprovalState = t.State,
@@ -70,11 +72,16 @@ public sealed class McpGatewayTests(GatewayFixture fixture) : IAsyncLifetime
         return server;
     }
 
-    private async Task GrantAsync(TestKey key, McpServer server, params string[] tools)
+    private Task GrantAsync(TestKey key, McpServer server, params string[] tools) => GrantAsync(key, server, tools, resources: false, prompts: false);
+
+    private async Task GrantAsync(TestKey key, McpServer server, string[] tools, bool resources, bool prompts)
     {
         await using var scope = fixture.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant { VirtualKeyId = key.Id, McpServerId = server.Id, AllowedTools = [.. tools], CreatedAt = DateTimeOffset.UtcNow });
+        db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant
+        {
+            VirtualKeyId = key.Id, McpServerId = server.Id, AllowedTools = [.. tools], AllowResources = resources, AllowPrompts = prompts, CreatedAt = DateTimeOffset.UtcNow,
+        });
         await db.SaveChangesAsync(Ct);
     }
 
@@ -572,9 +579,334 @@ public sealed class McpGatewayTests(GatewayFixture fixture) : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         body!["error"]!["code"]!.GetValue<int>().ShouldBe(-32022);
 
-        (await RpcAsync(key, "resources/list")).Body!["error"]!["code"]!.GetValue<int>().ShouldBe(-32601);
+        (await RpcAsync(key, "completion/complete")).Body!["error"]!["code"]!.GetValue<int>().ShouldBe(-32601);
+        (await RpcAsync(key, "subscriptions/listen", stateless: false, headers: new Dictionary<string, string> { ["MCP-Protocol-Version"] = "2025-11-25" }))
+            .Body!["error"]!["code"]!.GetValue<int>().ShouldBe(-32601);
         (await RpcAsync(key, "notifications/initialized", notification: true)).Response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         using var get = await fixture.Client.GetAsync("/mcp", Ct);
         get.StatusCode.ShouldBe(HttpStatusCode.MethodNotAllowed);
+    }
+
+    private async Task<(TestKey Key, McpServer Server)> DocumentServerAsync(Action<VirtualKey>? key = null, bool resources = true, bool prompts = true)
+    {
+        var testKey = await fixture.CreateKeyAsync(key);
+        var server = await AddServerAsync(null, ("lookup.case", McpToolApprovalState.Approved, LookupDefinition),
+            ("progress", McpToolApprovalState.Approved, ReadDefinition), ("slow", McpToolApprovalState.Approved, ReadDefinition),
+            ("link", McpToolApprovalState.Approved, ReadDefinition));
+        await GrantAsync(testKey, server, ["*"], resources, prompts);
+        return (testKey, server);
+    }
+
+    private static string[] Names(JsonObject body, string field, string name) =>
+        [.. body["result"]![field]!.AsArray().Select(r => r![name]!.GetValue<string>())];
+
+    [Fact]
+    public async Task Resources_are_listed_page_by_page_with_namespaced_uris_and_read_through_the_gateway()
+    {
+        var (key, server) = await DocumentServerAsync(k => k.PiiPolicy = PiiPolicy.Redact);
+        var toolsOnly = await AddServerAsync(null, ("lookup.case", McpToolApprovalState.Approved, LookupDefinition));
+        await GrantAsync(key, toolsOnly, "*");
+        var prefix = $"mcp+ume://{server.Slug}/";
+
+        var (_, first) = await RpcAsync(key, "resources/list");
+        Names(first!, "resources", "uri").ShouldBe([prefix + "file:///notes/a.txt", prefix + "file:///notes/b.bin"]);
+        var cursor = first!["result"]!["nextCursor"]!.GetValue<string>();
+        var (_, second) = await RpcAsync(key, "resources/list", new JsonObject { ["cursor"] = cursor });
+        Names(second!, "resources", "uri").ShouldBe([prefix + "file:///notes/c.txt"]);
+        second!["result"]!.AsObject().ContainsKey("nextCursor").ShouldBeFalse();
+        _upstream.For(toolsOnly.Slug).ShouldBeEmpty(); // no resource grant, so not even asked
+
+        var (_, templates) = await RpcAsync(key, "resources/templates/list");
+        Names(templates!, "resourceTemplates", "uriTemplate").ShouldBe([prefix + "file:///cases/{number}"]);
+
+        var (response, read) = await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = prefix + "file:///notes/a.txt" });
+        var contents = read!["result"]!["contents"]![0]!;
+        contents["uri"]!.GetValue<string>().ShouldBe(prefix + "file:///notes/a.txt");
+        contents["text"]!.GetValue<string>().ShouldBe("Kontakt: [E-POST]");
+        var usage = await fixture.UsageAsync(response);
+        usage.McpMethod.ShouldBe("resources/read");
+        usage.McpServerId.ShouldBe(server.Id);
+        usage.McpTool.ShouldBeNull();
+        usage.RequestedModel.ShouldBe($"mcp:{server.Slug}");
+        usage.PiiCategories.ShouldBe("Email:1");
+        _upstream.For(server.Slug).Single(r => r.Method == "resources/read").Body.ShouldContain("\"uri\":\"file:///notes/a.txt\"");
+
+        var (_, blob) = await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = prefix + "file:///notes/b.bin" });
+        blob!["result"]!["contents"]![0]!["blob"]!.GetValue<string>().ShouldBe(McpUpstreamServer.PixelPng);
+    }
+
+    [Fact]
+    public async Task Resource_links_in_aggregated_tool_results_can_be_read_through_the_gateway()
+    {
+        var (key, server) = await DocumentServerAsync();
+        var prefix = $"mcp+ume://{server.Slug}/";
+
+        var (_, called) = await CallAsync(key, $"{server.Slug}__link");
+        var content = called!["result"]!["content"]!.AsArray();
+        content[0]!["uri"]!.GetValue<string>().ShouldBe(prefix + "file:///notes/a.txt");
+        content[0]!["name"]!.GetValue<string>().ShouldBe("a");
+        content[1]!["resource"]!["uri"]!.GetValue<string>().ShouldBe(prefix + "file:///notes/c.txt");
+        called["result"]!["structuredContent"]!["uri"]!.GetValue<string>().ShouldBe("file:///notes/a.txt"); // the tool's own data
+
+        var (_, read) = await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = content[0]!["uri"]!.GetValue<string>() });
+        read!["result"]!["contents"]![0]!["text"]!.GetValue<string>().ShouldStartWith("Kontakt:");
+
+        var (_, direct) = await CallAsync(key, "link", path: "/mcp/" + server.Slug);
+        direct!["result"]!["content"]![0]!["uri"]!.GetValue<string>().ShouldBe("file:///notes/a.txt");
+    }
+
+    [Fact]
+    public async Task A_failing_server_is_left_out_of_aggregated_lists_and_logged()
+    {
+        var (key, server) = await DocumentServerAsync();
+        var broken = await AddServerAsync(s => s.Url = "http://127.0.0.1:1/mcp", ("x", McpToolApprovalState.Approved, EchoDefinition));
+        await GrantAsync(key, broken, ["*"], resources: true, prompts: false);
+
+        var (_, first) = await RpcAsync(key, "resources/list");
+        var uris = Names(first!, "resources", "uri").ToList();
+        while (first!["result"]!["nextCursor"] is { } cursor)
+        {
+            (_, first) = await RpcAsync(key, "resources/list", new JsonObject { ["cursor"] = cursor.GetValue<string>() });
+            uris.AddRange(Names(first!, "resources", "uri"));
+        }
+
+        uris.ShouldBe([.. new[] { "a.txt", "b.bin", "c.txt" }.Select(f => $"mcp+ume://{server.Slug}/file:///notes/{f}")]);
+        fixture.Logs.Text.ShouldContain($"MCP server {broken.Slug} left out of resources/list (Transport");
+    }
+
+    [Fact]
+    public async Task A_tool_grant_exposes_no_resources_or_prompts_and_reading_them_looks_unknown()
+    {
+        var (key, server) = await DocumentServerAsync(resources: false, prompts: false);
+
+        Names((await RpcAsync(key, "resources/list")).Body!, "resources", "uri").ShouldBeEmpty();
+        Names((await RpcAsync(key, "prompts/list")).Body!, "prompts", "name").ShouldBeEmpty();
+        var (_, denied) = await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = $"mcp+ume://{server.Slug}/file:///notes/a.txt" });
+        var (_, unknown) = await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = "mcp+ume://nosuch/file:///notes/a.txt" });
+        denied!["error"]!.ToJsonString().ShouldBe(unknown!["error"]!.ToJsonString());
+        var (_, prompt) = await RpcAsync(key, "prompts/get", new JsonObject { ["name"] = $"{server.Slug}__summarize_case" });
+        prompt!["error"]!["code"]!.GetValue<int>().ShouldBe(-32602);
+        _upstream.For(server.Slug).ShouldBeEmpty();
+
+        var (_, init) = await RpcAsync(key, "initialize", new JsonObject { ["protocolVersion"] = "2025-11-25" }, stateless: false);
+        var capabilities = init!["result"]!["capabilities"]!.AsObject();
+        capabilities.ContainsKey("tools").ShouldBeTrue();
+        capabilities.ContainsKey("resources").ShouldBeFalse();
+        capabilities.ContainsKey("prompts").ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_slug_endpoint_keeps_original_resource_uris_cursors_and_prompt_names()
+    {
+        var (key, server) = await DocumentServerAsync();
+        var path = "/mcp/" + server.Slug;
+
+        var (_, first) = await RpcAsync(key, "resources/list", path: path);
+        Names(first!, "resources", "uri").ShouldBe(["file:///notes/a.txt", "file:///notes/b.bin"]);
+        first!["result"]!["nextCursor"]!.GetValue<string>().ShouldBe("page2");
+        Names((await RpcAsync(key, "resources/list", new JsonObject { ["cursor"] = "page2" }, path)).Body!, "resources", "uri").ShouldBe(["file:///notes/c.txt"]);
+        (await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = "file:///notes/a.txt" }, path)).Body!["result"]!["contents"]![0]!["uri"]!
+            .GetValue<string>().ShouldBe("file:///notes/a.txt");
+        Names((await RpcAsync(key, "prompts/list", path: path)).Body!, "prompts", "name").ShouldBe(["summarize.case"]);
+
+        var (_, init) = await RpcAsync(key, "initialize", new JsonObject { ["protocolVersion"] = "2025-11-25" }, path, stateless: false);
+        init!["result"]!["capabilities"]!.AsObject().ContainsKey("resources").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Prompts_are_named_like_tools_and_got_through_the_gateway_with_the_pii_policy()
+    {
+        var (key, server) = await DocumentServerAsync(k => k.PiiPolicy = PiiPolicy.Redact);
+        var exposed = $"{server.Slug}__summarize_case";
+
+        // Not listed first: the gateway finds the server's name for it by itself.
+        var (response, got) = await RpcAsync(key, "prompts/get", new JsonObject { ["name"] = exposed, ["arguments"] = new JsonObject { ["number"] = "KS-1" } });
+        got!["result"]!["messages"]![0]!["content"]!["text"]!.GetValue<string>().ShouldBe("Sammanfatta ärende KS-1. Handläggare: [E-POST]");
+        var usage = await fixture.UsageAsync(response);
+        usage.McpMethod.ShouldBe("prompts/get");
+        usage.McpTool.ShouldBe("summarize.case");
+        usage.RequestedModel.ShouldBe($"mcp:{server.Slug}/summarize.case");
+
+        Names((await RpcAsync(key, "prompts/list")).Body!, "prompts", "name").ShouldBe([exposed]);
+
+        var blockKey = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.Block);
+        await GrantAsync(blockKey, server, ["*"], resources: false, prompts: true);
+        var (_, blocked) = await RpcAsync(blockKey, "prompts/get", new JsonObject { ["name"] = exposed, ["arguments"] = new JsonObject { ["number"] = "anna@example.se" } });
+        blocked!["error"]!["code"]!.GetValue<int>().ShouldBe(-32002);
+        _upstream.For(server.Slug).Count(r => r.Method == "prompts/get").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Progress_is_relayed_on_an_event_stream_with_the_callers_token()
+    {
+        var (key, server) = await DocumentServerAsync();
+        var parameters = new JsonObject
+        {
+            ["name"] = $"{server.Slug}__progress", ["arguments"] = new JsonObject(),
+        };
+        var meta = new JsonObject { ["progressToken"] = "caller-token" };
+        parameters["_meta"] = meta;
+        var body = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 7, ["method"] = "tools/call", ["params"] = parameters };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp") { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        using var response = await fixture.Client.SendAsync(request, Ct);
+
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("text/event-stream");
+        var events = (await response.Content.ReadAsStringAsync(Ct)).Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal))
+            .Select(l => JsonNode.Parse(l[6..])!).ToList();
+        // Two progress notifications upstream; the relay may drop one that arrives out of order, never repeat or reorder them.
+        var progress = events.SkipLast(1).ToList();
+        progress.Count.ShouldBeInRange(1, 2);
+        progress.ShouldAllBe(e => e["method"]!.GetValue<string>() == "notifications/progress" && e["params"]!["progressToken"]!.GetValue<string>() == "caller-token");
+        progress.Select(e => e["params"]!["progress"]!.GetValue<double>()).ShouldBeInOrder(SortDirection.Ascending);
+        events[^1]["id"]!.GetValue<int>().ShouldBe(7);
+        events[^1]["result"]!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("done");
+        _upstream.For(server.Slug).Single(r => r.Tool == "progress").Body.ShouldNotContain("caller-token");
+    }
+
+    [Fact]
+    public async Task A_client_that_leaves_cancels_the_upstream_call_and_is_accounted_as_cancelled()
+    {
+        var (key, server) = await DocumentServerAsync();
+        using var leave = new CancellationTokenSource();
+        var call = CallAsyncWith(key, $"{server.Slug}__slow", leave.Token);
+        while (!_upstream.For(server.Slug).Any(r => r.Tool == "slow"))
+        {
+            await Task.Delay(20, Ct);
+        }
+
+        await leave.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(call);
+        await _upstream.SlowCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await fixture.Services.GetRequiredService<Pipeline.UsageWriter>().FlushAsync(Ct);
+        await using var scope = fixture.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        UsageRecord? usage = null;
+        for (var i = 0; i < 100 && usage is null; i++)
+        {
+            usage = await db.UsageRecords.AsNoTracking().SingleOrDefaultAsync(u => u.VirtualKeyId == key.Id, Ct);
+            await Task.Delay(50, Ct);
+        }
+
+        usage!.Outcome.ShouldBe(RequestOutcome.ClientCancelled);
+        usage.StatusCode.ShouldBe(499);
+    }
+
+    private async Task CallAsyncWith(TestKey key, string tool, CancellationToken cancellationToken)
+    {
+        var body = new JsonObject
+        {
+            ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call",
+            ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = new JsonObject() },
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp") { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        using var response = await fixture.Client.SendAsync(request, cancellationToken);
+        await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    private sealed class ListenStream(HttpResponseMessage response, StreamReader reader) : IDisposable
+    {
+        public HttpResponseMessage Response => response;
+
+        /// <summary>The next SSE message, or null when the stream ends.</summary>
+        public async Task<JsonObject?> NextAsync(CancellationToken ct)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            while (await reader.ReadLineAsync(timeout.Token) is { } line)
+            {
+                if (line.StartsWith("data: ", StringComparison.Ordinal) || line.StartsWith('{'))
+                {
+                    return JsonNode.Parse(line.StartsWith('{') ? line : line[6..])!.AsObject();
+                }
+            }
+
+            return null;
+        }
+
+        public void Dispose()
+        {
+            reader.Dispose();
+            response.Dispose();
+        }
+    }
+
+    private static async Task<ListenStream> ListenAsync(HttpClient client, TestKey key, string path = "/mcp")
+    {
+        var body = new JsonObject
+        {
+            ["jsonrpc"] = "2.0", ["id"] = "listen-1", ["method"] = "subscriptions/listen",
+            ["params"] = new JsonObject
+            {
+                ["_meta"] = new JsonObject
+                {
+                    ["io.modelcontextprotocol/protocolVersion"] = "2026-07-28",
+                    ["io.modelcontextprotocol/clientCapabilities"] = new JsonObject(),
+                },
+                ["notifications"] = new JsonObject { ["toolsListChanged"] = true, ["promptsListChanged"] = true, ["resourceSubscriptions"] = new JsonArray("x") },
+            },
+        };
+        var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        request.Headers.Add("MCP-Protocol-Version", "2026-07-28");
+        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, Ct);
+        return new ListenStream(response, new StreamReader(await response.Content.ReadAsStreamAsync(Ct)));
+    }
+
+    [Fact]
+    public async Task A_listen_stream_announces_changes_the_key_can_see_and_ends_when_the_key_is_revoked()
+    {
+        var (key, server) = await DocumentServerAsync();
+        using var stream = await ListenAsync(fixture.Client, key);
+        stream.Response.Content.Headers.ContentType!.MediaType.ShouldBe("text/event-stream");
+
+        var ack = (await stream.NextAsync(Ct))!;
+        ack["method"]!.GetValue<string>().ShouldBe("notifications/subscriptions/acknowledged");
+        ack["params"]!["_meta"]!["io.modelcontextprotocol/subscriptionId"]!.GetValue<string>().ShouldBe("listen-1");
+        ack["params"]!["notifications"]!.ToJsonString().ShouldBe("""{"toolsListChanged":true,"promptsListChanged":true}""");
+
+        var bus = fixture.Services.GetRequiredService<IInvalidationBus>();
+        var other = await AddServerAsync(null, ("x", McpToolApprovalState.Approved, EchoDefinition));
+        await bus.PublishAsync(InvalidationKind.Config, Ct); // a server the key has no grant for: nothing to announce
+        await GrantAsync(key, other, ["x"], resources: false, prompts: true);
+        await bus.PublishAsync(InvalidationKind.Config, Ct);
+
+        var changes = new List<string>();
+        for (var i = 0; i < 2; i++)
+        {
+            var next = (await stream.NextAsync(Ct))!;
+            next["params"]!["_meta"]!["io.modelcontextprotocol/subscriptionId"]!.GetValue<string>().ShouldBe("listen-1");
+            changes.Add(next["method"]!.GetValue<string>());
+        }
+
+        changes.ShouldBe(["notifications/tools/list_changed", "notifications/prompts/list_changed"], ignoreOrder: true);
+
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            (await db.VirtualKeys.SingleAsync(k => k.Id == key.Id, Ct)).RevokedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await bus.PublishAsync(InvalidationKind.Keys, Ct);
+        var end = (await stream.NextAsync(Ct))!;
+        end["id"]!.GetValue<string>().ShouldBe("listen-1");
+        end["result"]!["resultType"]!.GetValue<string>().ShouldBe("complete");
+        (await stream.NextAsync(Ct)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Listen_streams_are_capped_per_key()
+    {
+        var (key, _) = await DocumentServerAsync();
+        await using var gateway = fixture.Derive(services => services.Configure<Pipeline.GatewayOptions>(o => o.Mcp.MaxListenStreamsPerKey = 1));
+        using var client = gateway.CreateHttpsClient();
+        using var first = await ListenAsync(client, key);
+        (await first.NextAsync(Ct))!["method"]!.GetValue<string>().ShouldBe("notifications/subscriptions/acknowledged");
+
+        using var second = await ListenAsync(client, key);
+        var refused = (await second.NextAsync(Ct))!;
+        refused["error"]!["code"]!.GetValue<int>().ShouldBe(-32000);
     }
 }

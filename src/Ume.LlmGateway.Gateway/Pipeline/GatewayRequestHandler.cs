@@ -32,6 +32,8 @@ public sealed partial class GatewayRequestHandler(
     IRealtimeConnector realtime,
     IRealtimeSessionRegistry sessions,
     IMcpUpstream mcp,
+    IMcpListenRegistry listens,
+    IInvalidationBus invalidation,
     IHostApplicationLifetime lifetime,
     CredentialProtector credentials,
     UsageWriter usageWriter,

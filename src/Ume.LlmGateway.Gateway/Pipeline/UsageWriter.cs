@@ -243,6 +243,7 @@ public sealed class GatewayMetrics
     private readonly Counter<double> _audioSeconds;
     private readonly Counter<long> _mcpCalls;
     private readonly Histogram<double> _mcpDuration;
+    private readonly UpDownCounter<long> _listenStreams;
     private readonly Meter _meter;
 
     public GatewayMetrics(IMeterFactory meterFactory)
@@ -260,7 +261,12 @@ public sealed class GatewayMetrics
         _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
         _mcpCalls = _meter.CreateCounter<long>("ume.gateway.mcp.calls", description: "MCP requests sent to MCP servers, by server, method and outcome");
         _mcpDuration = _meter.CreateHistogram<double>("ume.gateway.mcp.call.duration", unit: "ms", description: "Duration of MCP requests to MCP servers");
+        _listenStreams = _meter.CreateUpDownCounter<long>("ume.gateway.mcp.listen_streams", description: "MCP subscriptions/listen streams open on this instance");
     }
+
+    public void ListenStreamOpened() => _listenStreams.Add(1);
+
+    public void ListenStreamClosed() => _listenStreams.Add(-1);
 
     /// <summary>One MCP request sent upstream. <paramref name="server"/> is the server's slug (configured, so bounded).</summary>
     public void McpCall(string server, string method, string outcome, double milliseconds)

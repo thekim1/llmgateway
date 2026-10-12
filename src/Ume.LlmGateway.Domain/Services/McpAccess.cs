@@ -13,6 +13,8 @@ public enum McpDenial
     NotApproved = 5,
     CircuitOpen = 6,
     OnPremOnly = 7,
+    ResourcesNotGranted = 8,
+    PromptsNotGranted = 9,
 }
 
 /// <summary>
@@ -67,6 +69,24 @@ public static class McpAccess
         return grant!.Allows(tool.Name) ? McpDenial.None : McpDenial.ToolNotGranted;
     }
 
+    /// <summary>Whether the key may list and read the server's resources: server access, the grant's flag and the server's capability.</summary>
+    public static McpDenial CheckResources(VirtualKey key, McpServer server, VirtualKeyMcpGrant? grant, bool circuitOpen, DataResidency? restrictTo = null)
+    {
+        var denial = CheckServer(key, server, grant, circuitOpen, restrictTo);
+        return denial != McpDenial.None ? denial
+            : grant!.AllowResources && server.Capabilities.HasFlag(McpServerCapabilities.Resources) ? McpDenial.None
+            : McpDenial.ResourcesNotGranted;
+    }
+
+    /// <summary>Whether the key may list and get the server's prompts: server access, the grant's flag and the server's capability.</summary>
+    public static McpDenial CheckPrompts(VirtualKey key, McpServer server, VirtualKeyMcpGrant? grant, bool circuitOpen, DataResidency? restrictTo = null)
+    {
+        var denial = CheckServer(key, server, grant, circuitOpen, restrictTo);
+        return denial != McpDenial.None ? denial
+            : grant!.AllowPrompts && server.Capabilities.HasFlag(McpServerCapabilities.Prompts) ? McpDenial.None
+            : McpDenial.PromptsNotGranted;
+    }
+
     /// <summary>The <c>Reason</c> attribute of the <c>gateway.mcp.tool_denied</c> security event.</summary>
     public static string ReasonName(McpDenial denial) => denial switch
     {
@@ -77,6 +97,8 @@ public static class McpAccess
         McpDenial.NotApproved => "not_approved",
         McpDenial.CircuitOpen => "circuit_open",
         McpDenial.OnPremOnly => "pii_onprem_only",
+        McpDenial.ResourcesNotGranted => "resources_not_granted",
+        McpDenial.PromptsNotGranted => "prompts_not_granted",
         _ => "unknown_tool",
     };
 }
