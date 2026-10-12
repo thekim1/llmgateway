@@ -66,7 +66,10 @@ renamed or removed, within a major version.
 | 1001 | `gateway.auth.failed` | Gateway | Once per aggregation bucket (see below) | `Reason`, `Endpoint`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `SourceAddress`, `Count`, `FirstSeen`, `LastSeen` |
 | 1002 | `gateway.pii.action` | Gateway | A key's PII policy found personal data (blocked, redacted, rerouted on-prem or only detected) | `RequestId`, `Action`, `Categories`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
 | 1003 | `gateway.request.refused` | Gateway | A request was refused by policy: attachment not allowed, model or provider not allowed for the key | `RequestId`, `ErrorCode`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
+| 1004 | `gateway.mcp.tool_denied` | Gateway | An MCP tool, resource or prompt was refused for a key (the client only sees "unknown tool") | `RequestId`, `Tool`, `Reason`, `Server`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId` |
 | 2001 | `admin.change` | Admin API | Every audit log entry (key created, revoked, rotated or revealed; provider, budget, rule or config changed) | `Actor`, `Action`, `EntityType`, `EntityId` |
+| 2002 | `admin.mcp.tool_quarantined` | Admin API | A tool sync found a new MCP tool waiting for approval (`Reason` `new`) or an approved tool whose definition changed upstream (`changed`) | `Tool`, `Server`, `ServerId`, `Reason` |
+| 2003 | `admin.mcp.server_auth_failed` | Admin API | An MCP server answered a tool sync with 401/403 (the gateway's credential for it is refused) | `Server`, `ServerId`, `HttpStatus` |
 | 3001 | `data.read` | Data API | Every authenticated read | `Client`, `Path`, `Status`, `Cursor` |
 | 3002 | `data.auth.failed` | Data API | A revoked or expired Data API key was used (at most once a minute per key) | `Reason`, `KeyId`, `KeyPrefix` |
 

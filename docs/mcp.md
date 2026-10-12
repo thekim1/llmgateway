@@ -6,9 +6,9 @@ as the LLM API. See ADR 016 in [adr.md](adr.md) for the decision.
 
 > **Status.** Tools, resources and prompts work end to end (listing, calling and reading, authorisation, PII guard, rate
 > limit, budgets, accounting, circuit breaker, metrics), with progress, cancellation and change notifications
-> (`subscriptions/listen`). `completion/complete` and resource subscriptions are not supported yet. There is no admin API or
-> UI for MCP servers and grants yet: they are rows in `McpServers`, `McpTools` and `VirtualKeyMcpGrants` (the local dev seed
-> adds the demo server `demo`, with tools, a resource and a prompt, and grants it all to the dev key).
+> (`subscriptions/listen`). `completion/complete` and resource subscriptions are not supported yet. Servers, tool approval
+> and grants are managed through the admin API (see *Administration*); the admin UI for them is not built yet. The local dev
+> seed adds the demo server `demo`, with tools, a resource and a prompt, and grants it all to the dev key.
 
 ## Endpoints
 
@@ -123,6 +123,63 @@ URI unchanged after the slug), in lists, templates and read results, and the gat
 results (top-level `content`) and `prompts/get` messages, so a link a tool returns can be read through `/mcp`; nothing else
 in the result changes, and `structuredContent` (the tool's own data) is left as it is. On `/mcp/{slug}` tools, prompts and
 URIs keep their names.
+
+## Administration
+
+The admin API ([admin-api.md](admin-api.md#mcp-servers-and-grants)) manages servers, tools and grants. Gateway admins manage
+every server; department admins manage the servers their departments own and can grant global servers to their keys.
+
+1. **Register** the server: `POST /api/mcp/servers` with a slug, the URL, residency, auth type and credential. Try it first with
+   `POST /api/mcp/servers/test`, which connects and lists the tools without saving anything. The URL must pass the SSRF rules
+   (below) and, in production, use https.
+2. **Sync** it: `POST /api/mcp/servers/{id}/sync`, or wait for the scheduled sync. Its tools appear as `Pending`.
+3. **Review and approve** each tool: `GET /api/mcp/servers/{id}/tools` shows the definition (description, input and output
+   schema, annotations); `POST .../tools/{toolId}/approve` with the tool's `definitionHash` approves exactly that definition
+   (409 if the server changed it in the meantime). `POST .../reject` hides a tool; `PUT .../price` sets a price per call.
+4. **Grant** the server to keys: `PUT /api/keys/{id}/mcp-grants` with the server, the tool names (or `*`), the approval policy
+   and whether resources and prompts are allowed.
+
+The gateways pick up every change at once (configuration invalidation); a key's `subscriptions/listen` stream then gets
+`list_changed`.
+
+### Tool sync and pinning
+
+The admin API syncs every enabled server at start and every `Admin:McpSyncMinutes` (10), and a server when an admin asks.
+One instance syncs at a time: the scheduled sync holds the Redis lock `ume:mcp:sync-lock` (5 minutes, renewed per server); an
+admin's sync while it runs gets 409. A sync connects with the gateway's MCP client (`McpUpstream`, a fresh client each time),
+reads the capabilities and instructions (cut to 4 096 characters) and every page of `tools/list` (at most 50 pages), and
+compares each tool's definition with the stored one by a canonical SHA-256 (`McpToolDefinition.Hash`: members sorted at every
+level, so the order Postgres stores `jsonb` in does not matter). A definition is the tool's `title`, `description`,
+`inputSchema`, `outputSchema` and `annotations`; `_meta`, icons and other members are not pinned and not passed on.
+
+| Upstream | Result |
+|---|---|
+| A new tool | `Pending`, not visible; with `autoApproveNewTools` (trusted internal servers only) `Approved` at once, by `system:auto-approve`. |
+| An approved tool's definition changed | `Changed`: clients keep the approved definition, calls are checked against its input schema. `GET .../tools` shows the differences; approve the new definition or reject the tool. |
+| A changed tool is back to its approved definition | `Approved` again. |
+| A pending or rejected tool changed | Its definition is updated; it stays pending or rejected. |
+| A tool is gone | The row is deleted, so it is hidden at once and keys' grants naming it allow nothing. If it comes back it is a new tool and needs approval again (its price too). |
+| Two tools sanitise to the same exposed name | A stored tool keeps the name (of two new ones, the first by name); the other is left out and the server's `lastError` names both. Nothing is overwritten. |
+
+After a sync the server's `status` is `Healthy`, `Degraded` (some tools were left out; see `lastError`) or `Unavailable`
+(the server could not be reached, timed out, refused the credential or failed; the previous tools and capabilities stay as
+they were). `lastError` never holds content from the server or a secret. A sync that changed tools, capabilities or
+instructions is audited (actor `system:mcp-sync` for scheduled ones) and makes the gateways reload; an admin's sync is
+always audited. Security events (category `Ume.LlmGateway.Security`): `admin.mcp.tool_quarantined` (2002, `Reason` `new` or
+`changed`) for every tool that waits for an admin, and `admin.mcp.server_auth_failed` (2003) when a server answers 401/403
+to the sync. A sync does not react to upstream `notifications/tools/list_changed`; changes are seen at the next sync.
+
+### SSRF rules
+
+The server URL and an OAuth token URL are resolved when they are saved or tested, and refused when any address is
+link-local (169.254.0.0/16, fe80::/10, where cloud metadata lives), a cloud metadata address (168.63.129.16,
+100.100.100.200, fd00:ec2::254), unspecified, multicast or reserved. Private addresses (loopback, RFC 1918, 100.64.0.0/10,
+fc00::/7, fec0::/10), where the municipality's own servers are, need a gateway admin. IPv6 addresses that carry an IPv4
+address (IPv4-mapped, IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) count as that IPv4 address. A sync checks the
+stored URL again, and every MCP and token connection of the gateway and the admin API checks the addresses it connects to
+(`McpAddressGuard`), so a name that later resolves to a forbidden address (DNS rebinding) is never reached. The private
+rule is only checked when a URL is saved: a department-owned name that later resolves to a private address is reached, so
+such names should be under municipal DNS control.
 
 ## MCP servers
 

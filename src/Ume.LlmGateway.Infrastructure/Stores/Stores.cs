@@ -93,6 +93,21 @@ public interface IMcpListenRegistry
     Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// The lock that lets one admin API instance at a time sync MCP tool lists (<see cref="RedisKeys.McpSyncLock"/>). It
+/// expires by itself, so a crashed holder releases it; a long sync renews it.
+/// </summary>
+public interface IMcpSyncLock
+{
+    /// <summary>A token for <see cref="RenewAsync"/> and <see cref="ReleaseAsync"/>, or null while another holder has the lock.</summary>
+    Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    /// <summary>False when the lock expired and is no longer held with <paramref name="token"/>.</summary>
+    Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken);
+
+    Task ReleaseAsync(string token, CancellationToken cancellationToken);
+}
+
 public enum InvalidationKind
 {
     Keys = 0,
@@ -304,6 +319,57 @@ public sealed class InMemoryMcpListenRegistry(TimeProvider time) : IMcpListenReg
         _slots.RenewAsync(keyId, streamId, timeToLive, cancellationToken);
 
     public Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, streamId, cancellationToken);
+}
+
+public sealed class InMemoryMcpSyncLock(TimeProvider time) : IMcpSyncLock
+{
+    private readonly Lock _gate = new();
+    private string? _token;
+    private DateTimeOffset _expires;
+
+    public Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var now = time.GetUtcNow();
+            if (_token is not null && _expires > now)
+            {
+                return Task.FromResult<string?>(null);
+            }
+
+            _token = Guid.NewGuid().ToString("N");
+            _expires = now + timeToLive;
+            return Task.FromResult<string?>(_token);
+        }
+    }
+
+    public Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            var now = time.GetUtcNow();
+            if (_token != token || _expires <= now)
+            {
+                return Task.FromResult(false);
+            }
+
+            _expires = now + timeToLive;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task ReleaseAsync(string token, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (_token == token)
+            {
+                _token = null;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class InMemorySpendLedger : ISpendLedger

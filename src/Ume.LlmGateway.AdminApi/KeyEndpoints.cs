@@ -21,7 +21,8 @@ public sealed record KeyRequest(
     [property: Range(1, int.MaxValue)] int? TokensPerMinute = null,
     bool IsEnabled = true,
     [property: MaxLength(100)] List<string>? AllowedProviders = null,
-    [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null) : AdminRequest, IValidatableObject
+    [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null,
+    [property: Range(1, int.MaxValue)] int? McpCallsPerMinute = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -92,8 +93,11 @@ public static class KeyEndpoints
             replacement.Team = old.Team;
             replacement.EncryptedSecret = protector.Protect(generated.PlainText);
             ctx.Db.VirtualKeys.Add(replacement);
-            // Keys: the old key's status changed. Config: key budgets now cover the replacement too.
-            await ctx.SaveAsync(user, AuditActions.Rotate, AuditEntities.VirtualKey, id, before, new KeyRotationAudit(KeyAudit.Of(old), KeyAudit.Of(replacement)),
+            var grants = KeyRotation.CopyMcpGrants(await ctx.Db.VirtualKeyMcpGrants.AsNoTracking().Where(g => g.VirtualKeyId == id).OrderBy(g => g.McpServerId).ToListAsync(ct), replacement, ctx.Now);
+            ctx.Db.VirtualKeyMcpGrants.AddRange(grants);
+            // Keys: the old key's status changed. Config: key budgets and MCP grants now cover the replacement too.
+            await ctx.SaveAsync(user, AuditActions.Rotate, AuditEntities.VirtualKey, id, before,
+                new KeyRotationAudit(KeyAudit.Of(old), KeyAudit.Of(replacement), grants.Count > 0 ? [.. grants.Select(McpGrantAudit.Of)] : null),
                 [InvalidationKind.Keys, InvalidationKind.Config], ct);
             return TypedResults.Ok(new KeyRotatedDto(KeyDto.Of(replacement, ctx.Now), generated.PlainText, KeyDto.Of(old, ctx.Now)));
         }).WithName("RotateKey").WithSummary("Replaces a key; the response holds the new secret, shown this once");
@@ -124,6 +128,6 @@ public static class KeyEndpoints
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();
         key.AllowedModels = [.. input.AllowedModels]; key.AllowedResidencies = [.. input.AllowedResidencies]; if (input.AllowedProviders is not null) { key.AllowedProviders = [.. input.AllowedProviders.Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)]; } key.PiiPolicy = input.PiiPolicy;
         if (input.AttachmentPolicy is { } attachments) { key.AttachmentPolicy = attachments; }
-        key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
+        key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.McpCallsPerMinute = input.McpCallsPerMinute; key.IsEnabled = input.IsEnabled;
     }
 }

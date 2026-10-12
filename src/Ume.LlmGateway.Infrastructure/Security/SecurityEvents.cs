@@ -61,4 +61,13 @@ public static partial class SecurityEvents
     [LoggerMessage(2001, LogLevel.Information,
         "Admin {Actor}: {Action} {EntityType} {EntityId}", EventName = "admin.change")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);
+
+    /// <summary><c>Reason</c>: <c>new</c> (a tool waits for approval) or <c>changed</c> (an approved tool's definition changed upstream).</summary>
+    [LoggerMessage(2002, LogLevel.Warning,
+        "MCP tool {Tool} on server {Server} ({ServerId}) quarantined: {Reason}", EventName = "admin.mcp.tool_quarantined")]
+    public static partial void McpToolQuarantined(ILogger logger, string tool, string server, Guid serverId, string reason);
+
+    [LoggerMessage(2003, LogLevel.Warning,
+        "MCP server {Server} ({ServerId}) refused the gateway's credential: HTTP {HttpStatus}", EventName = "admin.mcp.server_auth_failed")]
+    public static partial void McpServerAuthFailed(ILogger logger, string server, Guid serverId, int? httpStatus);
 }

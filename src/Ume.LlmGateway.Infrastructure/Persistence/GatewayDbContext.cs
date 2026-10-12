@@ -160,10 +160,11 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
         {
             e.Property(x => x.Name).HasMaxLength(128);
             e.Property(x => x.Title).HasMaxLength(200);
-            e.Property(x => x.DefinitionHash).HasMaxLength(64);
+            // The sync and approvals both change a tool; neither may overwrite the other's newer state.
+            e.Property(x => x.DefinitionHash).HasMaxLength(64).IsConcurrencyToken();
             e.Property(x => x.Definition).HasColumnType("jsonb");
             e.Property(x => x.ApprovedDefinition).HasColumnType("jsonb");
-            e.Property(x => x.ApprovalState).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.ApprovalState).HasConversion<string>().HasMaxLength(20).IsConcurrencyToken();
             e.Property(x => x.ExposedName).HasMaxLength(64);
             e.Property(x => x.PriceSek).HasPrecision(18, 6);
             e.Property(x => x.ApprovedBy).HasMaxLength(200);

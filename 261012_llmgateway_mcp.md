@@ -364,10 +364,21 @@ Step 2a (tools) notes and deferrals:
 - Deferred: the `McpServerAuthFailed` security event (upstream 401/403 is logged and answered `-32003`); a per-server price separate from per-tool `PriceSek`; forwarding caller `_meta` (progress tokens) and upstream notifications (2b); limiting the SDK client's buffering before the byte limit applies (the response stream is cut at twice `MaxResultBytes` plus 64 KiB).
 
 **3. Control plane**
-- [ ] The tool sync worker with a Redis lock, hashing, the approval states and `list_changed` subscription.
-- [ ] Admin API endpoints, audit and `ConfigTransfer`.
+- [x] The tool sync worker with a Redis lock, hashing and the approval states (upstream `list_changed` deferred, see below).
+- [x] Admin API endpoints, audit and `ConfigTransfer`.
 - [ ] Admin UI: MCP servers, approval queue with diff, key grants, usage filters, getting started snippets. Vitest and a Playwright e2e test.
 - [ ] Stdio bridge container pattern documented, with hardening in `deploy/` (compose snippet and runbook).
+
+Step 3a (admin API and tool sync) notes and deferrals:
+- Removed tools are deleted, not marked: they are hidden at once without a new state for the gateway's `IsExposed`, and a tool that comes back is new and needs approval again (its price too). Exposed-name collisions skip the later tool and set the server `Degraded` with the names in `LastError` (no per-tool error column).
+- A definition is `title`, `description`, `inputSchema`, `outputSchema` and `annotations` (`title` added to the plan's list, since clients show it); its hash is canonical (`McpToolDefinition.Hash`, members sorted), shared with the dev seed. `McpTool.Title` follows the approved definition.
+- Approving takes the reviewed `definitionHash` (409 if the sync changed it since); `ApprovalState` and `DefinitionHash` are concurrency tokens (migration `McpToolConcurrency`, model only). Rejecting drops an earlier approval.
+- Grants are replaced per key on the servers the caller can see; unknown tool names are kept and reported (`unknownTools`), not refused: tools come and go with syncs, and a name allows nothing until the server offers it. Grants are not part of the configuration document (key ids differ), unlike the data-model note above.
+- `ume:mcp:events` is not published: `subscriptions/listen` compares fingerprints after every configuration invalidation, which every admin change and every sync that changed something publishes.
+- SSRF: DNS is resolved when a URL is saved, tested or synced; every MCP and token connection of the gateway and the admin API refuses forbidden addresses after DNS (`McpAddressGuard.ConnectAsync`), so DNS rebinding cannot reach link-local, metadata or reserved addresses. The private-network rule is only checked when a URL is saved (documented limit). Probes use their own OAuth token cache, so testing an unsaved server leaves no token behind. The admin API uses the gateway's Redis ACL user; the lock needs `set`, `eval`, `get`, `pexpire` and `del`, which it already has.
+- `McpServerAuthFailed` is raised by the sync only; the gateway still only logs upstream 401/403 (as deferred in step 2a).
+- `McpCallsPerMinute` follows `RequestsPerMinute` (omitted on `PUT /api/keys/{id}` = no limit), so the key form in step 3b must send it.
+- Deferred: syncing on upstream `notifications/tools/list_changed` (needs a standing connection per server; the 10-minute and on-demand syncs cover it), `ume:mcp:events`, and returning non-secret credential parts (header names, OAuth client id) for the UI.
 
 **4. LLM path**
 - [ ] `GET /v1/mcp/tools` and `POST /v1/mcp/tools/call` in all three formats.

@@ -1,6 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
@@ -338,7 +336,7 @@ public sealed partial class DevSeeder(
                 {
                     Name = t.Name,
                     Definition = t.Definition,
-                    DefinitionHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(t.Definition))),
+                    DefinitionHash = McpToolDefinition.Hash(t.Definition),
                     ApprovalState = McpToolApprovalState.Approved,
                     ApprovedDefinition = t.Definition,
                     ExposedName = McpToolNames.Exposed(DemoMcpSlug, t.Name),

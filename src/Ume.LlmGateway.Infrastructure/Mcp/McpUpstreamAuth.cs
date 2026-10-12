@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 
 namespace Ume.LlmGateway.Infrastructure.Mcp;
@@ -73,6 +74,31 @@ public abstract class McpUpstreamAuth
         {
             throw new FormatException("The MCP server's token URL is not an absolute URL.");
         }
+    }
+
+    /// <summary>The <see cref="McpAuthType.StaticHeaders"/> credential that <see cref="Parse"/> reads.</summary>
+    public static string StaticHeadersCredential(IEnumerable<KeyValuePair<string, string>> headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        var json = new JsonObject();
+        foreach (var (name, value) in headers)
+        {
+            json[name] = value;
+        }
+
+        return json.ToJsonString();
+    }
+
+    /// <summary>The <see cref="McpAuthType.OAuthClientCredentials"/> credential that <see cref="Parse"/> reads.</summary>
+    public static string ClientCredentialsCredential(string tokenUrl, string clientId, string clientSecret, string? scope)
+    {
+        var json = new JsonObject { ["tokenUrl"] = tokenUrl, ["clientId"] = clientId, ["clientSecret"] = clientSecret };
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            json["scope"] = scope;
+        }
+
+        return json.ToJsonString();
     }
 
     private static string Required(JsonElement root, string name) =>

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Providers;
 
@@ -70,6 +71,9 @@ public sealed record McpUpstreamResult(JsonNode? Result, McpUpstreamFailure Fail
     public bool CountsAgainstCircuit => Failure is McpUpstreamFailure.Transport or McpUpstreamFailure.Timeout or McpUpstreamFailure.ServerError;
 }
 
+/// <summary>What an MCP server says about itself when a client connects, or why it could not be reached.</summary>
+public sealed record McpUpstreamDescription(McpUpstreamResult Outcome, McpServerCapabilities Capabilities = McpServerCapabilities.None, string? Instructions = null);
+
 public interface IMcpUpstream
 {
     Task<McpUpstreamResult> SendAsync(McpUpstreamCall call, CancellationToken cancellationToken);
@@ -132,12 +136,44 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         return last!;
     }
 
+    /// <summary>Connects to the server (its handshake only) and returns the capabilities and instructions it announced.</summary>
+    public async Task<McpUpstreamDescription> DescribeAsync(McpServer server, McpUpstreamAuth auth, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+        ArgumentNullException.ThrowIfNull(auth);
+        if (!Uri.TryCreate(server.Url, UriKind.Absolute, out var url) || !ProviderTransport.IsPermitted(url, options.RequireHttps))
+        {
+            return new McpUpstreamDescription(new McpUpstreamResult(null, McpUpstreamFailure.Rejected, 0));
+        }
+
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(server.TimeoutSeconds, 1, ProviderTransport.MaxRequestTimeoutSeconds));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        var pooled = Pool(server, auth, url, timeout);
+        try
+        {
+            var client = await pooled.Client.WaitAsync(deadline.Token);
+            return new McpUpstreamDescription(new McpUpstreamResult(null, McpUpstreamFailure.None, 1), Capabilities(client.ServerCapabilities), client.ServerInstructions);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            Evict(server.Id, pooled);
+            return new McpUpstreamDescription(Classify(ex, server.Id) with { Attempts = 1 });
+        }
+    }
+
+    private static McpServerCapabilities Capabilities(ServerCapabilities? capabilities) =>
+        (capabilities?.Tools is null ? McpServerCapabilities.None : McpServerCapabilities.Tools)
+        | (capabilities?.Resources is null ? McpServerCapabilities.None : McpServerCapabilities.Resources)
+        | (capabilities?.Prompts is null ? McpServerCapabilities.None : McpServerCapabilities.Prompts)
+        | (capabilities?.Completions is null ? McpServerCapabilities.None : McpServerCapabilities.Completions);
+
     private async Task<(McpUpstreamResult Result, bool Retry)> AttemptAsync(McpUpstreamCall call, Uri url, TimeSpan timeout, int attempt, CancellationToken cancellationToken)
     {
         var canRetry = attempt == 1;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
-        var pooled = Pool(call, url, timeout);
+        var pooled = Pool(call.Server, call.Auth, url, timeout);
         McpClient client;
         try
         {
@@ -257,14 +293,13 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
         return null;
     }
 
-    private PooledClient Pool(McpUpstreamCall call, Uri url, TimeSpan timeout)
+    private PooledClient Pool(McpServer server, McpUpstreamAuth auth, Uri url, TimeSpan timeout)
     {
-        var server = call.Server;
         while (true)
         {
             if (_clients.TryGetValue(server.Id, out var existing))
             {
-                if (existing.Url == url && existing.Fingerprint == call.Auth.Fingerprint)
+                if (existing.Url == url && existing.Fingerprint == auth.Fingerprint)
                 {
                     return existing;
                 }
@@ -278,7 +313,7 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
             }
 
             var progress = new ConcurrentDictionary<string, Func<JsonObject, ValueTask>>(StringComparer.Ordinal);
-            var created = new PooledClient(url, call.Auth.Fingerprint, CreateClientAsync(server.Id, server.Slug, url, call.Auth, timeout, progress), progress);
+            var created = new PooledClient(url, auth.Fingerprint, CreateClientAsync(server.Id, server.Slug, url, auth, timeout, progress), progress);
             if (_clients.TryAdd(server.Id, created))
             {
                 return created;

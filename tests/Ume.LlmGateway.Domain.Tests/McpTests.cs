@@ -342,3 +342,196 @@ public class McpDocumentPiiTests
         result["messages"]![1]!["content"]!["data"]!.GetValue<string>().ShouldBe("b@example.se");
     }
 }
+
+public class McpToolSyncTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 10, 12, 8, 0, 0, TimeSpan.Zero);
+
+    private static string Definition(string description) =>
+        """{"description":""" + JsonSerializer.Serialize(description) + ""","inputSchema":{"type":"object","properties":{"q":{"type":"string"}}}}""";
+
+    private static McpServer Server(bool autoApprove = false) => new() { Slug = "diarium", DisplayName = "Diarium", Url = "https://d/mcp", AutoApproveNewTools = autoApprove };
+
+    private static McpTool Approved(McpServer server, string name, string definition)
+    {
+        var tool = new McpTool
+        {
+            McpServerId = server.Id, Name = name, Definition = definition, DefinitionHash = McpToolDefinition.Hash(definition),
+            ExposedName = McpToolNames.Exposed(server.Slug, name),
+        };
+        McpToolSync.Approve(tool, "admin", Now);
+        server.Tools.Add(tool);
+        return tool;
+    }
+
+    [Fact]
+    public void The_hash_is_canonical_and_ignores_member_order_and_whitespace()
+    {
+        var hash = McpToolDefinition.Hash("""{"description":"d","inputSchema":{"type":"object","properties":{"a":{"type":"string"}}}}""");
+        McpToolDefinition.Hash("""{ "inputSchema": { "properties": { "a": { "type": "string" } }, "type": "object" }, "description": "d" }""").ShouldBe(hash);
+        McpToolDefinition.Hash("""{"description":"d","inputSchema":{"type":"object","properties":{"a":{"type":"number"}}}}""").ShouldNotBe(hash);
+        McpToolDefinition.Hash("""{"inputSchema":{"required":["b","a"]}}""").ShouldNotBe(McpToolDefinition.Hash("""{"inputSchema":{"required":["a","b"]}}"""));
+        hash.ShouldMatch("^[0-9a-f]{64}$");
+    }
+
+    [Fact]
+    public void A_definition_holds_only_the_pinned_members_of_a_listed_tool()
+    {
+        var tool = JsonNode.Parse("""{"name":"search","title":"Sök","description":"d","inputSchema":{"type":"object"},"_meta":{"x":1},"icons":[],"annotations":{"readOnlyHint":true}}""")!.AsObject();
+        JsonNode.Parse(McpToolDefinition.FromTool(tool))!.AsObject().Select(m => m.Key)
+            .ShouldBe(["title", "description", "inputSchema", "annotations"]);
+        McpToolSync.Title(McpToolDefinition.FromTool(tool)).ShouldBe("Sök");
+    }
+
+    [Fact]
+    public void New_tools_wait_for_approval_unless_the_server_auto_approves()
+    {
+        var server = Server();
+        var result = McpToolSync.Apply(server, [new McpDiscoveredTool("search", Definition("d"))], new HashSet<string>(), Now);
+        var tool = result.Added.ShouldHaveSingleItem();
+        tool.ApprovalState.ShouldBe(McpToolApprovalState.Pending);
+        tool.IsExposed.ShouldBeFalse();
+        tool.ExposedName.ShouldBe("diarium__search");
+        tool.DefinitionHash.ShouldBe(McpToolDefinition.Hash(Definition("d")));
+        tool.DiscoveredAt.ShouldBe(Now);
+        server.Tools.ShouldContain(tool);
+
+        var trusted = Server(autoApprove: true);
+        var approved = McpToolSync.Apply(trusted, [new McpDiscoveredTool("search", Definition("d"))], new HashSet<string>(), Now).Added.ShouldHaveSingleItem();
+        approved.ApprovalState.ShouldBe(McpToolApprovalState.Approved);
+        approved.ApprovedDefinition.ShouldBe(Definition("d"));
+        approved.ApprovedBy.ShouldBe(McpToolSync.AutoApprover);
+    }
+
+    [Fact]
+    public void A_changed_definition_is_quarantined_and_a_reverted_one_approved_again()
+    {
+        var server = Server();
+        var tool = Approved(server, "search", Definition("d"));
+
+        var changed = McpToolSync.Apply(server, [new McpDiscoveredTool("search", Definition("now deletes cases"))], new HashSet<string>(), Now);
+        changed.Changed.ShouldBe(["search"]);
+        tool.ApprovalState.ShouldBe(McpToolApprovalState.Changed);
+        tool.ApprovedDefinition.ShouldBe(Definition("d"));
+        tool.Definition.ShouldBe(Definition("now deletes cases"));
+        tool.IsExposed.ShouldBeTrue();
+
+        var reverted = McpToolSync.Apply(server, [new McpDiscoveredTool("search", """{ "inputSchema": { "properties": { "q": { "type": "string" } }, "type": "object" }, "description": "d" }""")],
+            new HashSet<string>(), Now);
+        reverted.Reverted.ShouldBe(["search"]);
+        tool.ApprovalState.ShouldBe(McpToolApprovalState.Approved);
+    }
+
+    [Fact]
+    public void An_unchanged_definition_changes_nothing_even_when_its_stored_hash_is_not_canonical()
+    {
+        var server = Server();
+        var tool = Approved(server, "search", Definition("d"));
+        tool.DefinitionHash = new string('0', 64);
+        var result = McpToolSync.Apply(server, [new McpDiscoveredTool("search", Definition("d"))], new HashSet<string>(), Now);
+        result.ToolsChanged.ShouldBeFalse();
+        tool.ApprovalState.ShouldBe(McpToolApprovalState.Approved);
+        tool.DefinitionHash.ShouldBe(McpToolDefinition.Hash(Definition("d")));
+    }
+
+    [Fact]
+    public void Pending_and_rejected_tools_take_the_new_definition_without_being_approved()
+    {
+        var server = Server();
+        var pending = McpToolSync.Apply(server, [new McpDiscoveredTool("a", Definition("d"))], new HashSet<string>(), Now).Added.Single();
+        var rejected = Approved(server, "b", Definition("d"));
+        rejected.ApprovalState = McpToolApprovalState.Rejected;
+        rejected.ApprovedDefinition = null;
+
+        var result = McpToolSync.Apply(server, [new McpDiscoveredTool("a", Definition("e")), new McpDiscoveredTool("b", Definition("e"))], new HashSet<string>(), Now);
+        result.Updated.ShouldBe(["a", "b"]);
+        pending.ApprovalState.ShouldBe(McpToolApprovalState.Pending);
+        rejected.ApprovalState.ShouldBe(McpToolApprovalState.Rejected);
+        rejected.Definition.ShouldBe(Definition("e"));
+    }
+
+    [Fact]
+    public void Removed_tools_are_deleted()
+    {
+        var server = Server();
+        var gone = Approved(server, "gone", Definition("d"));
+        var result = McpToolSync.Apply(server, [], new HashSet<string>(), Now);
+        result.Removed.ShouldBe([gone]);
+        server.Tools.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Tools_whose_exposed_names_collide_are_left_out_with_an_error()
+    {
+        var server = Server();
+        _ = Approved(server, "case_search", Definition("d"));
+        var result = McpToolSync.Apply(server,
+            [new McpDiscoveredTool("case_search", Definition("d")), new McpDiscoveredTool("case.search", Definition("other")), new McpDiscoveredTool("x", Definition("d"))],
+            new HashSet<string> { "diarium__x" }, Now);
+        result.Added.ShouldBeEmpty();
+        result.Errors.Count.ShouldBe(2);
+        result.Errors[0].ShouldContain("case.search");
+        result.Errors[1].ShouldContain("annan server");
+        server.Tools.Select(t => t.Name).ShouldBe(["case_search"]);
+    }
+
+    [Fact]
+    public void Invalid_and_duplicate_tools_are_reported()
+    {
+        var server = Server();
+        var result = McpToolSync.Apply(server,
+            [new McpDiscoveredTool("a", "not json"), new McpDiscoveredTool("b", Definition("d")), new McpDiscoveredTool("b", Definition("e")), new McpDiscoveredTool(new string('n', 129), Definition("d"))],
+            new HashSet<string>(), Now);
+        result.Added.Select(t => t.Name).ShouldBe(["b"]);
+        result.Added[0].Definition.ShouldBe(Definition("d"));
+        result.Errors.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public void Rotation_copies_mcp_grants_to_the_replacement_key()
+    {
+        var replacement = new VirtualKey { Name = "k", Prefix = "p", KeyHash = "h" };
+        var grant = new VirtualKeyMcpGrant
+        {
+            VirtualKeyId = Guid.NewGuid(), McpServerId = Guid.NewGuid(), AllowedTools = ["a"], ApprovalPolicy = McpApprovalPolicy.Never, AllowResources = true,
+        };
+        var copy = KeyRotation.CopyMcpGrants([grant], replacement, Now).ShouldHaveSingleItem();
+        copy.VirtualKeyId.ShouldBe(replacement.Id);
+        copy.McpServerId.ShouldBe(grant.McpServerId);
+        copy.AllowedTools.ShouldBe(["a"]);
+        copy.AllowedTools.ShouldNotBeSameAs(grant.AllowedTools);
+        copy.ApprovalPolicy.ShouldBe(McpApprovalPolicy.Never);
+        copy.AllowResources.ShouldBeTrue();
+        copy.CreatedAt.ShouldBe(Now);
+        copy.Id.ShouldNotBe(grant.Id);
+    }
+}
+
+public class McpDefinitionDiffTests
+{
+    [Fact]
+    public void Differences_are_reported_by_json_pointer()
+    {
+        var changes = McpDefinitionDiff.Compare(
+            """{"description":"old","inputSchema":{"properties":{"a/b":{"type":"string"},"gone":{}},"required":["a/b"]},"annotations":{"readOnlyHint":true}}""",
+            """{"description":"new","inputSchema":{"properties":{"a/b":{"type":"number"}},"required":["a/b","c"]},"annotations":{"readOnlyHint":true},"outputSchema":{}}""");
+        changes.Select(c => (c.Path, c.Kind)).ShouldBe(
+        [
+            ("/description", McpDefinitionChangeKind.Changed),
+            ("/inputSchema/properties/a~1b/type", McpDefinitionChangeKind.Changed),
+            ("/inputSchema/properties/gone", McpDefinitionChangeKind.Removed),
+            ("/inputSchema/required/1", McpDefinitionChangeKind.Added),
+            ("/outputSchema", McpDefinitionChangeKind.Added),
+        ]);
+        changes[0].Before!.GetValue<string>().ShouldBe("old");
+        changes[0].After!.GetValue<string>().ShouldBe("new");
+        changes[3].After!.GetValue<string>().ShouldBe("c");
+    }
+
+    [Fact]
+    public void Equal_definitions_have_no_differences_and_a_missing_one_differs_as_a_whole()
+    {
+        McpDefinitionDiff.Compare("""{"a":1,"b":[1,2]}""", """{"b":[1,2],"a":1}""").ShouldBeEmpty();
+        McpDefinitionDiff.Compare(null, """{"a":1}""").ShouldHaveSingleItem().Path.ShouldBe("");
+    }
+}

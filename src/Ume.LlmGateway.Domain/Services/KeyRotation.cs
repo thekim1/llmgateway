@@ -95,6 +95,23 @@ public static class KeyRotation
         return replacement;
     }
 
+    /// <summary>The replacement key's copies of the old key's MCP grants (grants are rows of their own, not key columns).</summary>
+    public static IReadOnlyList<VirtualKeyMcpGrant> CopyMcpGrants(IEnumerable<VirtualKeyMcpGrant> grants, VirtualKey replacement, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(grants);
+        ArgumentNullException.ThrowIfNull(replacement);
+        return [.. grants.Select(g => new VirtualKeyMcpGrant
+        {
+            VirtualKeyId = replacement.Id,
+            McpServerId = g.McpServerId,
+            AllowedTools = [.. g.AllowedTools],
+            ApprovalPolicy = g.ApprovalPolicy,
+            AllowResources = g.AllowResources,
+            AllowPrompts = g.AllowPrompts,
+            CreatedAt = now,
+        })];
+    }
+
     public static void Revoke(VirtualKey key, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(key);

@@ -316,7 +316,7 @@ Every read is logged as a `data.read` security event (client, path, status, curs
 
 ## Security events and SIEM
 
-The gateway and admin API write security events (refused keys, PII actions, policy refusals, admin changes) as
+The gateway and admin API write security events (refused keys, PII actions, policy refusals, admin changes, quarantined MCP tools) as
 log records in the category `Ume.LlmGateway.Security`; event names and fields are listed in
 [data-access.md](data-access.md#phase-1-security-events). To ship them:
 
@@ -368,6 +368,11 @@ does not deploy/expose a public Aspire dashboard.
 | Budget alert webhook not received | Each alert is posted once (5 s timeout, no retries) and is still stored (`GET /api/alerts`); a warning is logged when the post fails or the 1 000-alert queue is full |
 | Live audio: 400 "requires a WebSocket connection" | The proxy drops the `Upgrade` header; see *Reverse proxy and PKI* |
 | Live audio: warning "session registry unavailable" | The Redis ACL lacks `zadd zrem zcard zremrangebyscore` (upgrade guide); sessions work but the per-key limit is off |
+| MCP server `Unavailable` after a sync | Read its `lastError` (Operations health or `GET /api/mcp/servers`): unreachable, timeout, HTTP status, or an address the SSRF rules refuse. The previous tools stay in use; fix the URL, credential or network and sync again (`POST /api/mcp/servers/{id}/sync`) |
+| MCP server refuses the gateway's credential | Security event `admin.mcp.server_auth_failed` (2003) and `lastError` "HTTP 401/403": the static header or OAuth client secret is wrong or expired. Enter a new credential (`PUT /api/mcp/servers/{id}`; it is write-only) and sync. Gateway calls answer `-32003` until then |
+| MCP server `Degraded` | Some tools were left out (two names that sanitise to the same `/mcp` name, an invalid definition, more than 50 pages); `lastError` says which. Ask the server's owner to rename one of the tools |
+| MCP tool quarantined | Event `admin.mcp.tool_quarantined` (2002): `new` (a tool waits for approval) or `changed` (an approved tool's definition changed upstream; clients still see the approved one). Review the differences in `GET /api/mcp/servers/{id}/tools` (`changes`) with the server's owner before approving; reject the tool if the change is unexpected, it could be tool poisoning |
+| MCP sync answers 409 | Another sync is running (scheduled syncs hold `ume:mcp:sync-lock` for at most 5 minutes per server); try again. A 409 on approve means the definition changed after it was reviewed |
 | Live audio: sessions end with `gateway_shutting_down` | Expected on deploy/restart: open sessions are closed with an error event and clients reconnect. Metrics: `ume.gateway.realtime.sessions` (open now), `ume.gateway.realtime.session.duration`, `ume.gateway.audio` (seconds) |
 
 ## Backup and restore
@@ -399,6 +404,10 @@ and rotate related credentials if needed. For unsafe provider routing drain/disa
 and restrict keys to approved on-prem targets. Preserve access/audit evidence under the
 records policy; do not capture conversations to investigate. Coordinate municipal
 cybersecurity reporting and GDPR breach assessment with the incident owner/DPO.
+
+A suspicious MCP tool or server: reject the tool (`POST /api/mcp/servers/{id}/tools/{toolId}/reject`), disable the server, or
+force its circuit open (`POST /api/ops/mcp-servers/{id}/circuit`, 15 minutes); all of these hide the tools from every key at once.
+Find the calls by `McpServerId`/`McpTool` in the usage records; arguments and results are never stored.
 
 A routing rule that misroutes traffic: disable it (Routing > Routing rules > Disable, or `PUT /api/routing-rules/{id}` with `isEnabled: false`).
 The change is audited and published to all gateway instances at once (the 30 s catalogue cache is only the fallback), and requests then go to the model they asked for.

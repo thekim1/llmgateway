@@ -109,6 +109,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ICircuitBreakerStore, RedisCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IMcpListenRegistry, RedisMcpListenRegistry>();
+            builder.Services.TryAddSingleton<IMcpSyncLock, RedisMcpSyncLock>();
         }
         else
         {
@@ -118,6 +119,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ICircuitBreakerStore, InMemoryCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IMcpListenRegistry, InMemoryMcpListenRegistry>();
+            builder.Services.TryAddSingleton<IMcpSyncLock, InMemoryMcpSyncLock>();
         }
 
         return builder;
@@ -136,7 +138,7 @@ public static class InfrastructureExtensions
     /// <summary>
     /// The MCP upstream client. The host must remove the standard resilience handler from <see cref="McpUpstream.HttpClientName"/>
     /// and <see cref="McpTokenCache.HttpClientName"/>: whether an MCP request may be sent again depends on the tool.
-    /// Production allows only https servers, like providers.
+    /// Production allows only https servers, like providers. Connections never reach forbidden addresses (<see cref="McpAddressGuard"/>).
     /// </summary>
     public static IServiceCollection AddMcpUpstream(this IServiceCollection services)
     {
@@ -149,9 +151,10 @@ public static class InfrastructureExtensions
                 ConnectTimeout = TimeSpan.FromSeconds(10),
                 AutomaticDecompression = System.Net.DecompressionMethods.All,
                 AllowAutoRedirect = false,
+                ConnectCallback = McpAddressGuard.ConnectAsync,
             });
         services.AddHttpClient(McpTokenCache.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30))
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectCallback = McpAddressGuard.ConnectAsync });
         services.TryAddSingleton<McpTokenCache>();
         services.TryAddSingleton<IMcpUpstream, McpUpstream>();
         return services;

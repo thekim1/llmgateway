@@ -157,6 +157,31 @@ internal sealed class RedisSlots(IConnectionMultiplexer redis, TimeProvider time
     private RedisKey Key(Guid keyId) => key(keyId);
 }
 
+public sealed class RedisMcpSyncLock(IConnectionMultiplexer redis) : IMcpSyncLock
+{
+    private const string RenewScript = """
+        if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
+        return 0
+        """;
+
+    private const string ReleaseScript = """
+        if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+        return 0
+        """;
+
+    public async Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        return await redis.GetDatabase().StringSetAsync(RedisKeys.McpSyncLock, token, timeToLive, When.NotExists) ? token : null;
+    }
+
+    public async Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        (long)(await redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [RedisKeys.McpSyncLock], [token, (long)timeToLive.TotalMilliseconds])) == 1;
+
+    public Task ReleaseAsync(string token, CancellationToken cancellationToken) =>
+        redis.GetDatabase().ScriptEvaluateAsync(ReleaseScript, [RedisKeys.McpSyncLock], [token]);
+}
+
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
     // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.

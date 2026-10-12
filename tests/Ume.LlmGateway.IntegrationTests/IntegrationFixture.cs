@@ -66,6 +66,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
             Configure(b);
             b.UseSetting("Oidc:Authority", "https://identity.invalid");
             b.UseSetting("Admin:RequestsPerMinute", "10000");
+            b.UseSetting("Admin:McpSyncMinutes", "0");
             // Every admin request is the same administrator; no headers needed.
             b.ConfigureTestServices(services => services.AddHeaderAuthentication(o =>
             {
