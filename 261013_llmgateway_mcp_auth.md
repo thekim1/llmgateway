@@ -235,8 +235,11 @@ delegating for a user. The token sources, in order:
    v1 and are accepted in v2 **only** as a gateway-audience user token. They are validated exactly like (1) and never
    forwarded. All MCP tools in one request must name the same user, otherwise `400`.
 3. A user token without a key on `/v1/*` (user-direct) is allowed only for `GatewayEndpoint` values in
-   `UserAuth:Endpoints` (default `Mcp` and `McpToolCall`). Turning on `Responses`, `Messages` or `ChatCompletions` is an
-   adopter decision, because it opens the whole LLM API to SSO users through their profile key (Q2).
+   `UserAuth:Endpoints` (default `Mcp` and `McpToolCall`). Decided 2026-10-13: the LLM endpoints stay key-only by default.
+   Applications hold keys and pass the user's token by delegation (D7); that is how the gateway and Bifrost already govern
+   inference (Bifrost uses virtual keys for inference, SSO only for its dashboard and per-user credentials only for MCP).
+   Turning on `Responses`, `Messages` or `ChatCompletions` for user-direct access stays possible per endpoint as an adopter
+   decision, because it opens the whole LLM API to every mapped SSO user against shared team budgets.
 
 **D12. Continuations stay bound to the user.**
 - `resp_ume_` loop state and approvals are stored under the rate subject (key and user).
@@ -258,8 +261,12 @@ delegating for a user. The token sources, in order:
 - `UsageRecord.UserRef` = hex of HMAC-SHA256(`UserAuth:PseudonymKey`, issuer + `\n` + subject), 128 bits. The subject is
   `oid` for Entra (stable across apps; `sub` is pairwise) and `sub` for Keycloak.
 - It is still personal data (pseudonymised, GDPR recital 26) under ADR 003's rules. Names, e-mail and UPN are never stored.
-- A gateway admin can look up a person's usage by entering their object id. The admin API hashes it, and the lookup is
-  audited.
+- Decided 2026-10-13: `UserRef` is kept 90 days (`UserAuth:UserRefRetentionDays`, default 90), long enough for incident
+  and misuse investigation. After that a daily job clears the column; the usage row, its cost and its key and team stay,
+  so budgets and reports are unaffected. The clearing is documented as gallring of that field, to be confirmed in the
+  municipality's records retention decision (`docs/security-and-compliance.md`, which forbids silent deletion).
+- Only gateway admins can look up usage by person, by entering the person's object id with a required reason. The admin
+  API hashes the id, and the lookup and its reason are audited. Department admins and viewers see key and team totals only.
 - Upstream servers see the real user. That is the point of step B, and their own logs are their records.
 
 **D15. A missing or refused per-user authorization is a typed `mcp_auth_required` answer, not a bare error.**
@@ -459,7 +466,7 @@ Gateway: validate JWT -> user; strip `authorization` before anything reaches a p
 - **GDPR (DPIA input changes, `docs/security-and-compliance.md`):**
   - New data flows: IdP claims to the gateway (in memory); the gateway to the IdP (exchange); the user's identity to
     upstream servers.
-  - New stored identifier: `UserRef`, pseudonymous, with the retention of usage data.
+  - New stored identifier: `UserRef`, pseudonymous, cleared after 90 days (D14).
   - New recipients: none (upstreams are municipal systems already in the record of processing). Custom connectors through
     Anthropic's cloud are not part of v2 (D3).
   - Data subjects: staff who sign in. Purpose: authorization and accounting.
@@ -528,6 +535,7 @@ A2. Profiles, mapping and accounting (Domain, Infrastructure, Gateway, AdminApi)
 - [ ] `CatalogSnapshot`: index from claim value to profile keys; `BlockedUser` set.
 - [ ] Profile resolution (priority, `x-ume-profile`), rate subject (D6) in the rate limiter, listen streams and realtime caps.
 - [ ] `UsageRecord.UserRef`/`Principal` written by `AccountAsync`; auth failures with the new reasons.
+- [ ] Daily job clearing `UserRef` older than `UserAuth:UserRefRetentionDays` (90); lookup by person requires a reason and is audited.
 - [ ] Admin API: key kind, claim values, delegation flag, blocked users, usage by user (audited). `AuditSnapshots` for the
       new fields.
 - [ ] Admin UI: key form and list, blocked users, usage *Principal* filter, Getting started OAuth snippets. Vitest.
@@ -681,9 +689,9 @@ The Entra checks (M1, M2, M5) apply when the first server's IdP is Entra; M4 whe
 Decided 2026-10-13: Claude Desktop stays on `mcp-remote` (D3); user to team through IdP role or group (D5); no per-user
 budgets (D6). Which personal servers and which IdP are unknown and form the start condition at the top.
 
-- Q1. Retention of `UserRef` in usage rows, and who may look up usage by user (gateway admins only, as proposed)?
-- Q2. Should SSO users reach the LLM endpoints directly (`UserAuth:Endpoints` beyond MCP), or only through applications with
-  delegating keys?
+Also decided 2026-10-13: `UserRef` kept 90 days, lookup by gateway admins only with an audited reason (D14); LLM
+endpoints key-only by default, users reach them through applications with delegating keys (D11). No product-owner
+questions remain open; the municipality's records retention decision must still confirm the 90-day clearing.
 
 ### Open technical questions (unverified)
 
