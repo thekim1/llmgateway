@@ -328,35 +328,15 @@ public sealed partial class GatewayRequestHandler
                     turnBody["tool_choice"] = auto;
                 }
 
-                var (result, lastFailure) = await SendTurnAsync(turnState, snapshot,
-                    loop.Turns == 0 ? candidates : [candidates.First(c => c.ModelDeployment!.Id == state.Deployment!.Id)], turnBody, null, ct);
+                var (result, lastFailure) = await SendTurnAsync(turnState, snapshot, TurnCandidates(loop, candidates), turnBody, null, ct);
                 var deployment = turnState.Deployment!;
                 if (result is not ProviderJsonResult json)
                 {
-                    if (loop.Turns == 0)
+                    if (await AnswerFailedTurnAsync(http, loop, turnState, snapshot, candidates.Count, route.ModelName, result, lastFailure, ct))
                     {
-                        if (result is ProviderFailure clientError)
-                        {
-                            SetRoutingHeaders(http, deployment, turnState.Fallbacks);
-                            http.Response.StatusCode = clientError.StatusCode;
-                            http.Response.ContentType = clientError.ContentType ?? "application/json";
-                            if (clientError.Body is not null)
-                            {
-                                await http.Response.WriteAsync(clientError.Body, ct);
-                            }
-
-                            await AccountAsync(turnState, deployment, default, clientError.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
-                            return;
-                        }
-
-                        await RejectAllFailedAsync(http, turnState, candidates.Count, route.ModelName, lastFailure);
                         return;
                     }
 
-                    (result as IDisposable)?.Dispose();
-                    var failure = result as ProviderFailure ?? lastFailure;
-                    await AccountAsync(turnState, deployment, default, failure?.StatusCode ?? 502, RequestOutcome.ProviderError,
-                        result is ProviderFailure ? GatewayErrorCodes.ProviderRejected : GatewayErrorCodes.AllProvidersFailed, snapshot);
                     stopReason = "provider_error";
                     stopOverride = "pause_turn";
                     break;
@@ -479,26 +459,14 @@ public sealed partial class GatewayRequestHandler
                         .Where(b => Str(b["type"]) == "tool_use" && results.ContainsKey(Str(b["id"]) ?? string.Empty))
                         .Select(b => (JsonNode)results[Str(b["id"])!].ForModel)]),
                 });
-                turnState = new RequestState(NewRequestId(), GatewayEndpoint.AnthropicMessages, time.GetTimestamp())
-                {
-                    Key = key, RequestedModel = state.RequestedModel, ParentRequestId = state.RequestId, Deployment = state.Deployment,
-                };
+                turnState = NextTurnState(loop, GatewayEndpoint.AnthropicMessages);
             }
         }
         catch (Exception ex) when (turnState != state || state.Accounted)
         {
-            if (!turnState.Accounted && turnState.Reservation is not null)
+            if (!await AnswerLoopFailureAsync(http, state, turnState, snapshot, ex, GatewayEndpoint.AnthropicMessages, ct))
             {
-                if (!await AccountUnexpectedAsync(http, turnState, snapshot, ex))
-                {
-                    throw;
-                }
-            }
-            else if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-            {
-                LogUnexpectedFailure(logger, ex, state.RequestId);
-                await GatewayErrors.WriteAsync(http, GatewayEndpoint.AnthropicMessages, 500, GatewayErrorCodes.InternalError,
-                    "Ett internt fel uppstod i gatewayen. Försök igen; om felet kvarstår, kontakta förvaltningen och ange request-id.", options.CurrentValue.DocsUrl);
+                throw;
             }
 
             return;

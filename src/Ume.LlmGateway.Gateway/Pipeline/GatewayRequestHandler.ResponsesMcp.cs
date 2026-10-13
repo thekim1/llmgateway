@@ -538,36 +538,17 @@ public sealed partial class GatewayRequestHandler
                     turnBody["tool_choice"] = "auto";
                 }
 
-                var (result, lastFailure) = await KeepingAlive(SendTurnAsync(turnState, snapshot,
-                    loop.Turns == 0 ? candidates : [candidates.First(c => c.ModelDeployment!.Id == state.Deployment!.Id)], turnBody, mcp, ct));
+                var (result, lastFailure) = await KeepingAlive(SendTurnAsync(turnState, snapshot, TurnCandidates(loop, candidates), turnBody, mcp, ct));
                 var deployment = turnState.Deployment!;
                 var turnStart = loop.Output.Count;
                 var deferred = new HashSet<string>(StringComparer.Ordinal);
                 if (result is not (ProviderJsonResult or ProviderStreamResult))
                 {
-                    if (loop.Turns == 0)
+                    if (await AnswerFailedTurnAsync(http, loop, turnState, snapshot, candidates.Count, route.ModelName, result, lastFailure, ct))
                     {
-                        if (result is ProviderFailure clientError)
-                        {
-                            SetRoutingHeaders(http, deployment, turnState.Fallbacks);
-                            http.Response.StatusCode = clientError.StatusCode;
-                            http.Response.ContentType = clientError.ContentType ?? "application/json";
-                            if (clientError.Body is not null)
-                            {
-                                await http.Response.WriteAsync(clientError.Body, ct);
-                            }
-
-                            await AccountAsync(turnState, deployment, default, clientError.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
-                            return;
-                        }
-
-                        await RejectAllFailedAsync(http, turnState, candidates.Count, route.ModelName, lastFailure);
                         return;
                     }
 
-                    var failure = result as ProviderFailure ?? lastFailure;
-                    await AccountAsync(turnState, deployment, default, failure?.StatusCode ?? 502, RequestOutcome.ProviderError,
-                        result is ProviderFailure ? GatewayErrorCodes.ProviderRejected : GatewayErrorCodes.AllProvidersFailed, snapshot);
                     stopReason = "provider_error";
                     break;
                 }
@@ -701,32 +682,15 @@ public sealed partial class GatewayRequestHandler
                 }
 
                 pendingCalls = next;
-                turnState = new RequestState(NewRequestId(), GatewayEndpoint.Responses, time.GetTimestamp())
-                {
-                    Key = key, RequestedModel = state.RequestedModel, ParentRequestId = state.RequestId, Deployment = state.Deployment,
-                };
+                turnState = NextTurnState(loop, GatewayEndpoint.Responses);
             }
         }
         catch (Exception ex) when (turnState != state || state.Accounted)
         {
             // Turn 1 not accounted yet: HandleAsync accounts it. Otherwise the turn in flight is accounted here.
-            if (!turnState.Accounted && turnState.Reservation is not null)
+            if (!await AnswerLoopFailureAsync(http, state, turnState, snapshot, ex, GatewayEndpoint.Responses, ct))
             {
-                if (!await AccountUnexpectedAsync(http, turnState, snapshot, ex))
-                {
-                    throw;
-                }
-            }
-            else if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-            {
-                LogUnexpectedFailure(logger, ex, state.RequestId);
-                if (http.Response.HasStarted)
-                {
-                    throw;
-                }
-
-                await GatewayErrors.WriteAsync(http, GatewayEndpoint.Responses, 500, GatewayErrorCodes.InternalError,
-                    "Ett internt fel uppstod i gatewayen. Försök igen; om felet kvarstår, kontakta förvaltningen och ange request-id.", options.CurrentValue.DocsUrl);
+                throw;
             }
 
             return;
@@ -759,6 +723,78 @@ public sealed partial class GatewayRequestHandler
         var estimate = CostCalculator.Calculate(usage, deployment.PriceAt(time.GetUtcNow()), snapshot.SekPerUsd).Sek;
         var reservation = await budgets.ReserveAsync(BudgetService.ApplicableBudgets(snapshot, loop.First.Key!), estimate, ct);
         return reservation.Allowed ? reservation : null;
+    }
+
+    /// <summary>Turn 1 may fall back across the route; later turns stay on the deployment turn 1 used.</summary>
+    private static IReadOnlyList<RouteTarget> TurnCandidates(McpLoopCore loop, IReadOnlyList<RouteTarget> candidates) =>
+        loop.Turns == 0 ? candidates : [candidates.First(c => c.ModelDeployment!.Id == loop.First.Deployment!.Id)];
+
+    /// <summary>The usage record of the next turn: a child of the request, on the deployment turn 1 used.</summary>
+    private RequestState NextTurnState(McpLoopCore loop, GatewayEndpoint endpoint) => new(NewRequestId(), endpoint, time.GetTimestamp())
+    {
+        Key = loop.First.Key, RequestedModel = loop.First.RequestedModel, ParentRequestId = loop.First.RequestId, Deployment = loop.First.Deployment,
+    };
+
+    /// <summary>
+    /// A turn no provider answered. On turn 1 the client gets the provider's own error, or the gateway's when every
+    /// candidate failed (true: answered). A later turn is accounted as a provider error and the loop ends with what it has (false).
+    /// </summary>
+    private async Task<bool> AnswerFailedTurnAsync(HttpContext http, McpLoopCore loop, RequestState turnState, CatalogSnapshot snapshot, int candidateCount,
+        string modelName, ProviderResult? result, ProviderFailure? lastFailure, CancellationToken ct)
+    {
+        (result as IDisposable)?.Dispose();
+        var deployment = turnState.Deployment!;
+        if (loop.Turns == 0)
+        {
+            if (result is ProviderFailure clientError)
+            {
+                SetRoutingHeaders(http, deployment, turnState.Fallbacks);
+                http.Response.StatusCode = clientError.StatusCode;
+                http.Response.ContentType = clientError.ContentType ?? "application/json";
+                if (clientError.Body is not null)
+                {
+                    await http.Response.WriteAsync(clientError.Body, ct);
+                }
+
+                await AccountAsync(turnState, deployment, default, clientError.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
+                return true;
+            }
+
+            await RejectAllFailedAsync(http, turnState, candidateCount, modelName, lastFailure);
+            return true;
+        }
+
+        var failure = result as ProviderFailure ?? lastFailure;
+        await AccountAsync(turnState, deployment, default, failure?.StatusCode ?? 502, RequestOutcome.ProviderError,
+            result is ProviderFailure ? GatewayErrorCodes.ProviderRejected : GatewayErrorCodes.AllProvidersFailed, snapshot);
+        return false;
+    }
+
+    /// <summary>
+    /// An unexpected failure once the loop is past turn 1 or turn 1 is accounted: the turn in flight is accounted, otherwise
+    /// the client gets a 500 if nothing was sent yet. False: the caller rethrows.
+    /// </summary>
+    private async Task<bool> AnswerLoopFailureAsync(HttpContext http, RequestState state, RequestState turnState, CatalogSnapshot snapshot, Exception ex,
+        GatewayEndpoint endpoint, CancellationToken ct)
+    {
+        if (!turnState.Accounted && turnState.Reservation is not null)
+        {
+            return await AccountUnexpectedAsync(http, turnState, snapshot, ex);
+        }
+
+        if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            LogUnexpectedFailure(logger, ex, state.RequestId);
+            if (http.Response.HasStarted)
+            {
+                return false;
+            }
+
+            await GatewayErrors.WriteAsync(http, endpoint, 500, GatewayErrorCodes.InternalError,
+                "Ett internt fel uppstod i gatewayen. Försök igen; om felet kvarstår, kontakta förvaltningen och ange request-id.", options.CurrentValue.DocsUrl);
+        }
+
+        return true;
     }
 
     /// <summary>The limit that stops the loop before another turn; <c>budget_exceeded</c> when only the budget can still stop it.</summary>
