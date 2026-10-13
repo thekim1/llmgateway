@@ -162,12 +162,14 @@ is audited (entity types `McpServer`, `McpTool`, `McpGrants`) and makes the gate
     cookies and HTTP/MCP protocol headers are refused.
   - `credential`: `{ headers: { name: value } }` for `StaticHeaders` (1–20 headers; HTTP/MCP protocol headers such as `Host` or
     `Mcp-Session-Id` refused) or `{ tokenUrl, clientId, clientSecret, scope? }` for `OAuthClientCredentials` (the token URL follows
-    the URL rules). Omitted = keep the stored one (only for the same `authType`; a new auth type needs a credential → 400);
-    `authType: "None"` removes it. Stored encrypted like provider credentials; never returned or audited.
+    the URL rules). Omitted = keep the stored one, only for the same `authType` and a `url` with the same scheme, host and
+    port (another auth type or host needs a credential → 400, in tests too, so a stored secret never reaches a host its author did
+    not choose); `authType: "None"` removes it. Stored encrypted like provider credentials; never returned or audited (the update's
+    audit entry has `credentialReplaced: true` when one was given).
   - A department admin must set `ownerDepartmentId` to one of their departments (403 without, 400 for another department).
 - `DELETE /api/mcp/servers/{id}` → 204 (its tools and every key's grant on it go too)
 - `POST /api/mcp/servers/test` (body as for create) and `POST /api/mcp/servers/{id}/test` (optional body: the stored server with
-  these changes; omitted credential = the stored one) → `{ succeeded, error|null, httpStatus|null, capabilities, instructions, tools: [{ name,
+  these changes; omitted credential = the stored one, under the same rule as an update) → `{ succeeded, error|null, httpStatus|null, capabilities, instructions, tools: [{ name,
   title, description, exposedName }], warnings: string[] }`. Connects with the gateway's MCP client and lists the tools; nothing is saved.
 - `POST /api/mcp/servers/{id}/sync` → `{ status, lastCheckedAt, lastError, added, changed, reverted, updated, removed, errors }` (tool
   names). Reads the server's tools now (see *Tool sync* in [mcp.md](mcp.md)); 409 while another sync runs. Always audited (`sync`).

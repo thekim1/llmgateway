@@ -92,12 +92,22 @@ const ownerOptions = computed(() => [
   ...departments.items.map((d) => ({ value: d.id, label: d.name })),
 ])
 
-/** The stored credential stays unless the auth type changes or the admin chooses to replace it. */
-const storedCredentialUsable = computed(() => !!props.server?.hasCredential && props.server.authType === authType.value)
+function origin(value: string): string | null {
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
+  }
+}
+/** The API keeps a stored credential only for the same scheme, host and port, so it is never sent to a host its author did not choose. */
+const urlMoved = computed(() => !!props.server && origin(props.server.url) !== origin(url.value))
+/** The stored credential stays unless the auth type or the URL's host changes, or the admin chooses to replace it. */
+const storedCredentialUsable = computed(() => !!props.server?.hasCredential && props.server.authType === authType.value && !urlMoved.value)
 const credentialInputs = computed(() => authType.value !== 'None' && (!storedCredentialUsable.value || replaceCredential.value))
 const credentialState = computed(() => {
   if (authType.value === 'None') return props.server?.hasCredential ? 'Saving removes the stored credential.' : 'The server is called without credentials.'
   if (storedCredentialUsable.value) return 'Set. It is stored encrypted and never shown again.'
+  if (props.server?.hasCredential && props.server.authType === authType.value) return 'The stored credential is not sent to a new host. Enter credentials for this address.'
   if (props.server?.hasCredential) return 'Not set for this authentication type. Enter new credentials.'
   return 'Not set. Credentials are write-only: they are stored encrypted and never shown again.'
 })

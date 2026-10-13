@@ -263,6 +263,40 @@ public sealed class McpAdminTests(AdminFixture fixture)
             (await AdminFixture.ReadAsync(keep))["hasCredential"]!.GetValue<bool>().ShouldBeTrue();
         }
 
+        body["credential"] = new JsonObject { ["headers"] = new JsonObject { ["X-Api-Key"] = "s3cret-value-456" } };
+        using (var replace = await client.PutAsJsonAsync($"/api/mcp/servers/{id}", body, Ct))
+        {
+            await AdminFixture.ReadAsync(replace);
+        }
+
+        using (var audit = await client.GetAsync("/api/audit?entityType=McpServer&pageSize=200", Ct))
+        {
+            var entry = (await AdminFixture.ReadAsync(audit))["items"]!.AsArray().First(e => e!["entityId"]!.GetValue<string>() == id.ToString())!;
+            var details = JsonNode.Parse(entry["details"]!.GetValue<string>())!;
+            details["before"]!["credentialReplaced"]!.GetValue<bool>().ShouldBeFalse();
+            details["after"]!["credentialReplaced"]!.GetValue<bool>().ShouldBeTrue();
+        }
+
+        body.Remove("credential");
+        body["url"] = "https://mcp.public.test/other-path";
+        using (var samePlace = await client.PutAsJsonAsync($"/api/mcp/servers/{id}", body, Ct))
+        {
+            (await AdminFixture.ReadAsync(samePlace))["hasCredential"]!.GetValue<bool>().ShouldBeTrue();
+        }
+
+        // The stored secret never goes to a host the person who entered it did not choose, not even in an unsaved test.
+        var moved = body.DeepClone().AsObject();
+        moved["url"] = "https://elsewhere.public.test/mcp";
+        using (var test = await client.PostAsJsonAsync($"/api/mcp/servers/{id}/test", moved, Ct))
+        {
+            (await AdminFixture.ReadAsync(test, HttpStatusCode.BadRequest))["errors"]!.AsObject().ContainsKey("credential").ShouldBeTrue();
+        }
+
+        using (var update = await client.PutAsJsonAsync($"/api/mcp/servers/{id}", moved, Ct))
+        {
+            (await AdminFixture.ReadAsync(update, HttpStatusCode.BadRequest))["errors"]!.AsObject().ContainsKey("credential").ShouldBeTrue();
+        }
+
         body["authType"] = "OAuthClientCredentials";
         using (var switched = await client.PutAsJsonAsync($"/api/mcp/servers/{id}", body, Ct))
         {

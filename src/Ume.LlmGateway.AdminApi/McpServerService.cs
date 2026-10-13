@@ -191,7 +191,8 @@ public sealed class McpServerService(AdminContext ctx, CredentialProtector prote
         await CheckAddressesAsync(user, input, s, ct);
         var before = McpServerAudit.Of(s);
         Apply(s, input, credentialRequired: true);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.McpServer, id, before, McpServerAudit.Of(s), InvalidationKind.Config, ct);
+        var after = McpServerAudit.Of(s) with { CredentialReplaced = input.Credential is not null && s.EncryptedCredential is not null };
+        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.McpServer, id, before, after, InvalidationKind.Config, ct);
         return await GetAsync(user, id, ct);
     }
 
@@ -205,7 +206,8 @@ public sealed class McpServerService(AdminContext ctx, CredentialProtector prote
 
     /// <summary>
     /// Copies the request onto the server. The credential is replaced when one is given and dropped when the server needs
-    /// none; otherwise the stored one is kept if it is for the same auth type. A new slug renames the server's tools on <c>/mcp</c>.
+    /// none; otherwise the stored one is kept if it is for the same auth type and the URL keeps its scheme, host and port, so
+    /// a stored secret is never sent to a host the person who entered it did not choose. A new slug renames the server's tools on <c>/mcp</c>.
     /// </summary>
     public void Apply(McpServer s, McpServerRequest input, bool credentialRequired)
     {
@@ -227,7 +229,7 @@ public sealed class McpServerService(AdminContext ctx, CredentialProtector prote
 
             s.EncryptedCredential = protector.Protect(plaintext);
         }
-        else if (s.AuthType != input.AuthType || s.EncryptedCredential is null)
+        else if (s.AuthType != input.AuthType || s.EncryptedCredential is null || !SameOrigin(s.Url, input.Url))
         {
             if (credentialRequired)
             {
@@ -250,6 +252,10 @@ public sealed class McpServerService(AdminContext ctx, CredentialProtector prote
         s.ForwardHeaders = [.. input.ForwardHeaders ?? []]; s.TimeoutSeconds = input.TimeoutSeconds; s.MaxResultBytes = input.MaxResultBytes;
         s.AutoApproveNewTools = input.AutoApproveNewTools;
     }
+
+    private static bool SameOrigin(string stored, string requested) =>
+        Uri.TryCreate(stored, UriKind.Absolute, out var a) && Uri.TryCreate(requested, UriKind.Absolute, out var b)
+        && Uri.Compare(a, b, UriComponents.SchemeAndServer, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
     /// <summary>The server's decrypted credential; a credential that cannot be read gives null.</summary>
     public McpUpstreamAuth? Auth(McpServer s)

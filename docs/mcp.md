@@ -142,7 +142,8 @@ In the admin UI:
 
 1. **Register:** *Routing > MCP servers > New MCP server*. Enter a short name (checked as you type), the URL, residency,
    owner and authentication. Credentials are write-only: the form shows only whether one is set, and offers *Replace the
-   stored credential*; choosing another authentication type needs new credentials, and *None* removes the stored one.
+   stored credential*; choosing another authentication type or moving the URL to another host needs new credentials, and
+   *None* removes the stored one.
    *Test connection* connects with the values in the form (saved or not) and lists the tools. Leave *Approve new tools
    automatically* off unless the server is a trusted internal one; the form explains why.
 2. **Sync:** after *Create server* the drawer shows the *Tools* tab; *Sync now* reads the tools and reports what changed.

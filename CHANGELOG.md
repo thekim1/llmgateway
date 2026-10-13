@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixed: a stored MCP credential is never sent to another host.** Changing an MCP server's URL to another scheme, host or
+port (update, *Test connection* or config import) now needs the credential again; before, the stored headers or a fresh
+OAuth token went to the new address, and an unsaved test left no audit entry. The admin UI asks for credentials when the
+host changes, and the update's audit entry records `credentialReplaced` when the credential was replaced.
+
 **Fixed: MCP connections ignore `HTTPS_PROXY`.** The MCP and token HTTP clients used a proxy from the environment, and
 through a proxy the address guard checked the proxy's address instead of the MCP server's, so forbidden addresses could be
 reached. They now always connect directly.

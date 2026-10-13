@@ -103,6 +103,20 @@ describe('McpServerDrawer', () => {
     expect(update.mock.calls[1]![1]).toMatchObject({ authType: 'StaticHeaders', credential: { headers: { 'X-Api-Key': 's3cret' } } })
   })
 
+  it('needs new credentials when the URL moves to another host, but not for another path', async () => {
+    const wrapper = mountDrawer(stored)
+    await settings(wrapper)
+    await wrapper.find('#mcp-url').setValue('https://diarium.example/v2/mcp')
+    expect(wrapper.find('[data-testid=credential-state]').text()).toContain('Set.')
+
+    await wrapper.find('#mcp-url').setValue('https://elsewhere.example/mcp')
+    expect(wrapper.find('[data-testid=credential-state]').text()).toContain('not sent to a new host')
+    expect(wrapper.findAll('#mcp-credential input').length).toBeGreaterThan(0)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('needs new credentials when the auth type changes, and refuses protocol headers', async () => {
     const wrapper = mountDrawer(stored)
     await settings(wrapper)

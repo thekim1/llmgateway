@@ -168,7 +168,8 @@ public sealed record AlertAudit(bool Acknowledged);
 
 public sealed record McpServerAudit(
     Guid Id, string Slug, string DisplayName, string? Description, string Url, DataResidency Residency, bool IsEnabled, Guid? OwnerDepartmentId,
-    McpAuthType AuthType, bool HasCredential, IReadOnlyList<string> ForwardHeaders, int TimeoutSeconds, int MaxResultBytes, bool AutoApproveNewTools)
+    McpAuthType AuthType, bool HasCredential, IReadOnlyList<string> ForwardHeaders, int TimeoutSeconds, int MaxResultBytes, bool AutoApproveNewTools,
+    bool CredentialReplaced = false)
 {
     public static McpServerAudit Of(McpServer s) => new(
         s.Id, s.Slug, s.DisplayName, s.Description, s.Url, s.Residency, s.IsEnabled, s.OwnerDepartmentId, s.AuthType,
