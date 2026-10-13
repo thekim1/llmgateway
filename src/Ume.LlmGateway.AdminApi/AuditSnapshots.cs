@@ -176,6 +176,9 @@ public sealed record McpServerAudit(
         !string.IsNullOrEmpty(s.EncryptedCredential), [.. s.ForwardHeaders], s.TimeoutSeconds, s.MaxResultBytes, s.AutoApproveNewTools);
 }
 
+/// <summary>A deleted server with the tools that went with it.</summary>
+public sealed record McpServerDeletedAudit(McpServerAudit Server, IReadOnlyList<McpToolAudit> Tools);
+
 /// <summary>A tool's approval: <c>ApprovedDefinition</c> is the definition clients see, so the log shows exactly what was approved.</summary>
 public sealed record McpToolAudit(
     Guid Id, Guid ServerId, string Name, string ExposedName, McpToolApprovalState ApprovalState, string DefinitionHash, JsonNode? ApprovedDefinition, decimal? PriceSek)

@@ -167,7 +167,8 @@ is audited (entity types `McpServer`, `McpTool`, `McpGrants`) and makes the gate
     not choose); `authType: "None"` removes it. Stored encrypted like provider credentials; never returned or audited (the update's
     audit entry has `credentialReplaced: true` when one was given).
   - A department admin must set `ownerDepartmentId` to one of their departments (403 without, 400 for another department).
-- `DELETE /api/mcp/servers/{id}` → 204 (its tools and every key's grant on it go too)
+- `DELETE /api/mcp/servers/{id}` → 204 (its tools and every key's grant on it go too; the server's audit entry holds its
+  tools, and each key that loses a grant gets a `McpGrants` `delete` entry)
 - `POST /api/mcp/servers/test` (body as for create) and `POST /api/mcp/servers/{id}/test` (optional body: the stored server with
   these changes; omitted credential = the stored one, under the same rule as an update) → `{ succeeded, error|null, httpStatus|null, capabilities, instructions, tools: [{ name,
   title, description, exposedName }], warnings: string[] }`. Connects with the gateway's MCP client and lists the tools; nothing is saved.

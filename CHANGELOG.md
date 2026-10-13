@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Fixed: deleting an MCP server records what went with it.** The tools and keys' grants removed with a server were
+deleted without a trace in the audit log. The server's `delete` entry now holds its tools (with their approved
+definitions and prices), and every key that lost a grant gets its own `McpGrants` `delete` entry.
+
 **Fixed: later turns of an MCP tool loop that are cancelled or cut off are accounted with their input.** A turn after the
 first that the client cancelled, or whose stream broke before the provider reported usage, was recorded with 0 input
 tokens, so the budget and the token rate limit missed the whole replayed conversation. Such a turn is now accounted with

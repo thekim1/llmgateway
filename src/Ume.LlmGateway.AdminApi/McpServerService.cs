@@ -196,12 +196,22 @@ public sealed class McpServerService(AdminContext ctx, CredentialProtector prote
         return await GetAsync(user, id, ct);
     }
 
-    /// <summary>Deletes the server with its tools and every key's grant on it.</summary>
+    /// <summary>
+    /// Deletes the server with its tools and every key's grant on it. The database removes those by cascade, so the audit
+    /// log gets them here: the tools with the server, and one grant entry per key that loses access.
+    /// </summary>
     public async Task DeleteAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
     {
-        var s = await ManageableAsync(user, id, ct);
+        var s = await ManageableAsync(user, id, ct, withTools: true);
+        var grants = await ctx.Db.VirtualKeyMcpGrants.AsNoTracking().Where(g => g.McpServerId == id).OrderBy(g => g.VirtualKeyId).ToListAsync(ct);
+        foreach (var grant in grants)
+        {
+            ctx.StageAudit(user, AuditActions.Delete, AuditEntities.McpGrants, grant.VirtualKeyId, new[] { McpGrantAudit.Of(grant) }, Array.Empty<McpGrantAudit>());
+        }
+
+        var before = new McpServerDeletedAudit(McpServerAudit.Of(s), [.. s.Tools.OrderBy(t => t.Name, StringComparer.Ordinal).Select(McpToolAudit.Of)]);
         ctx.Db.McpServers.Remove(s);
-        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.McpServer, id, McpServerAudit.Of(s), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.McpServer, id, before, null, InvalidationKind.Config, ct);
     }
 
     /// <summary>

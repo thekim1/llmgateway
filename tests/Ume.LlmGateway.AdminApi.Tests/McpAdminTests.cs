@@ -548,6 +548,43 @@ public sealed class McpAdminTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Deleting_a_server_audits_its_tools_and_every_grant_it_removes()
+    {
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        var slug = NewSlug();
+        fixture.Mcp.SetTools(slug, McpTestServer.Tool("search"));
+        var server = Id(await CreateAsync(admin, Server(slug)));
+        _ = await SyncAsync(admin, server);
+        using var keyResponse = await admin.PostAsJsonAsync("/api/keys", KeyBody(own.Team, 5), Ct);
+        var keyId = Id((await AdminFixture.ReadAsync(keyResponse, HttpStatusCode.Created))["key"]!);
+        using (var put = await admin.PutAsJsonAsync($"/api/keys/{keyId}/mcp-grants", new object[] { new { serverId = server, allowedTools = new[] { "search" } } }, Ct))
+        {
+            put.EnsureSuccessStatusCode();
+        }
+
+        using (var delete = await admin.DeleteAsync($"/api/mcp/servers/{server}", Ct))
+        {
+            delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        }
+
+        async Task<JsonNode> LatestAsync(string entityType, Guid entityId)
+        {
+            using var audit = await admin.GetAsync($"/api/audit?entityType={entityType}&pageSize=200", Ct);
+            var entry = (await AdminFixture.ReadAsync(audit))["items"]!.AsArray().First(e => e!["entityId"]!.GetValue<string>() == entityId.ToString())!;
+            entry["action"]!.GetValue<string>().ShouldBe("delete");
+            return JsonNode.Parse(entry["details"]!.GetValue<string>())!;
+        }
+
+        var serverEntry = await LatestAsync("McpServer", server);
+        serverEntry["before"]!["server"]!["slug"]!.GetValue<string>().ShouldBe(slug);
+        serverEntry["before"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).ShouldBe(["search"]);
+        var grantEntry = await LatestAsync("McpGrants", keyId);
+        grantEntry["before"]![0]!["serverId"]!.GetValue<Guid>().ShouldBe(server);
+        grantEntry["after"]!.AsArray().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task One_sync_runs_at_a_time()
     {
         using var client = await fixture.ClientAsync();
