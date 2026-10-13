@@ -7,7 +7,7 @@ exchange flavour (D8) step B builds first, and whether it also needs the other. 
 today, so the plan stays IdP-agnostic like the admin side (`Oidc`: Entra ID, Keycloak, AD FS). Where a step depends on the
 IdP, it says so.
 
-MCP v1 (ADR 017, [docs/mcp.md](docs/mcp.md)) authenticates clients with a team-owned virtual key and authenticates to each
+MCP v1 (ADR 017, [mcp.md](mcp.md)) authenticates clients with a team-owned virtual key and authenticates to each
 upstream MCP server with one shared credential per server (`McpAuthType`: `None`, `StaticHeaders`,
 `OAuthClientCredentials`; `src/Ume.LlmGateway.Infrastructure/Mcp/McpUpstreamAuth.cs`). Upstream servers never learn who the
 user is, so personal tools ("my mail", "my cases", "my calendar") cannot be offered. This plan adds per-user authorization in

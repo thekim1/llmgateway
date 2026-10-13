@@ -27,7 +27,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
    - try Claude Code, VS Code and Claude Desktop (via `mcp-remote`) against `/mcp` by hand;
    - run the Python examples in [docs/mcp.md](docs/mcp.md), which have not been run.
    Later MCP work (streaming on `/v1/messages`, `mcp_tool_listing` blocks, inbound OAuth and the rest) is listed in *Known limitations and later work* there.
-   **MCP v2, per-user authorization** (IdP sign-in on `/mcp`, token exchange per upstream): plan in [261013_llmgateway_mcp_auth.md](261013_llmgateway_mcp_auth.md), not started; it starts when the first personal MCP server is identified; product-owner questions are answered (the 90-day `UserRef` clearing still needs the records retention decision).
+   **MCP v2, per-user authorization** (IdP sign-in on `/mcp`, token exchange per upstream): plan in [docs/mcp-v2-plan.md](docs/mcp-v2-plan.md), not started; it starts when the first personal MCP server is identified; product-owner questions are answered (the 90-day `UserRef` clearing still needs the records retention decision).
 1. **Screen reader pass: not planned.** Decided 2026-10-10: there are no resources for manual testing with NVDA or VoiceOver. The automated axe,
    focus, heading and name checks remain the evidence. `docs/accessibility-statement.md` keeps saying that no screen reader has been run; an adopter
    who needs that evidence (for example before public use) has to arrange it. Untested areas most likely to need it: `<datalist>` model-name inputs, the

@@ -651,7 +651,7 @@ Decisions that shape the feature, and what is not done. None of it is a bug; eac
 **Not supported yet**
 
 - Inbound OAuth 2.1 (clients use a virtual key as a static header; Claude Desktop needs `mcp-remote`), per-user upstream
-  credentials and token exchange. Planned for v2 in [261013_llmgateway_mcp_auth.md](../261013_llmgateway_mcp_auth.md).
+  credentials and token exchange. Planned for v2 in [mcp-v2-plan.md](mcp-v2-plan.md).
 - `completion/complete`, resource subscriptions (`resources/updated`), noticing changes a server makes to its own prompt and
   resource lists, announcing circuit changes, and syncing on an upstream `notifications/tools/list_changed` (the periodic and
   on-demand syncs cover it).
