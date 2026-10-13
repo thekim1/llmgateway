@@ -795,6 +795,15 @@ public sealed class McpAdminTests(AdminFixture fixture)
         search["priceSek"]!.GetValue<decimal>().ShouldBe(1.5m);
         search["exposedName"]!.GetValue<string>().ShouldBe(slug + "__search");
 
+        // The import is audited per server and tool, with the approved definition, not only as counts.
+        using (var audit = await client.GetAsync("/api/audit?pageSize=200", Ct))
+        {
+            var imports = (await AdminFixture.ReadAsync(audit))["items"]!.AsArray().Where(e => e!["action"]!.GetValue<string>() == "import").ToList();
+            imports.ShouldContain(e => e!["entityType"]!.GetValue<string>() == "McpServer" && e["entityId"]!.GetValue<string>() == id.ToString());
+            var tool = imports.Single(e => e!["entityType"]!.GetValue<string>() == "McpTool" && e["entityId"]!.GetValue<string>() == search["id"]!.GetValue<string>())!;
+            JsonNode.Parse(tool["details"]!.GetValue<string>())!["after"]!["approvedDefinition"]!["description"]!.GetValue<string>().ShouldBe("Söker ärenden.");
+        }
+
         var reference = "UME_MCP_TEST_" + Guid.NewGuid().ToString("N").ToUpperInvariant();
         Environment.SetEnvironmentVariable(reference, """{"X-Api-Key":"from-environment"}""");
         try

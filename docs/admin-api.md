@@ -322,7 +322,8 @@ and invalidate the gateway catalogue.
 - `POST /api/ops/cache/invalidate-keys` → 204 (audited as `invalidate` on `Keys`; the cache invalidations that
   ordinary changes publish are not audited separately)
 - `GET /api/ops/config/export` → JSON document (providers and MCP servers without credentials, models, prices, routes, global routing rules, MCP tool approvals)
-- `POST /api/ops/config/import` (same JSON) → `{ created, updated, skipped }`
+- `POST /api/ops/config/import` (same JSON) → `{ created, updated, skipped }`. Audited as one `import`/`Config` entry with the
+  counts, and one `import` entry per MCP server and per MCP tool it changes (before and after, as when changed by hand).
 - Config schema: `{ schemaVersion: 1, providers: [{ configuration: ProviderRequest (without credential),
   credentialEnvironment?: "UME_PROVIDER_..." }], models: [{ providerName, configuration: ModelRequest,
   prices: Price[] }], routes: [{ name, description, kind, isEnabled,

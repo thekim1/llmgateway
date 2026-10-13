@@ -227,6 +227,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
     /// MCP servers by slug, and their tools' approvals by name. An approved tool the server has not offered here yet is
     /// created with the approved definition (the next sync compares it with what the server offers); a rejected one that
     /// does not exist here is skipped. A server's credential comes from <c>credentialEnvironment</c> or stays as it is.
+    /// Every server and every tool it changes gets its own <c>import</c> audit entry, like the same change made by hand.
     /// </summary>
     private async Task<(int Created, int Updated, int Skipped)> ImportMcpAsync(IReadOnlyList<ConfigMcpServer> input, ClaimsPrincipal user, CancellationToken ct)
     {
@@ -243,6 +244,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             var config = item.Configuration with { OwnerDepartmentId = owner };
             var server = await ctx.Db.McpServers.Include(s => s.Tools).SingleOrDefaultAsync(s => s.Slug == config.Slug, ct);
             await mcp.CheckAddressesAsync(user, config, server, ct);
+            var serverBefore = server is null ? null : McpServerAudit.Of(server);
             if (server is null)
             {
                 server = new McpServer { Slug = config.Slug, DisplayName = config.DisplayName, Url = config.Url, CreatedAt = ctx.Now };
@@ -259,14 +261,19 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 server.EncryptedCredential = config.AuthType == McpAuthType.None ? null : protector.Protect(secret);
             }
 
+            ctx.StageAudit(user, AuditActions.Import, AuditEntities.McpServer, server.Id, serverBefore,
+                McpServerAudit.Of(server) with { CredentialReplaced = item.CredentialEnvironment is not null && server.EncryptedCredential is not null });
+
             foreach (var tool in item.Tools ?? [])
             {
                 var existing = server.Tools.SingleOrDefault(t => t.Name == tool.Name);
+                var toolBefore = existing is null ? null : McpToolAudit.Of(existing);
                 if (tool.ApprovalState == McpToolApprovalState.Rejected)
                 {
                     if (existing is null) { skipped++; continue; }
                     existing.ApprovalState = McpToolApprovalState.Rejected;
                     existing.ApprovedDefinition = null; existing.ApprovedAt = null; existing.ApprovedBy = null; existing.PriceSek = tool.PriceSek;
+                    ctx.StageAudit(user, AuditActions.Import, AuditEntities.McpTool, existing.Id, toolBefore, McpToolAudit.Of(existing));
                     updated++;
                     continue;
                 }
@@ -292,6 +299,8 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 {
                     existing.ApprovalState = McpToolApprovalState.Changed;
                 }
+
+                ctx.StageAudit(user, AuditActions.Import, AuditEntities.McpTool, existing.Id, toolBefore, McpToolAudit.Of(existing));
             }
         }
 

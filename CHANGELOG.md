@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixed: config import audits each MCP server and tool it changes.** An import that approved or rejected MCP tools,
+changed their prices, or changed servers (URL, owner, credential from `credentialEnvironment`, automatic approval) left
+only one entry with counts. Each server and tool now gets an `import` audit entry with before and after; a tool's entry
+holds the approved definition.
+
 **Fixed: deleting an MCP server records what went with it.** The tools and keys' grants removed with a server were
 deleted without a trace in the audit log. The server's `delete` entry now holds its tools (with their approved
 definitions and prices), and every key that lost a grant gets its own `McpGrants` `delete` entry.
