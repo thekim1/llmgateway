@@ -435,11 +435,19 @@ public sealed partial class GatewayRequestHandler
             }
         }
 
-        // Single use: whoever takes the state first continues; a concurrent copy of the request finds nothing.
+        // Single use: whoever takes the state first continues; a concurrent copy of the request finds nothing. A stored loop
+        // and a replayed history share the approval records, so an approval used on one path is gone on the other.
         var taken = mcp.PendingId is null || await mcpStates.GetPendingAsync(key.Id, mcp.PendingId, take: true, ct) is not null;
         foreach (var approvalId in mcp.ApprovalIds)
         {
-            taken &= await mcpStates.GetApprovalAsync(key.Id, approvalId, take: true, ct) is not null || mcp.PendingId is not null;
+            if (await mcpStates.GetApprovalAsync(key.Id, approvalId, take: true, ct) is not { } approval)
+            {
+                taken = false;
+            }
+            else if (approval.PendingId is { } replayedPending && replayedPending != mcp.PendingId)
+            {
+                await mcpStates.GetPendingAsync(key.Id, replayedPending, take: true, ct);
+            }
         }
 
         if (!taken)

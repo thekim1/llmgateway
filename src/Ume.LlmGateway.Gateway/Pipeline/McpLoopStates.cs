@@ -50,6 +50,8 @@ public sealed class McpLoopStates(IMcpLoopStore store, IDataProtectionProvider p
         {
             var record = Write(call);
             record["parent"] = parentRequestId;
+            // A replayed approval also ends the stored loop it belongs to, so the call cannot run again from there.
+            record["pending"] = pending is null ? null : pendingId;
             values.Add((McpLoopRecord.Approval, call.ApprovalId!, Protect(keyId, record)));
         }
 
@@ -67,11 +69,11 @@ public sealed class McpLoopStates(IMcpLoopStore store, IDataProtectionProvider p
             [.. json["calls"]!.AsArray().Select(c => Read(c!.AsObject()))]);
     }
 
-    /// <summary>An approval request's call and the request it belongs to.</summary>
-    internal async Task<(McpLoopCall Call, string ParentRequestId)?> GetApprovalAsync(Guid keyId, string id, bool take, CancellationToken ct)
+    /// <summary>An approval request's call, the request it belongs to and the stored loop (with <c>store</c> on) that also owes it.</summary>
+    internal async Task<(McpLoopCall Call, string ParentRequestId, string? PendingId)?> GetApprovalAsync(Guid keyId, string id, bool take, CancellationToken ct)
     {
         return Unprotect(keyId, take ? await store.TakeAsync(keyId, McpLoopRecord.Approval, id, ct) : await store.GetAsync(keyId, McpLoopRecord.Approval, id, ct)) is { } json
-            ? (Read(json), json["parent"]!.GetValue<string>())
+            ? (Read(json), json["parent"]!.GetValue<string>(), json["pending"]?.GetValue<string>())
             : null;
     }
 

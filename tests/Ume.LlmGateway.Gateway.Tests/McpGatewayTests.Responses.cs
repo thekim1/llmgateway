@@ -376,6 +376,36 @@ public sealed partial class McpGatewayTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_approval_runs_its_call_once_whether_the_history_is_replayed_or_the_stored_response_continued(bool replayFirst)
+    {
+        var (key, server, provider) = await LoopSetupAsync(McpApprovalPolicy.Always);
+        var prompt = $$"""[[call:{{server.Slug}}__echo_args {"e":"5"}]]""";
+        var (_, first) = await RespondAsync(key, Request(provider + "/chat", prompt, HostedMcp(server)));
+        first!["id"]!.GetValue<string>().ShouldStartWith("resp_ume_");
+        var request = Item(first, "mcp_approval_request");
+        JsonObject Approve() => new() { ["type"] = "mcp_approval_response", ["approval_request_id"] = request["id"]!.GetValue<string>(), ["approve"] = true };
+
+        var replay = new JsonObject
+        {
+            ["model"] = provider + "/chat", ["tools"] = new JsonArray(HostedMcp(server)),
+            ["input"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = prompt }, Item(first, "mcp_list_tools").DeepClone(), request.DeepClone(), Approve()),
+        };
+        var continuation = new JsonObject
+        {
+            ["model"] = provider + "/chat", ["previous_response_id"] = first["id"]!.GetValue<string>(),
+            ["tools"] = new JsonArray(HostedMcp(server)), ["input"] = new JsonArray(Approve()),
+        };
+
+        var (used, _) = await RespondAsync(key, replayFirst ? replay : continuation);
+        used.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var (again, _) = await RespondAsync(key, replayFirst ? continuation : replay);
+        again.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        _upstream.For(server.Slug).Count(r => r.Method == "tools/call").ShouldBe(1);
+    }
+
     [Fact]
     public async Task A_replayed_approval_is_checked_against_the_stored_call_used_once_and_bound_to_the_key()
     {

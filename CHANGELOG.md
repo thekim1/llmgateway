@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Fixed: an approved MCP call could run twice on `/v1/responses`.** With `store` on, an approval answered in a replayed
+history left the stored `resp_ume_` response in place, and continuing that response with the same approval ran the call
+again. An approval is now used once on either path, and the other path answers 404.
+
 **Fixed: personal data in MCP progress messages and lists.** Progress notifications were relayed without the PII guard,
 and the items of `resources/list`, `resources/templates/list` and `prompts/list` were forwarded unscanned. Their text now
 follows the key's PII policy: *Redact* redacts it; under *Block* a progress notification keeps only its numbers and a list

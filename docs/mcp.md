@@ -533,7 +533,9 @@ approval policy `Always`, or `NeverForReadOnly` for a tool without `readOnlyHint
 `mcp_approval_request` (`id` `mcpr_…`, `server_label`, `name`, `arguments`) per call that needs it, and the turn's other MCP
 calls as `mcp_call` with `status: "calling"`. The gateway keeps the stopped calls, with their arguments, encrypted with Data
 Protection in Redis (`ume:mcp:approval:{key}:{id}`, and `ume:mcp:pending:{key}:{id}` for a `resp_ume_` response) for
-`Gateway:Mcp:Loop:ApprovalTtlMinutes` (60): the state is bound to the key, used once, and holds no tool result.
+`Gateway:Mcp:Loop:ApprovalTtlMinutes` (60): the state is bound to the key, used once, and holds no tool result. An approval
+is used once across both ways of continuing: answering it in a replayed history also ends the `resp_ume_` response that owes
+the call, and continuing that response needs every approval it owes still unused (404 otherwise).
 
 **Continuing.** Either way, the answered calls run first (approved ones with exactly the arguments the model produced, denied
 ones answered "The user denied this tool call." with the `reason`), then the loop goes on:
