@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -68,8 +69,14 @@ public sealed partial class GatewayRequestHandler
         for (var i = start; i < servers.Count; i++)
         {
             var server = servers[i];
-            var page = await ListPageAsync(response.Http, snapshot, server, list.Method, i == start ? upstreamCursor : null, ct);
-            if (page is null)
+            var listed = await ListPageAsync(response.Http, snapshot, key, server, list.Method, i == start ? upstreamCursor : null, ct);
+            if (listed.RetryAfter is { } wait)
+            {
+                await McpRateLimitedAsync(response, id, wait);
+                return;
+            }
+
+            if (listed.Result is not { } page)
             {
                 continue;
             }
@@ -151,9 +158,19 @@ public sealed partial class GatewayRequestHandler
         return item;
     }
 
-    /// <summary>One page of a server's list; null when the server failed (logged, counted against its circuit).</summary>
-    private async Task<JsonObject?> ListPageAsync(HttpContext http, CatalogSnapshot snapshot, McpServer server, string method, string? cursor, CancellationToken ct)
+    /// <summary>
+    /// One page of a server's list; no result when the server failed (logged, counted against its circuit). Every page is
+    /// a call to the server, so it counts against the key's <c>McpCallsPerMinute</c>; <c>RetryAfter</c> is set when that refused it.
+    /// </summary>
+    private async Task<McpListPage> ListPageAsync(HttpContext http, CatalogSnapshot snapshot, VirtualKey key, McpServer server, string method, string? cursor,
+        CancellationToken ct)
     {
+        var rate = await rateLimiter.AcquireMcpCallAsync(key.Id, key.McpCallsPerMinute, ct);
+        if (!rate.Allowed)
+        {
+            return new McpListPage(null, rate.RetryAfter);
+        }
+
         var parameters = new JsonObject();
         if (cursor is not null)
         {
@@ -163,7 +180,7 @@ public sealed partial class GatewayRequestHandler
         if (UpstreamCall(http, snapshot, server, method, parameters, mayRetry: true, forwardHeaders: false) is not { } call)
         {
             metrics.McpCall(server.Slug, method, "credential_unavailable", 0);
-            return null;
+            return default;
         }
 
         var started = time.GetTimestamp();
@@ -176,10 +193,20 @@ public sealed partial class GatewayRequestHandler
         if (!result.Succeeded)
         {
             LogMcpListServerSkipped(logger, RequestIdMiddleware.Get(http), server.Slug, method, result.Failure.ToString(), result.HttpStatus ?? 0);
-            return null;
+            return default;
         }
 
-        return result.Result as JsonObject;
+        return new McpListPage(result.Result as JsonObject, null);
+    }
+
+    private readonly record struct McpListPage(JsonObject? Result, TimeSpan? RetryAfter);
+
+    private static Task McpRateLimitedAsync(McpResponse response, JsonNode id, TimeSpan retryAfter)
+    {
+        var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+        response.SetHeader("Retry-After", seconds.ToString(CultureInfo.InvariantCulture));
+        return response.ErrorAsync(id, McpErrors.RateLimited, $"Gränsen för MCP-anrop per minut är nådd för nyckeln. Försök igen om {seconds} s.",
+            new JsonObject { ["code"] = GatewayErrorCodes.RateLimited, ["retryAfterSeconds"] = seconds });
     }
 
     private async Task ReadResourceAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
@@ -224,7 +251,19 @@ public sealed partial class GatewayRequestHandler
         state.McpServerId = server?.Id;
         var denial = server is null || name is null ? (McpDenial?)null
             : McpAccess.CheckPrompts(key, server, snapshot.McpGrants(key.Id).GetValueOrDefault(server.Id), await IsMcpCircuitOpenAsync(server.Id, ct));
-        var original = denial == McpDenial.None ? only is not null ? name : await PromptNameAsync(response.Http, snapshot, server!, name!, ct) : null;
+        string? original = null;
+        if (denial == McpDenial.None)
+        {
+            var (found, retryAfter) = only is not null ? (name, null) : await PromptNameAsync(response.Http, snapshot, key, server!, name!, ct);
+            if (retryAfter is { } wait)
+            {
+                await McpRateLimitedAsync(response, id, wait);
+                return;
+            }
+
+            original = found;
+        }
+
         if (server is null || original is null || denial != McpDenial.None)
         {
             LogMcpDenied(state, state.McpTool ?? "-", denial, server);
@@ -251,20 +290,25 @@ public sealed partial class GatewayRequestHandler
         await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, state.Key!.PiiPolicy, ct), ct);
     }
 
-    /// <summary>The server's name of an exposed prompt name: from aggregated lists seen before, else by searching its list.</summary>
-    private async Task<string?> PromptNameAsync(HttpContext http, CatalogSnapshot snapshot, McpServer server, string exposed, CancellationToken ct)
+    /// <summary>
+    /// The server's name of an exposed prompt name: from aggregated lists seen before, else by searching its list (each page
+    /// counts against the key's MCP call limit; <c>RetryAfter</c> is set when the limit stopped the search).
+    /// </summary>
+    private async Task<(string? Name, TimeSpan? RetryAfter)> PromptNameAsync(HttpContext http, CatalogSnapshot snapshot, VirtualKey key, McpServer server,
+        string exposed, CancellationToken ct)
     {
         if (_mcpPromptNames.TryGetValue((server.Id, exposed), out var known))
         {
-            return known;
+            return (known, null);
         }
 
         string? cursor = null;
         for (var page = 0; page < McpPromptLookupPages; page++)
         {
-            if (await ListPageAsync(http, snapshot, server, McpList.Prompts.Method, cursor, ct) is not { } result)
+            var listed = await ListPageAsync(http, snapshot, key, server, McpList.Prompts.Method, cursor, ct);
+            if (listed.Result is not { } result)
             {
-                return null;
+                return (null, listed.RetryAfter);
             }
 
             foreach (var prompt in result["prompts"] as JsonArray ?? [])
@@ -272,18 +316,18 @@ public sealed partial class GatewayRequestHandler
                 if (prompt?["name"] is JsonValue name && name.TryGetValue<string>(out var original) && McpToolNames.Exposed(server.Slug, original) == exposed)
                 {
                     _mcpPromptNames[(server.Id, exposed)] = original;
-                    return original;
+                    return (original, null);
                 }
             }
 
             cursor = result["nextCursor"] is JsonValue n && n.TryGetValue<string>(out var next) ? next : null;
             if (cursor is null)
             {
-                return null;
+                return (null, null);
             }
         }
 
-        return null;
+        return (null, null);
     }
 
     /// <summary>Servers on which the key may use resources (or prompts), in slug order, without those whose circuit is open.</summary>

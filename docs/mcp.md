@@ -80,7 +80,8 @@ one, with the reason in `gateway.mcp.tool_denied` (`resources_not_granted`, `pro
   aggregated cursor is opaque and names the server and that server's own cursor. A server that fails is left out of that
   page so the others still answer: the gateway logs a warning (`MCP server <slug> left out of <method> (<failure>, HTTP
   <status>)`, no content), counts it in `ume.gateway.mcp.calls` with the failure as `outcome`, and counts it against the
-  server's circuit. On `/mcp/{slug}` cursors pass through unchanged. Item names, titles and descriptions (resource names are
+  server's circuit. Each page asked of a server counts as one call against the key's `McpCallsPerMinute`; when the limit
+  is reached the list answers `-32000` with `Retry-After`. On `/mcp/{slug}` cursors pass through unchanged. Item names, titles and descriptions (resource names are
   often file names) follow the key's PII policy: *Redact* redacts them, and *Block* leaves the item out of the page. URIs,
   URI templates and prompt and argument names are not scanned, since the client sends them back.
 - **`resources/read`** and **`prompts/get`** go through the steps of a tool call: rate limit, PII guard, accounting (no

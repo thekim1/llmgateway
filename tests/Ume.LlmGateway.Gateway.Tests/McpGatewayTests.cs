@@ -379,6 +379,23 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
     }
 
     [Fact]
+    public async Task List_pages_and_prompt_name_lookups_count_against_the_mcp_call_rate_limit()
+    {
+        var (key, server) = await DocumentServerAsync(k => k.McpCallsPerMinute = 1);
+        (await RpcAsync(key, "resources/list")).Body!["result"].ShouldNotBeNull();
+
+        var (response, limited) = await RpcAsync(key, "resources/list");
+        limited!["error"]!["code"]!.GetValue<int>().ShouldBe(-32000);
+        limited["error"]!["data"]!["retryAfterSeconds"]!.GetValue<int>().ShouldBeGreaterThan(0);
+        response.Headers.RetryAfter.ShouldNotBeNull();
+
+        // Not "Unknown prompt": finding the server's name for it needs a list page, which the limit refused.
+        var (_, prompt) = await RpcAsync(key, "prompts/get", new JsonObject { ["name"] = $"{server.Slug}__nothing_like_it" });
+        prompt!["error"]!["code"]!.GetValue<int>().ShouldBe(-32000);
+        _upstream.For(server.Slug).Count(r => r.Method is "resources/list" or "prompts/list").ShouldBe(1);
+    }
+
+    [Fact]
     public async Task A_read_only_tool_is_retried_after_a_server_error_and_a_destructive_one_is_not()
     {
         var (key, server) = await GrantedServerAsync();

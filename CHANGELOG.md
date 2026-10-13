@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixed: MCP lists count against the key's MCP call limit.** `resources/list`, `resources/templates/list` and
+`prompts/list` pages, and the list pages `prompts/get` reads to find a prompt's name, were sent upstream without counting
+against `McpCallsPerMinute`, so a key could send servers any number of requests. Each page now counts as one call, and a
+refused page answers `-32000` with `Retry-After`.
+
 **Fixed: MCP list requests no longer forward caller headers.** A server's `ForwardHeaders` were also sent with
 `resources/list`, `resources/templates/list` and `prompts/list` pages, so an aggregated list on `/mcp` sent them to every
 granted server the caller had not aimed at. They now go only with `tools/call`, `resources/read` and `prompts/get`.
