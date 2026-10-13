@@ -505,6 +505,24 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
     }
 
     [Fact]
+    public async Task Forwarded_headers_go_with_a_read_but_not_with_list_pages()
+    {
+        var key = await fixture.CreateKeyAsync();
+        var server = await AddServerAsync(s => s.ForwardHeaders = ["X-Caller-Tag"], ("lookup.case", McpToolApprovalState.Approved, LookupDefinition));
+        await GrantAsync(key, server, ["*"], resources: true, prompts: true);
+        var tag = new Dictionary<string, string> { ["X-Caller-Tag"] = "mine" };
+
+        await RpcAsync(key, "resources/list", headers: tag);
+        await RpcAsync(key, "prompts/list", headers: tag);
+        await RpcAsync(key, "resources/read", new JsonObject { ["uri"] = $"mcp+ume://{server.Slug}/file:///notes/c.txt" }, headers: tag);
+
+        var requests = _upstream.For(server.Slug);
+        requests.Where(r => r.Method is "resources/list" or "prompts/list").ShouldNotBeEmpty();
+        requests.Where(r => r.Method is "resources/list" or "prompts/list").ShouldAllBe(r => !r.Headers.ContainsKey("X-Caller-Tag"));
+        requests.Single(r => r.Method == "resources/read").Headers["X-Caller-Tag"].ShouldBe("mine");
+    }
+
+    [Fact]
     public async Task Concurrent_callers_each_forward_only_their_own_headers()
     {
         var (key, server) = await GrantedServerAsync(server: s => s.ForwardHeaders = ["X-Caller-Tag"]);

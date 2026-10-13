@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Fixed: MCP list requests no longer forward caller headers.** A server's `ForwardHeaders` were also sent with
+`resources/list`, `resources/templates/list` and `prompts/list` pages, so an aggregated list on `/mcp` sent them to every
+granted server the caller had not aimed at. They now go only with `tools/call`, `resources/read` and `prompts/get`.
+
 **Fixed: an MCP result withheld by the PII policy is not charged.** When *Block* refused a tool result, the call was still
 charged the tool's price, although the client never got the result and the docs say failures cost nothing.
 

@@ -160,7 +160,7 @@ public sealed partial class GatewayRequestHandler
             parameters["cursor"] = cursor;
         }
 
-        if (UpstreamCall(http, snapshot, server, method, parameters, mayRetry: true) is not { } call)
+        if (UpstreamCall(http, snapshot, server, method, parameters, mayRetry: true, forwardHeaders: false) is not { } call)
         {
             metrics.McpCall(server.Slug, method, "credential_unavailable", 0);
             return null;

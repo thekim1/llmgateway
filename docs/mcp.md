@@ -224,7 +224,7 @@ such names should be under municipal DNS control.
 | `Url` | The server's Streamable HTTP endpoint. Production allows only `https`, like providers. |
 | `Residency`, `IsEnabled`, `OwnerDepartmentId` | As for providers. |
 | `AuthType`, `EncryptedCredential` | `None`; `StaticHeaders` (credential: a JSON object of header names and values, e.g. `{"X-Api-Key":"…"}`); or `OAuthClientCredentials` (credential: `{"tokenUrl","clientId","clientSecret","scope"}`; the token is fetched with HTTP Basic client authentication and cached until a minute before it expires). Encrypted with Data Protection like provider credentials. |
-| `ForwardHeaders` | Caller headers sent on to the server, by exact name. `Authorization`, `x-api-key`, `api-key`, cookies and MCP/HTTP protocol headers are never forwarded. A forwarded header goes only with that caller's own `tools/call`, never with requests the gateway's client sends on its own. |
+| `ForwardHeaders` | Caller headers sent on to the server, by exact name. `Authorization`, `x-api-key`, `api-key`, cookies and MCP/HTTP protocol headers are never forwarded. A forwarded header goes only with that caller's own `tools/call`, `resources/read` or `prompts/get`, never with list pages (an aggregated list asks every granted server) or requests the gateway's client sends on its own. |
 | `TimeoutSeconds`, `MaxResultBytes` | Per call (default 30 s and 1 MiB). |
 
 Legacy SSE servers and stdio servers are not supported directly; run them behind a bridge (see *Stdio servers*).

@@ -443,8 +443,12 @@ public sealed partial class GatewayRequestHandler
     /// The upstream request for <paramref name="server"/>, with its credential and the caller headers its allow-list names.
     /// Null when the credential cannot be used (logged).
     /// </summary>
+    /// <summary>
+    /// The call to send upstream. Caller headers named in the server's <c>ForwardHeaders</c> go only with a call the caller
+    /// aimed at this server (<paramref name="forwardHeaders"/>), not with the list pages an aggregated list asks every server for.
+    /// </summary>
     private McpUpstreamCall? UpstreamCall(HttpContext http, CatalogSnapshot snapshot, McpServer server, string method, JsonObject parameters, bool mayRetry,
-        Func<JsonObject, ValueTask>? progress = null)
+        Func<JsonObject, ValueTask>? progress = null, bool forwardHeaders = true)
     {
         McpUpstreamAuth auth;
         try
@@ -458,7 +462,7 @@ public sealed partial class GatewayRequestHandler
         }
 
         var forwarded = new List<KeyValuePair<string, string>>();
-        foreach (var name in server.ForwardHeaders)
+        foreach (var name in forwardHeaders ? server.ForwardHeaders : [])
         {
             if (McpUpstream.IsForwardable(name) && http.Request.Headers.TryGetValue(name, out var value) && value.Count > 0)
             {
