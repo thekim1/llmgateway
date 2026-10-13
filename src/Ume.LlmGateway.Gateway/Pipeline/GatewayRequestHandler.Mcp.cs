@@ -414,7 +414,7 @@ public sealed partial class GatewayRequestHandler
                     var sent = await answer.ErrorAsync(McpErrors.PiiRefused,
                         $"Svaret från MCP-servern innehåller personuppgifter ({resultScan.Summary}) och nyckelns policy tillåter inte det.",
                         400, GatewayErrorCodes.PiiBlocked, new JsonObject { ["code"] = GatewayErrorCodes.PiiBlocked }, CancellationToken.None);
-                    await AccountAsync(state, null, default, sent, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, snapshot, cost);
+                    await AccountAsync(state, null, default, sent, RequestOutcome.PiiBlocked, GatewayErrorCodes.PiiBlocked, snapshot);
                     return;
                 }
 

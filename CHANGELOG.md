@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+**Fixed: an MCP result withheld by the PII policy is not charged.** When *Block* refused a tool result, the call was still
+charged the tool's price, although the client never got the result and the docs say failures cost nothing.
+
 **Fixed: an OAuth token endpoint outage no longer looks like the MCP servers failing.** When the token endpoint of an
 `OAuthClientCredentials` server failed or was unreachable, the error was treated as the MCP server's: it counted against
 the server's circuit (one identity provider outage could hide the tools of every OAuth server), was retried, and could

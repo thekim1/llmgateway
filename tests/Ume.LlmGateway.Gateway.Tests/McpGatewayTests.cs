@@ -340,16 +340,28 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
         var (redactKey, server) = await GrantedServerAsync(k => k.PiiPolicy = PiiPolicy.Redact);
         var blockKey = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.Block);
         await GrantAsync(blockKey, server, "*");
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            (await db.McpTools.SingleAsync(t => t.McpServerId == server.Id && t.Name == "contact", Ct)).PriceSek = 1.5m;
+            await db.SaveChangesAsync(Ct);
+        }
+
+        fixture.Services.GetRequiredService<Pipeline.GatewayCatalog>().Invalidate();
 
         var (redactResponse, redacted) = await CallAsync(redactKey, $"{server.Slug}__contact");
         redacted!["result"]!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("Ring [TELEFON]");
         redacted["result"]!["structuredContent"]!["phone"]!.GetValue<string>().ShouldBe("[TELEFON]");
-        (await fixture.UsageAsync(redactResponse)).PiiCategories.ShouldBe("Phone:2");
+        var redactUsage = await fixture.UsageAsync(redactResponse);
+        redactUsage.PiiCategories.ShouldBe("Phone:2");
+        redactUsage.CostSek.ShouldBe(1.5m);
 
         var (blockResponse, blocked) = await CallAsync(blockKey, $"{server.Slug}__contact");
         blocked!["error"]!["code"]!.GetValue<int>().ShouldBe(-32002);
         blocked.ToJsonString().ShouldNotContain("070");
-        (await fixture.UsageAsync(blockResponse)).Outcome.ShouldBe(RequestOutcome.PiiBlocked);
+        var blockUsage = await fixture.UsageAsync(blockResponse);
+        blockUsage.Outcome.ShouldBe(RequestOutcome.PiiBlocked);
+        blockUsage.CostSek.ShouldBe(0m);
         _upstream.For(server.Slug).Count(r => r.Tool == "contact").ShouldBe(2);
     }
 
