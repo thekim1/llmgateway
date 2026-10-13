@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixed: personal data in MCP progress messages and lists.** Progress notifications were relayed without the PII guard,
+and the items of `resources/list`, `resources/templates/list` and `prompts/list` were forwarded unscanned. Their text now
+follows the key's PII policy: *Redact* redacts it; under *Block* a progress notification keeps only its numbers and a list
+item with personal data is left out.
+
 **Fixed: a stored MCP credential is never sent to another host.** Changing an MCP server's URL to another scheme, host or
 port (update, *Test connection* or config import) now needs the credential again; before, the stored headers or a fresh
 OAuth token went to the new address, and an unsaved test left no audit entry. The admin UI asks for credentials when the

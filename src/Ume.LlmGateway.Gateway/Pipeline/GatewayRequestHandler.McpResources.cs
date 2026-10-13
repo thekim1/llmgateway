@@ -77,10 +77,20 @@ public sealed partial class GatewayRequestHandler
             var pageNext = page["nextCursor"] is JsonValue n && n.TryGetValue<string>(out var nextCursor) ? nextCursor : null;
             foreach (var item in page[list.Field] as JsonArray ?? [])
             {
-                if (item is JsonObject entry)
+                if (item is not JsonObject entry)
                 {
-                    items.Add(only is null ? Aggregate(entry.DeepClone().AsObject(), server, list) : entry.DeepClone());
+                    continue;
                 }
+
+                var copy = entry.DeepClone().AsObject();
+                // Names and descriptions (often file names) follow the key's PII policy; an item that would be blocked is left out.
+                if (key.PiiPolicy is PiiPolicy.Redact or PiiPolicy.Block
+                    && McpPii.ScanListItem(copy, list.IsPrompts, redact: key.PiiPolicy == PiiPolicy.Redact).HasPii && key.PiiPolicy == PiiPolicy.Block)
+                {
+                    continue;
+                }
+
+                items.Add(only is null ? Aggregate(copy, server, list) : copy);
             }
 
             if (only is not null)
@@ -200,7 +210,7 @@ public sealed partial class GatewayRequestHandler
         Action<JsonNode>? rewrite = only is null ? result => NamespaceContents(result, server.Slug) : null;
         var forward = new McpForward(server, "resources/read", new JsonObject { ["uri"] = original }, null, MayRetry: true, Price: 0m,
             McpResultKind.Resource, "resources/read", null, rewrite);
-        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, ct), ct);
+        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, state.Key!.PiiPolicy, ct), ct);
     }
 
     private async Task GetPromptAsync(McpResponse response, CatalogSnapshot snapshot, VirtualKey key, McpServer? only, JsonNode id, JsonObject? parameters, CancellationToken ct)
@@ -238,7 +248,7 @@ public sealed partial class GatewayRequestHandler
         var forward = new McpForward(server, "prompts/get", new JsonObject { ["name"] = original, ["arguments"] = args }, args, MayRetry: true, Price: 0m,
             McpResultKind.Prompt, "prompts/get " + original, original,
             only is null ? result => NamespaceBlockUris((result["messages"] as JsonArray ?? []).Select(m => m?["content"]), server.Slug) : null);
-        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, ct), ct);
+        await RunAccountedAsync(answer, state, snapshot, forward, ProgressRelay(response, parameters, state.Key!.PiiPolicy, ct), ct);
     }
 
     /// <summary>The server's name of an exposed prompt name: from aggregated lists seen before, else by searching its list.</summary>

@@ -80,7 +80,9 @@ one, with the reason in `gateway.mcp.tool_denied` (`resources_not_granted`, `pro
   aggregated cursor is opaque and names the server and that server's own cursor. A server that fails is left out of that
   page so the others still answer: the gateway logs a warning (`MCP server <slug> left out of <method> (<failure>, HTTP
   <status>)`, no content), counts it in `ume.gateway.mcp.calls` with the failure as `outcome`, and counts it against the
-  server's circuit. On `/mcp/{slug}` cursors pass through unchanged.
+  server's circuit. On `/mcp/{slug}` cursors pass through unchanged. Item names, titles and descriptions (resource names are
+  often file names) follow the key's PII policy: *Redact* redacts them, and *Block* leaves the item out of the page. URIs,
+  URI templates and prompt and argument names are not scanned, since the client sends them back.
 - **`resources/read`** and **`prompts/get`** go through the steps of a tool call: rate limit, PII guard, accounting (no
   price), circuit, size limit. The PII guard scans `prompts/get` arguments like tool arguments; the URI of a read is not
   scanned (redacting it would break the read). Results: the `text` of resource contents (not `blob`), and the description and
@@ -260,7 +262,8 @@ list and network. Each server gets its own containers: never put two servers, or
 A `tools/call`, `resources/read` or `prompts/get` with `_meta.progressToken` gets the server's progress notifications,
 with the client's token, on an SSE answer that ends with the result. The gateway asks the server with a token of its own,
 so callers never see each other's. Progress is best effort: a notification that the upstream client delivers after the
-result, or out of order, is dropped (progress must only increase).
+result, or out of order, is dropped (progress must only increase). The notification's text (`message`) follows the key's PII
+policy: *Redact* redacts it, and under *Block* only `progress` and `total` are relayed.
 
 Closing the request (the client's cancellation on Streamable HTTP) cancels the upstream request too; it is recorded with
 status 499. `notifications/cancelled` from a client is accepted and ignored: on HTTP the closed stream is what counts.

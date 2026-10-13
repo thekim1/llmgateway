@@ -341,6 +341,38 @@ public class McpDocumentPiiTests
         result!["messages"]![0]!["content"]!["text"]!.GetValue<string>().ShouldBe("Ring [TELEFON]");
         result["messages"]![1]!["content"]!["data"]!.GetValue<string>().ShouldBe("b@example.se");
     }
+
+    [Fact]
+    public void Progress_text_is_scanned_but_not_its_numbers_or_token()
+    {
+        var notification = JsonNode.Parse("""
+            {"progressToken":"a@example.se","progress":1,"total":2,"message":"Läser journal för a@example.se","_meta":{"x":"b@example.se"}}
+            """)!.AsObject();
+        var scan = McpPii.ScanProgress(notification, redact: true);
+
+        scan.Summary.ShouldBe("Email:1");
+        notification["message"]!.GetValue<string>().ShouldBe("Läser journal för [E-POST]");
+        notification["progressToken"]!.GetValue<string>().ShouldBe("a@example.se");
+    }
+
+    [Fact]
+    public void List_items_are_scanned_but_identifiers_clients_send_back_are_kept()
+    {
+        var resource = JsonNode.Parse("""
+            {"uri":"file:///a@example.se.txt","name":"Brev till a@example.se","description":"Från b@example.se","mimeType":"text/plain"}
+            """)!.AsObject();
+        McpPii.ScanListItem(resource, isPrompt: false, redact: true).Summary.ShouldBe("Email:2");
+        resource["uri"]!.GetValue<string>().ShouldBe("file:///a@example.se.txt");
+        resource["name"]!.GetValue<string>().ShouldBe("Brev till [E-POST]");
+
+        var prompt = JsonNode.Parse("""
+            {"name":"to_a@example.se","description":"Skriv till a@example.se","arguments":[{"name":"b@example.se","description":"c@example.se","required":true}]}
+            """)!.AsObject();
+        McpPii.ScanListItem(prompt, isPrompt: true, redact: true).Summary.ShouldBe("Email:2");
+        prompt["name"]!.GetValue<string>().ShouldBe("to_a@example.se");
+        prompt["arguments"]![0]!["name"]!.GetValue<string>().ShouldBe("b@example.se");
+        prompt["arguments"]![0]!["description"]!.GetValue<string>().ShouldBe("[E-POST]");
+    }
 }
 
 public class McpToolSyncTests

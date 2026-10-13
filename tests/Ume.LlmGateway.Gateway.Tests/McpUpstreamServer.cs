@@ -65,7 +65,7 @@ public sealed class McpUpstreamServer : IAsyncDisposable
                 ? new ListResourcesResult { Resources = [new Resource { Uri = "file:///notes/c.txt", Name = "c" }] }
                 : new ListResourcesResult
                 {
-                    Resources = [new Resource { Uri = "file:///notes/a.txt", Name = "a" }, new Resource { Uri = "file:///notes/b.bin", Name = "b" }],
+                    Resources = [new Resource { Uri = "file:///notes/a.txt", Name = "a", Description = "Anteckningar om anna.svensson@example.se" }, new Resource { Uri = "file:///notes/b.bin", Name = "b" }],
                     NextCursor = "page2",
                 }))
             .WithListResourceTemplatesHandler((_, _) => ValueTask.FromResult(new ListResourceTemplatesResult
@@ -137,7 +137,7 @@ public sealed class McpUpstreamServer : IAsyncDisposable
         var name = request.Params!.Name;
         if (name == "progress" && request.Params.ProgressToken is { } token)
         {
-            await request.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 1, Total = 2, Message = "Halvvägs" }, cancellationToken: cancellationToken);
+            await request.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 1, Total = 2, Message = "Halvvägs, frågar anna.svensson@example.se" }, cancellationToken: cancellationToken);
             await request.Server.NotifyProgressAsync(token, new ProgressNotificationValue { Progress = 2, Total = 2 }, cancellationToken: cancellationToken);
             // A long-running tool: the result comes a while after the last progress.
             await Task.Delay(300, cancellationToken);

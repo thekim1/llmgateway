@@ -192,7 +192,7 @@ public sealed partial class GatewayRequestHandler
         var name = parameters?["name"] is JsonValue n && n.TryGetValue<string>(out var given) ? given : null;
         var arguments = parameters?["arguments"];
         parameters?.Remove("arguments");
-        return CallToolAsync(new McpRpcAnswer(response, id), state, snapshot, only, name, arguments, ProgressRelay(response, parameters, ct), ct);
+        return CallToolAsync(new McpRpcAnswer(response, id), state, snapshot, only, name, arguments, ProgressRelay(response, parameters, state.Key!.PiiPolicy, ct), ct);
     }
 
     /// <summary>
@@ -469,9 +469,10 @@ public sealed partial class GatewayRequestHandler
 
     /// <summary>
     /// When the client asked for progress (<c>_meta.progressToken</c>), relays the server's progress notifications with the
-    /// client's token; the answer then becomes an SSE stream.
+    /// client's token; the answer then becomes an SSE stream. The key's PII policy applies to the notification's text: it is
+    /// redacted, or under Block only the progress numbers are relayed.
     /// </summary>
-    private static Func<JsonObject, ValueTask>? ProgressRelay(McpResponse response, JsonObject? requestParams, CancellationToken ct)
+    private static Func<JsonObject, ValueTask>? ProgressRelay(McpResponse response, JsonObject? requestParams, PiiPolicy policy, CancellationToken ct)
     {
         if (requestParams?["_meta"]?["progressToken"] is not JsonValue token
             || token.GetValueKind() is not (JsonValueKind.String or JsonValueKind.Number))
@@ -504,6 +505,18 @@ public sealed partial class GatewayRequestHandler
                     last = value;
                     notification["progressToken"] = callerToken.DeepClone();
                     notification.Remove("_meta");
+                    if (policy is PiiPolicy.Redact or PiiPolicy.Block
+                        && McpPii.ScanProgress(notification, redact: policy == PiiPolicy.Redact).HasPii && policy == PiiPolicy.Block)
+                    {
+                        var numbers = new JsonObject { ["progressToken"] = callerToken.DeepClone(), ["progress"] = value };
+                        if (notification["total"] is { } total)
+                        {
+                            numbers["total"] = total.DeepClone();
+                        }
+
+                        notification = numbers;
+                    }
+
                     await response.NotifyAsync("notifications/progress", notification, ct);
                 }
                 finally

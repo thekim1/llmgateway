@@ -617,6 +617,7 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
 
         var (_, first) = await RpcAsync(key, "resources/list");
         Names(first!, "resources", "uri").ShouldBe([prefix + "file:///notes/a.txt", prefix + "file:///notes/b.bin"]);
+        first!["result"]!["resources"]![0]!["description"]!.GetValue<string>().ShouldBe("Anteckningar om [E-POST]");
         var cursor = first!["result"]!["nextCursor"]!.GetValue<string>();
         var (_, second) = await RpcAsync(key, "resources/list", new JsonObject { ["cursor"] = cursor });
         Names(second!, "resources", "uri").ShouldBe([prefix + "file:///notes/c.txt"]);
@@ -741,6 +742,42 @@ public sealed partial class McpGatewayTests(GatewayFixture fixture) : IAsyncLife
         var (_, blocked) = await RpcAsync(blockKey, "prompts/get", new JsonObject { ["name"] = exposed, ["arguments"] = new JsonObject { ["number"] = "anna@example.se" } });
         blocked!["error"]!["code"]!.GetValue<int>().ShouldBe(-32002);
         _upstream.For(server.Slug).Count(r => r.Method == "prompts/get").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_listed_item_with_personal_data_is_left_out_for_a_blocking_key()
+    {
+        var (key, server) = await DocumentServerAsync(k => k.PiiPolicy = PiiPolicy.Block);
+        var (_, first) = await RpcAsync(key, "resources/list");
+        Names(first!, "resources", "uri").ShouldBe([$"mcp+ume://{server.Slug}/file:///notes/b.bin"]);
+    }
+
+    [Theory]
+    [InlineData(PiiPolicy.Redact, "Halvvägs, frågar [E-POST]")]
+    [InlineData(PiiPolicy.Block, null)]
+    public async Task Progress_messages_follow_the_keys_pii_policy(PiiPolicy policy, string? message)
+    {
+        var (key, server) = await DocumentServerAsync(k => k.PiiPolicy = policy);
+        var parameters = new JsonObject
+        {
+            ["name"] = $"{server.Slug}__progress", ["arguments"] = new JsonObject(), ["_meta"] = new JsonObject { ["progressToken"] = "t" },
+        };
+        var body = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 7, ["method"] = "tools/call", ["params"] = parameters };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp") { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        using var response = await fixture.Client.SendAsync(request, Ct);
+
+        var text = await response.Content.ReadAsStringAsync(Ct);
+        text.ShouldNotContain("anna.svensson");
+        // The relay may drop a notification that arrives out of order, so every one that did arrive is checked.
+        var progress = text.Split('\n').Where(l => l.StartsWith("data: ", StringComparison.Ordinal)).Select(l => JsonNode.Parse(l[6..])!)
+            .Where(e => e["method"]?.GetValue<string>() == "notifications/progress").Select(e => e["params"]!).ToList();
+        progress.ShouldNotBeEmpty();
+        progress.ShouldAllBe(p => p["total"]!.GetValue<double>() == 2);
+        foreach (var p in progress.Where(p => p["progress"]!.GetValue<double>() == 1))
+        {
+            p["message"]?.GetValue<string>().ShouldBe(message);
+        }
     }
 
     [Fact]
