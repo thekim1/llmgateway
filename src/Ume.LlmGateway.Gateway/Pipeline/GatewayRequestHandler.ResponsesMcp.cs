@@ -780,6 +780,12 @@ public sealed partial class GatewayRequestHandler
     {
         var stream = mcp?.Stream ?? false;
         ProviderFailure? lastFailure = null;
+        if (turn.EstimatedInputTokens == 0)
+        {
+            // Later turns: what a cancelled or broken turn is accounted with, like turn 1's estimate.
+            turn.EstimatedInputTokens = CostCalculator.EstimateInputTokens(System.Text.Encoding.UTF8.GetByteCount(body.ToJsonString()), default);
+        }
+
         for (var i = 0; i < candidates.Count; i++)
         {
             var deployment = candidates[i].ModelDeployment!;

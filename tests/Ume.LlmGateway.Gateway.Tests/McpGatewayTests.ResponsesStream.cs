@@ -235,6 +235,8 @@ public sealed partial class McpGatewayTests
         var usage = await UsageOfKeyAsync(key, turn == 1 ? 1 : 3);
         var outcomes = usage.Where(u => u.Endpoint == GatewayEndpoint.Responses).Select(u => u.Outcome).ToList();
         outcomes.ShouldBe(turn == 1 ? [RequestOutcome.ProviderError] : [RequestOutcome.Success, RequestOutcome.ProviderError], ignoreOrder: true);
+        // The provider read the whole request, so a broken turn is accounted with the estimated input, later turns too.
+        usage.Single(u => u.Endpoint == GatewayEndpoint.Responses && u.Outcome == RequestOutcome.ProviderError).InputTokens.ShouldBeGreaterThan(0);
     }
 
     [Fact]

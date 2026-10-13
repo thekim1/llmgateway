@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixed: later turns of an MCP tool loop that are cancelled or cut off are accounted with their input.** A turn after the
+first that the client cancelled, or whose stream broke before the provider reported usage, was recorded with 0 input
+tokens, so the budget and the token rate limit missed the whole replayed conversation. Such a turn is now accounted with
+an estimate from its request body, as the first turn already was.
+
 **Fixed: MCP lists count against the key's MCP call limit.** `resources/list`, `resources/templates/list` and
 `prompts/list` pages, and the list pages `prompts/get` reads to find a prompt's name, were sent upstream without counting
 against `McpCallsPerMinute`, so a key could send servers any number of requests. Each page now counts as one call, and a
