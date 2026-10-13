@@ -29,6 +29,7 @@ public sealed class UsageFact
     public Guid VirtualKeyId { get; init; }
     public required string RequestedModel { get; init; }
     public string? ProviderName { get; init; }
+    public GatewayEndpoint Endpoint { get; init; }
     public long Requests { get; init; }
     public long InputTokens { get; init; }
     public long OutputTokens { get; init; }
@@ -53,11 +54,11 @@ public static class ReportEndpoints
     public static void MapReports(this RouteGroupBuilder api)
     {
         var reports = api.MapGroup("").RequireAuthorization("read").WithTags("Reports");
-        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, string? traffic, int? page, int? pageSize, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var (skip, take) = Pagination(page, pageSize);
             var (start, end) = Range(from, to, ctx.Now);
-            var query = ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end);
+            var query = ByTraffic(ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end), traffic);
             if (keyId is { } key) { query = query.Where(u => u.VirtualKeyId == key); }
             if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
@@ -120,7 +121,12 @@ public static class ReportEndpoints
                     UsageGrouping.Team => names.GroupBy(u => new { Key = u.Fact.TeamId.ToString(), Label = u.TeamName }),
                     UsageGrouping.Key => names.GroupBy(u => new { Key = u.Fact.VirtualKeyId.ToString(), Label = u.KeyName }),
                     UsageGrouping.Model => names.GroupBy(u => new { Key = u.Fact.RequestedModel, Label = u.Fact.RequestedModel }),
-                    UsageGrouping.Provider => names.GroupBy(u => new { Key = u.Fact.ProviderName ?? "-", Label = u.Fact.ProviderName ?? "-" }),
+                    // MCP tool calls have no provider; they get their own row instead of joining refused requests under "-".
+                    UsageGrouping.Provider => names.GroupBy(u => new
+                    {
+                        Key = u.Fact.Endpoint == GatewayEndpoint.Mcp ? "(mcp)" : u.Fact.ProviderName ?? "-",
+                        Label = u.Fact.Endpoint == GatewayEndpoint.Mcp ? "MCP" : u.Fact.ProviderName ?? "-",
+                    }),
                     _ => throw new ArgumentOutOfRangeException(nameof(groupBy), grouping, "Unknown grouping."),
                 };
                 rows = await groups.Select(g => new UsageSummaryRow(g.Key.Key, g.Key.Label,
@@ -134,8 +140,8 @@ public static class ReportEndpoints
         reports.MapGet("/usage/metrics", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, Guid? departmentId, Guid? teamId, Guid? keyId, string? model, string? provider, RequestOutcome? outcome, GatewayEndpoint? endpoint, UsageMetricsService metrics, ClaimsPrincipal user, CancellationToken ct) =>
             TypedResults.Ok(await metrics.GetAsync(new UsageMetricsQuery(from, to, bucket, departmentId, teamId, keyId, model, provider, outcome, endpoint), user, ct)))
             .WithName("GetUsageMetrics").WithSummary("Dashboard figures per hour or day: requests by outcome, cost in USD, tokens, cache hits, latency, gateway overhead, time to first token and throughput");
-        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
+        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, string? traffic, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
+            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize, traffic), user, ct)))
             .WithName("ListPiiIncidents").WithSummary("Requests in which PII was detected, newest first, with counts per category and action");
         reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -217,7 +223,7 @@ public static class ReportEndpoints
     {
         var records = ctx.Usage(user).AsNoTracking().Where(u => u.Timestamp >= range.RecordsFrom && u.Timestamp < end).Select(u => new UsageFact
         {
-            DepartmentId = u.DepartmentId, TeamId = u.TeamId, VirtualKeyId = u.VirtualKeyId, RequestedModel = u.RequestedModel, ProviderName = u.ProviderName,
+            DepartmentId = u.DepartmentId, TeamId = u.TeamId, VirtualKeyId = u.VirtualKeyId, RequestedModel = u.RequestedModel, ProviderName = u.ProviderName, Endpoint = u.Endpoint,
             Requests = 1, InputTokens = u.InputTokens, OutputTokens = u.OutputTokens, CostSek = u.CostSek,
             Errors = u.Outcome != RequestOutcome.Success ? 1 : 0, Fallbacks = u.FallbackCount,
         });
@@ -228,7 +234,7 @@ public static class ReportEndpoints
 
         return records.Concat(ctx.UsageTotals(user).Where(t => t.MonthStart >= range.FirstMonth && t.MonthStart < until).Select(t => new UsageFact
         {
-            DepartmentId = t.DepartmentId, TeamId = t.TeamId, VirtualKeyId = t.VirtualKeyId, RequestedModel = t.RequestedModel, ProviderName = t.ProviderName,
+            DepartmentId = t.DepartmentId, TeamId = t.TeamId, VirtualKeyId = t.VirtualKeyId, RequestedModel = t.RequestedModel, ProviderName = t.ProviderName, Endpoint = t.Endpoint,
             Requests = t.Requests, InputTokens = t.InputTokens, OutputTokens = t.OutputTokens, CostSek = t.CostSek,
             Errors = t.Requests - t.SuccessfulRequests, Fallbacks = t.Fallbacks,
         }));
@@ -259,6 +265,15 @@ public static class ReportEndpoints
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
             u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs);
     }
+
+    /// <summary>The <c>traffic</c> filter: <c>mcp</c> (MCP calls) or <c>llm</c> (everything else), case-insensitive; null = all.</summary>
+    internal static IQueryable<UsageRecord> ByTraffic(IQueryable<UsageRecord> query, string? traffic) => traffic?.ToLowerInvariant() switch
+    {
+        null => query,
+        "mcp" => query.Where(u => u.Endpoint == GatewayEndpoint.Mcp || u.Endpoint == GatewayEndpoint.McpToolCall),
+        "llm" => query.Where(u => u.Endpoint != GatewayEndpoint.Mcp && u.Endpoint != GatewayEndpoint.McpToolCall),
+        _ => throw new ApiFaultException(400, "Trafiken måste vara llm eller mcp."),
+    };
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)
     {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { PII_CATEGORIES, type PiiAction, type PiiCategory } from '@/api/types'
+import { PII_CATEGORIES, type PiiAction, type PiiCategory, type UsageTraffic } from '@/api/types'
 import { useUsageStore } from '@/stores/usage'
 import { useDepartmentsStore } from '@/stores/departments'
 import { useTeamsStore } from '@/stores/teams'
@@ -31,6 +31,12 @@ const teamId = ref('')
 const keyId = ref('')
 const category = ref<PiiCategory | ''>('')
 const action = ref<PiiAction | ''>('')
+const traffic = ref<UsageTraffic | ''>('')
+const trafficOptions = [
+  { value: '', label: 'All requests' },
+  { value: 'llm', label: 'Model requests' },
+  { value: 'mcp', label: 'MCP tool calls' },
+]
 const from = ref(toIsoDate(new Date(Date.now() - 30 * 86_400_000)))
 const to = ref(todayIso())
 const page = ref(1)
@@ -86,6 +92,7 @@ async function load(): Promise<void> {
     ...(keyId.value && { keyId: keyId.value }),
     ...(category.value && { category: category.value }),
     ...(action.value && { action: action.value }),
+    ...(traffic.value && { traffic: traffic.value }),
     page: page.value,
     pageSize: PAGE_SIZE,
   })
@@ -139,6 +146,7 @@ onMounted(() => {
     <SelectField v-model="keyId" label="Key" :options="keyOptions" />
     <SelectField v-model="category" label="Category" :options="categoryOptions" />
     <SelectField v-model="action" label="Action" :options="actionOptions" />
+    <SelectField v-model="traffic" label="Requests" :options="trafficOptions" />
     <UiButton type="submit" variant="primary">Apply</UiButton>
   </form>
   <InlineError v-if="rangeError" :message="rangeError" class="mb-6" />

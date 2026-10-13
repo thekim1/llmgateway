@@ -72,10 +72,56 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
         var used = await redis.GetDatabase().StringGetAsync(RedisKeys.RateTokens(keyId, minute));
         return RateLimitWindow.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
     }
+
+    public async Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken)
+    {
+        if (callsPerMinute is not > 0)
+        {
+            return RateLimitDecision.Unlimited;
+        }
+
+        var (minute, retry) = RateLimitWindow.Current(time.GetUtcNow());
+        RedisKey key = RedisKeys.RateMcpCalls(keyId, minute);
+        var db = redis.GetDatabase();
+        var increment = db.StringIncrementAsync(key);
+        _ = db.KeyExpireAsync(key, RedisKeys.RateWindow, CommandFlags.FireAndForget); // pipelined after the INCR
+        var calls = await increment;
+        return calls > callsPerMinute
+            ? new RateLimitDecision(false, callsPerMinute, 0, retry, "mcp_calls")
+            : new RateLimitDecision(true, callsPerMinute, (int)(callsPerMinute.Value - calls), TimeSpan.Zero, null);
+    }
 }
 
 /// <summary>Open sessions per key as a sorted set of session id → expiry (ms). Expired members are dropped on open.</summary>
 public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, TimeProvider time) : IRealtimeSessionRegistry
+{
+    private readonly RedisSlots _slots = new(redis, time, RedisKeys.RealtimeSessions);
+
+    public Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.TryOpenAsync(keyId, sessionId, maxSessions, timeToLive);
+
+    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.RenewAsync(keyId, sessionId, timeToLive);
+
+    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, sessionId);
+}
+
+/// <summary>Open MCP <c>subscriptions/listen</c> streams per key, like <see cref="RedisRealtimeSessionRegistry"/>.</summary>
+public sealed class RedisMcpListenRegistry(IConnectionMultiplexer redis, TimeProvider time) : IMcpListenRegistry
+{
+    private readonly RedisSlots _slots = new(redis, time, RedisKeys.McpListenStreams);
+
+    public Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.TryOpenAsync(keyId, streamId, maxStreams, timeToLive);
+
+    public Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        _slots.RenewAsync(keyId, streamId, timeToLive);
+
+    public Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, streamId);
+}
+
+/// <summary>Slots per key in a sorted set of slot id → expiry (ms); a slot that is not renewed frees itself.</summary>
+internal sealed class RedisSlots(IConnectionMultiplexer redis, TimeProvider time, Func<Guid, string> key)
 {
     private const string OpenScript = """
         redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
@@ -92,24 +138,76 @@ public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, T
         return 1
         """;
 
-    public async Task<bool> TryOpenAsync(Guid keyId, string sessionId, int maxSessions, TimeSpan timeToLive, CancellationToken cancellationToken)
+    public async Task<bool> TryOpenAsync(Guid keyId, string slotId, int maxSlots, TimeSpan timeToLive)
     {
         var now = time.GetUtcNow().ToUnixTimeMilliseconds();
         var ttl = (long)timeToLive.TotalMilliseconds;
-        var result = await redis.GetDatabase().ScriptEvaluateAsync(OpenScript, [Key(keyId)], [now, now + ttl, maxSessions, sessionId, ttl]);
+        var result = await redis.GetDatabase().ScriptEvaluateAsync(OpenScript, [Key(keyId)], [now, now + ttl, maxSlots, slotId, ttl]);
         return (long)result == 1;
     }
 
-    public Task RenewAsync(Guid keyId, string sessionId, TimeSpan timeToLive, CancellationToken cancellationToken)
+    public Task RenewAsync(Guid keyId, string slotId, TimeSpan timeToLive)
     {
         var ttl = (long)timeToLive.TotalMilliseconds;
-        return redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [Key(keyId)], [time.GetUtcNow().ToUnixTimeMilliseconds() + ttl, sessionId, ttl]);
+        return redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [Key(keyId)], [time.GetUtcNow().ToUnixTimeMilliseconds() + ttl, slotId, ttl]);
     }
 
-    public Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken) =>
-        redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), sessionId);
+    public Task CloseAsync(Guid keyId, string slotId) => redis.GetDatabase().SortedSetRemoveAsync(Key(keyId), slotId);
 
-    private static RedisKey Key(Guid keyId) => RedisKeys.RealtimeSessions(keyId);
+    private RedisKey Key(Guid keyId) => key(keyId);
+}
+
+public sealed class RedisMcpSyncLock(IConnectionMultiplexer redis) : IMcpSyncLock
+{
+    private const string RenewScript = """
+        if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
+        return 0
+        """;
+
+    private const string ReleaseScript = """
+        if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+        return 0
+        """;
+
+    public async Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        return await redis.GetDatabase().StringSetAsync(RedisKeys.McpSyncLock, token, timeToLive, When.NotExists) ? token : null;
+    }
+
+    public async Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        (long)(await redis.GetDatabase().ScriptEvaluateAsync(RenewScript, [RedisKeys.McpSyncLock], [token, (long)timeToLive.TotalMilliseconds])) == 1;
+
+    public Task ReleaseAsync(string token, CancellationToken cancellationToken) =>
+        redis.GetDatabase().ScriptEvaluateAsync(ReleaseScript, [RedisKeys.McpSyncLock], [token]);
+}
+
+public sealed class RedisMcpLoopStore(IConnectionMultiplexer redis) : IMcpLoopStore
+{
+    private const string TakeScript = """
+        local value = redis.call('GET', KEYS[1])
+        if value then redis.call('DEL', KEYS[1]) end
+        return value
+        """;
+
+    public Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        var database = redis.GetDatabase();
+        return Task.WhenAll(values.Select(v => database.StringSetAsync(Key(keyId, v.Kind, v.Id), v.Value, timeToLive)));
+    }
+
+    public async Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
+        (byte[]?)await redis.GetDatabase().StringGetAsync(Key(keyId, kind, id));
+
+    public async Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken)
+    {
+        var value = await redis.GetDatabase().ScriptEvaluateAsync(TakeScript, [Key(keyId, kind, id)]);
+        return value.IsNull ? null : (byte[]?)value;
+    }
+
+    private static RedisKey Key(Guid keyId, McpLoopRecord kind, string id) =>
+        kind == McpLoopRecord.Pending ? RedisKeys.McpPending(keyId, id) : RedisKeys.McpApproval(keyId, id);
 }
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger

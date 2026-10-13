@@ -19,6 +19,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<RouteTarget> RouteTargets => Set<RouteTarget>();
     public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
     public DbSet<RoutingRuleTarget> RoutingRuleTargets => Set<RoutingRuleTarget>();
+    public DbSet<McpServer> McpServers => Set<McpServer>();
+    public DbSet<McpTool> McpTools => Set<McpTool>();
+    public DbSet<VirtualKeyMcpGrant> VirtualKeyMcpGrants => Set<VirtualKeyMcpGrant>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<GatewaySettings> Settings => Set<GatewaySettings>();
@@ -140,6 +143,47 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
 
         modelBuilder.Entity<RoutingRuleTarget>(e => e.Property(x => x.Model).HasMaxLength(200));
 
+        modelBuilder.Entity<McpServer>(e =>
+        {
+            e.Property(x => x.Slug).HasMaxLength(McpToolNames.MaxSlugLength);
+            e.Property(x => x.DisplayName).HasMaxLength(200);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.Url).HasMaxLength(500);
+            e.Property(x => x.Residency).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.AuthType).HasConversion<string>().HasMaxLength(30);
+            e.Property(x => x.EncryptedCredential).HasMaxLength(4000);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.LastError).HasMaxLength(1000);
+            e.Property(x => x.Instructions).HasMaxLength(McpServer.MaxInstructionsLength);
+            e.HasIndex(x => x.Slug).IsUnique();
+            e.HasMany(x => x.Tools).WithOne().HasForeignKey(x => x.McpServerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<McpTool>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(128);
+            e.Property(x => x.Title).HasMaxLength(200);
+            // The sync and approvals both change a tool; neither may overwrite the other's newer state.
+            e.Property(x => x.DefinitionHash).HasMaxLength(64).IsConcurrencyToken();
+            e.Property(x => x.Definition).HasColumnType("jsonb");
+            e.Property(x => x.ApprovedDefinition).HasColumnType("jsonb");
+            e.Property(x => x.ApprovalState).HasConversion<string>().HasMaxLength(20).IsConcurrencyToken();
+            e.Property(x => x.ExposedName).HasMaxLength(64);
+            e.Property(x => x.PriceSek).HasPrecision(18, 6);
+            e.Property(x => x.ApprovedBy).HasMaxLength(200);
+            e.HasIndex(x => new { x.McpServerId, x.Name }).IsUnique();
+            e.HasIndex(x => x.ExposedName).IsUnique();
+        });
+
+        modelBuilder.Entity<VirtualKeyMcpGrant>(e =>
+        {
+            e.Property(x => x.ApprovalPolicy).HasConversion<string>().HasMaxLength(20);
+            e.HasIndex(x => new { x.VirtualKeyId, x.McpServerId }).IsUnique();
+            e.HasIndex(x => x.McpServerId);
+            e.HasOne<VirtualKey>().WithMany().HasForeignKey(x => x.VirtualKeyId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<McpServer>().WithMany().HasForeignKey(x => x.McpServerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<Budget>(e =>
         {
             e.Property(x => x.LimitSek).HasPrecision(18, 2);
@@ -184,6 +228,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.PiiCategories).HasMaxLength(200);
             e.Property(x => x.ErrorCode).HasMaxLength(50);
             e.Property(x => x.RoutingRuleName).HasMaxLength(200);
+            e.Property(x => x.McpMethod).HasMaxLength(50);
+            e.Property(x => x.McpTool).HasMaxLength(128);
+            e.Property(x => x.ParentRequestId).HasMaxLength(64);
             e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");
             e.HasIndex(x => x.RequestId);
             e.HasIndex(x => x.Timestamp);
@@ -192,6 +239,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.HasIndex(x => new { x.DepartmentId, x.Timestamp });
             // PII incidents report: only the few requests in which PII was found.
             e.HasIndex(x => x.Timestamp, "IX_UsageRecords_Timestamp_Pii").HasFilter("\"PiiCategories\" IS NOT NULL");
+            e.HasIndex(x => new { x.McpServerId, x.Timestamp }).HasFilter("\"McpServerId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<UsageMonthlyTotal>(e =>

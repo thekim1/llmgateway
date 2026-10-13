@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { snippets } from './snippets'
+import { mcpSnippets, snippets } from './snippets'
 
 describe('snippets', () => {
   it('shows chat examples for chat aliases', () => {
@@ -44,5 +44,18 @@ describe('snippets', () => {
     expect(interpreting[0]?.code).toContain('ws://localhost:5140/v1/realtime/translations?model=ume%2Finterpret')
     expect(interpreting[0]?.code).toContain('session.input_audio_buffer.append')
     expect(interpreting[2]?.code).toContain('session.output_transcript.delta')
+  })
+})
+
+describe('mcpSnippets', () => {
+  it('configures Claude Code, VS Code and Claude Desktop for the aggregated /mcp', () => {
+    const [code, vscode, desktop] = mcpSnippets('https://gw.example/')
+    expect(code?.code).toBe('claude mcp add --transport http ume https://gw.example/mcp --header "Authorization: Bearer $UME_API_KEY"')
+    expect(JSON.parse(vscode!.code).servers.ume).toEqual({ type: 'http', url: 'https://gw.example/mcp', headers: { Authorization: 'Bearer ${input:ume-key}' } })
+    expect(JSON.parse(desktop!.code).mcpServers.ume.args).toEqual(['-y', 'mcp-remote', 'https://gw.example/mcp', '--header', 'Authorization:${UME_AUTH}'])
+  })
+
+  it('points at one server with its own tool names when a slug is given', () => {
+    expect(mcpSnippets('https://gw.example', 'case_files')[0]?.code).toContain('ume-case-files https://gw.example/mcp/case_files')
   })
 })

@@ -117,11 +117,13 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
             RedisKeys.RateRequests(id, 1), RedisKeys.RateTokens(id, 1), RedisKeys.RealtimeSessions(id), RedisKeys.CircuitOpen(id),
             RedisKeys.CircuitFailures(id), RedisKeys.Spend(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
             SpendCounter.KeyFor(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
+            RedisKeys.McpSyncLock, RedisKeys.RateMcpCalls(id, 1), RedisKeys.McpListenStreams(id),
         ];
         keys.ShouldAllBe(k => k.StartsWith("ume:", StringComparison.Ordinal));
         keys.Distinct().Count().ShouldBe(keys.Length - 1); // KeyFor is the spend key
         RedisKeys.InvalidateChannelName.ShouldBe("ume:invalidate");
         RedisKeys.InvalidateChannel.ToString().ShouldBe("ume:invalidate");
+        RedisKeys.McpEventsChannel.ToString().ShouldBe("ume:mcp:events");
     }
 
     [Fact]

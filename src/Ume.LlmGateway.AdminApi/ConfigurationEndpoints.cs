@@ -35,7 +35,7 @@ public sealed record ProviderRequest(
         }
     }
 
-    private static bool HasSecretParameter(string query) =>
+    internal static bool HasSecretParameter(string query) =>
         query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(p => Uri.UnescapeDataString(p.Split('=')[0]).ToLowerInvariant())
             .Any(name => name.Contains("key", StringComparison.Ordinal) || name.Contains("token", StringComparison.Ordinal) ||

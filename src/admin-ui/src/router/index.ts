@@ -32,6 +32,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/routes', name: 'routes', component: () => import('@/views/RoutesView.vue'), meta: { title: 'Routes', roles: GATEWAY_ADMIN } },
   { path: '/routing-rules', name: 'routing-rules', component: () => import('@/views/RoutingRulesView.vue'), meta: { title: 'Routing rules', roles: GATEWAY_ADMIN } },
   { path: '/providers', name: 'providers', component: () => import('@/views/ProvidersView.vue'), meta: { title: 'Providers & models', roles: GATEWAY_ADMIN } },
+  { path: '/mcp-servers', name: 'mcp-servers', component: () => import('@/views/McpServersView.vue'), meta: { title: 'MCP servers', roles: ADMIN_ROLES } },
   { path: '/budgets', name: 'budgets', component: () => import('@/views/BudgetsView.vue'), meta: { title: 'Budgets & alerts', roles: ADMIN_ROLES } },
   { path: '/audit', name: 'audit', component: () => import('@/views/AuditView.vue'), meta: { title: 'Audit log', roles: GATEWAY_ADMIN } },
   { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue'), meta: { title: 'Settings', roles: GATEWAY_ADMIN } },

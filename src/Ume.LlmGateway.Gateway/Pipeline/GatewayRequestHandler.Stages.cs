@@ -53,6 +53,11 @@ public sealed partial class GatewayRequestHandler
         if (status != 0)
         {
             authFailures.Record(reason, endpoint, key, http.Connection.RemoteIpAddress);
+            if (status == 401 && endpoint == GatewayEndpoint.Mcp)
+            {
+                http.Response.Headers.WWWAuthenticate = "Bearer";
+            }
+
             await GatewayErrors.WriteAsync(http, endpoint, status, code, message, docs);
             return null;
         }

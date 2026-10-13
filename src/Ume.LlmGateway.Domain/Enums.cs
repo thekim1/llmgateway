@@ -85,6 +85,12 @@ public enum GatewayEndpoint
 
     /// <summary><c>POST /v1/images/edits</c>: edits or combines uploaded images from a prompt (multipart upload).</summary>
     ImageEdits = 10,
+
+    /// <summary><c>/mcp</c> and <c>/mcp/{slug}</c>: the MCP gateway (Streamable HTTP). One usage record per call sent to an MCP server.</summary>
+    Mcp = 11,
+
+    /// <summary><c>POST /v1/mcp/tools/call</c>: one MCP tool call in an OpenAI, Responses or Anthropic tool-call format.</summary>
+    McpToolCall = 12,
 }
 
 public enum ModelKind
@@ -241,4 +247,57 @@ public enum AuthFailureReason
 
     /// <summary>The key is valid but restricted to other client addresses (<see cref="Entities.VirtualKey.AllowedIpRanges"/>).</summary>
     AddressNotAllowed = 6,
+}
+
+/// <summary>How the gateway authenticates to an MCP server. The caller's virtual key is never forwarded.</summary>
+public enum McpAuthType
+{
+    None = 0,
+
+    /// <summary>Fixed headers (for example an API key) from the server's encrypted credential.</summary>
+    StaticHeaders = 1,
+
+    /// <summary>An OAuth 2.0 client-credentials token, fetched with the server's encrypted credential and cached.</summary>
+    OAuthClientCredentials = 2,
+}
+
+public enum McpServerStatus
+{
+    Healthy = 0,
+    Degraded = 1,
+    Unavailable = 2,
+}
+
+/// <summary>What an MCP server offers, from its capabilities.</summary>
+[Flags]
+public enum McpServerCapabilities
+{
+    None = 0,
+    Tools = 1,
+    Resources = 2,
+    Prompts = 4,
+    Completions = 8,
+}
+
+/// <summary>Tool pinning: a tool reaches clients only after an admin approved its definition.</summary>
+public enum McpToolApprovalState
+{
+    /// <summary>Discovered but not approved yet; hidden.</summary>
+    Pending = 0,
+
+    Approved = 1,
+    Rejected = 2,
+
+    /// <summary>The upstream definition changed after approval; clients keep seeing the approved one until it is re-approved.</summary>
+    Changed = 3,
+}
+
+/// <summary>Whether a tool call the gateway makes inside an LLM request needs the caller's approval first.</summary>
+public enum McpApprovalPolicy
+{
+    Always = 0,
+    Never = 1,
+
+    /// <summary>Tools annotated <c>readOnlyHint: true</c> run without approval; all others need it.</summary>
+    NeverForReadOnly = 2,
 }

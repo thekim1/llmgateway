@@ -4,9 +4,13 @@
     <PackageReference Include="WireMock.Net" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Ume.LlmGateway.TestKit\Ume.LlmGateway.TestKit.csproj" />
     <ProjectReference Include="..\..\src\Ume.LlmGateway.Gateway\Ume.LlmGateway.Gateway.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Ume.LlmGateway.FakeLlm\FakeResponsesScript.cs" Link="FakeResponsesScript.cs" />
   </ItemGroup>
 </Project>

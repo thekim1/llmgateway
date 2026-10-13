@@ -100,6 +100,9 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
         records.AddRange(Records(flaky, earlySunday, 8, RequestOutcome.Success, 200, latencyMs: 50, fallbacks: 1));
         records.AddRange(Records(flaky, earlySunday, 2, RequestOutcome.ProviderError, 502, latencyMs: 50));
         records.AddRange(Records(flaky, earlySunday, 5, RequestOutcome.ClientCancelled, 499, latencyMs: 50));
+        // MCP tool calls have no provider: failed ones must not count against any provider or show up as one.
+        records.AddRange(Records(Guid.Empty, earlySunday, 6, RequestOutcome.ProviderError, 502, "mcp_upstream_failed", endpoint: GatewayEndpoint.Mcp)
+            .Select(r => { r.ProviderAccountId = null; r.ProviderName = null; r.McpServerId = Guid.NewGuid(); r.McpMethod = "tools/call"; return r; }));
         await SaveAsync(records);
 
         var from = Uri.EscapeDataString("2025-03-29T12:00:00Z");
@@ -134,6 +137,8 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
         ranking[0]!["exists"]!.GetValue<bool>().ShouldBeFalse();
         ranking[1]!["availability"]!.GetValue<double>().ShouldBe(1 - (2 / 15d));
         ranking[1]!["requests"]!.GetValue<long>().ShouldBe(15);
+        days["providers"]!.AsArray().ShouldAllBe(p => p!["providerId"]!.GetValue<Guid>() != Guid.Empty);
+        hours["buckets"]!.AsArray().ShouldAllBe(b => b!["providerId"]!.GetValue<Guid>() != Guid.Empty);
     }
 
     [Theory]

@@ -433,6 +433,50 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Mcp_tool_calls_have_their_own_rows_in_the_model_and_provider_summaries()
+    {
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        using var keyResponse = await admin.PostAsJsonAsync("/api/keys", KeyBody(own.Team), TestContext.Current.CancellationToken);
+        var key = (await AdminFixture.ReadAsync(keyResponse, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        UsageRecord Row(GatewayEndpoint endpoint, string model, string? provider, decimal cost, RequestOutcome outcome = RequestOutcome.Success) => new()
+        {
+            RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = DateTimeOffset.UtcNow, VirtualKeyId = key, TeamId = own.Team,
+            DepartmentId = own.Department, Endpoint = endpoint, RequestedModel = model, ProviderName = provider, CostSek = cost, Outcome = outcome,
+            StatusCode = outcome == RequestOutcome.Success ? 200 : 400, McpServerId = endpoint == GatewayEndpoint.Mcp ? Guid.NewGuid() : null,
+            McpMethod = endpoint == GatewayEndpoint.Mcp ? "tools/call" : null,
+        };
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            db.UsageRecords.AddRange(
+                Row(GatewayEndpoint.ChatCompletions, "test/model", "p1", 1m),
+                Row(GatewayEndpoint.ChatCompletions, "test/model", null, 0m, RequestOutcome.Rejected),
+                Row(GatewayEndpoint.Mcp, "mcp:demo/echo", null, 2m),
+                Row(GatewayEndpoint.Mcp, "mcp:demo/echo", null, 0m, RequestOutcome.Rejected));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using var client = await fixture.ClientAsync("viewer", own.Code);
+        async Task<Dictionary<string, JsonNode>> SummaryAsync(string group)
+        {
+            using var response = await client.GetAsync("/api/usage/summary?groupBy=" + group, TestContext.Current.CancellationToken);
+            return (await AdminFixture.ReadAsync(response))["rows"]!.AsArray().ToDictionary(r => r!["key"]!.GetValue<string>(), r => r!);
+        }
+
+        var providers = await SummaryAsync("provider");
+        providers.Keys.ShouldBe(["p1", "-", "(mcp)"], ignoreOrder: true);
+        providers["(mcp)"]["label"]!.GetValue<string>().ShouldBe("MCP");
+        providers["(mcp)"]["requests"]!.GetValue<long>().ShouldBe(2);
+        providers["(mcp)"]["costSek"]!.GetValue<decimal>().ShouldBe(2m);
+        providers["-"]["requests"]!.GetValue<long>().ShouldBe(1);
+
+        var models = await SummaryAsync("model");
+        models.Keys.ShouldBe(["test/model", "mcp:demo/echo"], ignoreOrder: true);
+        models["mcp:demo/echo"]["errors"]!.GetValue<long>().ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Image_models_carry_a_per_picture_price_through_export_and_import()
     {
         using var client = await fixture.ClientAsync();

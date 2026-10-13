@@ -1,0 +1,57 @@
+# Example: one stdio MCP server in its own hardened container, reachable by the gateway as a Streamable HTTP server.
+# Paths are relative to deploy/ (the first file). Use it as an extra file after the production files (see "Stdio servers" in docs/mcp.md):
+#   docker compose -f deploy/compose.prod.yaml -f deploy/mcp/compose.mcp-stdio-example.yaml --env-file deploy/.env up -d --wait
+# Then register https://mcp-time:8443/mcp in the admin UI (residency OnPrem, authentication "Static headers" with
+# Authorization: Bearer <a key listed in secrets/mcp-time/authorized-keys.map>), sync it and approve its tools.
+services:
+  mcp-time-bridge:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile.stdio-example
+    image: ume-llm-gateway/mcp-time:local
+    command: [--stdio, mcp-server-time, --outputTransport, streamableHttp, --port, "8000", --healthEndpoint, /healthz, --logLevel, none]
+    # --logLevel info would log every MCP message, arguments and results included.
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp, /home/node]
+    environment:
+      HOME: /home/node
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    restart: unless-stopped
+    # Only the TLS sidecar reaches the bridge, which has no route to anything else (no egress: the server is in the image).
+    networks: [mcp-time]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  mcp-time:
+    image: docker.io/nginxinc/nginx-unprivileged:1.31.6-alpine@sha256:884e0b7f42f303641b0f4e78755aea647521dca0b89ca3be7992ad78b5c07434
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    volumes:
+      - ./mcp/nginx-mcp-tls.conf:/etc/nginx/nginx.conf:ro
+      - ${UME_CERTS_DIR}/mcp-time:/run/certs:ro
+      - ${UME_SECRETS_DIR}/mcp-time:/run/app-secrets:ro
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    restart: unless-stopped
+    depends_on:
+      mcp-time-bridge: {condition: service_healthy}
+    networks: [mcp, mcp-time]
+  # The gateway calls MCP servers, and the admin API syncs their tool lists: both join the mcp network.
+  gateway:
+    networks: [mcp]
+  adminapi:
+    networks: [mcp]
+networks:
+  mcp: {driver: bridge, internal: true}
+  mcp-time: {driver: bridge, internal: true}

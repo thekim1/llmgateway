@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -27,6 +28,9 @@ public static class AuditActions
     public const string Run = "run";
     public const string Import = "import";
     public const string Invalidate = "invalidate";
+    public const string Approve = "approve";
+    public const string Reject = "reject";
+    public const string Sync = "sync";
 }
 
 /// <summary>Audit log <c>EntityType</c> values (also the <c>entityType</c> filter of <c>GET /api/audit</c>).</summary>
@@ -46,6 +50,9 @@ public static class AuditEntities
     public const string Settings = "Settings";
     public const string Config = "Config";
     public const string Keys = "Keys";
+    public const string McpServer = "McpServer";
+    public const string McpTool = "McpTool";
+    public const string McpGrants = "McpGrants";
 }
 
 /// <summary>The <c>Details</c> of an audit entry.</summary>
@@ -74,11 +81,13 @@ public sealed record KeyAudit(
     Guid Id, Guid TeamId, string Name, string? Description, string Prefix, bool IsEnabled, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
+    int? McpCallsPerMinute,
     IReadOnlyList<string> AllowedIpRanges)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
+        k.McpCallsPerMinute,
         [.. k.AllowedIpRanges]);
 }
 
@@ -92,7 +101,9 @@ public sealed record NetworkSettingsAudit(IReadOnlyList<string> TrustedProxies)
     public static NetworkSettingsAudit Of(GatewaySettings s) => new([.. s.TrustedProxies]);
 }
 
-public sealed record KeyRotationAudit(KeyAudit PreviousKey, KeyAudit Key);
+/// <summary><c>McpGrants</c>: the MCP grants copied to the replacement key.</summary>
+public sealed record KeyRotationAudit(
+    KeyAudit PreviousKey, KeyAudit Key, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<McpGrantAudit>? McpGrants = null);
 
 /// <summary>A reveal or copy of a key's secret: which key, never the secret.</summary>
 public sealed record KeyAccessAudit(string Name, string Prefix);
@@ -154,3 +165,30 @@ public sealed record BudgetAudit(BudgetScope Scope, Guid ScopeId, decimal LimitS
 }
 
 public sealed record AlertAudit(bool Acknowledged);
+
+public sealed record McpServerAudit(
+    Guid Id, string Slug, string DisplayName, string? Description, string Url, DataResidency Residency, bool IsEnabled, Guid? OwnerDepartmentId,
+    McpAuthType AuthType, bool HasCredential, IReadOnlyList<string> ForwardHeaders, int TimeoutSeconds, int MaxResultBytes, bool AutoApproveNewTools)
+{
+    public static McpServerAudit Of(McpServer s) => new(
+        s.Id, s.Slug, s.DisplayName, s.Description, s.Url, s.Residency, s.IsEnabled, s.OwnerDepartmentId, s.AuthType,
+        !string.IsNullOrEmpty(s.EncryptedCredential), [.. s.ForwardHeaders], s.TimeoutSeconds, s.MaxResultBytes, s.AutoApproveNewTools);
+}
+
+/// <summary>A tool's approval: <c>ApprovedDefinition</c> is the definition clients see, so the log shows exactly what was approved.</summary>
+public sealed record McpToolAudit(
+    Guid Id, Guid ServerId, string Name, string ExposedName, McpToolApprovalState ApprovalState, string DefinitionHash, JsonNode? ApprovedDefinition, decimal? PriceSek)
+{
+    public static McpToolAudit Of(McpTool t) => new(
+        t.Id, t.McpServerId, t.Name, t.ExposedName, t.ApprovalState, t.DefinitionHash, t.ApprovedDefinition is { } json ? JsonNode.Parse(json) : null, t.PriceSek);
+}
+
+public sealed record McpGrantAudit(Guid ServerId, IReadOnlyList<string> AllowedTools, McpApprovalPolicy ApprovalPolicy, bool AllowResources, bool AllowPrompts)
+{
+    public static McpGrantAudit Of(VirtualKeyMcpGrant g) => new(g.McpServerId, [.. g.AllowedTools], g.ApprovalPolicy, g.AllowResources, g.AllowPrompts);
+}
+
+/// <summary>What a tool sync changed (tool names only; definitions are in the tools' own audit entries when approved).</summary>
+public sealed record McpSyncAudit(
+    McpServerStatus Status, string? LastError, McpServerCapabilities[] Capabilities, IReadOnlyList<string> Added, IReadOnlyList<string> Changed,
+    IReadOnlyList<string> Reverted, IReadOnlyList<string> Updated, IReadOnlyList<string> Removed);

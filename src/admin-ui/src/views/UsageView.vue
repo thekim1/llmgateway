@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest } from '@/api/types'
+import { USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest, type UsageTraffic } from '@/api/types'
 import { useUsageStore } from '@/stores/usage'
 import { useDepartmentsStore } from '@/stores/departments'
 import { useTeamsStore } from '@/stores/teams'
@@ -26,6 +26,11 @@ import UiTabs from '@/components/ui/UiTabs.vue'
 import UsageDashboard from '@/components/usage/UsageDashboard.vue'
 
 const PAGE_SIZE = 50
+const TRAFFIC_OPTIONS = [
+  { value: '', label: 'All requests' },
+  { value: 'llm', label: 'Model requests' },
+  { value: 'mcp', label: 'MCP tool calls' },
+]
 const GROUP_LABEL: Record<UsageGroupBy, string> = {
   department: 'Department',
   team: 'Team',
@@ -53,6 +58,7 @@ const keys = useKeysStore()
 const departmentId = ref('')
 const teamId = ref('')
 const keyId = ref('')
+const traffic = ref<UsageTraffic | ''>('')
 const from = ref(toIsoDate(new Date(Date.now() - 30 * 86_400_000)))
 const to = ref(todayIso())
 const group = ref<UsageGroupBy>('department')
@@ -93,7 +99,8 @@ const scope = computed(() => ({
   ...(departmentId.value && { departmentId: departmentId.value }),
   ...(teamId.value && { teamId: teamId.value }),
 }))
-const requestScope = computed(() => ({ ...scope.value, ...(keyId.value && { keyId: keyId.value }) }))
+const requestScope = computed(() => ({ ...scope.value, ...(keyId.value && { keyId: keyId.value }), ...(traffic.value && { traffic: traffic.value }) }))
+const isMcp = computed(() => selected.value?.endpoint.startsWith('/mcp') || selected.value?.endpoint.startsWith('/v1/mcp'))
 const exportUrl = computed(() => (from.value && to.value ? usage.exportCsvUrl(dates.value.from, dates.value.to) : undefined))
 const pageCount = computed(() => Math.max(1, Math.ceil(usage.requests.total / PAGE_SIZE)))
 
@@ -203,6 +210,7 @@ onMounted(() => {
       <SelectField v-model="departmentId" label="Department" :options="departmentOptions" @update:model-value="onDepartmentChange" />
       <SelectField v-model="teamId" label="Team" :options="teamOptions" @update:model-value="onTeamChange" />
       <SelectField v-model="keyId" label="Key" :options="keyOptions" />
+      <SelectField v-model="traffic" label="Requests" :options="TRAFFIC_OPTIONS" />
       <SelectField v-model="group" label="Group by" :options="groupOptions" />
       <UiButton type="submit" variant="primary">Apply</UiButton>
     </form>
@@ -293,7 +301,10 @@ onMounted(() => {
         <DetailRow label="Team"><span lang="sv">{{ selected.teamName }}</span></DetailRow>
         <DetailRow label="Department"><span lang="sv">{{ selected.departmentName }}</span></DetailRow>
       </DetailSection>
-      <DetailSection title="Routing">
+      <DetailSection v-if="isMcp" title="MCP">
+        <DetailRow label="Server and tool"><span class="font-mono">{{ selected.requestedModel }}</span></DetailRow>
+      </DetailSection>
+      <DetailSection v-else title="Routing">
         <DetailRow label="Requested model"><span class="font-mono">{{ selected.requestedModel }}</span></DetailRow>
         <DetailRow v-if="selected.routingRuleName" label="Routing rule">{{ selected.routingRuleName }}</DetailRow>
         <DetailRow label="Provider">{{ selected.providerName ?? '—' }}</DetailRow>

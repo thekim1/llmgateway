@@ -1,11 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Routing.Expressions;
+using Ume.LlmGateway.Infrastructure.Mcp;
+using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
@@ -39,15 +42,44 @@ public sealed record ConfigRoutingRule(
     [property: StringLength(RoutingExpression.MaxLength)] string? Condition = null,
     bool Chain = false,
     [property: MaxLength(RoutingRuleSet.MaxTargets)] string[]? Fallbacks = null) : AdminRequest;
+/// <summary>An MCP tool's approval: <c>Approved</c> with the definition clients see, or <c>Rejected</c>.</summary>
+public sealed record ConfigMcpTool(
+    [property: Required, StringLength(McpToolSync.MaxNameLength)] string Name,
+    [property: EnumDataType(typeof(McpToolApprovalState))] McpToolApprovalState ApprovalState,
+    JsonObject? ApprovedDefinition = null,
+    [property: Range(typeof(decimal), "0", "1000000")] decimal? PriceSek = null) : AdminRequest, IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (ApprovalState is not (McpToolApprovalState.Approved or McpToolApprovalState.Rejected) ||
+            (ApprovalState == McpToolApprovalState.Approved && ApprovedDefinition is null))
+        {
+            yield return new ValidationResult("Ett verktyg är antingen Approved med sin godkända definition eller Rejected.", [nameof(ApprovalState)]);
+        }
+    }
+}
+/// <summary>
+/// An MCP server with its tools' approvals. The owner is named by the department's cost centre code; keys' grants are
+/// not transferred (key ids differ between environments).
+/// </summary>
+public sealed record ConfigMcpServer(
+    [property: Required] McpServerRequest Configuration,
+    [property: StringLength(100)] string? OwnerDepartmentCode = null,
+    [property: RegularExpression(@"UME_MCP_[A-Z0-9_]+")] string? CredentialEnvironment = null,
+    [property: MaxLength(10000)] ConfigMcpTool[]? Tools = null) : AdminRequest;
 public sealed record ConfigDocument(
     [property: Required, MaxLength(1000)] ConfigProvider[] Providers,
     [property: Required, MaxLength(10000)] ConfigModel[] Models,
     [property: Required, MaxLength(10000)] ConfigRoute[] Routes,
     [property: Range(1, 1)] int SchemaVersion = 1,
-    [property: MaxLength(10000)] ConfigRoutingRule[]? RoutingRules = null) : AdminRequest;
+    [property: MaxLength(10000)] ConfigRoutingRule[]? RoutingRules = null,
+    [property: MaxLength(1000)] ConfigMcpServer[]? McpServers = null) : AdminRequest;
 
-/// <summary>Moves providers, models with their price history, routes and global routing rules between environments.</summary>
-public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogService catalog, RoutingRuleService rules)
+/// <summary>
+/// Moves providers, models with their price history, routes, global routing rules and MCP servers with their tools'
+/// approvals between environments.
+/// </summary>
+public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogService catalog, RoutingRuleService rules, McpServerService mcp, CredentialProtector protector)
 {
     public async Task<ConfigDocument> ExportAsync(CancellationToken ct)
     {
@@ -55,13 +87,24 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
         var routes = await catalog.Routes().ToListAsync(ct);
         var names = PublicModelNames.Public(providers.SelectMany(p => p.Deployments)); // tracked: ProviderAccount is fixed up
         var globalRules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == RoutingScope.Global && !r.IsTemplate).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
+        var mcpServers = await ctx.Db.McpServers.AsNoTracking().Include(s => s.Tools).OrderBy(s => s.Slug).ToListAsync(ct);
+        var owners = mcpServers.Where(s => s.OwnerDepartmentId is not null).Select(s => s.OwnerDepartmentId!.Value).ToList();
+        var codes = await ctx.Db.Departments.AsNoTracking().Where(d => owners.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.CostCenterCode, ct);
         return new ConfigDocument(
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd))])))],
             [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
-            RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);
+            RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))],
+            McpServers: [.. mcpServers.Select(s => new ConfigMcpServer(
+                new McpServerRequest(s.Slug, s.DisplayName, s.Url, s.Residency, s.AuthType, s.Description, s.IsEnabled, null, [.. s.ForwardHeaders], s.TimeoutSeconds,
+                    s.MaxResultBytes, s.AutoApproveNewTools),
+                s.OwnerDepartmentId is { } owner ? codes.GetValueOrDefault(owner) : null, null,
+                [.. s.Tools.Where(t => t.IsExposed || t.ApprovalState == McpToolApprovalState.Rejected).OrderBy(t => t.Name, StringComparer.Ordinal)
+                    .Select(t => t.IsExposed
+                        ? new ConfigMcpTool(t.Name, McpToolApprovalState.Approved, JsonNode.Parse(t.ApprovedDefinition!)!.AsObject(), t.PriceSek)
+                        : new ConfigMcpTool(t.Name, McpToolApprovalState.Rejected, null, t.PriceSek))]))]);
     }
 
     /// <summary>Creates or updates everything in the document, by name, in one transaction; nothing is deleted.</summary>
@@ -74,9 +117,15 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
         if (input.Providers.Select(p => p.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Providers.Length ||
             input.Models.Select(m => m.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Models.Length ||
             input.Routes.Select(r => r.Name).Distinct(StringComparer.Ordinal).Count() != input.Routes.Length ||
-            (input.RoutingRules ?? []).Select(r => r.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != (input.RoutingRules ?? []).Length)
+            (input.RoutingRules ?? []).Select(r => r.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != (input.RoutingRules ?? []).Length ||
+            (input.McpServers ?? []).Select(m => m.Configuration.Slug).Distinct(StringComparer.Ordinal).Count() != (input.McpServers ?? []).Length ||
+            (input.McpServers ?? []).Any(m => (m.Tools ?? []).Select(t => t.Name).Distinct(StringComparer.Ordinal).Count() != (m.Tools ?? []).Length))
         {
             throw new ApiFaultException(400, "Konfigurationen har dubbletter.");
+        }
+        if ((input.McpServers ?? []).Any(m => m.Configuration.Credential is not null))
+        {
+            throw new ApiFaultException(400, "Importera inte hemligheter. Använd credentialEnvironment med en UME_MCP_-miljövariabel.");
         }
         var result = await ctx.Db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
@@ -161,7 +210,9 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             var (rulesCreated, rulesUpdated) = await rules.ImportGlobalAsync(input.RoutingRules ?? [],
                 [.. input.Routes.Select(r => r.Name), .. input.Models.Select(m => m.Configuration.Name)], ct);
             created += rulesCreated; updated += rulesUpdated;
-            var counts = new ConfigImportResult(created, updated, 0);
+            var (mcpCreated, mcpUpdated, skipped) = await ImportMcpAsync(input.McpServers ?? [], user, ct);
+            created += mcpCreated; updated += mcpUpdated;
+            var counts = new ConfigImportResult(created, updated, skipped);
             ctx.Db.AuditLog.Add(ctx.Audit(user, AuditActions.Import, AuditEntities.Config, null, null, counts));
             await ctx.Db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
@@ -170,5 +221,81 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
         // Published only after the whole import is committed.
         await ctx.PublishAsync([InvalidationKind.Config], ct);
         return result;
+    }
+
+    /// <summary>
+    /// MCP servers by slug, and their tools' approvals by name. An approved tool the server has not offered here yet is
+    /// created with the approved definition (the next sync compares it with what the server offers); a rejected one that
+    /// does not exist here is skipped. A server's credential comes from <c>credentialEnvironment</c> or stays as it is.
+    /// </summary>
+    private async Task<(int Created, int Updated, int Skipped)> ImportMcpAsync(IReadOnlyList<ConfigMcpServer> input, ClaimsPrincipal user, CancellationToken ct)
+    {
+        var created = 0; var updated = 0; var skipped = 0;
+        foreach (var item in input)
+        {
+            Guid? owner = null;
+            if (item.OwnerDepartmentCode is { } code)
+            {
+                owner = await ctx.Db.Departments.Where(d => d.CostCenterCode == code).Select(d => (Guid?)d.Id).SingleOrDefaultAsync(ct)
+                    ?? throw new ApiFaultException(400, "En MCP-server tillhör en okänd förvaltning.");
+            }
+
+            var config = item.Configuration with { OwnerDepartmentId = owner };
+            var server = await ctx.Db.McpServers.Include(s => s.Tools).SingleOrDefaultAsync(s => s.Slug == config.Slug, ct);
+            await mcp.CheckAddressesAsync(user, config, server, ct);
+            if (server is null)
+            {
+                server = new McpServer { Slug = config.Slug, DisplayName = config.DisplayName, Url = config.Url, CreatedAt = ctx.Now };
+                ctx.Db.McpServers.Add(server); created++;
+            }
+            else { updated++; }
+            mcp.Apply(server, config, credentialRequired: false);
+            if (item.CredentialEnvironment is { } reference)
+            {
+                var secret = Environment.GetEnvironmentVariable(reference);
+                if (string.IsNullOrEmpty(secret)) { throw new ApiFaultException(400, "En refererad MCP-serverhemlighet saknas."); }
+                try { _ = McpUpstreamAuth.Parse(config.AuthType, secret); }
+                catch (FormatException) { throw new ApiFaultException(400, "En refererad MCP-serverhemlighet har fel form för serverns autentiseringstyp."); }
+                server.EncryptedCredential = config.AuthType == McpAuthType.None ? null : protector.Protect(secret);
+            }
+
+            foreach (var tool in item.Tools ?? [])
+            {
+                var existing = server.Tools.SingleOrDefault(t => t.Name == tool.Name);
+                if (tool.ApprovalState == McpToolApprovalState.Rejected)
+                {
+                    if (existing is null) { skipped++; continue; }
+                    existing.ApprovalState = McpToolApprovalState.Rejected;
+                    existing.ApprovedDefinition = null; existing.ApprovedAt = null; existing.ApprovedBy = null; existing.PriceSek = tool.PriceSek;
+                    updated++;
+                    continue;
+                }
+
+                var definition = tool.ApprovedDefinition!.ToJsonString();
+                if (existing is null)
+                {
+                    existing = new McpTool
+                    {
+                        McpServerId = server.Id, Name = tool.Name, Definition = definition, DefinitionHash = McpToolDefinition.Hash(definition),
+                        ExposedName = McpToolNames.Exposed(server.Slug, tool.Name), DiscoveredAt = ctx.Now,
+                    };
+                    server.Tools.Add(existing);
+                    ctx.Db.McpTools.Add(existing); created++;
+                }
+                else { updated++; }
+                McpToolSync.Approve(existing, AdminContext.Actor(user), ctx.Now);
+                existing.ApprovedDefinition = definition;
+                existing.Title = McpToolSync.Title(definition);
+                existing.ExposedName = McpToolNames.Exposed(server.Slug, tool.Name);
+                existing.PriceSek = tool.PriceSek;
+                if (McpToolDefinition.Hash(existing.Definition) != McpToolDefinition.Hash(definition))
+                {
+                    existing.ApprovalState = McpToolApprovalState.Changed;
+                }
+            }
+        }
+
+        await ctx.Db.SaveChangesAsync(ct);
+        return (created, updated, skipped);
     }
 }

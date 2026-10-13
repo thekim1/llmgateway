@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { OpsProviderHealth } from '@/api/types'
+import type { OpsMcpServerHealth, OpsProviderHealth } from '@/api/types'
 import { useOpsStore } from '@/stores/ops'
 import { useUiStore } from '@/stores/ui'
-import { HEALTH_STATUS } from '@/utils/labels'
-import { formatDateTime, formatNumber } from '@/utils/format'
+import { CIRCUIT_LABEL, HEALTH_STATUS, MCP_STATUS } from '@/utils/labels'
+import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import DetailRow from '@/components/ui/DetailRow.vue'
@@ -38,6 +38,23 @@ async function toggleCircuit(): Promise<void> {
   const next = provider.circuitState === 'Open' ? 'Closed' : 'Open'
   await ops.setCircuit(provider.id, next)
   ui.notify(`Circuit ${next === 'Open' ? 'opened' : 'closed'} for ${provider.name}.`)
+}
+
+const mcpTarget = ref<OpsMcpServerHealth | null>(null)
+const mcpCircuitOpen = ref(false)
+const mcpOpening = computed(() => mcpTarget.value?.circuitState !== 'Open')
+
+function reviewMcpCircuit(server: OpsMcpServerHealth): void {
+  mcpTarget.value = server
+  mcpCircuitOpen.value = true
+}
+
+async function toggleMcpCircuit(): Promise<void> {
+  const server = mcpTarget.value
+  if (!server) return
+  const next = server.circuitState === 'Open' ? 'Closed' : 'Open'
+  await ops.setMcpCircuit(server.id, next)
+  ui.notify(`Circuit ${next === 'Open' ? 'opened' : 'closed'} for ${server.slug}.`)
 }
 
 async function invalidateCache(): Promise<void> {
@@ -94,6 +111,29 @@ onMounted(() => {
         <ProviderCircuitTable :providers="health.providers" @toggle="reviewCircuit" />
       </section>
 
+      <UiCard v-if="health.mcpServers?.length" title="MCP servers" heading-id="ops-mcp">
+        <ul class="m-0 list-none p-0">
+          <li v-for="server in health.mcpServers" :key="server.id" class="flex flex-wrap items-center justify-between gap-3 border-b border-border py-2.5 last:border-b-0">
+            <div class="min-w-0">
+              <p class="font-mono font-medium">{{ server.slug }}</p>
+              <p class="text-small text-fg-2">
+                {{ server.lastCheckedAt ? `Synced ${formatRelative(server.lastCheckedAt)}` : 'Not synced yet' }}<template v-if="server.pendingTools + server.changedTools > 0"> · {{ server.pendingTools + server.changedTools }} tools to review</template>
+              </p>
+              <p v-if="server.lastError" class="text-small text-fg-2" lang="sv">{{ server.lastError }}</p>
+            </div>
+            <span class="flex flex-wrap items-center gap-2">
+              <UiBadge v-if="!server.isEnabled" tone="neutral">Disabled</UiBadge>
+              <UiBadge v-else-if="server.lastCheckedAt" :tone="MCP_STATUS[server.status].tone">{{ MCP_STATUS[server.status].label }}</UiBadge>
+              <UiBadge :tone="CIRCUIT_LABEL[server.circuitState].tone">{{ server.circuitState === 'Open' ? 'Circuit open' : 'Circuit closed' }}</UiBadge>
+              <UiButton size="sm" @click="reviewMcpCircuit(server)">{{ server.circuitState === 'Open' ? 'Close circuit' : 'Open circuit' }}</UiButton>
+            </span>
+          </li>
+        </ul>
+        <p class="mt-3 text-small text-fg-3">
+          <router-link :to="{ name: 'mcp-servers' }" class="font-medium text-accent-ink underline">Manage MCP servers and approve tools</router-link>
+        </p>
+      </UiCard>
+
       <UiCard title="Maintenance" heading-id="ops-maintenance">
         <div class="flex flex-wrap gap-3">
           <UiButton icon="sync" @click="cacheOpen = true">Invalidate key cache</UiButton>
@@ -111,6 +151,14 @@ onMounted(() => {
     :confirm-label="isOpening ? 'Open circuit' : 'Close circuit'"
     :danger="isOpening"
     :action="toggleCircuit"
+  />
+  <ConfirmDialog
+    v-model:open="mcpCircuitOpen"
+    :title="mcpOpening ? `Open circuit for ${mcpTarget?.slug ?? ''}?` : `Close circuit for ${mcpTarget?.slug ?? ''}?`"
+    :consequence="mcpOpening ? 'The server’s tools are hidden from every key for 15 minutes or until the circuit is closed.' : 'Keys with a grant see the server’s tools again.'"
+    :confirm-label="mcpOpening ? 'Open circuit' : 'Close circuit'"
+    :danger="mcpOpening"
+    :action="toggleMcpCircuit"
   />
   <ConfirmDialog
     v-model:open="cacheOpen"

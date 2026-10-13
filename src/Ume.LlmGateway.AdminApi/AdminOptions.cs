@@ -14,6 +14,10 @@ public sealed class AdminOptions
     /// <summary>The Azure region (<c>armRegionName</c>) whose list prices are suggested for Azure AI Foundry deployments.</summary>
     [RegularExpression("^[a-z0-9]{2,40}$")]
     public string AzurePriceRegion { get; set; } = "swedencentral";
+
+    /// <summary>Minutes between syncs of the MCP servers' tool lists, the first at start; 0 = only when an admin asks.</summary>
+    [Range(0, 1440)]
+    public int McpSyncMinutes { get; set; } = 10;
 }
 
 /// <summary>Bound from the <c>Gateway</c> configuration section: where the admin API finds the gateway.</summary>

@@ -1,6 +1,8 @@
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Domain.Routing.Expressions;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -29,13 +31,13 @@ public sealed record KeyDto(
     KeyStatus Status, bool IsEnabled, DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges)
+    Guid? RotatedToKeyId, bool CanReveal, int? McpCallsPerMinute, IReadOnlyList<string> AllowedIpRanges)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges);
+        k.RotatedToKeyId, k.EncryptedSecret is not null, k.McpCallsPerMinute, k.AllowedIpRanges);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>
@@ -107,6 +109,52 @@ public sealed record ExchangeRateDto(string Currency, decimal SekPerUnit, DateTi
 {
     public static ExchangeRateDto Of(ExchangeRate r) => new(r.Currency, r.SekPerUnit, r.EffectiveFrom);
 }
+
+// ---- MCP servers, tools and grants -------------------------------------------------------------------------
+
+/// <summary>
+/// An MCP server; its credential is write-only (<c>HasCredential</c>). <c>CanManage</c>: the user may change it and its
+/// tools (gateway admins every server, department admins their departments' servers). <c>PendingToolCount</c> and
+/// <c>ChangedToolCount</c> are the tools waiting for an admin.
+/// </summary>
+public sealed record McpServerDto(
+    Guid Id, string Slug, string DisplayName, string? Description, string Url, DataResidency Residency, bool IsEnabled, Guid? OwnerDepartmentId,
+    string? OwnerDepartmentName, McpAuthType AuthType, bool HasCredential, IReadOnlyList<string> ForwardHeaders, int TimeoutSeconds, int MaxResultBytes,
+    bool AutoApproveNewTools, McpServerStatus Status, DateTimeOffset? LastCheckedAt, string? LastError, McpServerCapabilities[] Capabilities,
+    string? Instructions, DateTimeOffset CreatedAt, int ToolCount, int PendingToolCount, int ChangedToolCount, bool CanManage);
+
+/// <summary>
+/// A tool of an MCP server. <c>Definition</c> is what the server offers now, <c>ApprovedDefinition</c> what clients see
+/// (null until approved). <c>Changes</c> lists the differences between them for a <c>Changed</c> tool (empty otherwise).
+/// Approving needs <c>DefinitionHash</c>, so only the definition the admin looked at is approved.
+/// </summary>
+public sealed record McpToolDto(
+    Guid Id, Guid ServerId, string Name, string? Title, string ExposedName, McpToolApprovalState ApprovalState, bool IsExposed, JsonNode? Definition,
+    string DefinitionHash, JsonNode? ApprovedDefinition, decimal? PriceSek, DateTimeOffset DiscoveredAt, DateTimeOffset? ApprovedAt, string? ApprovedBy,
+    IReadOnlyList<McpDefinitionChange> Changes)
+{
+    public static McpToolDto Of(McpTool t) => new(
+        t.Id, t.McpServerId, t.Name, t.Title, t.ExposedName, t.ApprovalState, t.IsExposed, JsonNode.Parse(t.Definition), t.DefinitionHash,
+        t.ApprovedDefinition is { } approved ? JsonNode.Parse(approved) : null, t.PriceSek, t.DiscoveredAt, t.ApprovedAt, t.ApprovedBy,
+        t.ApprovalState == McpToolApprovalState.Changed ? McpDefinitionDiff.Compare(t.ApprovedDefinition, t.Definition) : []);
+}
+
+/// <summary>A connection test: what the server offers, nothing saved. <c>Warnings</c> are tools that could not be read.</summary>
+public sealed record McpTestResultDto(
+    bool Succeeded, string? Error, int? HttpStatus, McpServerCapabilities[] Capabilities, string? Instructions, IReadOnlyList<McpTestToolDto> Tools,
+    IReadOnlyList<string> Warnings);
+
+public sealed record McpTestToolDto(string Name, string? Title, string? Description, string ExposedName);
+
+/// <summary>A sync's outcome: the server's status after it and the tools it added, quarantined, approved again, updated or removed.</summary>
+public sealed record McpSyncResultDto(
+    McpServerStatus Status, DateTimeOffset? LastCheckedAt, string? LastError, IReadOnlyList<string> Added, IReadOnlyList<string> Changed,
+    IReadOnlyList<string> Reverted, IReadOnlyList<string> Updated, IReadOnlyList<string> Removed, IReadOnlyList<string> Errors);
+
+/// <summary>A key's grant on one MCP server. <c>UnknownTools</c>: allowed names the server does not offer (they allow nothing until it does).</summary>
+public sealed record McpGrantDto(
+    Guid ServerId, string ServerSlug, string ServerName, IReadOnlyList<string> AllowedTools, McpApprovalPolicy ApprovalPolicy, bool AllowResources,
+    bool AllowPrompts, IReadOnlyList<string> UnknownTools);
 
 // ---- budgets ---------------------------------------------------------------------------------------------
 
@@ -247,7 +295,12 @@ public sealed record CatalogRouteDto(
 
 public sealed record OpsHealthDto(
     DateTimeOffset CheckedAt, IReadOnlyList<ComponentHealthDto> Components, VersionsDto Versions, UsageWriterStatus? UsageWriter,
-    IReadOnlyList<ProviderHealthDto> Providers);
+    IReadOnlyList<ProviderHealthDto> Providers, IReadOnlyList<McpServerHealthDto> McpServers);
+
+/// <summary>An MCP server's state from its last sync, its circuit and the tools waiting for an admin.</summary>
+public sealed record McpServerHealthDto(
+    Guid Id, string Slug, string DisplayName, bool IsEnabled, McpServerStatus Status, DateTimeOffset? LastCheckedAt, string? LastError,
+    CircuitState CircuitState, int PendingTools, int ChangedTools);
 
 public sealed record ComponentHealthDto(string Name, string Status, string Description);
 

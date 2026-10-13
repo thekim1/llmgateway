@@ -1,0 +1,7 @@
+# One stdio MCP server (here mcp-server-time, MIT) behind supergateway (MIT), which serves it as Streamable HTTP.
+# The server is installed when the image is built, so the running container needs no package downloads or egress.
+FROM docker.io/supercorp/supergateway:4.1.0-uvx@sha256:660c97d4ee58498f4654e1dc60682f4f4ccab363025c9b8b415d04b4e823025e
+ENV UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN uv tool install mcp-server-time==2026.10.10 && mcp-server-time --help >/dev/null
+USER node
+ENTRYPOINT ["supergateway"]

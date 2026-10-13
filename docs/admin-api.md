@@ -54,6 +54,9 @@ Roles (OIDC `roles` claim):
 - `KeyStatus`: `Active`, `InGracePeriod`, `Expired`, `Revoked`, `Disabled`
 - `RequestOutcome`: `Success`, `ProviderError`, `BudgetExceeded`, `RateLimited`, `PiiBlocked`, `Rejected`, `ClientCancelled`
 - `CircuitState`: `Closed`, `Open`
+- `McpAuthType`: `None`, `StaticHeaders`, `OAuthClientCredentials`; `McpServerStatus`: `Healthy`, `Degraded`, `Unavailable`
+- `McpServerCapabilities` (array of): `Tools`, `Resources`, `Prompts`, `Completions`
+- `McpToolApprovalState`: `Pending`, `Approved`, `Rejected`, `Changed`; `McpApprovalPolicy`: `Always`, `Never`, `NeverForReadOnly`
 
 ## Organisation
 - `GET /api/departments` → `Department[]` where `Department = { id, name, costCenterCode, isActive, teamCount, createdAt }`
@@ -68,7 +71,7 @@ Roles (OIDC `roles` claim):
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
-allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
+allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, mcpCallsPerMinute, rotatedToKeyId,
 allowedIpRanges: string[] }`
 (`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
 100; empty = any address; omitted on update = unchanged; returned in canonical form, a network with host bits set such as
@@ -80,14 +83,17 @@ allowedIpRanges: string[] }`
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, mcpCallsPerMinute?, isEnabled }` → `VirtualKey`
+  (`mcpCallsPerMinute`: MCP calls the key may send to servers per minute, null = no limit; like `requestsPerMinute`, omitted = no limit)
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
 - Rotation retains the predecessor's key budgets and spend across the full rotation lineage, including
   the grace-period key. It does not reset the remaining budget. Concurrent conflicting mutations → 409.
+  The replacement gets copies of the key's MCP grants (the audit entry's `after` lists them as `mcpGrants`).
+- MCP grants: see [MCP servers](#mcp-servers-and-grants).
 
 ## Data API access (gateway-admin)
 Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys)), for integrations that cannot use OAuth client credentials.
@@ -130,6 +136,62 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `GET /api/models/{id}/prices` → `Price[]` · `POST /api/models/{id}/prices` `Price` (effectiveFrom optional = now)
 - `Route = { id, name, description, kind, isEnabled, targets: [{ modelId, modelName, providerName, residency, priority, weight }] }`
 - `GET /api/routes` · `POST /api/routes` · `PUT /api/routes/{id}` body `{ name, description?, kind, isEnabled, targets: [{ modelId, priority, weight }] }` · `DELETE /api/routes/{id}`
+
+## MCP servers and grants
+Concepts and the gateway side: [mcp.md](mcp.md). Every endpoint needs `gateway-admin` or `department-admin`. A gateway admin
+sees and manages every server; a department admin sees global servers (read-only) and the servers owned by their
+departments (manageable), and gets 404 for other departments' servers and 403 for changes to global ones. Every change
+is audited (entity types `McpServer`, `McpTool`, `McpGrants`) and makes the gateways reload their catalogue.
+
+- `McpServer = { id, slug, displayName, description, url, residency, isEnabled, ownerDepartmentId|null, ownerDepartmentName, authType: McpAuthType,
+  hasCredential, forwardHeaders: string[], timeoutSeconds, maxResultBytes, autoApproveNewTools, status: McpServerStatus, lastCheckedAt, lastError,
+  capabilities: McpServerCapabilities[], instructions, createdAt, toolCount, pendingToolCount, changedToolCount, canManage }`
+  (the credential is **write-only**; `status`, `lastCheckedAt`, `lastError`, `capabilities` and `instructions` come from the last sync)
+- `GET /api/mcp/servers` · `GET /api/mcp/servers/{id}`
+- `POST /api/mcp/servers` · `PUT /api/mcp/servers/{id}` `{ slug, displayName, url, residency, authType?, description?, isEnabled?, ownerDepartmentId?,
+  forwardHeaders?, timeoutSeconds? (1–900, 30), maxResultBytes? (1 KiB–16 MiB, 1 MiB), autoApproveNewTools?, credential? }` → `McpServer` (201 on create)
+  - `slug`: lower-case letters and digits, starting with a letter, single `_` between them, at most 24 characters; unique (409).
+    Changing it renames the server's tools on `/mcp`.
+  - `url`: the providers' rule (absolute `https`, `http` only for `OnPrem`, no user info, fragment or credential-like query
+    parameters); `https` only in Production. SSRF: the host is resolved when the URL is checked; link-local
+    (169.254.0.0/16, fe80::/10), cloud metadata addresses (also 168.63.129.16, 100.100.100.200, fd00:ec2::254), unspecified,
+    multicast and reserved addresses are always refused, and private ones (loopback, RFC 1918, 100.64.0.0/10, fc00::/7) only for
+    `gateway-admin` (a department admin may keep a private URL a gateway admin set). A name that does not resolve is refused.
+    Errors are field errors on `url` (or `credential` for the token URL).
+  - `forwardHeaders`: caller headers sent on, by exact name (at most 20, unique). `Authorization`, `x-api-key`, `api-key`,
+    cookies and HTTP/MCP protocol headers are refused.
+  - `credential`: `{ headers: { name: value } }` for `StaticHeaders` (1–20 headers; HTTP/MCP protocol headers such as `Host` or
+    `Mcp-Session-Id` refused) or `{ tokenUrl, clientId, clientSecret, scope? }` for `OAuthClientCredentials` (the token URL follows
+    the URL rules). Omitted = keep the stored one (only for the same `authType`; a new auth type needs a credential → 400);
+    `authType: "None"` removes it. Stored encrypted like provider credentials; never returned or audited.
+  - A department admin must set `ownerDepartmentId` to one of their departments (403 without, 400 for another department).
+- `DELETE /api/mcp/servers/{id}` → 204 (its tools and every key's grant on it go too)
+- `POST /api/mcp/servers/test` (body as for create) and `POST /api/mcp/servers/{id}/test` (optional body: the stored server with
+  these changes; omitted credential = the stored one) → `{ succeeded, error|null, httpStatus|null, capabilities, instructions, tools: [{ name,
+  title, description, exposedName }], warnings: string[] }`. Connects with the gateway's MCP client and lists the tools; nothing is saved.
+- `POST /api/mcp/servers/{id}/sync` → `{ status, lastCheckedAt, lastError, added, changed, reverted, updated, removed, errors }` (tool
+  names). Reads the server's tools now (see *Tool sync* in [mcp.md](mcp.md)); 409 while another sync runs. Always audited (`sync`).
+- `McpTool = { id, serverId, name, title, exposedName, approvalState, isExposed, definition, definitionHash, approvedDefinition|null, priceSek|null,
+  discoveredAt, approvedAt, approvedBy, changes: [{ path, kind: "Added"|"Removed"|"Changed", before, after }] }`. `definition` is what the
+  server offers now (JSON: `title`, `description`, `inputSchema`, `outputSchema`, `annotations`), `approvedDefinition` what clients see.
+  `changes` (only for `Changed`) lists the differences from the approved definition to the current one; `path` is a JSON Pointer
+  (`/inputSchema/properties/q/type`), objects are compared member by member and arrays item by item.
+- `GET /api/mcp/servers/{id}/tools` → `McpTool[]` (by name; department admins can read global servers' tools)
+- `POST /api/mcp/servers/{id}/tools/{toolId}/approve` `{ definitionHash }` → `McpTool`. Approves the current definition (sets
+  `approvedDefinition`, `approvedAt`, `approvedBy`, the title and the exposed name); **409** when `definitionHash` is not the
+  current one (the server changed it since it was reviewed) or another tool has the exposed name. The audit entry holds the
+  approved definition.
+- `POST /api/mcp/servers/{id}/tools/{toolId}/reject` → `McpTool`: hidden from every key until approved again (an earlier approval is dropped).
+- `PUT /api/mcp/servers/{id}/tools/{toolId}/price` `{ priceSek: number|null }` (0–1 000 000 SEK per call, null = free) → `McpTool`
+- A sync and an approval of the same tool at the same time: the later save gets 409 (concurrency check).
+- `McpGrant = { serverId, serverSlug, serverName, allowedTools: string[], approvalPolicy: McpApprovalPolicy, allowResources, allowPrompts, unknownTools: string[] }`
+- `GET /api/keys/{id}/mcp-grants` → `McpGrant[]` (only grants on servers the user can see)
+- `PUT /api/keys/{id}/mcp-grants` `[{ serverId, allowedTools, approvalPolicy? (Always), allowResources? (false), allowPrompts? (false) }]` → `McpGrant[]`.
+  Replaces the key's grants on the servers the user can see (grants on other servers stay). `allowedTools` are the server's
+  tool names (case-sensitive, 1–128 characters, at most 1 000) or `["*"]` for all (`*` among names stores `["*"]`). Names the
+  server does not offer are kept and returned in `unknownTools`: they allow nothing until the server offers such a tool (so
+  grants can be prepared before a sync). 400 for a server listed twice or one the user cannot see, at most 500 servers.
+- Settings: `Admin:McpSyncMinutes` (10, 0–1440; 0 = only on demand).
 
 ## Routing rules
 Concepts, condition language and evaluation order: [routing rules](routing-rules.md). All endpoints require
@@ -217,10 +279,11 @@ and invalidate the gateway catalogue.
     requests, then one entry with `model: null` for all others together; the arrays line up with `buckets`.
   - `recordsFrom` is set when the period starts before the oldest kept usage record (data retention): monthly totals have no
     timings or days, so the figures cover only `recordsFrom`..`to`.
-- `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
+- `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&traffic=&page=1&pageSize=50`
   → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only)
+- `traffic` (both lists, case-insensitive): `mcp` = MCP calls (endpoints `/mcp` and `/v1/mcp/...`), `llm` = everything else; anything else → 400.
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
-- `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
+- `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&traffic=&page=1&pageSize=50` (any role, own departments)
   → `{ from, to, items: PiiIncident[], total, totalIncidents, categories: [{ category, requests, occurrences }], actions: [{ action, requests }] }`
   where `PiiIncident = { requestId, timestamp, keyId, keyPrefix, keyName, teamId, teamName, departmentId, departmentName, endpoint, requestedModel, providerName, action, categories: [{ category, count }], outcome, statusCode, routingRuleName }`.
   An incident is a usage record with PII found (`piiCategories` set), newest first; this includes policy `Allow` (detected and sent on).
@@ -236,7 +299,7 @@ and invalidate the gateway catalogue.
 - `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
 
 ## Operations (gateway-admin)
-- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
+- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }], mcpServers: [{ id, slug, displayName, isEnabled, status, lastCheckedAt, lastError, circuitState, pendingTools, changedTools }] }` (providers sorted by name, MCP servers by slug; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length; an MCP server's `status` is from its last sync)
   - `errorRate24h`: share of the last 24 h's requests that did not succeed (client errors and cancellations included). `providerErrorRate24h`: only *provider errors*, i.e. outcome `ProviderError` with status ≥ 500 and an error code other than `internal_error` (upstream 5xx, timeouts, broken streams).
   - `status`: `"Healthy"|"Degraded"|"Unhealthy"|"CircuitOpen"|"NoRecentTraffic"|"Disabled"`, computed on every call: `Disabled` if the provider is disabled, else `CircuitOpen` if its circuit is open, else from the last hour (`recentRequests`, `recentProviderErrors`): no requests → `NoRecentTraffic`; fewer than 10 → `Healthy` (too few to judge); otherwise provider error rate ≥ 50 % → `Unhealthy`, ≥ 5 % → `Degraded`, else `Healthy`. `statusReason` is an English sentence for the UI, e.g. `"4 of 40 requests failed at the provider in the last hour (10 %)."`.
 - `GET /api/ops/providers/stats?from=&to=&bucket=hour|day` → `{ from, to, bucket: "Hour"|"Day", timeZone, providers: [{ providerId, name, exists, requests, providerErrors, availability, fallbackRate, p50LatencyMs, p95LatencyMs }], buckets: [{ providerId, start, requests, providerErrors, errorRate, fallbacks, p50LatencyMs, p95LatencyMs }] }`
@@ -252,17 +315,27 @@ and invalidate the gateway catalogue.
   Usage write failures retain the in-flight batch for retry and report Degraded until recovery;
   queue persistence across process/host loss is not guaranteed.
 - `POST /api/ops/providers/{id}/circuit` `{ state: "Open" | "Closed" }` → 204 (force open = take out of rotation for 15 min)
+- `POST /api/ops/mcp-servers/{id}/circuit` `{ state: "Open" | "Closed" }` → 204 (force open = hide the server's tools for 15 min; audited as `circuit` on `McpServer`)
 - `POST /api/ops/cache/invalidate-keys` → 204 (audited as `invalidate` on `Keys`; the cache invalidations that
   ordinary changes publish are not audited separately)
-- `GET /api/ops/config/export` → JSON document (providers without credentials, models, prices, routes, global routing rules)
+- `GET /api/ops/config/export` → JSON document (providers and MCP servers without credentials, models, prices, routes, global routing rules, MCP tool approvals)
 - `POST /api/ops/config/import` (same JSON) → `{ created, updated, skipped }`
 - Config schema: `{ schemaVersion: 1, providers: [{ configuration: ProviderRequest (without credential),
   credentialEnvironment?: "UME_PROVIDER_..." }], models: [{ providerName, configuration: ModelRequest,
   prices: Price[] }], routes: [{ name, description, kind, isEnabled,
   targets: [{ modelName, priority, weight }] }], routingRules?: [{ name, description?, isEnabled, priority, condition?, chain,
-  targets: [{ model, weight }], fallbacks?: string[] }] }`. Only **global** routing rules are transferred (key/team/department ids differ between
+  targets: [{ model, weight }], fallbacks?: string[] }], mcpServers?: [{ configuration: McpServerRequest (without credential and
+  ownerDepartmentId), ownerDepartmentCode?, credentialEnvironment?: "UME_MCP_...", tools?: [{ name, approvalState: "Approved"|"Rejected",
+  approvedDefinition?, priceSek? }] }] }`. Only **global** routing rules are transferred (key/team/department ids differ between
   environments), and not untouched templates (every installation has them); rules are matched by name, created or updated, never deleted by import, and each is validated like one saved through the API (an invalid rule fails the whole import).
-  Documents without `routingRules` (older exports) still import. Changing the kind of a model that a route uses → 409
+  Documents without `routingRules` (older exports) still import.
+  MCP servers are matched by slug and their owner by the department's cost centre code (unknown → 400); keys' MCP grants are
+  not transferred (key ids differ). Exported tools are the approved ones (with the definition clients see; `Changed` tools as
+  `Approved` with the approved definition) and the rejected ones. On import an approved tool is approved (`Changed` if the
+  server here currently offers another definition); one this environment has not discovered yet is created approved, and the
+  next sync compares it with what the server offers. A rejected tool that does not exist here is skipped (`skipped`). Pending
+  tools are not transferred; the next sync finds them. The credential comes from `credentialEnvironment` (the credential JSON,
+  as in `credential` above but as the gateway stores it: a header object, or `{tokenUrl, clientId, clientSecret, scope}`) or stays as it is. Changing the kind of a model that a route uses → 409
   "Modelltypen kan inte ändras när modellen används i en rutt." (same as `PUT /api/models/{id}`).
   References use stable names; database IDs in model configuration are ignored on import.
   Import is transactional, rejects plaintext credentials, preserves existing encrypted credentials when
@@ -272,7 +345,8 @@ and invalidate the gateway catalogue.
   - `details` is JSON `{ before, after }` (camelCase, enums as names) with snapshots of the entity's own stored settings,
     never a secret: no derived or volatile values such as `deploymentCount`, `createdAt`, `currentPrice`, `providerName`,
     key `status` or `lastUsedAt`. For a rotation `after` is `{ previousKey, key }`, for a reveal/copy the key's name and
-    prefix, for a config import the counts `{ created, updated, skipped }`.
+    prefix, for a config import the counts `{ created, updated, skipped }`, for an MCP sync the tool names it changed
+    (`{ status, lastError, capabilities, added, changed, reverted, updated, removed }`), for a tool approval the approved definition.
 
 ## Gateway (data plane) – for the developer portal snippets
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
@@ -296,6 +370,27 @@ and invalidate the gateway catalogue.
   attachments, so keys set to `None` get `attachment_not_allowed` on edits. Billing: the number of pictures in `data` ×
   `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
+- MCP: `POST /mcp` and `POST /mcp/{slug}` (JSON-RPC; see [mcp.md](mcp.md)). HTTP-level errors use the error body
+  below (`invalid_api_key` with `WWW-Authenticate: Bearer`, `mcp_server_not_found` for an unknown or not granted slug);
+  everything after that is a JSON-RPC error. Usage records of refused or failed tool calls carry `mcp_tool_not_found`,
+  `mcp_invalid_arguments`, `mcp_upstream_failed` or `mcp_result_too_large`.
+- MCP tools for a client's own tool loop: `GET /v1/mcp/tools?format=openai|responses|anthropic` → `{ object: "list", format,
+  data: [tool definition] }` and `POST /v1/mcp/tools/call` (one `tool_calls` entry, Responses `function_call` or Anthropic
+  `tool_use` → the `tool` message, `function_call_output` or `tool_result` to append; optional request header
+  `x-ume-parent-request-id`). Errors use the error body below, with `mcp_tool_not_found` (404), `mcp_invalid_arguments` (400),
+  `mcp_upstream_failed` (502/504) and `mcp_result_too_large` (502) besides the usual codes; see
+  [mcp.md](mcp.md#using-mcp-tools-with-the-llm-apis). Usage records have `endpoint` `McpToolCall`.
+- Hosted MCP tools on `POST /v1/responses` (`{"type":"mcp","server_label":"<slug>",…}`, streamed or not): the gateway runs the
+  tool loop and answers with `mcp_list_tools`, `mcp_call` and `mcp_approval_request` items, a summed `usage` and, when calls
+  are still to be answered, a `resp_ume_…` id to continue from; see [mcp.md](mcp.md#hosted-mcp-tools-on-v1responses). Extra
+  header `x-ume-turns`; extra error codes `mcp_server_not_found` (404), `mcp_continuation_not_found` (404/409),
+  `mcp_approval_not_found` (404/409), `mcp_approval_mismatch` (400). Later turns and tool calls are usage records with
+  `ParentRequestId` set to the first turn's request id.
+- Anthropic MCP connector on `POST /v1/messages` (`mcp_servers` and `mcp_toolset` tools, non-streaming; `stream: true` gets 400):
+  the gateway runs the loop and answers with `mcp_tool_use`/`mcp_tool_result` blocks; a gateway limit gives `stop_reason:
+  "pause_turn"` and the header `x-ume-mcp-stop` (`max_tool_calls`, `max_turns`, `time_limit`, `budget_exceeded`,
+  `provider_error`). Error code `mcp_server_not_found` (404) besides the usual ones; see
+  [mcp.md](mcp.md#the-mcp-connector-on-v1messages). Later turns and tool calls are usage records like on `/v1/responses`.
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
