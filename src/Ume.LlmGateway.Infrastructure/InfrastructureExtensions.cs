@@ -153,10 +153,12 @@ public static class InfrastructureExtensions
                 ConnectTimeout = TimeSpan.FromSeconds(10),
                 AutomaticDecompression = System.Net.DecompressionMethods.All,
                 AllowAutoRedirect = false,
+                // Through a proxy the guard would check the proxy's address, not the MCP server's.
+                UseProxy = false,
                 ConnectCallback = McpAddressGuard.ConnectAsync,
             });
         services.AddHttpClient(McpTokenCache.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30))
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectCallback = McpAddressGuard.ConnectAsync });
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false, ConnectCallback = McpAddressGuard.ConnectAsync });
         services.TryAddSingleton<McpTokenCache>();
         services.TryAddSingleton<IMcpUpstream, McpUpstream>();
         return services;

@@ -208,7 +208,8 @@ link-local (169.254.0.0/16, fe80::/10, where cloud metadata lives), a cloud meta
 fc00::/7, fec0::/10), where the municipality's own servers are, need a gateway admin. IPv6 addresses that carry an IPv4
 address (IPv4-mapped, IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) count as that IPv4 address. A sync checks the
 stored URL again, and every MCP and token connection of the gateway and the admin API checks the addresses it connects to
-(`McpAddressGuard`), so a name that later resolves to a forbidden address (DNS rebinding) is never reached. The private
+(`McpAddressGuard`), so a name that later resolves to a forbidden address (DNS rebinding) is never reached. These
+connections ignore `HTTPS_PROXY`/`HTTP_PROXY`, since through a proxy the check would see the proxy's address. The private
 rule is only checked when a URL is saved: a department-owned name that later resolves to a private address is reached, so
 such names should be under municipal DNS control.
 

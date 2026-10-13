@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Fixed: MCP connections ignore `HTTPS_PROXY`.** The MCP and token HTTP clients used a proxy from the environment, and
+through a proxy the address guard checked the proxy's address instead of the MCP server's, so forbidden addresses could be
+reached. They now always connect directly.
+
 ## 0.4.0 - 2026-10-13
 
 **MCP gateway: Anthropic MCP connector on `/v1/messages`.** A Messages request with `mcp_servers` and `mcp_toolset` tools (beta `mcp-client-2025-11-20`; the deprecated `tool_configuration` and the pinned `tools` list of `mcp-client-2026-09-15` are accepted) has the gateway run the tool loop itself with any Messages-capable provider ([docs/mcp.md](docs/mcp.md#the-mcp-connector-on-v1messages)). Server names must be granted slugs, `url` must match the registered one and `authorization_token` is refused; the connector members and beta header are never sent to the provider. MCP tools go upstream as ordinary tools and come back as `mcp_tool_use` and `mcp_tool_result` blocks, earlier connector blocks in history are translated to `tool_use`/`tool_result`, and tools that need approval are not offered, since the connector has no approval protocol (use `/v1/responses`). A gateway limit (`max_tool_calls` 10, `max_turns`, `time_limit`, `budget_exceeded`, `provider_error`) ends with HTTP 200, `stop_reason: "pause_turn"` and the new header `x-ume-mcp-stop`. Turns and tool calls are accounted as on `/v1/responses`. `stream: true` with `mcp_servers` is refused with 400, and `mcp_tool_listing` blocks are not emitted.
