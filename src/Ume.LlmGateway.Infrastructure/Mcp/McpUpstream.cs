@@ -57,6 +57,12 @@ public enum McpUpstreamFailure
 
     /// <summary>The server answered with a JSON-RPC error (<see cref="McpUpstreamResult.ErrorCode"/>).</summary>
     JsonRpcError = 7,
+
+    /// <summary>
+    /// The OAuth token endpoint gave no access token (<see cref="McpUpstreamResult.HttpStatus"/> is its status, if it answered);
+    /// the MCP server was not asked.
+    /// </summary>
+    TokenEndpoint = 8,
 }
 
 /// <summary>
@@ -184,7 +190,7 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
             // The request was not sent: a new client may try again whatever the tool does.
             Evict(call.Server.Id, pooled);
             var failure = Classify(ex, call.Server.Id);
-            return (failure with { Attempts = attempt }, canRetry && failure.Failure != McpUpstreamFailure.Rejected);
+            return (failure with { Attempts = attempt }, canRetry && failure.Failure is not (McpUpstreamFailure.Rejected or McpUpstreamFailure.TokenEndpoint));
         }
 
         var context = new CallContext(call.Method, call.ForwardedHeaders, (long)call.Server.MaxResultBytes * 2 + EnvelopeBytes);
@@ -230,13 +236,14 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
             // A broken connection or a lost session needs a new client; a slow or failing tool does not, and other
             // callers' requests on the shared client must not be cut off because of it.
             var failure = Classify(ex, call.Server.Id) with { Attempts = attempt };
-            if (failure.Failure == McpUpstreamFailure.Transport || failure.HttpStatus == 404)
+            var serverNotFound = failure.HttpStatus == 404 && failure.Failure != McpUpstreamFailure.TokenEndpoint;
+            if (failure.Failure == McpUpstreamFailure.Transport || serverNotFound)
             {
                 Evict(call.Server.Id, pooled);
             }
 
             // A handshake-era server answers 404 when it dropped the session: the request never ran.
-            var sessionGone = failure.HttpStatus == 404 && client.SessionId is not null;
+            var sessionGone = serverNotFound && client.SessionId is not null;
             var retry = canRetry && (sessionGone
                 || (call.MayRetry && failure.CountsAgainstCircuit)
                 || (failure.Failure == McpUpstreamFailure.Unauthorized && call.Auth is McpUpstreamAuth.ClientCredentials));
@@ -260,6 +267,14 @@ public sealed class McpUpstream(IHttpMessageHandlerFactory handlers, McpTokenCac
 
     private McpUpstreamResult Classify(Exception ex, Guid serverId)
     {
+        for (var inner = ex; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is McpTokenException token)
+            {
+                return new McpUpstreamResult(null, McpUpstreamFailure.TokenEndpoint, 0, (int?)token.StatusCode);
+            }
+        }
+
         var status = FindStatus(ex);
         if (ex is OperationCanceledException or TimeoutException)
         {

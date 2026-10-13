@@ -299,7 +299,11 @@ as its own row, *MCP*. Budget counters rebuilt from Postgres include MCP costs.
 - Spans: `tools/call <tool>` (client) with `mcp.method.name`, `gen_ai.tool.name`, `gen_ai.operation.name = execute_tool`,
   `ume.mcp.server`, `ume.mcp.attempts`.
 - Circuit breaker: the provider circuit settings, per MCP server. Transport failures, timeouts and 5xx count; tool errors
-  (`isError: true`), JSON-RPC errors and 4xx do not. While open, the server's tools are hidden.
+  (`isError: true`), JSON-RPC errors and 4xx do not. While open, the server's tools are hidden. A failure of the OAuth token
+  endpoint (`OAuthClientCredentials`) does not count either, since the server was never asked: the call fails with 502
+  `mcp_upstream_failed` and a message naming the token endpoint, is not retried, logs and counts in `ume.gateway.mcp.calls`
+  as `tokenendpoint`, and a sync or test reports it as a token endpoint problem (a 4xx raises the server's
+  authentication-failed security event).
 
 ## Using MCP tools with the LLM APIs
 

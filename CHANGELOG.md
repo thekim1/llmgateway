@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Fixed: an OAuth token endpoint outage no longer looks like the MCP servers failing.** When the token endpoint of an
+`OAuthClientCredentials` server failed or was unreachable, the error was treated as the MCP server's: it counted against
+the server's circuit (one identity provider outage could hide the tools of every OAuth server), was retried, and could
+close the shared connection other calls were using. It is now its own failure (`tokenendpoint` in metrics), with messages
+that name the token endpoint, and neither counts against the circuit nor is retried.
+
 **Fixed: an approved MCP call could run twice on `/v1/responses`.** With `store` on, an approval answered in a replayed
 history left the stored `resp_ume_` response in place, and continuing that response with the same approval ran the call
 again. An approval is now used once on either path, and the other path answers 404.

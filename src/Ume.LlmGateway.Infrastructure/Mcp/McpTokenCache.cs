@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -40,7 +41,7 @@ public sealed class McpTokenCache(IHttpClientFactory httpClients, TimeProvider t
                 return fetched;
             }
 
-            var (token, lifetime) = await FetchAsync(credentials, cancellationToken);
+            var (token, lifetime) = await FetchTokenAsync(credentials, cancellationToken);
             entry.Set(token, time.GetUtcNow() + lifetime - RenewBefore);
             return token;
         }
@@ -56,6 +57,26 @@ public sealed class McpTokenCache(IHttpClientFactory httpClients, TimeProvider t
         if (_entries.TryGetValue(serverId, out var entry))
         {
             entry.Set(null, DateTimeOffset.MinValue);
+        }
+    }
+
+    private async Task<(string Token, TimeSpan Lifetime)> FetchTokenAsync(McpUpstreamAuth.ClientCredentials credentials, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchAsync(credentials, cancellationToken);
+        }
+        catch (McpTokenException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or IOException)
+        {
+            throw new McpTokenException(null, ex);
         }
     }
 
@@ -76,14 +97,14 @@ public sealed class McpTokenCache(IHttpClientFactory httpClients, TimeProvider t
         using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"The MCP server's token endpoint answered {(int)response.StatusCode}.", null, response.StatusCode);
+            throw new McpTokenException(response.StatusCode);
         }
 
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("access_token", out var token) || token.ValueKind != JsonValueKind.String)
         {
-            throw new HttpRequestException("The MCP server's token endpoint answered without an access token.");
+            throw new McpTokenException(response.StatusCode);
         }
 
         var lifetime = root.TryGetProperty("expires_in", out var expires) && expires.TryGetInt32(out var seconds) && seconds > 0
@@ -109,4 +130,15 @@ public sealed class McpTokenCache(IHttpClientFactory httpClients, TimeProvider t
         public string Value { get; } = value;
         public DateTimeOffset RenewAt { get; } = renewAt;
     }
+}
+
+/// <summary>
+/// The OAuth token endpoint gave no access token: it failed, refused the client or was unreachable. The MCP server itself
+/// was never asked, so this must not count against its circuit.
+/// </summary>
+public sealed class McpTokenException(HttpStatusCode? statusCode, Exception? inner = null)
+    : Exception($"The MCP server's token endpoint gave no access token{(statusCode is { } code ? $" (HTTP {(int)code})" : string.Empty)}.", inner)
+{
+    /// <summary>The token endpoint's status when it answered; null when it could not be reached.</summary>
+    public HttpStatusCode? StatusCode { get; } = statusCode;
 }

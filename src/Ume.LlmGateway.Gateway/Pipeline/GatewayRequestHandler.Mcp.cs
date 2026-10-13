@@ -381,6 +381,8 @@ public sealed partial class GatewayRequestHandler
                 McpUpstreamFailure.TooLarge => (McpErrors.ResultTooLarge,
                     $"Svaret från MCP-servern är större än tillåtet ({server.MaxResultBytes.ToString(CultureInfo.InvariantCulture)} byte).", 502, GatewayErrorCodes.McpResultTooLarge),
                 McpUpstreamFailure.Timeout => (McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' svarade inte i tid.", 504, GatewayErrorCodes.McpUpstreamFailed),
+                McpUpstreamFailure.TokenEndpoint => (McpErrors.UpstreamFailed,
+                    $"Gatewayen fick ingen åtkomsttoken för MCP-servern '{server.Slug}' från dess tokenslutpunkt.", 502, GatewayErrorCodes.McpUpstreamFailed),
                 _ => (McpErrors.UpstreamFailed, $"MCP-servern '{server.Slug}' kan inte nås just nu.", 502, GatewayErrorCodes.McpUpstreamFailed),
             };
             await RefuseAsync(answer, state, code, message, status, RequestOutcome.ProviderError, error,

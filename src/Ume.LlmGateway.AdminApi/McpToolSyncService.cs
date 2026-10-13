@@ -90,6 +90,9 @@ public sealed class McpProbe(IHttpMessageHandlerFactory handlers, IHttpClientFac
         McpUpstreamFailure.Rejected => "Adressen är inte tillåten i den här miljön.",
         McpUpstreamFailure.TooLarge => "Serverns verktygslista är större än serverns resultatgräns.",
         McpUpstreamFailure.JsonRpcError => $"Servern svarade med JSON-RPC-fel {result.ErrorCode}.",
+        McpUpstreamFailure.TokenEndpoint when result.HttpStatus is { } status =>
+            $"Tokenslutpunkten gav ingen åtkomsttoken (HTTP {status}). Kontrollera klient-ID, hemlighet och scope.",
+        McpUpstreamFailure.TokenEndpoint => "Tokenslutpunkten kunde inte nås.",
         _ => "Servern kunde inte nås eller svarade inte med MCP.",
     };
 
@@ -212,7 +215,8 @@ public sealed class McpToolSyncService(
             return (result, null);
         }
 
-        if (result.Outcome.Failure == McpUpstreamFailure.Unauthorized)
+        if (result.Outcome.Failure == McpUpstreamFailure.Unauthorized
+            || result.Outcome is { Failure: McpUpstreamFailure.TokenEndpoint, HttpStatus: >= 400 and < 500 })
         {
             SecurityEvents.McpServerAuthFailed(_security, server.Slug, server.Id, result.Outcome.HttpStatus);
         }
