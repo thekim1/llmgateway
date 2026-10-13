@@ -77,7 +77,6 @@ public class KeyStatusAndRotationTests
         PiiPolicy = PiiPolicy.RerouteToOnPrem,
         RequestsPerMinute = 60,
         TokensPerMinute = 10_000,
-        McpCallsPerMinute = 30,
     };
 
     [Fact]
@@ -120,7 +119,6 @@ public class KeyStatusAndRotationTests
         replacement.PiiPolicy.ShouldBe(PiiPolicy.RerouteToOnPrem);
         replacement.RequestsPerMinute.ShouldBe(60);
         replacement.TokensPerMinute.ShouldBe(10_000);
-        replacement.McpCallsPerMinute.ShouldBe(30);
         replacement.CreatedBy.ShouldBe("admin@umea.se");
         replacement.GetStatus(Now).ShouldBe(KeyStatus.Active);
     }

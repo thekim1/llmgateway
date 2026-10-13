@@ -5,8 +5,7 @@ namespace Ume.LlmGateway.Infrastructure.Stores;
 
 /// <summary>
 /// Every Redis key and channel the gateway uses, with their lifetimes. All live under <c>ume:</c>: the restricted
-/// gateway ACL user (<c>deploy/redis/users.acl.example</c>) may only touch <c>~ume:*</c> and use the channels
-/// <c>&amp;ume:invalidate</c> and <c>&amp;ume:mcp:events</c>.
+/// gateway ACL user (<c>deploy/redis/users.acl.example</c>) may only touch <c>~ume:*</c> and publish on <c>&amp;ume:invalidate</c>.
 /// </summary>
 internal static class RedisKeys
 {
@@ -16,14 +15,6 @@ internal static class RedisKeys
 
     /// <summary>Cache invalidation (key revoked, configuration changed), published by the admin API.</summary>
     public static readonly RedisChannel InvalidateChannel = RedisChannel.Literal(InvalidateChannelName);
-
-    public const string McpEventsChannelName = Prefix + "mcp:events";
-
-    /// <summary>MCP change notifications (for example an approved tool change), relayed to clients' notification streams.</summary>
-    public static readonly RedisChannel McpEventsChannel = RedisChannel.Literal(McpEventsChannelName);
-
-    /// <summary>Held by the instance that syncs MCP tool lists, with a TTL so a crashed instance releases it.</summary>
-    public const string McpSyncLock = Prefix + "mcp:sync-lock";
 
     /// <summary>A per-minute rate-limit counter outlives its minute a little, so late token reports still land.</summary>
     public const int RateWindowSeconds = 120;
@@ -35,18 +26,6 @@ internal static class RedisKeys
 
     /// <summary>Tokens a key used in the minute <paramref name="minute"/> (Unix minutes).</summary>
     public static string RateTokens(Guid keyId, long minute) => $"ume:rl:tok:{keyId:N}:{minute}";
-
-    /// <summary>MCP calls a key sent upstream in the minute <paramref name="minute"/> (Unix minutes).</summary>
-    public static string RateMcpCalls(Guid keyId, long minute) => $"ume:rl:mcp:{keyId:N}:{minute}";
-
-    /// <summary>Open MCP <c>subscriptions/listen</c> streams of a key (sorted set of stream id → expiry).</summary>
-    public static string McpListenStreams(Guid keyId) => $"ume:mcp:listen:{keyId:N}";
-
-    /// <summary>Encrypted state of a <c>/v1/responses</c> MCP loop that stopped with calls still to answer (a <c>resp_ume_</c> response).</summary>
-    public static string McpPending(Guid keyId, string id) => $"ume:mcp:pending:{keyId:N}:{id}";
-
-    /// <summary>Encrypted state of one <c>mcp_approval_request</c>.</summary>
-    public static string McpApproval(Guid keyId, string id) => $"ume:mcp:approval:{keyId:N}:{id}";
 
     /// <summary>Open realtime sessions of a key (sorted set of session id → expiry).</summary>
     public static string RealtimeSessions(Guid keyId) => $"ume:rt:{keyId:N}";

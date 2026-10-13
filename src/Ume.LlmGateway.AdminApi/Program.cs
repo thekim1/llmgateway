@@ -7,7 +7,6 @@ using Npgsql;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.AdminApi;
 using Ume.LlmGateway.Infrastructure;
-using Ume.LlmGateway.Infrastructure.Mcp;
 
 if (await WebDefaults.ExitIfHealthProbeAsync(args))
 {
@@ -45,13 +44,6 @@ builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessage
 builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) })
     .RemoveStandardResilienceHandler();
-builder.Services.AddMcpUpstream();
-builder.Services.AddHttpClient(McpUpstream.HttpClientName).RemoveStandardResilienceHandler();
-builder.Services.AddHttpClient(McpTokenCache.HttpClientName).RemoveStandardResilienceHandler();
-builder.Services.AddSingleton<IMcpHostResolver, DnsMcpHostResolver>();
-builder.Services.AddSingleton<McpUrlGuard>();
-builder.Services.AddSingleton<McpProbe>();
-builder.Services.AddHostedService<McpSyncWorker>();
 builder.Services.AddRateLimiter(o =>
 {
     o.AddPolicy("admin", http => RateLimitPartition.GetFixedWindowLimiter(
@@ -167,7 +159,6 @@ api.MapRoutingRules();
 api.MapReports();
 api.MapOperations();
 api.MapDataAccess();
-api.MapMcp();
 app.MapOpenApi().RequireAuthorization("admin");
 app.MapScalarApiReference().RequireAuthorization("admin");
 app.UseDefaultFiles();

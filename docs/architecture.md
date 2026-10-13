@@ -23,10 +23,7 @@ prices and fallback targets are data-driven.
 
 Compose: `data` is internal and has no DB/cache host ports. `edge` contains the two
 HTTPS APIs on separate loopback-bound listeners by default. `llm` is a separate gateway
-network for provider connectivity; it is not itself an egress firewall. An internal `mcp`
-network (ADR 017) connects the gateway and the admin API (which syncs tool lists) to MCP servers, including stdio servers
-that run as separate hardened bridge containers; it is added by an extra Compose file per deployment
-(`deploy/mcp/compose.mcp-stdio-example.yaml`, see docs/mcp.md), not by the base files. Municipal
+network for provider connectivity; it is not itself an egress firewall. Municipal
 firewall/DNS controls must enforce actual allowed destinations, management access and
 public exposure. Admin API shares Redis for audited circuit controls/invalidation;
 isolating Redis to the gateway alone would break these control-plane functions.
@@ -134,10 +131,9 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
 | Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |
 | Provider classification | OnPrem / EU / External; drives PII rerouting and key residency limits |
-| MCP gateway | Implemented (ADR 017): `/mcp` and `/mcp/{slug}` proxy remote Streamable HTTP MCP servers under virtual-key grants, with pinned tool definitions, PII policy, residency and usage accounting; `/v1/mcp/tools*` and gateway-run tool loops for the Responses `mcp` tool and the Anthropic MCP connector |
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
-Out of scope for the POC: semantic caching, SSO for gateway clients (keys only),
+Out of scope for the POC: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
 an automated exchange-rate feed, and invoicing integration (CSV export per cost centre instead).
 
 See [ADRs](adr.md), [runbook](runbook.md) and the exact [API contract](admin-api.md).

@@ -20,10 +20,6 @@ public sealed class SeedOptions
     [Url]
     public string? FakeLlmUrl { get; set; }
 
-    /// <summary>Streamable HTTP endpoint of the fake MCP server (FakeLlm's <c>/mcp</c>).</summary>
-    [Url]
-    public string? FakeMcpUrl { get; set; }
-
     /// <summary>Base URL (incl. /v1) of a local Ollama server.</summary>
     [Url]
     public string? OllamaUrl { get; set; }
@@ -65,7 +61,7 @@ public sealed partial class DevSeeder(
         if (await db.Departments.AnyAsync(cancellationToken))
         {
             await SyncManagedProvidersAsync(db, o, cancellationToken);
-            await EnsureDemoMcpServerAsync(db, o, await EnsureDevKeyAsync(db, o, cancellationToken), cancellationToken);
+            await EnsureDevKeyAsync(db, o, cancellationToken);
             return;
         }
 
@@ -305,81 +301,7 @@ public sealed partial class DevSeeder(
         await db.SaveChangesAsync(cancellationToken);
         LogSeeded(logger, providers.Count);
 
-        await EnsureDemoMcpServerAsync(db, o, await EnsureDevKeyAsync(db, o, cancellationToken), cancellationToken);
-    }
-
-    private const string DemoMcpSlug = "demo";
-
-    private static readonly (string Name, string Definition)[] DemoMcpTools =
-    [
-        ("echo", """{"description":"Returns the text it was given.","inputSchema":{"type":"object","properties":{"text":{"description":"The text to return.","type":"string"}},"required":["text"]},"annotations":{"idempotentHint":true,"openWorldHint":false,"readOnlyHint":true}}"""),
-        ("get_time", """{"description":"The current time in UTC and in Sweden.","inputSchema":{"type":"object","properties":{}},"outputSchema":{"type":"object","properties":{"utc":{"type":"string"},"stockholm":{"type":"string"},"unixSeconds":{"type":"integer"}},"required":["utc","stockholm","unixSeconds"]},"annotations":{"openWorldHint":false,"readOnlyHint":true}}"""),
-        ("get_image", """{"description":"A 1x1 PNG test image.","inputSchema":{"type":"object","properties":{}},"annotations":{"idempotentHint":true,"openWorldHint":false,"readOnlyHint":true}}"""),
-    ];
-
-    /// <summary>
-    /// The demo MCP server (FakeLlm's <c>/mcp</c>) with its tools approved, granted to the dev key. Created while no MCP
-    /// server exists, so databases seeded before MCP support get it once; afterwards only its URL follows the AppHost.
-    /// </summary>
-    private async Task EnsureDemoMcpServerAsync(GatewayDbContext db, SeedOptions o, VirtualKey? newDevKey, CancellationToken cancellationToken)
-    {
-        var now = time.GetUtcNow();
-        var server = await db.McpServers.FirstOrDefaultAsync(s => s.Slug == DemoMcpSlug, cancellationToken);
-        var grantTo = newDevKey;
-        if (server is null)
-        {
-            if (await db.McpServers.AnyAsync(cancellationToken))
-            {
-                return;
-            }
-
-            server = new McpServer
-            {
-                Slug = DemoMcpSlug,
-                DisplayName = "Testserver (MCP)",
-                Description = "Demoverktyg från FakeLlm: eko, aktuell tid och en testbild, en välkomsttext och en sammanfattningsprompt.",
-                Url = o.FakeMcpUrl ?? "http://localhost:5090/mcp",
-                Residency = DataResidency.OnPrem,
-                IsEnabled = !string.IsNullOrWhiteSpace(o.FakeMcpUrl),
-                Status = McpServerStatus.Healthy,
-                Capabilities = McpServerCapabilities.Tools | McpServerCapabilities.Resources | McpServerCapabilities.Prompts,
-                CreatedAt = now,
-                Tools = [.. DemoMcpTools.Select(t => new McpTool
-                {
-                    Name = t.Name,
-                    Definition = t.Definition,
-                    DefinitionHash = McpToolDefinition.Hash(t.Definition),
-                    ApprovalState = McpToolApprovalState.Approved,
-                    ApprovedDefinition = t.Definition,
-                    ExposedName = McpToolNames.Exposed(DemoMcpSlug, t.Name),
-                    DiscoveredAt = now,
-                    ApprovedAt = now,
-                    ApprovedBy = "system:seed",
-                })],
-            };
-            db.McpServers.Add(server);
-            grantTo ??= await DevKeyAsync(db, o, cancellationToken);
-        }
-        else if (!string.IsNullOrWhiteSpace(o.FakeMcpUrl) && server.Url != o.FakeMcpUrl)
-        {
-            server.Url = o.FakeMcpUrl;
-        }
-
-        if (grantTo is not null && !await db.VirtualKeyMcpGrants.AnyAsync(g => g.VirtualKeyId == grantTo.Id && g.McpServerId == server.Id, cancellationToken))
-        {
-            db.VirtualKeyMcpGrants.Add(new VirtualKeyMcpGrant
-            {
-                VirtualKeyId = grantTo.Id,
-                McpServerId = server.Id,
-                AllowedTools = [VirtualKeyMcpGrant.AllTools],
-                AllowResources = true,
-                AllowPrompts = true,
-                ApprovalPolicy = McpApprovalPolicy.NeverForReadOnly,
-                CreatedAt = now,
-            });
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+        await EnsureDevKeyAsync(db, o, cancellationToken);
     }
 
     /// <summary>Keeps URLs of dev-managed providers in sync with the AppHost (ports can change between runs).</summary>
@@ -400,46 +322,31 @@ public sealed partial class DevSeeder(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private static string? DevKeyPlain(SeedOptions o) =>
-        string.IsNullOrWhiteSpace(o.DevKey) ? null
-        : o.DevKey.StartsWith(VirtualKeyHasher.KeyPrefix, StringComparison.Ordinal) ? o.DevKey : VirtualKeyHasher.KeyPrefix + o.DevKey;
-
-    private async Task<VirtualKey?> DevKeyAsync(GatewayDbContext db, SeedOptions o, CancellationToken cancellationToken)
+    private async Task EnsureDevKeyAsync(GatewayDbContext db, SeedOptions o, CancellationToken cancellationToken)
     {
-        if (DevKeyPlain(o) is not { } plain || !VirtualKeyHasher.LooksLikeKey(plain))
+        if (string.IsNullOrWhiteSpace(o.DevKey))
         {
-            return null;
+            return;
         }
 
-        var hash = hasher.Hash(plain);
-        return await db.VirtualKeys.FirstOrDefaultAsync(k => k.KeyHash == hash, cancellationToken);
-    }
-
-    /// <summary>Creates the dev key unless it exists; returns it only when it was created.</summary>
-    private async Task<VirtualKey?> EnsureDevKeyAsync(GatewayDbContext db, SeedOptions o, CancellationToken cancellationToken)
-    {
-        if (DevKeyPlain(o) is not { } plain)
-        {
-            return null;
-        }
-
+        var plain = o.DevKey.StartsWith(VirtualKeyHasher.KeyPrefix, StringComparison.Ordinal) ? o.DevKey : VirtualKeyHasher.KeyPrefix + o.DevKey;
         if (!VirtualKeyHasher.LooksLikeKey(plain))
         {
             LogInvalidDevKey(logger);
-            return null;
+            return;
         }
 
         var hash = hasher.Hash(plain);
         if (await db.VirtualKeys.AnyAsync(k => k.KeyHash == hash, cancellationToken))
         {
-            return null;
+            return;
         }
 
         // A database that was not seeded by this seeder may not have the demo team; the dev key is then skipped.
         var team = await db.Teams.OrderBy(t => t.Name).FirstOrDefaultAsync(t => t.Name == "Digitalisering & AI", cancellationToken);
         if (team is null)
         {
-            return null;
+            return;
         }
 
         var key = new VirtualKey
@@ -457,7 +364,6 @@ public sealed partial class DevSeeder(
         db.VirtualKeys.Add(key);
         db.Budgets.Add(new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitSek = 500m, Period = BudgetPeriod.Monthly, CreatedAt = time.GetUtcNow() });
         await db.SaveChangesAsync(cancellationToken);
-        return key;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Seeded demo data with {ProviderCount} providers")]

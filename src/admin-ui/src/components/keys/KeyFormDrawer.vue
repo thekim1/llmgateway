@@ -50,7 +50,6 @@ const ids = {
   allowedIpRanges: 'key-addresses',
   requestsPerMinute: 'key-rpm',
   tokensPerMinute: 'key-tpm',
-  mcpCallsPerMinute: 'key-mcp-rpm',
 } as const
 const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors(ids)
 
@@ -68,7 +67,6 @@ const values = reactive({
   addresses: '',
   requestsPerMinute: '60',
   tokensPerMinute: '',
-  mcpCallsPerMinute: '',
   expiresAt: '',
   isEnabled: true,
 })
@@ -137,7 +135,6 @@ function reset(): void {
   values.addresses = formatAddressList(key?.allowedIpRanges)
   values.requestsPerMinute = key ? (key.requestsPerMinute?.toString() ?? '') : '60'
   values.tokensPerMinute = key?.tokensPerMinute?.toString() ?? ''
-  values.mcpCallsPerMinute = key?.mcpCallsPerMinute?.toString() ?? ''
   values.expiresAt = isoToDateInput(key?.expiresAt)
   values.isEnabled = key?.isEnabled ?? true
 }
@@ -188,7 +185,6 @@ async function submit(): Promise<void> {
     allowedIpRanges: addressListError(parseAddressList(values.addresses)),
     requestsPerMinute: limitError(values.requestsPerMinute, 'Requests per minute'),
     tokensPerMinute: limitError(values.tokensPerMinute, 'Tokens per minute'),
-    mcpCallsPerMinute: limitError(values.mcpCallsPerMinute, 'MCP calls per minute'),
     expiresAt: expiryError(),
   })
   if (!ok) return
@@ -204,7 +200,6 @@ async function submit(): Promise<void> {
     attachmentPolicy: values.attachmentPolicy,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
-    mcpCallsPerMinute: parseInteger(values.mcpCallsPerMinute),
   }
   busy.value = true
   try {
@@ -357,14 +352,6 @@ async function submit(): Promise<void> {
           <div class="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <TextField :id="ids.requestsPerMinute" v-model="values.requestsPerMinute" label="Requests per minute" inputmode="numeric" :error="errors.requestsPerMinute" />
             <TextField :id="ids.tokensPerMinute" v-model="values.tokensPerMinute" label="Tokens per minute" inputmode="numeric" :error="errors.tokensPerMinute" />
-            <TextField
-              :id="ids.mcpCallsPerMinute"
-              v-model="values.mcpCallsPerMinute"
-              label="MCP calls per minute"
-              inputmode="numeric"
-              :error="errors.mcpCallsPerMinute"
-              hint="Tool calls, reads and prompts sent to MCP servers."
-            />
           </div>
           <TextField
             :id="ids.expiresAt"

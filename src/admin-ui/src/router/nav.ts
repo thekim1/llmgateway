@@ -5,7 +5,7 @@ export interface NavItem {
   label: string
   icon: string
   roles?: Role[]
-  badge?: 'alerts' | 'circuits' | 'mcp'
+  badge?: 'alerts' | 'circuits'
 }
 
 export interface NavGroup {
@@ -46,7 +46,6 @@ export const navGroups: NavGroup[] = [
       { name: 'routes', label: 'Routes', icon: 'alt_route', roles: GATEWAY_ADMIN },
       { name: 'routing-rules', label: 'Routing rules', icon: 'rule', roles: GATEWAY_ADMIN },
       { name: 'providers', label: 'Providers & models', icon: 'dns', roles: GATEWAY_ADMIN },
-      { name: 'mcp-servers', label: 'MCP servers', icon: 'extension', roles: ADMIN_ROLES, badge: 'mcp' },
     ],
   },
   {

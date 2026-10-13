@@ -15,9 +15,6 @@ public static class AdminServices
         services.AddScoped<ConfigTransferService>();
         services.AddScoped<PiiIncidentService>();
         services.AddScoped<DataAccessService>();
-        services.AddScoped<McpServerService>();
-        services.AddScoped<McpGrantService>();
-        services.AddScoped<McpToolSyncService>();
         services.AddScoped<GatewaySettingsService>();
         return services;
     }

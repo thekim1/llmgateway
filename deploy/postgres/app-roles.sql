@@ -4,7 +4,7 @@ GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures", "DataProtectionKe
 GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
 GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
   "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-  "Budgets", "ExchangeRates", "DataApiKeys", "McpServers", "McpTools", "VirtualKeyMcpGrants", "GatewaySettings" TO ume_admin;
+  "Budgets", "ExchangeRates", "DataApiKeys", "GatewaySettings" TO ume_admin;
 GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
 GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
 -- Data retention: old rows are removed only through this function (owner's rights, minimum 90 days); the admin role
@@ -19,14 +19,12 @@ BEGIN
     GRANT CONNECT ON DATABASE gatewaydb TO ume_data;
     GRANT USAGE ON SCHEMA public TO ume_data;
     GRANT SELECT ON "UsageRecords", "AuthFailures", "AuditLog", "Departments", "Teams", "ModelDeployments",
-      "ModelPrices", "Budgets", "ExchangeRates", "McpTools", "VirtualKeyMcpGrants", "UsageMonthlyTotals" TO ume_data;
+      "ModelPrices", "Budgets", "ExchangeRates", "UsageMonthlyTotals" TO ume_data;
     GRANT SELECT ("UsageRetainedFrom") ON "GatewaySettings" TO ume_data;
     GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
       "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
-      "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute", "McpCallsPerMinute") ON "VirtualKeys" TO ume_data;
+      "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute") ON "VirtualKeys" TO ume_data;
     GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
-    GRANT SELECT ("Id", "Slug", "DisplayName", "Description", "Url", "Residency", "IsEnabled", "OwnerDepartmentId", "AuthType",
-      "Status", "LastCheckedAt", "Capabilities", "CreatedAt") ON "McpServers" TO ume_data;
     -- Its own credentials: the key hash (SHA-256 of a 256-bit random key) to authenticate Data API keys, and the
     -- only column it may write, the approximate last use.
     GRANT SELECT ("Id", "Name", "Prefix", "KeyHash", "Permissions", "ExpiresAt", "RevokedAt", "LastUsedAt") ON "DataApiKeys" TO ume_data;

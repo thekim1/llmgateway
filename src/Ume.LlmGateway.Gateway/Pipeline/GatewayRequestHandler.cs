@@ -7,7 +7,6 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Infrastructure.Mcp;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -31,10 +30,6 @@ public sealed partial class GatewayRequestHandler(
     IEnumerable<IProviderAdapter> adapters,
     IRealtimeConnector realtime,
     IRealtimeSessionRegistry sessions,
-    IMcpUpstream mcp,
-    IMcpListenRegistry listens,
-    McpLoopStates mcpStates,
-    IInvalidationBus invalidation,
     IHostApplicationLifetime lifetime,
     CredentialProtector credentials,
     UsageWriter usageWriter,
@@ -119,26 +114,6 @@ public sealed partial class GatewayRequestHandler(
         }
 
         var requested = resolution.Model;
-        ResponsesMcp? mcp = null;
-        if (endpoint == GatewayEndpoint.Responses && ResponsesMcpTool.IsMcpRequest(body))
-        {
-            mcp = await PrepareResponsesMcpAsync(http, state, snapshot, key, body, ct);
-            if (mcp is null)
-            {
-                return;
-            }
-        }
-
-        MessagesMcp? messagesMcp = null;
-        if (endpoint == GatewayEndpoint.AnthropicMessages && AnthropicMcpServer.IsMcpRequest(body))
-        {
-            messagesMcp = await PrepareMessagesMcpAsync(http, state, snapshot, key, body, ct);
-            if (messagesMcp is null)
-            {
-                return;
-            }
-        }
-
         // Issued now so it is pipelined with the rate-limit call below instead of costing its own round trip.
         var circuitPrefetch = requested is null ? null : router.PrefetchCircuits(requested, ct);
 
@@ -220,18 +195,7 @@ public sealed partial class GatewayRequestHandler(
         // 9. Attempt candidates in order. From here on the reservation must be reconciled whatever happens.
         try
         {
-            if (mcp is not null)
-            {
-                await RunResponsesMcpAsync(http, state, snapshot, body, selected, mcp, ct);
-            }
-            else if (messagesMcp is not null)
-            {
-                await RunMessagesMcpAsync(http, state, snapshot, body, selected, messagesMcp, ct);
-            }
-            else
-            {
-                await AttemptAsync(http, state, snapshot, body, audio, images, selected, ct);
-            }
+            await AttemptAsync(http, state, snapshot, body, audio, images, selected, ct);
         }
         catch (Exception ex) when (!state.Accounted)
         {

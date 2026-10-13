@@ -23,9 +23,6 @@ public interface IRateLimiter
     /// has no token limit. Does not count as a request.
     /// </summary>
     Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken);
-
-    /// <summary>Counts one MCP call sent upstream against the key's <c>McpCallsPerMinute</c> (null or 0 = no limit).</summary>
-    Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken);
 }
 
 /// <summary>A spend counter for one budget scope and period window, in micro-SEK (1 SEK = 1 000 000).</summary>
@@ -82,53 +79,6 @@ public interface IRealtimeSessionRegistry
     Task CloseAsync(Guid keyId, string sessionId, CancellationToken cancellationToken);
 }
 
-/// <summary>The kinds of MCP loop state: a stopped loop (<c>resp_ume_</c>) and an approval request.</summary>
-public enum McpLoopRecord
-{
-    Pending = 0,
-    Approval = 1,
-}
-
-/// <summary>
-/// Short-lived state of <c>/v1/responses</c> MCP loops (already encrypted by the caller) per virtual key, shared by all
-/// gateway instances. A value is taken once: <see cref="TakeAsync"/> reads and removes it atomically.
-/// </summary>
-public interface IMcpLoopStore
-{
-    Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken);
-
-    Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken);
-
-    /// <summary>The value, removed; null when it does not exist (expired, or taken already).</summary>
-    Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken);
-}
-
-/// <summary>Open MCP <c>subscriptions/listen</c> streams per virtual key, shared by all gateway instances, like <see cref="IRealtimeSessionRegistry"/>.</summary>
-public interface IMcpListenRegistry
-{
-    /// <summary>Takes a slot unless the key already has <paramref name="maxStreams"/> open (0 = no limit).</summary>
-    Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken);
-
-    Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken);
-
-    Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// The lock that lets one admin API instance at a time sync MCP tool lists (<see cref="RedisKeys.McpSyncLock"/>). It
-/// expires by itself, so a crashed holder releases it; a long sync renews it.
-/// </summary>
-public interface IMcpSyncLock
-{
-    /// <summary>A token for <see cref="RenewAsync"/> and <see cref="ReleaseAsync"/>, or null while another holder has the lock.</summary>
-    Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken);
-
-    /// <summary>False when the lock expired and is no longer held with <paramref name="token"/>.</summary>
-    Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken);
-
-    Task ReleaseAsync(string token, CancellationToken cancellationToken);
-}
-
 public enum InvalidationKind
 {
     Keys = 0,
@@ -181,7 +131,6 @@ internal static class RateLimitWindow
 public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
 {
     private readonly ConcurrentDictionary<Counter, long> _counters = new();
-    private readonly ConcurrentDictionary<(Guid KeyId, long Minute), long> _mcpCalls = new();
     private readonly Lock _lock = new();
     private long _prunedMinute;
 
@@ -227,22 +176,8 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
         return Task.FromResult<double?>(RateLimitWindow.TokenPercent(_counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true)), tokensPerMinute.Value));
     }
 
-    public Task<RateLimitDecision> AcquireMcpCallAsync(Guid keyId, int? callsPerMinute, CancellationToken cancellationToken)
-    {
-        if (callsPerMinute is not > 0)
-        {
-            return Task.FromResult(RateLimitDecision.Unlimited);
-        }
-
-        var (minute, retry) = Window();
-        var calls = _mcpCalls.AddOrUpdate((keyId, minute), 1, (_, v) => v + 1);
-        return Task.FromResult(calls > callsPerMinute
-            ? new RateLimitDecision(false, callsPerMinute, 0, retry, "mcp_calls")
-            : new RateLimitDecision(true, callsPerMinute, (int)(callsPerMinute.Value - calls), TimeSpan.Zero, null));
-    }
-
     /// <summary>Number of counters held (tests: old windows are dropped).</summary>
-    internal int Count => _counters.Count + _mcpCalls.Count;
+    internal int Count => _counters.Count;
 
     /// <summary>The current window; the first call in a new minute drops the counters of earlier ones.</summary>
     private (long Minute, TimeSpan RetryAfter) Window()
@@ -256,14 +191,6 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
                 if (counter.Minute < window.Minute - 1)
                 {
                     _counters.TryRemove(counter, out _);
-                }
-            }
-
-            foreach (var counter in _mcpCalls.Keys)
-            {
-                if (counter.Minute < window.Minute - 1)
-                {
-                    _mcpCalls.TryRemove(counter, out _);
                 }
             }
         }
@@ -322,70 +249,6 @@ public sealed class InMemoryRealtimeSessionRegistry(TimeProvider time) : IRealti
             if (_sessions.TryGetValue(keyId, out var open) && open.Remove(sessionId) && open.Count == 0)
             {
                 _sessions.Remove(keyId);
-            }
-        }
-
-        return Task.CompletedTask;
-    }
-}
-
-public sealed class InMemoryMcpListenRegistry(TimeProvider time) : IMcpListenRegistry
-{
-    private readonly InMemoryRealtimeSessionRegistry _slots = new(time);
-
-    public Task<bool> TryOpenAsync(Guid keyId, string streamId, int maxStreams, TimeSpan timeToLive, CancellationToken cancellationToken) =>
-        _slots.TryOpenAsync(keyId, streamId, maxStreams, timeToLive, cancellationToken);
-
-    public Task RenewAsync(Guid keyId, string streamId, TimeSpan timeToLive, CancellationToken cancellationToken) =>
-        _slots.RenewAsync(keyId, streamId, timeToLive, cancellationToken);
-
-    public Task CloseAsync(Guid keyId, string streamId, CancellationToken cancellationToken) => _slots.CloseAsync(keyId, streamId, cancellationToken);
-}
-
-public sealed class InMemoryMcpSyncLock(TimeProvider time) : IMcpSyncLock
-{
-    private readonly Lock _gate = new();
-    private string? _token;
-    private DateTimeOffset _expires;
-
-    public Task<string?> TryAcquireAsync(TimeSpan timeToLive, CancellationToken cancellationToken)
-    {
-        lock (_gate)
-        {
-            var now = time.GetUtcNow();
-            if (_token is not null && _expires > now)
-            {
-                return Task.FromResult<string?>(null);
-            }
-
-            _token = Guid.NewGuid().ToString("N");
-            _expires = now + timeToLive;
-            return Task.FromResult<string?>(_token);
-        }
-    }
-
-    public Task<bool> RenewAsync(string token, TimeSpan timeToLive, CancellationToken cancellationToken)
-    {
-        lock (_gate)
-        {
-            var now = time.GetUtcNow();
-            if (_token != token || _expires <= now)
-            {
-                return Task.FromResult(false);
-            }
-
-            _expires = now + timeToLive;
-            return Task.FromResult(true);
-        }
-    }
-
-    public Task ReleaseAsync(string token, CancellationToken cancellationToken)
-    {
-        lock (_gate)
-        {
-            if (_token == token)
-            {
-                _token = null;
             }
         }
 
@@ -556,27 +419,4 @@ public sealed class InMemoryCircuitBreakerStore(TimeProvider time, Microsoft.Ext
 
         return Task.CompletedTask;
     }
-}
-
-public sealed class InMemoryMcpLoopStore(TimeProvider time) : IMcpLoopStore
-{
-    private readonly ConcurrentDictionary<(Guid, McpLoopRecord, string), (byte[] Value, DateTimeOffset Expires)> _values = new();
-
-    public Task SaveAsync(Guid keyId, IReadOnlyList<(McpLoopRecord Kind, string Id, byte[] Value)> values, TimeSpan timeToLive, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(values);
-        var expires = time.GetUtcNow() + timeToLive;
-        foreach (var (kind, id, value) in values)
-        {
-            _values[(keyId, kind, id)] = (value, expires);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task<byte[]?> GetAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
-        Task.FromResult(_values.TryGetValue((keyId, kind, id), out var entry) && entry.Expires > time.GetUtcNow() ? entry.Value : null);
-
-    public Task<byte[]?> TakeAsync(Guid keyId, McpLoopRecord kind, string id, CancellationToken cancellationToken) =>
-        Task.FromResult(_values.TryRemove((keyId, kind, id), out var entry) && entry.Expires > time.GetUtcNow() ? entry.Value : null);
 }

@@ -12,9 +12,6 @@ with weights, fallbacks and chaining) are applied to live requests and described
 [Routing rules](docs/routing-rules.md). The `x-ume-rule` response header shows which rule applied. Administrators manage rules through the admin API
 (create, validate, dry-run, reorder, reassign); deleting a team or department that has rules asks whether to delete
 the rules or deactivate them until a new team or department is assigned.
-The gateway is also a governed MCP gateway ([MCP gateway](docs/mcp.md), ADR 017): municipal MCP servers are exposed on `/mcp` to clients such as Claude Code,
-VS Code and Claude Desktop under the same virtual keys, budgets, PII policy and residency rules, with admin-approved (pinned) tool definitions, and the gateway can run
-the tool loop itself for the Responses `mcp` tool and Anthropic's MCP connector with any model.
 
 ## Local development
 

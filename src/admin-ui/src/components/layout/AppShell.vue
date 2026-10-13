@@ -5,7 +5,6 @@ import { navGroups, mobileTabs, type NavItem } from '@/router/nav'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { useBudgetsStore } from '@/stores/budgets'
-import { useMcpStore } from '@/stores/mcp'
 import { useOpsStore } from '@/stores/ops'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
@@ -18,7 +17,6 @@ const auth = useAuthStore()
 const ui = useUiStore()
 const budgets = useBudgetsStore()
 const ops = useOpsStore()
-const mcp = useMcpStore()
 const route = useRoute()
 const paletteOpen = ref(false)
 
@@ -33,7 +31,6 @@ const badCircuits = computed(() => (ops.health?.providers ?? []).filter((p) => p
 function badgeCount(item: NavItem): number {
   if (item.badge === 'alerts') return openAlerts.value
   if (item.badge === 'circuits') return badCircuits.value
-  if (item.badge === 'mcp') return mcp.awaitingApproval
   return 0
 }
 
@@ -65,7 +62,6 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   if (auth.hasAnyRole(['department-admin'])) void budgets.loadAlerts()
   if (auth.isGatewayAdmin) void ops.loadHealth()
-  if (auth.hasAnyRole(['department-admin'])) void mcp.load()
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
