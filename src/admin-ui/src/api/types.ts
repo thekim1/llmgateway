@@ -175,8 +175,6 @@ export interface VirtualKey {
   attachmentPolicy: AttachmentPolicy
   requestsPerMinute: number | null
   tokensPerMinute: number | null
-  /** MCP calls the key may send to MCP servers per minute; null = no limit. */
-  mcpCallsPerMinute: number | null
   rotatedToKeyId: string | null
   /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
   canReveal?: boolean
@@ -204,8 +202,6 @@ export interface CreateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
-  /** Like requestsPerMinute: omitted or null = no limit, so the form always sends it. */
-  mcpCallsPerMinute: number | null
   /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
   allowedIpRanges?: string[]
 }
@@ -228,8 +224,6 @@ export interface UpdateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
-  /** Like requestsPerMinute: omitted or null = no limit, so the form always sends it. */
-  mcpCallsPerMinute: number | null
   allowedIpRanges?: string[]
   isEnabled: boolean
 }
@@ -545,13 +539,9 @@ export interface UsageRequestsQuery {
   teamId?: string
   departmentId?: string
   outcome?: RequestOutcome
-  traffic?: UsageTraffic
   page?: number
   pageSize?: number
 }
-
-/** `mcp`: MCP tool calls, reads and prompt gets; `llm`: everything else. */
-export type UsageTraffic = 'llm' | 'mcp'
 
 export interface UsageRequest {
   requestId: string
@@ -706,7 +696,6 @@ export interface PiiIncidentsQuery {
   departmentId?: string
   category?: PiiCategory
   action?: PiiAction
-  traffic?: UsageTraffic
   page?: number
   pageSize?: number
 }
@@ -849,21 +838,6 @@ export interface OpsHealth {
   versions: { adminApi: string; gateway: string | null; schema: string }
   usageWriter: { queueDepth: number; capacity: number; inFlightRecords: number; lastWriteAt: IsoDateTime | null; consecutiveFailures: number } | null
   providers: OpsProviderHealth[]
-  mcpServers: OpsMcpServerHealth[]
-}
-
-/** An MCP server's state from its last tool sync, its circuit and the tools waiting for an admin. */
-export interface OpsMcpServerHealth {
-  id: string
-  slug: string
-  displayName: string
-  isEnabled: boolean
-  status: McpServerStatus
-  lastCheckedAt: IsoDateTime | null
-  lastError: string | null
-  circuitState: CircuitState
-  pendingTools: number
-  changedTools: number
 }
 
 export interface CircuitRequest {
@@ -1086,149 +1060,4 @@ export interface DiscoveredPrice {
   outputPerMillionUsd: number
   audioInputPerMillionUsd?: number
   audioOutputPerMillionUsd?: number
-}
-
-// ---------- MCP servers, tools and grants ----------
-export const MCP_AUTH_TYPES = ['None', 'StaticHeaders', 'OAuthClientCredentials'] as const
-export type McpAuthType = (typeof MCP_AUTH_TYPES)[number]
-
-export const MCP_SERVER_STATUSES = ['Healthy', 'Degraded', 'Unavailable'] as const
-export type McpServerStatus = (typeof MCP_SERVER_STATUSES)[number]
-
-export type McpServerCapability = 'Tools' | 'Resources' | 'Prompts' | 'Completions'
-
-export const MCP_TOOL_STATES = ['Pending', 'Approved', 'Rejected', 'Changed'] as const
-export type McpToolState = (typeof MCP_TOOL_STATES)[number]
-
-export const MCP_APPROVAL_POLICIES = ['Always', 'Never', 'NeverForReadOnly'] as const
-export type McpApprovalPolicy = (typeof MCP_APPROVAL_POLICIES)[number]
-
-/** An MCP server. The credential is write-only (`hasCredential`); status, capabilities and instructions come from the last sync. */
-export interface McpServer {
-  id: string
-  slug: string
-  displayName: string
-  description: string | null
-  url: string
-  residency: DataResidency
-  isEnabled: boolean
-  /** Null for a global server (managed by gateway admins only). */
-  ownerDepartmentId: string | null
-  ownerDepartmentName: string | null
-  authType: McpAuthType
-  hasCredential: boolean
-  forwardHeaders: string[]
-  timeoutSeconds: number
-  maxResultBytes: number
-  autoApproveNewTools: boolean
-  status: McpServerStatus
-  lastCheckedAt: IsoDateTime | null
-  lastError: string | null
-  capabilities: McpServerCapability[]
-  instructions: string | null
-  createdAt: IsoDateTime
-  toolCount: number
-  pendingToolCount: number
-  changedToolCount: number
-  /** The user may change the server and approve its tools. */
-  canManage: boolean
-}
-
-/** Write-only. `headers` for StaticHeaders; the OAuth fields for OAuthClientCredentials. */
-export interface McpCredential {
-  headers?: Record<string, string>
-  tokenUrl?: string
-  clientId?: string
-  clientSecret?: string
-  scope?: string | null
-}
-
-export interface McpServerRequest {
-  slug: string
-  displayName: string
-  description?: string | null
-  url: string
-  residency: DataResidency
-  authType: McpAuthType
-  isEnabled: boolean
-  ownerDepartmentId: string | null
-  forwardHeaders: string[]
-  timeoutSeconds: number
-  maxResultBytes: number
-  autoApproveNewTools: boolean
-  /** Omitted = keep the stored one (same auth type only). */
-  credential?: McpCredential
-}
-
-export interface McpTestResult {
-  succeeded: boolean
-  error: string | null
-  httpStatus: number | null
-  capabilities: McpServerCapability[]
-  instructions: string | null
-  tools: { name: string; title: string | null; description: string | null; exposedName: string }[]
-  warnings: string[]
-}
-
-export interface McpSyncResult {
-  status: McpServerStatus
-  lastCheckedAt: IsoDateTime | null
-  lastError: string | null
-  added: string[]
-  changed: string[]
-  reverted: string[]
-  updated: string[]
-  removed: string[]
-  errors: string[]
-}
-
-export type McpDefinitionChangeKind = 'Added' | 'Removed' | 'Changed'
-
-/** One difference between the approved and the current definition; `path` is a JSON Pointer. */
-export interface McpDefinitionChange {
-  path: string
-  kind: McpDefinitionChangeKind
-  before: unknown
-  after: unknown
-}
-
-export interface McpTool {
-  id: string
-  serverId: string
-  name: string
-  title: string | null
-  exposedName: string
-  approvalState: McpToolState
-  isExposed: boolean
-  /** What the server offers now. */
-  definition: Record<string, unknown> | null
-  definitionHash: string
-  /** What clients see; null until approved. */
-  approvedDefinition: Record<string, unknown> | null
-  priceSek: number | null
-  discoveredAt: IsoDateTime
-  approvedAt: IsoDateTime | null
-  approvedBy: string | null
-  /** Only for Changed tools: approved → current. */
-  changes: McpDefinitionChange[]
-}
-
-export interface McpGrant {
-  serverId: string
-  serverSlug: string
-  serverName: string
-  allowedTools: string[]
-  approvalPolicy: McpApprovalPolicy
-  allowResources: boolean
-  allowPrompts: boolean
-  /** Allowed names the server does not offer (they allow nothing until it does). */
-  unknownTools: string[]
-}
-
-export interface McpGrantRequest {
-  serverId: string
-  allowedTools: string[]
-  approvalPolicy: McpApprovalPolicy
-  allowResources: boolean
-  allowPrompts: boolean
 }

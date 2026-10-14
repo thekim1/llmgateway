@@ -11,23 +11,16 @@ Everything in the original POC scope and the routing rules feature is implemente
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
-| MCP gateway (ADR 017): `/mcp` proxy, tool sync and pinning, admin API and UI, stdio bridge example, MCP tools for the LLM APIs, hosted `mcp` tool loop on `/v1/responses` (streamed or not), Anthropic MCP connector on `/v1/messages` (not streamed) | Done, see [docs/mcp.md](docs/mcp.md) (*Known limitations and later work*). The MCP e2e test (`tests/e2e/specs/mcp.spec.ts`) has not been run yet |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
-| Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass; the new MCP e2e test and the `/mcp-servers` accessibility pass still need a run |
+| Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass |
 
 The POC is not a production approval, legal attestation or WCAG certification (see the release gates in
 [docs/security-and-compliance.md](docs/security-and-compliance.md)).
 
 ## Open items
 
-0. **MCP, needs a human on Windows** (cannot run in WSL):
-   - run the Playwright spec `tests/e2e/specs/mcp.spec.ts` and the axe pass on `/mcp-servers` (`scripts/Start-E2E.ps1`);
-   - try Claude Code, VS Code and Claude Desktop (via `mcp-remote`) against `/mcp` by hand;
-   - run the Python examples in [docs/mcp.md](docs/mcp.md), which have not been run.
-   Later MCP work (streaming on `/v1/messages`, `mcp_tool_listing` blocks, inbound OAuth and the rest) is listed in *Known limitations and later work* there.
-   **MCP v2, per-user authorization** (IdP sign-in on `/mcp`, token exchange per upstream): plan in [261013_llmgateway_mcp_auth.md](261013_llmgateway_mcp_auth.md), not started; it starts when the first personal MCP server is identified; product-owner questions are answered (the 90-day `UserRef` clearing still needs the records retention decision).
 1. **Screen reader pass: not planned.** Decided 2026-10-10: there are no resources for manual testing with NVDA or VoiceOver. The automated axe,
    focus, heading and name checks remain the evidence. `docs/accessibility-statement.md` keeps saying that no screen reader has been run; an adopter
    who needs that evidence (for example before public use) has to arrange it. Untested areas most likely to need it: `<datalist>` model-name inputs, the

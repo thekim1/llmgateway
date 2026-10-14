@@ -89,10 +89,6 @@ public sealed partial class GatewayRequestHandler
             ErrorCode = errorCode,
             RoutingRuleId = state.Rule?.RuleId,
             RoutingRuleName = state.Rule?.Name is { Length: > 200 } ruleName ? ruleName[..200] : state.Rule?.Name,
-            McpServerId = state.McpServerId,
-            McpMethod = state.McpMethod,
-            McpTool = state.McpTool,
-            ParentRequestId = state.ParentRequestId,
         };
 
         metrics.Record(record);
@@ -152,10 +148,6 @@ public sealed partial class GatewayRequestHandler
         public string? PiiCategories { get; set; }
         public BudgetReservation? Reservation { get; set; }
         public AppliedRule? Rule { get; set; }
-        public Guid? McpServerId { get; set; }
-        public string? McpMethod { get; set; }
-        public string? McpTool { get; set; }
-        public string? ParentRequestId { get; set; }
 
         /// <summary>The deployment of the current (or last) attempt.</summary>
         public ModelDeployment? Deployment { get; set; }

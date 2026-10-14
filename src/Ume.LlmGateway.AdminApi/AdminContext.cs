@@ -107,20 +107,9 @@ public sealed class AdminValidationFilter : IEndpointFilter
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        foreach (var argument in context.Arguments)
+        foreach (var argument in context.Arguments.OfType<AdminRequest>())
         {
-            if (argument is AdminRequest request)
-            {
-                Validate(request, "", errors);
-            }
-            else if (argument is IEnumerable<AdminRequest> items)
-            {
-                var i = 0;
-                foreach (var item in items)
-                {
-                    Validate(item, $"[{i++}].", errors);
-                }
-            }
+            Validate(argument, "", errors);
         }
         return errors.Count > 0 ? Results.ValidationProblem(errors, title: ApiFaultException.ValidationTitle) : await next(context);
     }

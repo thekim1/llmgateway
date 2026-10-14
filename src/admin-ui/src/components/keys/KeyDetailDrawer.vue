@@ -7,7 +7,6 @@ import { useUiStore } from '@/stores/ui'
 import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
-import KeyMcpGrants from '@/components/keys/KeyMcpGrants.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import DetailRow from '@/components/ui/DetailRow.vue'
 import DetailSection from '@/components/ui/DetailSection.vue'
@@ -130,14 +129,10 @@ const reason = computed(() => {
       <DetailSection title="Limits">
         <DetailRow label="Requests per minute"><span class="tabular">{{ keyData.requestsPerMinute === null ? 'No limit' : formatNumber(keyData.requestsPerMinute) }}</span></DetailRow>
         <DetailRow label="Tokens per minute"><span class="tabular">{{ keyData.tokensPerMinute === null ? 'No limit' : formatNumber(keyData.tokensPerMinute) }}</span></DetailRow>
-        <DetailRow label="MCP calls per minute"><span class="tabular">{{ keyData.mcpCallsPerMinute == null ? 'No limit' : formatNumber(keyData.mcpCallsPerMinute) }}</span></DetailRow>
         <DetailRow label="Expires">{{ keyData.expiresAt ? formatDateTime(keyData.expiresAt) : 'Never' }}</DetailRow>
       </DetailSection>
       <DetailSection title="Budgets" :list="false">
         <KeyBudgets :key-id="keyData.id" :editable="auth.canManage && keyData.status !== 'Revoked'" />
-      </DetailSection>
-      <DetailSection title="MCP servers" :list="false">
-        <KeyMcpGrants :key-id="keyData.id" :editable="auth.canManage && keyData.status !== 'Revoked'" />
       </DetailSection>
       <DetailSection title="Lifecycle">
         <DetailRow label="Created">{{ formatDateTime(keyData.createdAt) }}</DetailRow>

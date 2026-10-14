@@ -1,9 +1,6 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
 
 // Fake LLM provider for demos and automated tests. Implements just enough of the OpenAI (chat, embeddings,
 // responses, models, audio transcriptions/translations) and Anthropic (messages) APIs. Speech to text pretends the
@@ -14,23 +11,13 @@ using ModelContextProtocol.Server;
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
 // response.create in text, and translation sessions (fake-interpret) send transcript deltas per second of audio.
-// /v1/responses with tools or previous_response_id follows FakeResponsesScript (streamed or not), for tool loops.
-// A demo MCP server (Streamable HTTP) on /mcp offers echo (text), get_time (structured content) and get_image (an image),
-// the resource ume://demo/welcome and the prompt summarize.
 // NOT for production. It echoes the last user message so demos can show PII redaction.
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.Services.AddMcpServer(o => o.ServerInfo = new Implementation { Name = "ume-fake-mcp", Version = "1.0.0" })
-    .WithHttpTransport()
-    .WithToolsFromAssembly()
-    .WithResourcesFromAssembly()
-    .WithPromptsFromAssembly();
 var app = builder.Build();
 app.MapDefaultEndpoints();
-app.MapMcp("/mcp");
 app.UseWebSockets();
 
-var responsesScript = new Ume.LlmGateway.FakeLlm.FakeResponsesScript();
 app.MapGet("/", () => "Ume fake LLM – endast för test och demo.");
 app.MapGet("/v1/models", () => Results.Json(new
 {
@@ -117,35 +104,6 @@ app.MapPost("/v1/responses", async (HttpContext ctx) =>
     if (await FailureAsync(ctx, model) is { } failure)
     {
         return failure;
-    }
-
-    if (body["tools"] is JsonArray || body["previous_response_id"] is not null)
-    {
-        if (body["stream"]?.GetValue<bool>() != true)
-        {
-            var (status, scripted) = responsesScript.Respond(body);
-            return Results.Json(scripted, statusCode: status);
-        }
-
-        var (streamStatus, error, events, breaksOff) = responsesScript.Stream(body);
-        if (events is null)
-        {
-            return Results.Json(error, statusCode: streamStatus);
-        }
-
-        await StartSse(ctx);
-        foreach (var evt in events)
-        {
-            await Sse(ctx, evt["type"]!.GetValue<string>(), evt);
-        }
-
-        if (breaksOff)
-        {
-            await Task.Delay(300);
-            ctx.Abort();
-        }
-
-        return Results.Empty;
     }
 
     var input = body["input"] is JsonValue v ? v.ToString() : AllText(body["input"]);
@@ -549,42 +507,3 @@ static async Task Sse(HttpContext ctx, string? eventName, object payload)
 }
 
 public partial class Program;
-
-[McpServerToolType]
-internal static class FakeMcpTools
-{
-    private static readonly byte[] Pixel = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
-
-    [McpServerTool(Name = "echo", ReadOnly = true, Idempotent = true, OpenWorld = false), Description("Returns the text it was given.")]
-    public static string Echo([Description("The text to return.")] string text) => text;
-
-    [McpServerTool(Name = "get_time", ReadOnly = true, OpenWorld = false, UseStructuredContent = true), Description("The current time in UTC and in Sweden.")]
-    public static FakeTime GetTime()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var stockholm = TimeZoneInfo.ConvertTime(now, TimeZoneInfo.FindSystemTimeZoneById("Europe/Stockholm"));
-        return new FakeTime(now.ToString("O", System.Globalization.CultureInfo.InvariantCulture), stockholm.ToString("O", System.Globalization.CultureInfo.InvariantCulture), now.ToUnixTimeSeconds());
-    }
-
-    [McpServerTool(Name = "get_image", ReadOnly = true, Idempotent = true, OpenWorld = false), Description("A 1x1 PNG test image.")]
-    public static CallToolResult GetImage() => new()
-    {
-        Content = [new TextContentBlock { Text = "A test image:" }, ImageContentBlock.FromBytes(Pixel, "image/png")],
-    };
-}
-
-internal sealed record FakeTime(string Utc, string Stockholm, long UnixSeconds);
-
-[McpServerResourceType]
-internal static class FakeMcpResources
-{
-    [McpServerResource(UriTemplate = "ume://demo/welcome", Name = "welcome", MimeType = "text/plain"), Description("A short welcome text.")]
-    public static string Welcome() => "Välkommen till testservern för MCP. Allt här är påhittat.";
-}
-
-[McpServerPromptType]
-internal static class FakeMcpPrompts
-{
-    [McpServerPrompt(Name = "summarize"), Description("Asks for a short summary of a text.")]
-    public static string Summarize([Description("The text to summarise.")] string text) => $"Sammanfatta kort: {text}";
-}

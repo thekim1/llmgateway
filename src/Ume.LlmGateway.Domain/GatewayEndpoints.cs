@@ -73,10 +73,6 @@ public static class GatewayEndpoints
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.Realtime, ModelKind.Transcription),
         new(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations", ProviderCapabilities.Realtime,
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.SpeechTranslation),
-        new(GatewayEndpoint.Mcp, "mcp", "/mcp", null, ProviderCapabilities.None,
-            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false),
-        new(GatewayEndpoint.McpToolCall, "mcp_tool_call", "/v1/mcp/tools/call", null, ProviderCapabilities.None,
-            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false),
     ]);
 
     private static readonly GatewayEndpoint[][] ByKind = BuildByKind();

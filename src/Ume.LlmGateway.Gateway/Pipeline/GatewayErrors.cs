@@ -29,28 +29,6 @@ public static class GatewayErrorCodes
 
     /// <summary>Unexpected failure inside the gateway after the request was accepted (it is accounted; nothing is charged).</summary>
     public const string InternalError = "internal_error";
-
-    /// <summary><c>/mcp/{slug}</c>: no such server, or the key may not use it.</summary>
-    public const string McpServerNotFound = "mcp_server_not_found";
-
-    /// <summary>A tool call of an unknown tool or one the key may not use (on <c>/mcp</c> the client sees only "Unknown tool").</summary>
-    public const string McpToolNotFound = "mcp_tool_not_found";
-    public const string McpInvalidArguments = "mcp_invalid_arguments";
-
-    /// <summary>Recorded for a <c>resources/read</c> or <c>prompts/get</c> of something unknown or not allowed (the client sees "not found").</summary>
-    public const string McpResourceNotFound = "mcp_resource_not_found";
-    public const string McpPromptNotFound = "mcp_prompt_not_found";
-    public const string McpUpstreamFailed = "mcp_upstream_failed";
-    public const string McpResultTooLarge = "mcp_result_too_large";
-
-    /// <summary><c>/v1/responses</c>: the <c>resp_ume_</c> response to continue from is unknown, expired, already continued or cannot be reached any more.</summary>
-    public const string McpContinuationNotFound = "mcp_continuation_not_found";
-
-    /// <summary><c>/v1/responses</c>: an <c>mcp_approval_response</c> answers no known, unexpired and unused approval request of the key.</summary>
-    public const string McpApprovalNotFound = "mcp_approval_not_found";
-
-    /// <summary><c>/v1/responses</c>: a resent <c>mcp_approval_request</c> differs from the one the gateway issued.</summary>
-    public const string McpApprovalMismatch = "mcp_approval_mismatch";
 }
 
 public static class GatewayErrors

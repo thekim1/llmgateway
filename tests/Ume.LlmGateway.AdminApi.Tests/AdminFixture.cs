@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Testcontainers.PostgreSql;
 using Ume.LlmGateway.TestKit;
@@ -25,8 +24,6 @@ public sealed class AdminFixture : IAsyncLifetime
     private readonly PostgreSqlContainer _postgres = TestPostgres.Builder().Build();
     private WebApplicationFactory<Program> _factory = null!;
     public IServiceProvider Services => _factory.Services;
-    public CapturingLoggerProvider Logs { get; } = new();
-    public McpTestServer Mcp { get; } = new();
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -34,7 +31,7 @@ public sealed class AdminFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await Task.WhenAll(_postgres.StartAsync(), Mcp.StartAsync());
+        await _postgres.StartAsync();
         await TestPostgres.MigrateAsync(_postgres.GetConnectionString());
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -43,12 +40,8 @@ public sealed class AdminFixture : IAsyncLifetime
             builder.UseSetting("Security:KeyPepper", TestSecrets.RandomHex());
             builder.UseSetting("Oidc:Authority", "https://identity.invalid");
             builder.UseSetting("Admin:RequestsPerMinute", "10000");
-            // Tests sync MCP servers themselves; a scheduled sync would change their tools in between.
-            builder.UseSetting("Admin:McpSyncMinutes", "0");
-            builder.ConfigureLogging(logging => logging.AddProvider(Logs));
             builder.ConfigureTestServices(services =>
             {
-                services.AddSingleton<IMcpHostResolver, TestHostResolver>();
                 services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, o =>
                     o.Configuration = new OpenIdConnectConfiguration
                     {
@@ -91,24 +84,6 @@ public sealed class AdminFixture : IAsyncLifetime
     public async ValueTask DisposeAsync()
     {
         await _factory.DisposeAsync();
-        await Mcp.DisposeAsync();
         await _postgres.DisposeAsync();
     }
-}
-
-/// <summary>
-/// Host names for the SSRF tests without DNS: <c>*.public.test</c> is a public address, <c>*.private.test</c> a private
-/// one, <c>*.metadata.test</c> the cloud metadata address and <c>*.mixed.test</c> both a public and a link-local one.
-/// Other names are resolved as usual.
-/// </summary>
-internal sealed class TestHostResolver : IMcpHostResolver
-{
-    public Task<IPAddress[]> ResolveAsync(string host, CancellationToken ct) => host switch
-    {
-        _ when host.EndsWith(".public.test", StringComparison.Ordinal) => Task.FromResult<IPAddress[]>([IPAddress.Parse("203.0.113.7")]),
-        _ when host.EndsWith(".private.test", StringComparison.Ordinal) => Task.FromResult<IPAddress[]>([IPAddress.Parse("10.1.2.3")]),
-        _ when host.EndsWith(".metadata.test", StringComparison.Ordinal) => Task.FromResult<IPAddress[]>([IPAddress.Parse("169.254.169.254")]),
-        _ when host.EndsWith(".mixed.test", StringComparison.Ordinal) => Task.FromResult<IPAddress[]>([IPAddress.Parse("203.0.113.8"), IPAddress.Parse("fe80::1")]),
-        _ => Dns.GetHostAddressesAsync(host, ct),
-    };
 }

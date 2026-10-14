@@ -28,13 +28,6 @@ import type {
   RetentionSettings,
   KeyFilter,
   KeyRotationMode,
-  McpGrant,
-  McpGrantRequest,
-  McpServer,
-  McpServerRequest,
-  McpSyncResult,
-  McpTestResult,
-  McpTool,
   Model,
   NewPrice,
   OpsHealth,
@@ -104,10 +97,6 @@ export const api = {
     rotate: (keyId: string, mode: KeyRotationMode) =>
       http.post<RotateKeyResponse>(`/api/keys/${id(keyId)}/rotate`, { mode }),
     revoke: (keyId: string) => http.post<VirtualKey>(`/api/keys/${id(keyId)}/revoke`),
-    /** Grants on the MCP servers the user can see. */
-    mcpGrants: (keyId: string) => http.get<McpGrant[]>(`/api/keys/${id(keyId)}/mcp-grants`),
-    /** Replaces the key's grants on the servers the user can see. */
-    replaceMcpGrants: (keyId: string, grants: McpGrantRequest[]) => http.put<McpGrant[]>(`/api/keys/${id(keyId)}/mcp-grants`, grants),
     /** gateway-admin only. Every call is written to the audit log. */
     reveal: (keyId: string, purpose: 'Reveal' | 'Copy') =>
       http.post<{ secret: string }>(`/api/keys/${id(keyId)}/reveal`, { purpose }),
@@ -131,24 +120,6 @@ export const api = {
       http.post<Provider>(`/api/providers/${id(providerId)}/drain`, { drained }),
     remove: (providerId: string) => http.del(`/api/providers/${id(providerId)}`),
     discoverModels: (providerId: string) => http.post<DiscoveredModel[]>(`/api/providers/${id(providerId)}/discover-models`, {}),
-  },
-  mcp: {
-    list: () => http.get<McpServer[]>('/api/mcp/servers'),
-    create: (body: McpServerRequest) => http.post<McpServer>('/api/mcp/servers', body),
-    update: (serverId: string, body: McpServerRequest) => http.put<McpServer>(`/api/mcp/servers/${id(serverId)}`, body),
-    remove: (serverId: string) => http.del(`/api/mcp/servers/${id(serverId)}`),
-    /** Connects and lists the tools without saving: a new server (no id), or a saved one with optional unsaved changes. */
-    test: (serverId: string | null, body?: McpServerRequest) =>
-      serverId ? http.post<McpTestResult>(`/api/mcp/servers/${id(serverId)}/test`, body) : http.post<McpTestResult>('/api/mcp/servers/test', body),
-    /** 409 while another sync runs. */
-    sync: (serverId: string) => http.post<McpSyncResult>(`/api/mcp/servers/${id(serverId)}/sync`),
-    tools: (serverId: string) => http.get<McpTool[]>(`/api/mcp/servers/${id(serverId)}/tools`),
-    /** 409 when the definition changed since `definitionHash` was reviewed. */
-    approve: (serverId: string, toolId: string, definitionHash: string) =>
-      http.post<McpTool>(`/api/mcp/servers/${id(serverId)}/tools/${id(toolId)}/approve`, { definitionHash }),
-    reject: (serverId: string, toolId: string) => http.post<McpTool>(`/api/mcp/servers/${id(serverId)}/tools/${id(toolId)}/reject`),
-    setPrice: (serverId: string, toolId: string, priceSek: number | null) =>
-      http.put<McpTool>(`/api/mcp/servers/${id(serverId)}/tools/${id(toolId)}/price`, { priceSek }),
   },
   models: {
     list: () => http.get<Model[]>('/api/models'),
@@ -218,8 +189,6 @@ export const api = {
     providerStats: (query: ProviderStatsQuery) => http.get<ProviderStability>('/api/ops/providers/stats', { ...query }),
     setCircuit: (providerId: string, state: CircuitState) =>
       http.post<void>(`/api/ops/providers/${id(providerId)}/circuit`, { state }),
-    setMcpCircuit: (serverId: string, state: CircuitState) =>
-      http.post<void>(`/api/ops/mcp-servers/${id(serverId)}/circuit`, { state }),
     invalidateKeyCache: () => http.post<void>('/api/ops/cache/invalidate-keys'),
     exportConfig: () => http.get<ConfigDocument>('/api/ops/config/export'),
     importConfig: (doc: ConfigDocument) => http.post<ConfigImportResult>('/api/ops/config/import', doc),

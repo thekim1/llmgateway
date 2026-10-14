@@ -5,7 +5,6 @@ using Scalar.AspNetCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure;
-using Ume.LlmGateway.Infrastructure.Mcp;
 using Ume.LlmGateway.Infrastructure.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -22,10 +21,6 @@ builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
 builder.AddGatewayStores();
 builder.Services.AddProviderAdapters();
-builder.Services.AddMcpUpstream();
-// The gateway decides itself whether an MCP request may be sent again (never for destructive tools).
-builder.Services.AddHttpClient(McpUpstream.HttpClientName).RemoveStandardResilienceHandler();
-builder.Services.AddHttpClient(McpTokenCache.HttpClientName).RemoveStandardResilienceHandler();
 
 builder.Services.AddOptions<GatewayOptions>()
     .BindConfiguration(GatewayOptions.SectionName)
@@ -48,7 +43,6 @@ builder.Services.AddSingleton<UsageWriter>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UsageWriter>());
 builder.Services.AddSingleton<AuthFailureRecorder>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
-builder.Services.AddSingleton<McpLoopStates>();
 builder.Services.AddSingleton<GatewayRequestHandler>();
 // One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
 builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();
@@ -83,9 +77,7 @@ app.UseUmeSecurityHeaders(o =>
 {
     o.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
     o.ContentSecurityPolicyPrefixes.Add("/v1");
-    o.ContentSecurityPolicyPrefixes.Add("/mcp");
     o.NoStorePrefixes.Add("/v1");
-    o.NoStorePrefixes.Add("/mcp");
 });
 
 app.MapDefaultEndpoints();
@@ -152,22 +144,6 @@ v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) 
 v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
     .WithSummary("Modeller och alias som nyckeln får använda")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-// MCP tools for a client's own tool loop: definitions in the request format, and one call answered in the same format.
-v1.MapGet("/mcp/tools", (HttpContext http, string? format, GatewayRequestHandler h) => h.ListMcpToolsAsync(http, format))
-    .WithSummary("MCP-verktyg som nyckeln får använda, som verktygsdefinitioner (format: openai, responses eller anthropic)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/mcp/tools/call", (HttpContext http, GatewayRequestHandler h) => h.CallMcpToolAsync(http))
-    .WithSummary("Kör ett verktygsanrop (tool_call, function_call eller tool_use) mot en MCP-server och svara i samma format")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-// MCP gateway (Streamable HTTP, stateless): every granted server, or one server by slug with its own tool names.
-var mcp = app.MapGroup("/mcp").WithTags("MCP");
-mcp.MapPost("", (HttpContext http, GatewayRequestHandler h) => h.HandleMcpAsync(http, null))
-    .WithSummary("MCP-server (Streamable HTTP) med alla MCP-servrar nyckeln får använda");
-mcp.MapPost("/{slug}", (HttpContext http, string slug, GatewayRequestHandler h) => h.HandleMcpAsync(http, slug))
-    .WithSummary("MCP-server (Streamable HTTP) för en MCP-server, med verktygens egna namn");
 
 await app.RunAsync();
 

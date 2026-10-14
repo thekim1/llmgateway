@@ -50,7 +50,6 @@ if (builder.ExecutionContext.IsRunMode)
 if (fakeLlm is not null)
 {
     migrations.WithEnvironment("Seed__FakeLlmUrl", ReferenceExpression.Create($"{fakeLlm.GetEndpoint("https")}/v1"))
-        .WithEnvironment("Seed__FakeMcpUrl", ReferenceExpression.Create($"{fakeLlm.GetEndpoint("https")}/mcp"))
         .WaitFor(fakeLlm);
 }
 

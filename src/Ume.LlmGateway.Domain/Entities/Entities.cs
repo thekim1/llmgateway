@@ -84,9 +84,6 @@ public sealed class VirtualKey
     public int? RequestsPerMinute { get; set; }
     public int? TokensPerMinute { get; set; }
 
-    /// <summary>MCP calls sent to MCP servers per minute (tool calls, resource reads, prompts). Null = no limit.</summary>
-    public int? McpCallsPerMinute { get; set; }
-
     public KeyStatus GetStatus(DateTimeOffset now)
     {
         if (RevokedAt is { } revoked && revoked <= now)
@@ -372,146 +369,6 @@ public sealed class RoutingRuleTarget
     public int Weight { get; set; } = 1;
 }
 
-/// <summary>
-/// A remote MCP server (Streamable HTTP) the gateway exposes on <c>/mcp</c> and <c>/mcp/{slug}</c>. Keys reach it only
-/// through a <see cref="VirtualKeyMcpGrant"/>, and only its approved tools are visible.
-/// </summary>
-public sealed class McpServer
-{
-    public Guid Id { get; set; } = Guid.CreateVersion7();
-
-    /// <summary>
-    /// Unique, lower-case letters and digits with single underscores between them, at most 24 characters
-    /// (<see cref="Services.McpToolNames.IsValidSlug"/>); prefixes tool names on the aggregated <c>/mcp</c>.
-    /// </summary>
-    public required string Slug { get; set; }
-
-    public required string DisplayName { get; set; }
-    public string? Description { get; set; }
-
-    /// <summary>The server's Streamable HTTP endpoint, e.g. <c>https://diarium.internal/mcp</c>.</summary>
-    public required string Url { get; set; }
-
-    /// <summary>Where the server processes data; checked against <see cref="VirtualKey.AllowedResidencies"/>.</summary>
-    public DataResidency Residency { get; set; }
-
-    public bool IsEnabled { get; set; } = true;
-
-    /// <summary>The department that manages the server; null for a global server.</summary>
-    public Guid? OwnerDepartmentId { get; set; }
-
-    public McpAuthType AuthType { get; set; }
-
-    /// <summary>
-    /// Encrypted with ASP.NET Data Protection, never returned by any API: a JSON object of header names and values for
-    /// <see cref="McpAuthType.StaticHeaders"/>, or the token endpoint, client id, secret and scope for <see cref="McpAuthType.OAuthClientCredentials"/>.
-    /// </summary>
-    public string? EncryptedCredential { get; set; }
-
-    /// <summary>Caller headers sent on to the server, by exact name. Empty = none.</summary>
-    public List<string> ForwardHeaders { get; set; } = [];
-
-    public int TimeoutSeconds { get; set; } = 30;
-    public int MaxResultBytes { get; set; } = 1024 * 1024;
-
-    /// <summary>Trusted internal servers only: newly discovered tools are approved without an admin.</summary>
-    public bool AutoApproveNewTools { get; set; }
-
-    public McpServerStatus Status { get; set; } = McpServerStatus.Unavailable;
-    public DateTimeOffset? LastCheckedAt { get; set; }
-    public string? LastError { get; set; }
-    public McpServerCapabilities Capabilities { get; set; }
-
-    /// <summary>The server's own instructions, capped at <see cref="MaxInstructionsLength"/> characters.</summary>
-    public string? Instructions { get; set; }
-
-    public DateTimeOffset CreatedAt { get; set; }
-    public List<McpTool> Tools { get; set; } = [];
-
-    public const int MaxInstructionsLength = 4096;
-}
-
-/// <summary>
-/// One tool discovered on an <see cref="McpServer"/>. <see cref="Definition"/> is what the server offers now;
-/// clients only ever see <see cref="ApprovedDefinition"/>, so a changed upstream definition waits for re-approval.
-/// </summary>
-public sealed class McpTool
-{
-    public Guid Id { get; set; } = Guid.CreateVersion7();
-    public Guid McpServerId { get; set; }
-
-    /// <summary>The tool's name on the server (case-sensitive).</summary>
-    public required string Name { get; set; }
-
-    public string? Title { get; set; }
-
-    /// <summary>Hex SHA-256 of <see cref="Definition"/>, compared on every sync.</summary>
-    public required string DefinitionHash { get; set; }
-
-    /// <summary>JSON: description, inputSchema, outputSchema and annotations as the server last reported them.</summary>
-    public required string Definition { get; set; }
-
-    public McpToolApprovalState ApprovalState { get; set; }
-
-    /// <summary>JSON in the same shape as <see cref="Definition"/>: the definition clients see. Null until first approved.</summary>
-    public string? ApprovedDefinition { get; set; }
-
-    /// <summary>The name on the aggregated <c>/mcp</c> and on the LLM path (<see cref="Services.McpToolNames.Exposed"/>), unique across servers.</summary>
-    public required string ExposedName { get; set; }
-
-    /// <summary>Price per call in SEK, charged to budgets. Null = free.</summary>
-    public decimal? PriceSek { get; set; }
-
-    public DateTimeOffset DiscoveredAt { get; set; }
-    public DateTimeOffset? ApprovedAt { get; set; }
-    public string? ApprovedBy { get; set; }
-
-    /// <summary>Whether clients see the tool: it was approved, and a later upstream change does not hide it.</summary>
-    public bool IsExposed => ApprovalState is (McpToolApprovalState.Approved or McpToolApprovalState.Changed) && ApprovedDefinition is not null;
-}
-
-/// <summary>
-/// Lets a virtual key use an <see cref="McpServer"/>, like <see cref="VirtualKey.AllowedProviders"/>: a key without
-/// grants sees no MCP servers, and a global server is granted explicitly too.
-/// </summary>
-public sealed class VirtualKeyMcpGrant
-{
-    public Guid Id { get; set; } = Guid.CreateVersion7();
-    public Guid VirtualKeyId { get; set; }
-    public Guid McpServerId { get; set; }
-
-    /// <summary>Tool names on the server, or <see cref="AllTools"/>. Empty = none.</summary>
-    public List<string> AllowedTools { get; set; } = [];
-
-    /// <summary>Used when the gateway runs the server's tools inside an LLM request.</summary>
-    public McpApprovalPolicy ApprovalPolicy { get; set; }
-
-    /// <summary>The key may list and read the server's resources (documents). Off by default: a tool grant exposes no documents.</summary>
-    public bool AllowResources { get; set; }
-
-    /// <summary>The key may list and get the server's prompts.</summary>
-    public bool AllowPrompts { get; set; }
-
-    public DateTimeOffset CreatedAt { get; set; }
-
-    public const string AllTools = "*";
-
-    /// <summary>Whether the grant covers the tool named <paramref name="toolName"/> on the server (names are case-sensitive).</summary>
-    public bool Allows(string toolName)
-    {
-        ArgumentNullException.ThrowIfNull(toolName);
-        foreach (var allowed in AllowedTools)
-        {
-            if (allowed == AllTools || string.Equals(allowed, toolName, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
-
 public sealed class Budget
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -663,18 +520,6 @@ public sealed class UsageRecord
 
     /// <summary>Name of that rule at the time of the request, so reports stay readable after it is renamed or deleted.</summary>
     public string? RoutingRuleName { get; set; }
-
-    /// <summary>The MCP server a <see cref="GatewayEndpoint.Mcp"/> or <see cref="GatewayEndpoint.McpToolCall"/> call went to. No foreign key: the server may be deleted later.</summary>
-    public Guid? McpServerId { get; set; }
-
-    /// <summary>The MCP method sent to the server, e.g. <c>tools/call</c> or <c>resources/read</c>.</summary>
-    public string? McpMethod { get; set; }
-
-    /// <summary>The tool's name on the server, for <c>tools/call</c>.</summary>
-    public string? McpTool { get; set; }
-
-    /// <summary>The LLM request inside which the gateway made this call (tool calls and later turns of a gateway-run tool loop).</summary>
-    public string? ParentRequestId { get; set; }
 
     /// <summary>
     /// When the row was written (database transaction start, set by Postgres). Data API feeds only hand out rows older
