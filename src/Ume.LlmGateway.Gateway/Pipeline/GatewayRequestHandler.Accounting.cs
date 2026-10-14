@@ -92,7 +92,13 @@ public sealed partial class GatewayRequestHandler
         };
 
         metrics.Record(record);
-        LogCompleted(logger, state.RequestId, key.Prefix, record.RequestedModel, record.ProviderName ?? "-", status, record.LatencyMs, state.Fallbacks);
+        // Successful requests are in the usage table and the metrics already; a log line for each cost 9-16 % of peak
+        // throughput (docs/performance.md), so only refused, failed and cancelled requests are logged at Information.
+        var level = outcome == RequestOutcome.Success ? LogLevel.Debug : LogLevel.Information;
+        if (logger.IsEnabled(level))
+        {
+            LogCompleted(logger, level, state.RequestId, key.Prefix, record.RequestedModel, record.ProviderName ?? "-", status, record.LatencyMs, state.Fallbacks);
+        }
         if (state.PiiAction is { } piiAction && _security.IsEnabled(LogLevel.Information))
         {
             SecurityEvents.PiiAction(_security, PiiActionName(piiAction), state.RequestId, state.Endpoint.ToString(), state.PiiCategories,
@@ -167,8 +173,8 @@ public sealed partial class GatewayRequestHandler
         public void AddUpstreamTime(long ticks) => UpstreamTicks = (UpstreamTicks ?? 0) + ticks;
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Request {RequestId} key {KeyPrefix} model {Model} provider {Provider} status {Status} in {LatencyMs} ms (fallbacks {Fallbacks})")]
-    private static partial void LogCompleted(ILogger logger, string requestId, string keyPrefix, string model, string provider, int status, int latencyMs, int fallbacks);
+    [LoggerMessage(Message = "Request {RequestId} key {KeyPrefix} model {Model} provider {Provider} status {Status} in {LatencyMs} ms (fallbacks {Fallbacks})")]
+    private static partial void LogCompleted(ILogger logger, LogLevel level, string requestId, string keyPrefix, string model, string provider, int status, int latencyMs, int fallbacks);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Accounting failed for request {RequestId}")]
     private static partial void LogAccountingFailed(ILogger logger, Exception ex, string requestId);
