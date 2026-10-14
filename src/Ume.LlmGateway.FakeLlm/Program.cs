@@ -7,6 +7,9 @@ using System.Text.Json.Nodes;
 // upload is 128 kbps audio: fake-whisper reports usage by duration like whisper-1, fake-transcribe by tokens and
 // streams like gpt-4o-transcribe. Behaviour is controlled by the requested model name:
 //   fake-fail-503 → always 503, fake-fail-429 → always 429, fake-slow → 3 s delay, anything else → answer.
+// Chat, responses and messages answers can be given a real provider's timing (time to first token, pace per word,
+// jitter, longer answers, stalls) with the FakeLlm:Latency section; see FakeLatency. Off by default.
+// With stream_options.include_usage, chat chunks carry "usage":null as OpenAI's do.
 // Images (/v1/images/generations, /v1/images/edits): fake-image bills per picture, fake-image-token by tokens.
 // Live audio (WebSocket, OpenAI Realtime protocol) on /v1/realtime and /v1/realtime/translations: transcription
 // sessions answer each committed buffer (fake-whisper by duration, fake-transcribe by tokens), fake-realtime answers
@@ -14,6 +17,8 @@ using System.Text.Json.Nodes;
 // NOT for production. It echoes the last user message so demos can show PII redaction.
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+var latency = builder.Configuration.GetSection(Ume.LlmGateway.FakeLlm.FakeLatency.SectionName).Get<Ume.LlmGateway.FakeLlm.FakeLatency>()
+    ?? new Ume.LlmGateway.FakeLlm.FakeLatency();
 var app = builder.Build();
 app.MapDefaultEndpoints();
 app.UseWebSockets();
@@ -36,7 +41,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
     }
 
     var prompt = LastUserText(body["messages"]);
-    var answer = Answer(model, prompt);
+    var answer = latency.Pad(Answer(model, prompt));
     var promptTokens = Tokens(AllText(body["messages"]));
     var completionTokens = Tokens(answer);
     var id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..12];
@@ -44,15 +49,27 @@ app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
 
     if (body["stream"]?.GetValue<bool>() == true)
     {
-        await StartSse(ctx);
-        await Sse(ctx, null, new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { role = "assistant", content = "" }, finish_reason = (string?)null } } });
-        foreach (var word in Words(answer))
+        var includeUsage = body["stream_options"]?["include_usage"]?.GetValue<bool>() == true;
+        Dictionary<string, object?> Chunk(object delta, string? finishReason)
         {
-            await Sse(ctx, null, new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { content = word }, finish_reason = (string?)null } } });
+            var chunk = new Dictionary<string, object?>
+            {
+                ["id"] = id, ["object"] = "chat.completion.chunk", ["created"] = created, ["model"] = model,
+                ["choices"] = new[] { new { index = 0, delta, finish_reason = finishReason } },
+            };
+            if (includeUsage)
+            {
+                chunk["usage"] = null; // as OpenAI and Azure send it in every chunk but the last
+            }
+
+            return chunk;
         }
 
-        await Sse(ctx, null, new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { }, finish_reason = "stop" } } });
-        if (body["stream_options"]?["include_usage"]?.GetValue<bool>() == true)
+        await StartSse(ctx);
+        await Sse(ctx, null, Chunk(new { role = "assistant", content = "" }, null));
+        await StreamWordsAsync(latency, answer, promptTokens, word => Sse(ctx, null, Chunk(new { content = word }, null)), ctx.RequestAborted);
+        await Sse(ctx, null, Chunk(new { }, "stop"));
+        if (includeUsage)
         {
             await Sse(ctx, null, new { id, @object = "chat.completion.chunk", created, model, choices = Array.Empty<object>(), usage = new { prompt_tokens = promptTokens, completion_tokens = completionTokens, total_tokens = promptTokens + completionTokens } });
         }
@@ -61,6 +78,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
         return Results.Empty;
     }
 
+    await latency.WholeAnswerAsync(Words(answer).Count(), promptTokens, ctx.RequestAborted);
     return Results.Json(new
     {
         id,
@@ -107,7 +125,7 @@ app.MapPost("/v1/responses", async (HttpContext ctx) =>
     }
 
     var input = body["input"] is JsonValue v ? v.ToString() : AllText(body["input"]);
-    var answer = Answer(model, input);
+    var answer = latency.Pad(Answer(model, input));
     var usage = new { input_tokens = Tokens(input), output_tokens = Tokens(answer), total_tokens = Tokens(input) + Tokens(answer), input_tokens_details = new { cached_tokens = 0 } };
     var id = "resp_" + Guid.NewGuid().ToString("N")[..12];
     var response = new
@@ -124,15 +142,12 @@ app.MapPost("/v1/responses", async (HttpContext ctx) =>
     {
         await StartSse(ctx);
         await Sse(ctx, "response.created", new { type = "response.created", response = new { id, status = "in_progress", model } });
-        foreach (var word in Words(answer))
-        {
-            await Sse(ctx, "response.output_text.delta", new { type = "response.output_text.delta", delta = word });
-        }
-
+        await StreamWordsAsync(latency, answer, Tokens(input), word => Sse(ctx, "response.output_text.delta", new { type = "response.output_text.delta", delta = word }), ctx.RequestAborted);
         await Sse(ctx, "response.completed", new { type = "response.completed", response });
         return Results.Empty;
     }
 
+    await latency.WholeAnswerAsync(Words(answer).Count(), Tokens(input), ctx.RequestAborted);
     return Results.Json(response);
 });
 
@@ -146,7 +161,7 @@ app.MapPost("/v1/messages", async (HttpContext ctx) =>
     }
 
     var prompt = LastUserText(body["messages"]);
-    var answer = Answer(model, prompt);
+    var answer = latency.Pad(Answer(model, prompt));
     var inputTokens = Tokens(AllText(body["messages"]) + body["system"]);
     var outputTokens = Tokens(answer);
     var id = "msg_" + Guid.NewGuid().ToString("N")[..12];
@@ -156,10 +171,7 @@ app.MapPost("/v1/messages", async (HttpContext ctx) =>
         await StartSse(ctx);
         await Sse(ctx, "message_start", new { type = "message_start", message = new { id, type = "message", role = "assistant", model, content = Array.Empty<object>(), usage = new { input_tokens = inputTokens, output_tokens = 1, cache_read_input_tokens = 0, cache_creation_input_tokens = 0 } } });
         await Sse(ctx, "content_block_start", new { type = "content_block_start", index = 0, content_block = new { type = "text", text = "" } });
-        foreach (var word in Words(answer))
-        {
-            await Sse(ctx, "content_block_delta", new { type = "content_block_delta", index = 0, delta = new { type = "text_delta", text = word } });
-        }
+        await StreamWordsAsync(latency, answer, inputTokens, word => Sse(ctx, "content_block_delta", new { type = "content_block_delta", index = 0, delta = new { type = "text_delta", text = word } }), ctx.RequestAborted);
 
         await Sse(ctx, "content_block_stop", new { type = "content_block_stop", index = 0 });
         await Sse(ctx, "message_delta", new { type = "message_delta", delta = new { stop_reason = "end_turn" }, usage = new { output_tokens = outputTokens } });
@@ -167,6 +179,7 @@ app.MapPost("/v1/messages", async (HttpContext ctx) =>
         return Results.Empty;
     }
 
+    await latency.WholeAnswerAsync(Words(answer).Count(), inputTokens, ctx.RequestAborted);
     return Results.Json(new
     {
         id,
@@ -484,6 +497,18 @@ static float[] Vector(string text)
 {
     var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text));
     return [.. hash.Take(8).Select(b => (b - 128) / 128f)];
+}
+
+// Emits the answer one word per event, paced by the latency profile (instant when it is off).
+static async Task StreamWordsAsync(Ume.LlmGateway.FakeLlm.FakeLatency latency, string answer, long inputTokens, Func<string, Task> emit, CancellationToken ct)
+{
+    var first = true;
+    foreach (var word in Words(answer))
+    {
+        await (first ? latency.FirstTokenAsync(inputTokens, ct) : latency.NextTokenAsync(ct));
+        first = false;
+        await emit(word);
+    }
 }
 
 static async Task StartSse(HttpContext ctx)

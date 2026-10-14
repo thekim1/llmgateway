@@ -320,18 +320,28 @@ public sealed partial class GatewayRequestHandler(
         string? errorCode = null;
         // Reading the stream is provider time: the gateway only relays events as they arrive.
         var streaming = time.GetTimestamp();
+        var gaps = new StreamGaps(time);
+        long written = 0;
         try
         {
             await http.Response.StartAsync(ct);
             var writer = http.Response.BodyWriter;
             await foreach (var evt in result.Events.WithCancellation(ct))
             {
+                var arrived = time.GetTimestamp();
+                if (state.FirstEventTimestamp != 0)
+                {
+                    gaps.Upstream(arrived - written);
+                }
+
                 // Encoded straight into the response pipe; one flush per event keeps tokens flowing immediately.
                 evt.WriteTo(writer);
                 await writer.FlushAsync(ct);
+                written = time.GetTimestamp();
+                gaps.Write(written - arrived);
                 if (state.FirstEventTimestamp == 0)
                 {
-                    state.FirstEventTimestamp = time.GetTimestamp();
+                    state.FirstEventTimestamp = written;
                 }
             }
         }
@@ -350,6 +360,7 @@ public sealed partial class GatewayRequestHandler(
         }
 
         state.AddUpstreamTime(time.GetTimestamp() - streaming);
+        RecordStreamGaps(state, deployment, gaps);
         await AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
     }
 

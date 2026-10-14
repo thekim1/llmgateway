@@ -59,6 +59,20 @@ CORES="1 2 4" LOAD_VUS="1 16 128" STREAM=false benchmarks/compare/scale.sh
 
 It writes `results/scale-report.md` and `results/scale/scale-data.json` (for charts).
 
+**Streaming latency with real-provider timing** (`latency.sh`, about 12 minutes). The fake LLM is given a real
+provider's timing: by default 400 ms to the first token, 25 ms ±30 % per word and 200-word answers (`FAKE_*` variables,
+see the script). k6 cannot see inside a stream, so a small probe (`stream-probe` in the benchmark project, run as a
+container on the k6 cores) measures what the user experiences: time to first token, gaps between events, and the whole
+stream, at 1, 16, 64 and 256 clients.
+
+```bash
+dotnet build benchmarks/Ume.LlmGateway.Benchmarks -c Release   # the probe
+benchmarks/compare/latency.sh
+PROFILE=stalls FAKE_STALL_P=0.01 FAKE_STALL_MS=1500 VUS="16" benchmarks/compare/latency.sh
+```
+
+It writes `results/latency/<PROFILE>/report.md`.
+
 The report is written to `results/report.md` (raw k6 summaries and CPU samples next to it). Per scenario it shows
 requests/s, median/p95/p99 latency and overhead over the fake LLM, time to first byte, container CPU per request
 (platform and its Postgres + Redis), Postgres statements and Redis commands per request (including background
@@ -72,6 +86,7 @@ the fake LLM's answer, so an error can never pass as a fast response.
 | `compose.yaml` | Fake LLM, both platforms (profiles `ume`, `eneo`) and k6 (profile `tools`) |
 | `run.sh` | Starts each platform on fresh databases, seeds it, warms up, runs the scenarios, samples CPU and query counts |
 | `scale.sh` | Load and resource scaling (see above) |
+| `latency.sh`, `latency_report.py` | Streaming latency with real-provider timing (see above), via the stream probe |
 | `lib.sh` | Shared shell helpers (start/seed platforms, k6, CPU and query sampling) |
 | `k6/chat.js` | One chat message per iteration for `TARGET=ume|eneo|fake`, streaming or not |
 | `eneo/seed.py` | Adds a completion model pointing at the fake LLM (adapted from eneo's own `e2e/seed.py`) |

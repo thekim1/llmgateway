@@ -61,7 +61,7 @@ async def main() -> None:
             CompletionModels(
                 name=MODEL_NAME,
                 nickname="Fake LLM",
-                max_input_tokens=8192,
+                max_input_tokens=128000,  # like gpt-4o; the document scenario (latency.sh) sends ~9 000 tokens
                 max_output_tokens=2048,
                 family="openai",
                 stability="stable",

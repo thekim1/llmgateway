@@ -363,6 +363,25 @@ public sealed partial class GatewayRequestHandler
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: circuit breaker store unavailable ({ExceptionType}); provider health not recorded")]
     private static partial void LogCircuitStoreFailed(ILogger logger, string exceptionType, string requestId);
 
+    /// <summary>One stream's gap figures as metrics, and a log line when the provider stalled (so a slow request can be found by id).</summary>
+    private void RecordStreamGaps(RequestState state, ModelDeployment deployment, in StreamGaps gaps)
+    {
+        if (gaps.Events < 2)
+        {
+            return;
+        }
+
+        var provider = deployment.ProviderAccount!.Name;
+        metrics.StreamGaps(provider, state.Endpoint, gaps.MaxUpstream.TotalMilliseconds, gaps.MaxWrite.TotalMilliseconds, gaps.Stalls);
+        if (gaps.Stalls > 0)
+        {
+            LogStreamStalled(logger, state.RequestId, provider, gaps.Stalls, (long)gaps.MaxUpstream.TotalMilliseconds, (long)gaps.MaxWrite.TotalMilliseconds);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Request {RequestId}: stream from {Provider} stalled {Stalls} time(s); longest wait for the provider {MaxUpstreamGapMs} ms, longest client write {MaxWriteMs} ms")]
+    private static partial void LogStreamStalled(ILogger logger, string requestId, string provider, int stalls, long maxUpstreamGapMs, long maxWriteMs);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: stream from {Provider} interrupted ({Error})")]
     private static partial void LogStreamBroken(ILogger logger, string requestId, string provider, string error);
 

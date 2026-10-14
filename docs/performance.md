@@ -40,7 +40,8 @@ Cache behaviour:
 - Budget alert webhooks are sent from their own queue, so a slow receiver never holds up the usage writer.
 
 Streaming: each upstream SSE event is parsed only as far as needed (a forward-only scan for the text length; the usage
-chunk is parsed fully) and written straight into the response pipe with one flush per event, so tokens reach the client
+chunk is parsed fully, and the `"usage":null` that OpenAI and Azure put in every chunk does not count as one — see
+[streaming-findings.md](streaming-findings.md)) and written straight into the response pipe with one flush per event, so tokens reach the client
 as soon as they arrive. Non-streaming answers are passed through as the bytes the provider sent: usage is read with a
 forward-only scan instead of building and re-serialising a JSON tree, which matters most for embeddings.
 
@@ -117,6 +118,7 @@ saturates the machine, so the tail reflects CPU contention in this setup more th
 | Benchmark | Before | After |
 |---|---:|---:|
 | Provider leg: chat stream, 300 chunks (OpenAI-compatible) | 746 µs, 2.02 MB | **223 µs, 360 KB** |
+| Provider leg: chat stream, 300 chunks, OpenAI wire format with `"usage":null` per chunk (measured 2026-10-13) | 672 µs, 1.58 MB | **258 µs, 433 KB** |
 | Provider leg: Anthropic `/v1/messages` stream passthrough, 300 chunks | 435 µs, 1.08 MB | **157 µs, 259 KB** |
 | Provider leg: Anthropic-translated chat stream, 300 chunks | 799 µs, 1.83 MB | 610 µs, 1.27 MB (translator unchanged, see below) |
 | Provider leg: embeddings answer, 16 × 1536 | 1.43 ms, 1.50 MB | **481 µs, 9 KB** |

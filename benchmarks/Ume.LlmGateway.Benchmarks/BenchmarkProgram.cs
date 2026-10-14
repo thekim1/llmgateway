@@ -17,6 +17,12 @@ public static class BenchmarkProgram
             return 0;
         }
 
+        if (args is ["stream-probe", var target, var baseUrl, var vus, var seconds, var outPath, ..])
+        {
+            return await StreamProbe.RunAsync(target, baseUrl, int.Parse(vus, System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture), outPath, args.Length > 6 ? args[6] : null);
+        }
+
         if (args is ["compare-seed", var connectionString, var pepper, var upstream])
         {
             return await CompareSeed.RunAsync(connectionString, pepper, upstream);
