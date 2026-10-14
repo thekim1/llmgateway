@@ -66,6 +66,8 @@ services:
       ConnectionStrings__gatewaydb: Host=ume-db;Database=gatewaydb;Username=postgres;Password=postgres
       ConnectionStrings__redis: ume-redis:6379
       Security__KeyPepper: compare-only-pepper-0123456789abcdef0123456789abcdef
+      # GATEWAY_LOG_LEVEL=Warning measures what the per-request Information log line costs.
+      Logging__LogLevel__Default: ${GATEWAY_LOG_LEVEL:-Information}
     ports: ["127.0.0.1:18080:8080"]
 
   # ---------- eneo v2.2.1 ----------
