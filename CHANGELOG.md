@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-10-14
+
+**MCP gateway removed.** The MCP gateway that 0.4.0 added (`/mcp`, `/v1/mcp/tools`, hosted `mcp` tools on `/v1/responses`,
+the MCP connector on `/v1/messages`, `/api/mcp/servers`, MCP grants on keys and the *MCP servers* page) is reverted, with
+its dependency `ModelContextProtocol`. The new migration `RemoveMcpGateway` drops the tables `McpServers`, `McpTools` and
+`VirtualKeyMcpGrants`, the columns `UsageRecords.McpServerId`, `McpMethod`, `McpTool`, `ParentRequestId` and
+`VirtualKeys.McpCallsPerMinute`, and the history row of migration `McpGateway`; on a database that never ran 0.4.0 it
+does nothing. The Redis ACL no longer allows the channel `ume:mcp:events` (redeploy the stack or run
+`init-deployment.sh`, then restart Redis); leftover `ume:mcp:*` and `ume:rl:mcp:*` keys are unused and can be deleted.
+
+**Dependencies updated.** All NuGet packages are on their latest stable versions (.NET 10.0.13, OpenTelemetry 1.19,
+Microsoft.Extensions.Http.Resilience and ServiceDiscovery 10.11, Scalar 2.18, xUnit v3 4.0.2, Testcontainers 4.16,
+WireMock.Net 2.19). This fixes the build, which failed NuGet's audit on known vulnerabilities in the transitive
+`System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 10.0.12.
+
 ## 0.4.0 - 2026-10-13
 
 **Usage dashboard.** *Monitor > Usage* opens on a dashboard tab with nine cards: cost in USD stacked by model, requests by
