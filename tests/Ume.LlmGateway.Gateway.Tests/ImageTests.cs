@@ -104,7 +104,8 @@ public sealed class ImageTests(GatewayFixture fixture)
     public async Task Pii_policy_redacts_the_prompt()
     {
         var key = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.Redact);
-        var marker = Guid.NewGuid().ToString("N");
+        // Letters only: a run of digits in a hex id can look like a phone number and be redacted along with the personnummer.
+        var marker = new string([.. Guid.NewGuid().ToString("N").Select(c => (char)('g' + Convert.ToInt32(c.ToString(), 16)))]);
         using var response = await GenerateAsync(key, "imgpic/image", $"{marker} porträtt av 19121212-1212");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
