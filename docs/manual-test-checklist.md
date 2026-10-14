@@ -188,3 +188,9 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
   PII categories and rule name. The gateway log has no `Failed to write … usage records` (the `ume_gateway` role needs only its existing INSERT grant).
 - [ ] **Last used:** *Keys* shows *last used* updated for each key you used (within a minute).
 - [ ] **Budget alert:** a key with a small budget still raises its 50/80/100 % alert once.
+
+## Per-request log line only for unsuccessful requests (uncommitted)
+
+- [ ] **Gateway log:** after deploying, a successful chat request leaves no "Request … status 200 in … ms" line in the gateway log
+  (it is in *Monitor > Usage*); a request with an unknown model or an exhausted budget still logs "Request … status 4xx".
+- [ ] **Debug switch:** with `Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` on the gateway, successful requests are logged again.

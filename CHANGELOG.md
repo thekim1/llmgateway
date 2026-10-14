@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Successful requests are no longer logged one by one.** The per-request line "Request … key … model … status … in … ms"
+is now written at Debug for successful requests; refused, failed and cancelled requests still log it at Information.
+Every request is still in the usage records and the metrics. Writing that line for every request cost 9–16 % of peak
+throughput and about 13 % of the gateway's CPU per request. To get the old behaviour, set
+`Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` (see the runbook). The compare benchmark
+takes `GATEWAY_LOG_LEVEL` to measure the gateway at another log level.
+
 **Faster usage writer.** The gateway writes usage records with one Postgres binary `COPY` per batch instead of an
 EF `INSERT` per row, in batches of up to 5 000 (was 500), and sets `VirtualKeys.LastUsedAt` for every key of a batch in one
 statement instead of one per key. Records, budget alerts and `LastUsedAt` are written in one transaction. A batch that is

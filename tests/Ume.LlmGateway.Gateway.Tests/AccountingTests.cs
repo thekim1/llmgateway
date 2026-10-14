@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
@@ -83,6 +84,41 @@ public sealed class AccountingTests(GatewayFixture fixture)
         using var scope = fixture.Services.CreateScope();
         var alerts = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().AlertEvents.Where(a => a.BudgetId == budget.Id).ToListAsync(Ct);
         alerts.ShouldHaveSingleItem().SpentSek.ShouldBe(5.5m);
+    }
+
+    [Fact]
+    public async Task Only_unsuccessful_requests_are_logged_at_information()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var ok = await SendAsync(fixture.Client, key);
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CompletedLogAsync(ok)).Level.ShouldBe(LogLevel.Debug);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions")
+        {
+            Content = new StringContent("""{"model":"no-such-model","messages":[{"role":"user","content":"Test"}]}""", Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        using var refused = await fixture.Client.SendAsync(request, Ct);
+        ((int)refused.StatusCode).ShouldBeGreaterThanOrEqualTo(400);
+        (await CompletedLogAsync(refused)).Level.ShouldBe(LogLevel.Information);
+    }
+
+    /// <summary>The "Request … status … in … ms" entry of a response (accounting may finish just after the answer).</summary>
+    private async Task<LogEntry> CompletedLogAsync(HttpResponseMessage response)
+    {
+        var prefix = $"Request {response.Headers.GetValues(RequestIdMiddleware.HeaderName).Single()} key ";
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            if (fixture.Logs.Entries.FirstOrDefault(e => e.Message.StartsWith(prefix, StringComparison.Ordinal)) is { } entry)
+            {
+                return entry;
+            }
+
+            await Task.Delay(20, cts.Token);
+        }
     }
 
     [Fact]

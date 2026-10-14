@@ -397,6 +397,7 @@ does not deploy/expose a public Aspire dashboard.
 | A service exits at startup with an options validation error | A required or out-of-range setting, e.g. `Oidc:Authority` missing, `Admin:RequestsPerMinute` outside 1–10000, `Gateway:BaseUrl`/`OperationsUrl` not an absolute http(s) URL (admin API), or invalid `Seed:*` settings (migration service) |
 | Budget alert webhook not received | Each alert is posted once (5 s timeout, no retries) and is still stored (`GET /api/alerts`); a warning is logged when the post fails or the 1 000-alert queue is full |
 | Live audio: 400 "requires a WebSocket connection" | The proxy drops the `Upgrade` header; see *Reverse proxy and PKI* |
+| A successful request is missing from the gateway log | Only refused, failed and cancelled requests are logged at Information ("Request … key … status … in … ms"); successful ones are in the usage records (find them by `request_id`). To log every request again, e.g. while debugging, set `Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` (costs about 10–15 % of peak throughput) |
 | Live audio: warning "session registry unavailable" | The Redis ACL lacks `zadd zrem zcard zremrangebyscore` (upgrade guide); sessions work but the per-key limit is off |
 | Live audio: sessions end with `gateway_shutting_down` | Expected on deploy/restart: open sessions are closed with an error event and clients reconnect. Metrics: `ume.gateway.realtime.sessions` (open now), `ume.gateway.realtime.session.duration`, `ume.gateway.audio` (seconds) |
 

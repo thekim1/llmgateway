@@ -226,6 +226,36 @@ statements 1.0 → 0.3 (background writer). The gateway's memory at that load ro
 sequential traffic, 9 Redis commands); sequential latencies are within noise (chat 1.90 → 1.76 ms mean). Its load
 test (64 streaming clients, 1 s cache TTLs) went from 7 876 to **12 412 req/s**, p99 40.4 → 11.5 ms.
 
+### Per-request log line (2026-10-15)
+
+Every request used to log "Request … key … model … status … in … ms" at Information: one formatted message per
+request for the console and OpenTelemetry. The same facts are in the usage record and the metrics, so successful
+requests now log it at Debug; refused, failed and cancelled requests still log it at Information.
+
+What the line cost, measured first with the unchanged gateway at `GATEWAY_LOG_LEVEL=Information` and `Warning`
+(`benchmarks/compare`, `PLATFORMS=ume VUS="16 64"`, 30 s, two runs each, alternating):
+
+| Scenario | Information req/s | Warning req/s | Difference |
+|---|---:|---:|---:|
+| Non-streaming, 64 clients | 14 966 / 16 062 | 18 167 / 17 883 | +16 % |
+| Streaming, 64 clients | 11 747 / 11 816 | 13 064 / 13 091 | +11 % |
+| Non-streaming, 16 clients | 7 687 / 8 421 | 9 419 / 8 857 | +13 % |
+| Streaming, 16 clients | 6 290 / 6 580 | 6 997 / 7 030 | +9 % |
+
+The change, at the production default (Information), two runs:
+
+| Scenario | Before req/s | After req/s | Gateway CPU per request |
+|---|---:|---:|---:|
+| Non-streaming, 64 clients | 14 966 / 16 062 | 18 116 / 16 693 (+12 %) | 0.229 / 0.216 → 0.189 / 0.204 ms |
+| Streaming, 64 clients | 11 747 / 11 816 | 12 836 / 12 254 (+6 %) | 0.292 / 0.291 → 0.266 / 0.280 ms |
+| Non-streaming, 16 clients | 7 687 / 8 421 | 9 264 / 9 047 (+14 %) | |
+| Streaming, 16 clients | 6 290 / 6 580 | 7 073 / 6 688 (+7 %) | |
+
+Not done: a covering index (`INCLUDE ("CostSek")` on the key/team/department + timestamp indexes) would let a cold
+budget counter be seeded with an index-only scan. On 5 million records it seeded a yearly department budget in 22 ms
+instead of 86 ms (team budgets 2.8 vs 3.5 ms), but made `COPY` inserts 28 % slower and the indexes 55 % larger. Seeding
+happens once per budget and period; inserts happen for every request, so it was left out.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
