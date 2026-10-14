@@ -56,16 +56,32 @@ public sealed class OperationsTests(GatewayFixture fixture)
             DepartmentId = fixture.DepartmentId, TeamId = key.TeamId, Timestamp = DateTimeOffset.UtcNow,
             RequestedModel = "test", StatusCode = 200,
         };
-        var writer = fixture.Services.GetRequiredService<UsageWriter>();
-        await writer.EnqueueAsync(new UsageWork(record, []), TestContext.Current.CancellationToken);
-        await writer.FlushAsync(TestContext.Current.CancellationToken);
-        await writer.EnqueueAsync(new UsageWork(record, []), TestContext.Current.CancellationToken);
-        await writer.FlushAsync(TestContext.Current.CancellationToken);
-        writer.Status.LastWriteAt.ShouldNotBeNull();
-        writer.Status.ConsecutiveFailures.ShouldBe(0);
-        using var scope = fixture.Services.CreateScope();
-        (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.CountAsync(r => r.Id == record.Id,
-            TestContext.Current.CancellationToken)).ShouldBe(1);
+        // A commit whose answer was lost: the record is stored, but the writer saw the attempt fail and retries it.
+        using (var stored = fixture.Services.CreateScope())
+        {
+            await stored.ServiceProvider.GetRequiredService<GatewayDbContext>().CopyUsageRecordsAsync([record], TestContext.Current.CancellationToken);
+        }
+
+        var fail = 1;
+        var scopes = new OutageScopeFactory(fixture.Services, () => Volatile.Read(ref fail) == 1);
+        using var writer = new UsageWriter(scopes, fixture.Services.GetRequiredService<AlertNotifier>(), TimeProvider.System,
+            NullLogger<UsageWriter>.Instance, fixture.Services.GetRequiredService<GatewayMetrics>());
+        await writer.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await writer.EnqueueAsync(new UsageWork(record, []), TestContext.Current.CancellationToken);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            deadline.CancelAfter(TimeSpan.FromSeconds(10));
+            while (writer.Status.ConsecutiveFailures == 0) { await Task.Delay(10, deadline.Token); }
+            Volatile.Write(ref fail, 0);
+            await writer.FlushAsync(deadline.Token);
+            writer.Status.LastWriteAt.ShouldNotBeNull();
+            writer.Status.ConsecutiveFailures.ShouldBe(0);
+            using var scope = fixture.Services.CreateScope();
+            (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.CountAsync(r => r.RequestId == record.RequestId,
+                deadline.Token)).ShouldBe(1);
+        }
+        finally { await writer.StopAsync(TestContext.Current.CancellationToken); }
     }
 
     [Fact]
@@ -94,7 +110,7 @@ public sealed class OperationsTests(GatewayFixture fixture)
             writer.Status.ConsecutiveFailures.ShouldBe(0);
             writer.Status.LastWriteAt.ShouldNotBeNull();
             using var scope = fixture.Services.CreateScope();
-            (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.CountAsync(r => r.Id == record.Id,
+            (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.CountAsync(r => r.RequestId == record.RequestId,
                 deadline.Token)).ShouldBe(1);
         }
         finally { await writer.StopAsync(TestContext.Current.CancellationToken); }

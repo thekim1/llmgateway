@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Faster usage writer.** The gateway writes usage records with one Postgres binary `COPY` per batch instead of an
+EF `INSERT` per row, in batches of up to 5 000 (was 500), and sets `VirtualKeys.LastUsedAt` for every key of a batch in one
+statement instead of one per key. Records, budget alerts and `LastUsedAt` are written in one transaction. A batch that is
+retried after its commit answer was lost skips the records already stored by request id, so it cannot write them twice
+(rows were matched by row id before, which a lost commit leaves unset). No migration or new database grant is needed.
+Measurements: [docs/performance.md](docs/performance.md#usage-writer-copy-2026-10-14).
+
 ## 0.4.1 - 2026-10-14
 
 **MCP gateway removed.** The MCP gateway that 0.4.0 added (`/mcp`, `/v1/mcp/tools`, hosted `mcp` tools on `/v1/responses`,

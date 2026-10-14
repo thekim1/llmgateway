@@ -22,6 +22,9 @@ public sealed record UsageWork(UsageRecord Record, IReadOnlyList<AlertCandidate>
 public sealed partial class UsageWriter : BackgroundService
 {
     private const int Capacity = 10_000;
+
+    /// <summary>Most records written at once. COPY makes a large batch cheap; under load the queue drains in a few writes.</summary>
+    private const int MaxBatch = 5_000;
     private readonly Channel<UsageWork> _channel = Channel.CreateBounded<UsageWork>(new BoundedChannelOptions(Capacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -87,6 +90,7 @@ public sealed partial class UsageWriter : BackgroundService
     /// <summary>When this instance last wrote each key's LastUsedAt; the column is kept to the minute, not per request.</summary>
     private readonly Dictionary<Guid, DateTimeOffset> _lastUsedWritten = [];
     private static readonly TimeSpan LastUsedResolution = TimeSpan.FromMinutes(1);
+    private DateTimeOffset _lastPruned;
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -105,13 +109,13 @@ public sealed partial class UsageWriter : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var batch = new List<UsageWork>(500);
+        var batch = new List<UsageWork>(MaxBatch);
         while (await _channel.Reader.WaitToReadAsync(stoppingToken))
         {
             Interlocked.Increment(ref _inFlight);
             try
             {
-                while (batch.Count < 500 && _channel.Reader.TryRead(out var item))
+                while (batch.Count < MaxBatch && _channel.Reader.TryRead(out var item))
                 {
                     batch.Add(item);
                 }
@@ -150,72 +154,114 @@ public sealed partial class UsageWriter : BackgroundService
             return;
         }
 
-        await using var scope = _scopes.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        db.ChangeTracker.AutoDetectChangesEnabled = false;
-        HashSet<long> persisted = [];
-        if (retry)
+        // Last-used timestamps: one statement for all keys in the batch, each key at most once a minute.
+        var now = _time.GetUtcNow();
+        List<(Guid KeyId, DateTimeOffset LastUsed)> lastUsed = [];
+        foreach (var keyGroup in batch.GroupBy(b => b.Record.VirtualKeyId))
         {
-            // Only a retried batch can be partly written already (e.g. the insert committed, a later step failed).
-            var ids = batch.Select(b => b.Record.Id).ToArray();
-            persisted = [.. await db.UsageRecords.Where(r => ids.Contains(r.Id)).Select(r => r.Id).ToListAsync(cancellationToken)];
-        }
-
-        db.UsageRecords.AddRange(batch.Select(b => b.Record).Where(r => !persisted.Contains(r.Id)));
-
-        // Alerts: unique per (budget, period, threshold) – skip ones already raised (one query for the whole batch).
-        var newAlerts = new List<AlertEvent>();
-        var groups = batch.SelectMany(b => b.Alerts).GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)).ToList();
-        if (groups.Count > 0)
-        {
-            var budgetIds = groups.Select(g => g.Key.Id).Distinct().ToArray();
-            var starts = groups.Select(g => g.Key.Start).Distinct().ToArray();
-            var raised = (await db.AlertEvents.AsNoTracking()
-                    .Where(a => budgetIds.Contains(a.BudgetId) && starts.Contains(a.PeriodStart))
-                    .Select(a => new { a.BudgetId, a.PeriodStart, a.ThresholdPercent })
-                    .ToListAsync(cancellationToken))
-                .Select(a => (a.BudgetId, a.PeriodStart, a.ThresholdPercent))
-                .ToHashSet();
-            foreach (var group in groups.Where(g => !raised.Contains(g.Key)))
+            var last = keyGroup.Max(b => b.Record.Timestamp);
+            if (!_lastUsedWritten.TryGetValue(keyGroup.Key, out var written) || last - written >= LastUsedResolution)
             {
-                var (budgetId, start, threshold) = group.Key;
-                var a = group.MaxBy(x => x.SpentSek)!;
-                newAlerts.Add(new AlertEvent
-                {
-                    BudgetId = budgetId,
-                    Scope = a.Budget.Scope,
-                    ScopeId = a.Budget.ScopeId,
-                    PeriodStart = start,
-                    ThresholdPercent = threshold,
-                    SpentSek = decimal.Round(a.SpentSek, 2),
-                    LimitSek = a.Budget.LimitSek,
-                    Timestamp = _time.GetUtcNow(),
-                });
+                lastUsed.Add((keyGroup.Key, last));
             }
         }
 
-        db.AlertEvents.AddRange(newAlerts);
-        await db.SaveChangesAsync(cancellationToken);
+        await using var scope = _scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        db.ChangeTracker.AutoDetectChangesEnabled = false;
+        // The retrying execution strategy only allows a transaction it can re-run as a whole.
+        var attempts = retry ? 1 : 0;
+        var newAlerts = await db.Database.CreateExecutionStrategy().ExecuteAsync(async ct =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            HashSet<string> persisted = new(StringComparer.Ordinal);
+            if (attempts++ > 0)
+            {
+                // The batch is written in one transaction, so only a commit whose answer was lost leaves it written already.
+                // Request ids are set before the write (unlike row ids), so they find such rows.
+                var requestIds = batch.Select(b => b.Record.RequestId).ToArray();
+                persisted.UnionWith(await db.UsageRecords.AsNoTracking().Where(r => requestIds.Contains(r.RequestId)).Select(r => r.RequestId)
+                    .ToListAsync(ct));
+            }
 
-        // Committed: notify now. Should a later step fail, the retry finds these alerts stored and does not raise them again.
+            await db.CopyUsageRecordsAsync(batch.Select(b => b.Record).Where(r => !persisted.Contains(r.RequestId)), ct);
+            var alerts = await AddNewAlertsAsync(db, batch, ct);
+            await db.UpdateKeysLastUsedAsync(lastUsed, ct);
+            await transaction.CommitAsync(ct);
+            return alerts;
+        }, cancellationToken);
+
+        foreach (var (keyId, last) in lastUsed)
+        {
+            _lastUsedWritten[keyId] = last;
+        }
+
+        PruneLastUsed(now);
+
+        // Committed: notify now. A retry of a batch whose commit answer was lost finds these alerts stored and does not raise them again.
         foreach (var alert in newAlerts)
         {
             LogBudgetAlert(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
             _alerts.Enqueue(alert);
         }
+    }
 
-        // Last-used timestamps: at most one statement per key and minute, instead of one per batch.
-        foreach (var keyGroup in batch.GroupBy(b => b.Record.VirtualKeyId))
+    /// <summary>Stores the batch's alerts not raised before: unique per (budget, period, threshold), one query for the whole batch.</summary>
+    private async Task<List<AlertEvent>> AddNewAlertsAsync(GatewayDbContext db, List<UsageWork> batch, CancellationToken cancellationToken)
+    {
+        var newAlerts = new List<AlertEvent>();
+        var groups = batch.SelectMany(b => b.Alerts).GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)).ToList();
+        if (groups.Count == 0)
         {
-            var last = keyGroup.Max(b => b.Record.Timestamp);
-            if (_lastUsedWritten.TryGetValue(keyGroup.Key, out var written) && last - written < LastUsedResolution)
-            {
-                continue;
-            }
+            return newAlerts;
+        }
 
-            await db.VirtualKeys.Where(k => k.Id == keyGroup.Key && (k.LastUsedAt == null || k.LastUsedAt < last))
-                .ExecuteUpdateAsync(s => s.SetProperty(k => k.LastUsedAt, last), cancellationToken);
-            _lastUsedWritten[keyGroup.Key] = last;
+        var budgetIds = groups.Select(g => g.Key.Id).Distinct().ToArray();
+        var starts = groups.Select(g => g.Key.Start).Distinct().ToArray();
+        var raised = (await db.AlertEvents.AsNoTracking()
+                .Where(a => budgetIds.Contains(a.BudgetId) && starts.Contains(a.PeriodStart))
+                .Select(a => new { a.BudgetId, a.PeriodStart, a.ThresholdPercent })
+                .ToListAsync(cancellationToken))
+            .Select(a => (a.BudgetId, a.PeriodStart, a.ThresholdPercent))
+            .ToHashSet();
+        foreach (var group in groups.Where(g => !raised.Contains(g.Key)))
+        {
+            var (budgetId, start, threshold) = group.Key;
+            var a = group.MaxBy(x => x.SpentSek)!;
+            newAlerts.Add(new AlertEvent
+            {
+                BudgetId = budgetId,
+                Scope = a.Budget.Scope,
+                ScopeId = a.Budget.ScopeId,
+                PeriodStart = start,
+                ThresholdPercent = threshold,
+                SpentSek = decimal.Round(a.SpentSek, 2),
+                LimitSek = a.Budget.LimitSek,
+                Timestamp = _time.GetUtcNow(),
+            });
+        }
+
+        db.AlertEvents.AddRange(newAlerts);
+        await db.SaveChangesAsync(cancellationToken);
+        return newAlerts;
+    }
+
+    /// <summary>Forgets keys not written for a while, so the map holds only recently active keys.</summary>
+    private void PruneLastUsed(DateTimeOffset now)
+    {
+        if (now - _lastPruned < LastUsedResolution)
+        {
+            return;
+        }
+
+        _lastPruned = now;
+        foreach (var (keyId, written) in _lastUsedWritten)
+        {
+            if (now - written >= LastUsedResolution)
+            {
+                _lastUsedWritten.Remove(keyId);
+            }
         }
     }
 

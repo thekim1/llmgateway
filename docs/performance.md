@@ -20,7 +20,7 @@ response it makes **1** (budget reconciliation and token count, pipelined), off 
 | Budget reservation | 1 | One Lua script reads, checks and reserves every applicable budget (key lineage, team, förvaltning) and reports counters that need seeding. |
 | Circuit reset on success | 0 | Fire-and-forget. |
 | Budget reconciliation + token count | 1 | Pipelined, after the response has been written. |
-| Usage record | 0 | Queued in memory; written in batches (one `INSERT` per batch, `LastUsedAt` at most once per key and minute). |
+| Usage record | 0 | Queued in memory; written in batches of up to 5 000 with one binary `COPY`, budget alerts and `LastUsedAt` (one statement for all keys, each at most once a minute) in the same transaction. |
 
 Cache behaviour:
 
@@ -200,6 +200,32 @@ departments); a department's view uses the `(DepartmentId, Timestamp)` index and
 grows with the number of records in the period (the percentile sorts), so a 90-day view of a very busy gateway takes a
 few seconds.
 
+### Usage writer: COPY (2026-10-14)
+
+The usage writer was the ceiling under load (see *Scaling* below; the 2026-10-13 benchmark fell to about 8 500 req/s
+when usage rows gained columns). It now writes each batch with one Postgres binary `COPY` instead of EF's
+`INSERT … RETURNING` per row through the change tracker, takes up to 5 000 records per batch (was 500), and sets
+`LastUsedAt` for all keys of a batch in one `UPDATE … FROM unnest(…)` instead of one statement per key. Records, alerts
+and `LastUsedAt` share one transaction; a retried batch skips the records already stored by request id, so a commit
+whose answer was lost cannot write them twice.
+
+`benchmarks/compare` (`PLATFORMS=ume VUS="16 64"`, 30 s, same machine, back to back; before = commit `d4c5eaf`):
+
+| Scenario | Before req/s | After req/s | Median before → after | p95 before → after |
+|---|---:|---:|---:|---:|
+| Non-streaming, 16 clients | 7 087 | 8 206 | 1.66 → 1.58 ms | 3.09 → 2.43 ms |
+| Non-streaming, 64 clients | 8 492 | **15 083** (+78 %) | 3.61 → 3.18 ms | 27.5 → 7.57 ms |
+| Streaming, 16 clients | 5 807 | 6 176 | 2.29 → 2.15 ms | 3.58 → 3.29 ms |
+| Streaming, 64 clients | 7 726 | **10 878** (+41 %) | 5.32 → 4.64 ms | 21.9 → 9.84 ms |
+
+Streaming at 64 clients, per request: gateway CPU 0.368 → 0.314 ms, Postgres + Redis CPU 0.152 → 0.076 ms, Postgres
+statements 1.0 → 0.3 (background writer). The gateway's memory at that load rose from 904 to 1 389 MB, from serving
+40 % more requests at once (larger batches account for at most a few MB).
+
+`audit 500`: per-request calls are unchanged (0 Postgres statements on the request path, 1 in the background for
+sequential traffic, 9 Redis commands); sequential latencies are within noise (chat 1.90 → 1.76 ms mean). Its load
+test (64 streaming clients, 1 s cache TTLs) went from 7 876 to **12 412 req/s**, p99 40.4 → 11.5 ms.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
@@ -281,9 +307,10 @@ physical cores). Measured 2026-10-09.
 - **The gateway** levels off at about 11 000 messages/s from 2 vCPUs, with CPU to spare (3.3 of 6 vCPUs busy at the
   6-vCPU peak; Redis, Postgres and the fake LLM also below capacity). The limit is the usage writer: its queue
   (10 000 records) stayed full for the whole run, so back-pressure caps the request rate at the rate one batched
-  insert loop can write to Postgres. Requests slow down instead of failing. Raising it (Postgres `COPY` for batches,
-  or more than one writer) is the next step if one instance ever needs more than ~10 000 messages/s; several gateway
-  instances each bring their own writer.
+  insert loop can write to Postgres. Requests slow down instead of failing. Since 2026-10-14 the writer uses `COPY`
+  (see *Usage writer: COPY* above), which lifted the 64-client peak from about 8 500 to 15 000 non-streaming requests/s
+  on this machine; more than one writer is the next step if that is ever not enough. Several gateway instances each
+  bring their own writer.
 
 ### Data protection and resilience (not performance)
 

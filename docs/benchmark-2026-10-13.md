@@ -195,6 +195,8 @@ Two runs agree, so this is not noise.
 - **To confirm:** watch the `ume.gateway.usage_queue.depth` gauge during the 64-client run, or run `audit` on this
   commit and on `7521b48`.
 - **Fix if confirmed:** see performance.md: Postgres `COPY` for the batches, or more than one writer.
+- **Fixed 2026-10-14:** the usage writer now uses `COPY`; 64 clients went to 15 083 req/s non-streaming and 10 878
+  streaming ([performance.md](performance.md#usage-writer-copy-2026-10-14)).
 
 Real deployments are far from this ceiling: with real LLM timing, 256 concurrent streams are 45 messages/s.
 

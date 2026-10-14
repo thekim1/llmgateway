@@ -180,3 +180,11 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
   the admin UI works against `https://<host>:10443/v1/usage/aggregate?...`.
 - [ ] **Upgrade the deployed instance:** the migration `SharedRulesDataKeysPii` runs once; gateway and admin API are deployed together
   (the routing rule API changed from `scopeId` to `scopeIds`, see docs/upgrade-guide.md).
+
+## Usage writer with COPY (uncommitted)
+
+- [ ] **Usage rows with the production role:** after deploying, send a few chat requests (one streamed, one with PII on a
+  redacting key, one routed by a rule) and check *Monitor > Usage*: each shows up with model, provider, tokens, cost, latency,
+  PII categories and rule name. The gateway log has no `Failed to write … usage records` (the `ume_gateway` role needs only its existing INSERT grant).
+- [ ] **Last used:** *Keys* shows *last used* updated for each key you used (within a minute).
+- [ ] **Budget alert:** a key with a small budget still raises its 50/80/100 % alert once.

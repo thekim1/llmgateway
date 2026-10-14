@@ -85,6 +85,65 @@ public sealed class AccountingTests(GatewayFixture fixture)
         alerts.ShouldHaveSingleItem().SpentSek.ShouldBe(5.5m);
     }
 
+    [Fact]
+    public void Usage_copy_writes_every_mapped_column()
+    {
+        using var scope = fixture.Services.CreateScope();
+        var entity = scope.ServiceProvider.GetRequiredService<GatewayDbContext>().Model.FindEntityType(typeof(UsageRecord))!;
+        var mapped = entity.GetProperties().Select(p => p.GetColumnName()).Except(["Id", "RecordedAt"]);
+        UsageRecordCopy.Columns.Order().ShouldBe(mapped.Order());
+    }
+
+    [Fact]
+    public async Task Usage_batch_round_trips_every_field_and_marks_each_key_used()
+    {
+        var first = await fixture.CreateKeyAsync();
+        var second = await fixture.CreateKeyAsync();
+        var full = Record(first);
+        Fill(full, new
+        {
+            Timestamp = new DateTimeOffset(2026, 10, 14, 12, 30, 15, 123, TimeSpan.FromHours(2)),
+            Endpoint = GatewayEndpoint.AudioTranscriptions, ProviderAccountId = (Guid?)Guid.NewGuid(), ProviderName = "eu",
+            ModelDeploymentId = (Guid?)Guid.NewGuid(), UpstreamModel = "gpt-x", InputTokens = 12, CachedInputTokens = 3, OutputTokens = 45,
+            AudioSeconds = 61.5m, CostUsd = 0.00012345m, CostSek = 0.001234m, LatencyMs = 250, UpstreamMs = (int?)200, TimeToFirstTokenMs = (int?)90,
+            Outcome = RequestOutcome.PiiBlocked, FallbackCount = 1, Streamed = true, PiiActionApplied = (PiiPolicy?)PiiPolicy.Redact,
+            PiiCategories = "Email:1", ErrorCode = "x", RoutingRuleId = (Guid?)Guid.NewGuid(), RoutingRuleName = "rule",
+        });
+        var sparse = Record(second);
+        sparse.Timestamp = new DateTimeOffset(sparse.Timestamp.Ticks / 10 * 10, TimeSpan.Zero); // Postgres keeps microseconds
+        var writer = fixture.Services.GetRequiredService<UsageWriter>();
+        await writer.EnqueueAsync(new UsageWork(full, []), Ct);
+        await writer.EnqueueAsync(new UsageWork(sparse, []), Ct);
+        await writer.FlushAsync(Ct);
+
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        var stored = await db.UsageRecords.AsNoTracking().SingleAsync(u => u.RequestId == full.RequestId, Ct);
+        ShouldMatch(stored, full);
+        ShouldMatch(await db.UsageRecords.AsNoTracking().SingleAsync(u => u.RequestId == sparse.RequestId, Ct), sparse);
+        (await db.VirtualKeys.Where(k => k.Id == first.Id || k.Id == second.Id).Select(k => k.LastUsedAt).ToListAsync(Ct)).ShouldAllBe(t => t != null);
+    }
+
+    /// <summary>Sets the properties named in <paramref name="values"/> (an anonymous object) on <paramref name="record"/>.</summary>
+    private static void Fill(UsageRecord record, object values)
+    {
+        foreach (var value in values.GetType().GetProperties())
+        {
+            typeof(UsageRecord).GetProperty(value.Name)!.SetValue(record, value.GetValue(values));
+        }
+    }
+
+    /// <summary>Every property as written, except those the database assigns (the instant compared, not its offset).</summary>
+    private static void ShouldMatch(UsageRecord stored, UsageRecord written)
+    {
+        stored.Id.ShouldBePositive();
+        stored.RecordedAt.ShouldNotBe(default);
+        foreach (var property in typeof(UsageRecord).GetProperties().Where(p => p.Name is not ("Id" or "RecordedAt")))
+        {
+            property.GetValue(stored).ShouldBe(property.GetValue(written), property.Name);
+        }
+    }
+
     private UsageRecord Record(TestKey key) => new()
     {
         RequestId = Guid.NewGuid().ToString("N"), VirtualKeyId = key.Id, TeamId = key.TeamId, DepartmentId = fixture.DepartmentId,
