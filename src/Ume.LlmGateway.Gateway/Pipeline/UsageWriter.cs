@@ -243,6 +243,9 @@ public sealed class GatewayMetrics
     private readonly Histogram<double> _sessionDuration;
     private readonly UpDownCounter<long> _openSessions;
     private readonly Counter<double> _audioSeconds;
+    private readonly Histogram<double> _streamMaxGap;
+    private readonly Histogram<double> _streamMaxWrite;
+    private readonly Counter<long> _streamStalls;
     private readonly Meter _meter;
 
     public GatewayMetrics(IMeterFactory meterFactory)
@@ -260,6 +263,21 @@ public sealed class GatewayMetrics
         _sessionDuration = _meter.CreateHistogram<double>("ume.gateway.realtime.session.duration", unit: "s", description: "Length of live audio sessions");
         _openSessions = _meter.CreateUpDownCounter<long>("ume.gateway.realtime.sessions", description: "Live audio sessions open on this instance");
         _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
+        _streamMaxGap = _meter.CreateHistogram<double>("ume.gateway.stream.max_upstream_gap", unit: "ms", description: "Streamed answers: longest wait for the provider's next event after the first");
+        _streamMaxWrite = _meter.CreateHistogram<double>("ume.gateway.stream.max_write", unit: "ms", description: "Streamed answers: longest time the gateway spent writing one event to the client");
+        _streamStalls = _meter.CreateCounter<long>("ume.gateway.stream.stalls", description: "Waits of a second or more for a provider's next event, mid-stream");
+    }
+
+    /// <summary>Once per stream: its longest provider gap and client write, and its stalls.</summary>
+    public void StreamGaps(string provider, GatewayEndpoint endpoint, double maxUpstreamGapMs, double maxWriteMs, int stalls)
+    {
+        var tags = new TagList { { "provider", provider }, { "endpoint", endpoint.ToString() } };
+        _streamMaxGap.Record(maxUpstreamGapMs, tags);
+        _streamMaxWrite.Record(maxWriteMs, tags);
+        if (stalls > 0)
+        {
+            _streamStalls.Add(stalls, tags);
+        }
     }
 
     public void SessionOpened(GatewayEndpoint endpoint) => _openSessions.Add(1, new TagList { { "endpoint", endpoint.ToString() } });

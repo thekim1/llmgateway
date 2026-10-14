@@ -20,6 +20,14 @@ services:
     environment:
       ASPNETCORE_HTTP_PORTS: "8080"
       Logging__LogLevel__Default: Warning
+      # Real-provider timing (latency.sh); all 0 = instant answers, as run.sh and scale.sh expect.
+      FakeLlm__Latency__FirstTokenMs: "${FAKE_TTFT_MS:-0}"
+      FakeLlm__Latency__PrefillMsPer1kInputTokens: "${FAKE_PREFILL_MS_PER_1K:-0}"
+      FakeLlm__Latency__TokenIntervalMs: "${FAKE_TOKEN_MS:-0}"
+      FakeLlm__Latency__JitterPercent: "${FAKE_JITTER_PCT:-0}"
+      FakeLlm__Latency__AnswerWords: "${FAKE_ANSWER_WORDS:-0}"
+      FakeLlm__Latency__StallProbability: "${FAKE_STALL_P:-0}"
+      FakeLlm__Latency__StallMs: "${FAKE_STALL_MS:-0}"
     ports: ["127.0.0.1:18090:8080"]
 
   # ---------- Ume LLM gateway ----------

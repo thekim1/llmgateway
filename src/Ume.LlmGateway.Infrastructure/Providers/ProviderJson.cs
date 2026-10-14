@@ -163,6 +163,38 @@ internal static class ProviderJson
         return usage with { Images = images };
     }
 
+    /// <summary>
+    /// Whether an OpenAI stream chunk has a <c>"usage"</c> property with a value other than <c>null</c>. With
+    /// <c>include_usage</c> set, OpenAI and Azure send <c>"usage":null</c> in every content chunk, so the mere presence of
+    /// the name must not send each chunk down the full-parse path. An escaped quote inside a string value cannot form
+    /// <c>"usage"</c>, so a match is always a property name.
+    /// </summary>
+    public static bool HasUsageValue(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        var rest = json.AsSpan();
+        while (true)
+        {
+            var at = rest.IndexOf("\"usage\"", StringComparison.Ordinal);
+            if (at < 0)
+            {
+                return false;
+            }
+
+            rest = rest[(at + 7)..].TrimStart();
+            if (rest.IsEmpty || rest[0] != ':')
+            {
+                continue;
+            }
+
+            rest = rest[1..].TrimStart();
+            if (!rest.StartsWith("null", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+    }
+
     /// <summary>Characters of generated text in an OpenAI chunk: <c>choices[].delta.content</c> (chat) or a top-level <c>delta</c> string (Responses API).</summary>
     public static long OpenAIContentLength(string json) => TextLength(json, anthropic: false);
 

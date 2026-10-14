@@ -60,9 +60,16 @@ start_platform() {
     ume)
       "${COMPOSE[@]}" --profile ume up -d --wait ume-db ume-redis fake-llm >/dev/null
       "${COMPOSE[@]}" exec -T ume-db psql -U postgres -d gatewaydb -qc "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null
-      KEY=$(dotnet run -c Release --project "$REPO/benchmarks/Ume.LlmGateway.Benchmarks" -- compare-seed \
-        "Host=127.0.0.1;Port=15432;Database=gatewaydb;Username=postgres;Password=postgres" "$PEPPER" http://fake-llm:8080/v1 2>/dev/null | tail -1)
-      [[ "$KEY" == ume-sk-* ]] || { echo "Seeding the gateway database failed" >&2; exit 1; }
+      # Postgres is healthy inside Docker a moment before the host port forwards connections: retry the seed.
+      KEY=""
+      for attempt in 1 2 3 4 5; do
+        KEY=$(dotnet run -c Release --project "$REPO/benchmarks/Ume.LlmGateway.Benchmarks" -- compare-seed \
+          "Host=127.0.0.1;Port=15432;Database=gatewaydb;Username=postgres;Password=postgres" "$PEPPER" http://fake-llm:8080/v1 \
+          2>results/seed-error.log | tail -1) || true
+        [[ "$KEY" == ume-sk-* ]] && break
+        sleep 3
+      done
+      [[ "$KEY" == ume-sk-* ]] || { echo "Seeding the gateway database failed:" >&2; tail -20 results/seed-error.log >&2; exit 1; }
       "${COMPOSE[@]}" --profile ume up -d ume-gateway >/dev/null
       wait_http http://127.0.0.1:18080/v1/models '^401$' # up: answers, but wants a key
       ;;

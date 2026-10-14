@@ -60,6 +60,118 @@ public sealed class HotPathTests(GatewayFixture fixture)
     }
 
     [Theory]
+    [InlineData("""{"choices":[{"delta":{"content":"x"}}],"usage":null}""", false)]
+    [InlineData("""{"choices":[{"delta":{"content":"x"}}],"usage" : null,"obfuscation":"ab"}""", false)]
+    [InlineData("""{"choices":[{"delta":{"content":"say \"usage\": 1"}}],"usage":null}""", false)]
+    [InlineData("""{"type":"response.created","response":{"id":"r","usage":null}}""", false)]
+    [InlineData("""{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}""", true)]
+    [InlineData("""{"choices":[],"usage": {"prompt_tokens":7}}""", true)]
+    [InlineData("""{"type":"response.completed","response":{"usage":null,"x":{"usage":{"input_tokens":1}}}}""", true)]
+    [InlineData("""{"choices":[]}""", false)]
+    public void Usage_value_detection_ignores_null_usage(string data, bool expected) =>
+        ProviderJson.HasUsageValue(data).ShouldBe(expected);
+
+    [Fact]
+    public void Openai_wire_chunks_with_null_usage_take_the_fast_path_and_still_count_text()
+    {
+        // OpenAI and Azure send "usage":null in every chunk once include_usage is set (the gateway always sets it).
+        var data = """{"id":"c","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hej "},"finish_reason":null}],"usage":null,"obfuscation":"q7"}""";
+        var acc = new UsageAccumulator();
+        OpenAICompatibleAdapter.TransformChunk(new SseEvent(null, data), acc, clientWantsUsage: false).ToList().ShouldHaveSingleItem().Data.ShouldBe(data);
+        acc.OutputCharacters.ShouldBe(4);
+        acc.Reported.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("gzip")]
+    [InlineData("br")]
+    [InlineData("deflate")]
+    public async Task Compressed_streams_are_decoded_before_the_sse_reader(string encoding)
+    {
+        var sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Hej\"}}]}\n\ndata: [DONE]\n\n"u8.ToArray();
+        using var compressed = new MemoryStream();
+        await using (Stream z = encoding switch
+        {
+            "gzip" => new System.IO.Compression.GZipStream(compressed, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true),
+            "br" => new System.IO.Compression.BrotliStream(compressed, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true),
+            _ => new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true),
+        })
+        {
+            await z.WriteAsync(sse, Ct);
+        }
+
+        compressed.Position = 0;
+        var events = new List<SseEvent>();
+        await foreach (var evt in SseReader.ReadAsync(ProviderAdapterBase.Decoded(compressed, [encoding]), Ct))
+        {
+            events.Add(evt);
+        }
+
+        events.Select(e => e.Data).ShouldBe(["""{"choices":[{"delta":{"content":"Hej"}}]}""", SseEvent.Done]);
+    }
+
+    [Fact]
+    public void Stream_gaps_keep_the_longest_waits_and_count_stalls()
+    {
+        var time = new FakeTimeProvider();
+        var gaps = new StreamGaps(time);
+        var second = time.TimestampFrequency;
+        gaps.Upstream(second / 100);
+        gaps.Write(second / 1000);
+        gaps.Upstream(second * 3);
+        gaps.Write(second / 500);
+        gaps.Upstream(second);
+        gaps.Write(1);
+
+        gaps.Events.ShouldBe(3);
+        gaps.Stalls.ShouldBe(2);
+        gaps.MaxUpstream.ShouldBe(TimeSpan.FromSeconds(3));
+        gaps.MaxWrite.ShouldBe(TimeSpan.FromMilliseconds(2));
+    }
+
+    [Fact]
+    public async Task Streamed_calls_do_not_ask_for_compression()
+    {
+        using var http = new ProviderHttpClient();
+        (await RawRequestHeadersAsync(http.StreamClient)).ShouldNotContain("accept-encoding", Case.Insensitive);
+        (await RawRequestHeadersAsync(http.Client)).ShouldContain("accept-encoding", Case.Insensitive);
+    }
+
+    /// <summary>The request head a client puts on the wire, read by a one-shot loopback listener.</summary>
+    private static async Task<string> RawRequestHeadersAsync(HttpClient client)
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            var send = client.GetAsync(new Uri($"http://127.0.0.1:{port}/v1/models"), Ct);
+            using var socket = await listener.AcceptTcpClientAsync(Ct);
+            var stream = socket.GetStream();
+            var buffer = new byte[8192];
+            var head = new StringBuilder();
+            while (!head.ToString().Contains("\r\n\r\n", StringComparison.Ordinal))
+            {
+                var read = await stream.ReadAsync(buffer, Ct);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                head.Append(Encoding.ASCII.GetString(buffer, 0, read));
+            }
+
+            await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray(), Ct);
+            using var response = await send;
+            return head.ToString();
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Theory]
     [InlineData("content_block_delta", """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ord \"x\""}}""", 7)]
     [InlineData("content_block_delta", """{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}""", 0)]
     [InlineData("ping", """{"type":"ping"}""", 0)]

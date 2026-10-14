@@ -80,6 +80,30 @@ public static class Payloads
         return Encoding.UTF8.GetBytes(sb.ToString());
     }
 
+    /// <summary>
+    /// The same stream as OpenAI and Azure OpenAI send it when <c>stream_options.include_usage</c> is set (the gateway
+    /// always sets it): every chunk carries <c>"usage":null</c> and an <c>obfuscation</c> padding string.
+    /// </summary>
+    public static byte[] OpenAIWireStream(int chunks = 300)
+    {
+        const string Head = "data: {\"id\":\"chatcmpl-bench\",\"object\":\"chat.completion.chunk\",\"created\":1760000000,\"model\":\"bench-chat\",\"service_tier\":\"default\",\"system_fingerprint\":\"fp_bench\",\"choices\":[{\"index\":0,\"delta\":";
+        var sb = new StringBuilder();
+        sb.Append(Head).Append("{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"Xk3\"}\n\n");
+        string[] words = ["För ", "bygglov ", "behöver ", "du ", "en ", "situationsplan", ", ", "fasad", "ritningar ", "och ", "planritning", ". "];
+        for (var i = 0; i < chunks; i++)
+        {
+            sb.Append(Head).Append("{\"content\":\"").Append(words[i % words.Length])
+                .Append("\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null,\"obfuscation\":\"q7Zp\"}\n\n");
+        }
+
+        sb.Append(Head).Append("{},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":null,\"obfuscation\":\"aB\"}\n\n");
+        sb.Append("data: {\"id\":\"chatcmpl-bench\",\"object\":\"chat.completion.chunk\",\"created\":1760000000,\"model\":\"bench-chat\",\"service_tier\":\"default\",\"system_fingerprint\":\"fp_bench\",\"choices\":[],\"usage\":{\"prompt_tokens\":96,\"completion_tokens\":")
+            .Append(chunks).Append(",\"total_tokens\":").Append(96 + chunks)
+            .Append(",\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":0,\"audio_tokens\":0}},\"obfuscation\":\"Zz\"}\n\n");
+        sb.Append("data: [DONE]\n\n");
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
     /// <summary>An Anthropic Messages stream (passthrough on /v1/messages).</summary>
     public static byte[] AnthropicStream(int chunks = 300)
     {

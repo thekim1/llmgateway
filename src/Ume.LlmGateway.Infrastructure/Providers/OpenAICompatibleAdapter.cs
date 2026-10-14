@@ -16,30 +16,58 @@ namespace Ume.LlmGateway.Infrastructure.Providers;
 public sealed class ProviderHttpClient : IDisposable
 {
     public ProviderHttpClient(bool requireHttps = false)
-        : this(new SocketsHttpHandler
-        {
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            ConnectTimeout = TimeSpan.FromSeconds(10),
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-            AllowAutoRedirect = false,
-        }, requireHttps)
+        : this(CreateHandler(System.Net.DecompressionMethods.All), CreateHandler(System.Net.DecompressionMethods.None), requireHttps)
     {
     }
 
     public ProviderHttpClient(HttpMessageHandler handler, bool requireHttps = false)
+        : this(handler, null, requireHttps)
+    {
+    }
+
+    private ProviderHttpClient(HttpMessageHandler handler, HttpMessageHandler? streamHandler, bool requireHttps)
     {
         RequireHttps = requireHttps;
-        Client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        Client.DefaultRequestHeaders.UserAgent.Add(ProviderTransport.UserAgent);
+        Client = Create(handler);
+        StreamClient = streamHandler is null ? Client : Create(streamHandler);
     }
 
     public HttpClient Client { get; }
+
+    /// <summary>
+    /// For streamed calls: sends no <c>Accept-Encoding</c>. A provider or proxy that compresses <c>text/event-stream</c>
+    /// holds tokens back until a compression block fills, so the client sees bursts separated by silences.
+    /// </summary>
+    public HttpClient StreamClient { get; }
+
     internal bool RequireHttps { get; }
 
     /// <summary>Whether content and credentials may be sent to <paramref name="uri"/> (production: only over TLS).</summary>
     internal bool Permits(Uri uri) => ProviderTransport.IsPermitted(uri, RequireHttps);
 
-    public void Dispose() => Client.Dispose();
+    public void Dispose()
+    {
+        Client.Dispose();
+        if (!ReferenceEquals(StreamClient, Client))
+        {
+            StreamClient.Dispose();
+        }
+    }
+
+    private static SocketsHttpHandler CreateHandler(System.Net.DecompressionMethods decompression) => new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        AutomaticDecompression = decompression,
+        AllowAutoRedirect = false,
+    };
+
+    private static HttpClient Create(HttpMessageHandler handler)
+    {
+        var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
+        client.DefaultRequestHeaders.UserAgent.Add(ProviderTransport.UserAgent);
+        return client;
+    }
 }
 
 public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAdapter
@@ -85,7 +113,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         HttpResponseMessage response;
         try
         {
-            response = await http.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            response = await (call.Stream ? http.StreamClient : http.Client).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -160,7 +188,7 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(transform);
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = Decoded(await response.Content.ReadAsStreamAsync(cancellationToken), response.Content.Headers.ContentEncoding);
         await foreach (var evt in SseReader.ReadAsync(stream, cancellationToken))
         {
             foreach (var output in transform(evt))
@@ -169,6 +197,19 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
             }
         }
     }
+
+    /// <summary>
+    /// The stream client asks for no compression, but an upstream may compress anyway: decode it here rather than hand
+    /// compressed bytes to the SSE reader.
+    /// </summary>
+    internal static Stream Decoded(Stream stream, ICollection<string> contentEncoding) =>
+        contentEncoding.Count == 0 ? stream : contentEncoding.Last().ToLowerInvariant() switch
+        {
+            "gzip" => new System.IO.Compression.GZipStream(stream, System.IO.Compression.CompressionMode.Decompress),
+            "br" => new System.IO.Compression.BrotliStream(stream, System.IO.Compression.CompressionMode.Decompress),
+            "deflate" => new System.IO.Compression.ZLibStream(stream, System.IO.Compression.CompressionMode.Decompress),
+            _ => stream,
+        };
 
     protected static string Serialize(JsonNode node) => node.ToJsonString(Compact);
 }
@@ -383,7 +424,8 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         }
 
         // Fast path for the content chunks that make up nearly the whole stream: only the text length is needed.
-        if (!evt.Data.Contains("\"usage\"", StringComparison.Ordinal))
+        // Real OpenAI/Azure chunks carry "usage":null, which counts as no usage.
+        if (!ProviderJson.HasUsageValue(evt.Data))
         {
             acc.OutputCharacters += ProviderJson.OpenAIContentLength(evt.Data);
             yield return evt;

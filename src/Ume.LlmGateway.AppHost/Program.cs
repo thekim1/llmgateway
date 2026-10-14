@@ -36,6 +36,15 @@ var fakeLlm = builder.ExecutionContext.IsRunMode && builder.Configuration.GetVal
     .WithHttpsEndpoint()
     .WithHttpHealthCheck(HealthEndpoints.ReadyPath, endpointName: "https") : null;
 
+// FakeLlm:Latency:* (AppHost user secrets) gives the fake provider a real one's timing, e.g. FirstTokenMs=400, TokenIntervalMs=25.
+if (fakeLlm is not null)
+{
+    foreach (var setting in builder.Configuration.GetSection("FakeLlm:Latency").GetChildren())
+    {
+        fakeLlm.WithEnvironment($"FakeLlm__Latency__{setting.Key}", setting.Value);
+    }
+}
+
 var migrations = builder.AddProject<Projects.Ume_LlmGateway_MigrationService>("migrations")
     .WithReference(database)
     .WithEnvironment("Security__KeyPepper", pepper)

@@ -154,6 +154,24 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
   (no error); the MCP calls are gone, LLM requests from the same period are still listed.
 - [ ] **Redis ACL:** after redeploying and restarting Redis, the gateway and admin API logs have no `NOPERM`.
 
+## Streaming chunk gaps (uncommitted)
+
+- [ ] **Real OpenAI/Azure stream:** stream a chat completion through a real OpenAI or Azure provider; tokens arrive
+  continuously and *Usage* shows the exact token count (usage still read from the last chunk).
+- [ ] **Client asked for usage:** with `stream_options.include_usage: true` the client still gets the usage chunk; without it,
+  it does not.
+- [ ] **Metrics:** after a few streamed requests the Aspire dashboard (or your collector) has `ume.gateway.stream.max_upstream_gap`
+  and `ume.gateway.stream.max_write` per provider; `max_write` stays at a few ms.
+- [ ] **Stall log:** a stream with a pause of ≥ 1 s (e.g. a reasoning model, or Azure with the default content filter) logs
+  `stream from <provider> stalled` with its request id, and `ume.gateway.stream.stalls` counts it.
+- [ ] **Azure filter:** if an Azure deployment stalls often, switch it to the asynchronous filter and compare the stall rate.
+
+## Fake LLM timing (uncommitted)
+
+- [ ] **Local timing:** set `FakeLlm:Latency:FirstTokenMs=400` and `TokenIntervalMs=25` in the AppHost user secrets and
+  restart; a streamed chat in the admin UI playground (or curl) starts after about 0.4 s and then streams word by word.
+- [ ] **Off by default:** without the section, the fake LLM still answers instantly.
+
 ## Whole release
 
 - [ ] **Portainer upgrade to 0.3.0:** new stack file pasted, image variables at 0.3.0, Redis restarted after the redeploy;

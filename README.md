@@ -44,6 +44,21 @@ The fake provider (`fake-llm`) starts with the AppHost by default. Set `"FakeLlm
 in the AppHost user secrets (or `FakeLlm__Enabled=false` in the environment) to skip it. The admin UI
 badge shows **Development** or **Production** from the admin API's environment.
 
+By default the fake LLM answers instantly. To make chat, responses and messages answers behave like a real provider,
+set `FakeLlm:Latency` in the AppHost user secrets (or `FakeLlm__Latency__*` on the fake LLM itself). All values
+default to 0 (off):
+
+| Setting | Effect | Example |
+|---|---|---|
+| `FirstTokenMs` | Wait before the first token (non-streamed answers wait for the whole answer) | `400` |
+| `PrefillMsPer1kInputTokens` | Extra wait before the first token per 1 000 input tokens (long prompts take longer to read) | `60` |
+| `TokenIntervalMs` | Wait between streamed words | `25` (about 40 words/s) |
+| `JitterPercent` | Random ± variation on every wait | `30` |
+| `AnswerWords` | Pad answers to this many words | `200` |
+| `StallProbability`, `StallMs` | Chance per word of an extra pause, and its length (a content filter releasing a batch) | `0.01`, `1500` |
+
+With `stream_options.include_usage`, the fake LLM's chat chunks carry `"usage":null` as OpenAI's do.
+
 ### Running from Visual Studio
 
 1. Install Visual Studio 2022 17.14+ (or newer) with the .NET 10 SDK, Docker Desktop (running), Node 24+, and run `dotnet dev-certs https --trust` once.
@@ -706,6 +721,8 @@ development data is reused. These optional overrides apply only in local run mod
 | [Routing rules](docs/routing-rules.md) | Rule model, condition language, evaluation order, examples (see also *Routing examples* above) |
 | [Architecture](docs/architecture.md) | Scope and decisions, components, trust boundaries, tradeoffs |
 | [Performance](docs/performance.md) | Per-request cost (Postgres/Redis round trips, caching), benchmarks and how to run them |
+| [Benchmark 2026-10-13](docs/benchmark-2026-10-13.md) | Gateway vs. eneo: instant and real-provider timing (TTFT, chunk gaps, stalls), and an open throughput regression |
+| [Streaming findings](docs/streaming-findings.md) | Why streams fell behind, what was fixed, chunk-gap metrics and how to re-validate |
 | [Performance improvement plan](docs/performance-improvement-plan.md) | Prioritised bottlenecks with evidence and acceptance criteria (handoff) |
 | [Security and compliance](docs/security-and-compliance.md) | Controls, DPIA and processing-record inputs, release gates |
 | [Accessibility statement](docs/accessibility-statement.md) | Automated evidence and outstanding manual checks |

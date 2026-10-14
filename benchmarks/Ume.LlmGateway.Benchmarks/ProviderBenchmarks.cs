@@ -15,6 +15,7 @@ namespace Ume.LlmGateway.Benchmarks;
 public class ProviderBenchmarks
 {
     private OpenAICompatibleAdapter _openai = null!;
+    private OpenAICompatibleAdapter _openaiWire = null!;
     private AnthropicAdapter _anthropic = null!;
     private ProviderAccount _openaiProvider = null!;
     private ProviderAccount _anthropicProvider = null!;
@@ -27,6 +28,7 @@ public class ProviderBenchmarks
     {
         var http = new ProviderHttpClient(new StubUpstream());
         _openai = new OpenAICompatibleAdapter(http);
+        _openaiWire = new OpenAICompatibleAdapter(new ProviderHttpClient(new StubUpstream { ChatStream = Payloads.OpenAIWireStream() }));
         _anthropic = new AnthropicAdapter(http, TimeProvider.System);
         _openaiProvider = Provider(ProviderType.OpenAICompatible);
         _anthropicProvider = Provider(ProviderType.Anthropic);
@@ -43,6 +45,9 @@ public class ProviderBenchmarks
 
     [Benchmark(Description = "Chat stream 300 chunks (OpenAI-compatible)")]
     public Task ChatStream() => SendAsync(_openai, _openaiProvider, GatewayEndpoint.ChatCompletions, _chatStream, stream: true);
+
+    [Benchmark(Description = "Chat stream 300 chunks (OpenAI wire format: usage:null per chunk)")]
+    public Task ChatStreamWire() => SendAsync(_openaiWire, _openaiProvider, GatewayEndpoint.ChatCompletions, _chatStream, stream: true);
 
     [Benchmark(Description = "Messages stream 300 chunks (Anthropic passthrough)")]
     public Task AnthropicPassthroughStream() => SendAsync(_anthropic, _anthropicProvider, GatewayEndpoint.AnthropicMessages, _chatStream, stream: true);
