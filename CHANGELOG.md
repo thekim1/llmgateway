@@ -8,8 +8,10 @@
 the MCP connector on `/v1/messages`, `/api/mcp/servers`, MCP grants on keys and the *MCP servers* page) is reverted, with
 its dependency `ModelContextProtocol`. The new migration `RemoveMcpGateway` drops the tables `McpServers`, `McpTools` and
 `VirtualKeyMcpGrants`, the columns `UsageRecords.McpServerId`, `McpMethod`, `McpTool`, `ParentRequestId` and
-`VirtualKeys.McpCallsPerMinute`, and the history row of migration `McpGateway`; on a database that never ran 0.4.0 it
-does nothing. The Redis ACL no longer allows the channel `ume:mcp:events` (redeploy the stack or run
+`VirtualKeys.McpCallsPerMinute`, and the history row of migration `McpGateway`. It also deletes the usage records,
+monthly totals and refused-key records of the endpoints `Mcp` and `McpToolCall`, which 0.4.1 can no longer read (the
+request list and PII incidents failed on them); the cost of MCP tool calls drops out of usage reports and of budget
+counters rebuilt from Postgres. On a database that never ran 0.4.0 it does nothing. The Redis ACL no longer allows the channel `ume:mcp:events` (redeploy the stack or run
 `init-deployment.sh`, then restart Redis); leftover `ume:mcp:*` and `ume:rl:mcp:*` keys are unused and can be deleted.
 
 **Dependencies updated.** All NuGet packages are on their latest stable versions (.NET 10.0.13, OpenTelemetry 1.19,

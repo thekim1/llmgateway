@@ -6,7 +6,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 {
     /// <summary>
     /// Removes what the reverted migration <c>20261012233443_McpGateway</c> (0.4.0) created. Databases that never ran it
-    /// are left as they are, and its history row is deleted so a later migration may reuse the schema.
+    /// are left as they are, and its history row is deleted so a later migration may reuse the schema. Rows recorded for
+    /// the removed endpoints <c>Mcp</c> and <c>McpToolCall</c> are deleted too: <c>GatewayEndpoint</c> no longer has these
+    /// values, so EF Core could not read them back (the usage and PII incident lists would fail).
     /// </summary>
     public partial class RemoveMcpGateway : Migration
     {
@@ -14,6 +16,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
+                DELETE FROM "UsageRecords" WHERE "Endpoint" IN ('Mcp', 'McpToolCall');
+                DELETE FROM "UsageMonthlyTotals" WHERE "Endpoint" IN ('Mcp', 'McpToolCall');
+                DELETE FROM "AuthFailures" WHERE "Endpoint" IN ('Mcp', 'McpToolCall');
                 DROP TABLE IF EXISTS "VirtualKeyMcpGrants";
                 DROP TABLE IF EXISTS "McpTools";
                 DROP TABLE IF EXISTS "McpServers";

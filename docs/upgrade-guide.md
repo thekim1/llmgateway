@@ -45,6 +45,19 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - The Data API usage feed and `GET /api/usage/requests` have the new fields `upstreamMs` and `timeToFirstTokenMs`
   (`/api/usage/requests` also `costUsd`); clients that ignore unknown fields need no change.
 
+## 0.4.1: MCP gateway removed
+
+- The migration `RemoveMcpGateway` drops the MCP tables and columns of 0.4.0 (migration `McpGateway`) and deletes its
+  history row. It is not expand/contract compatible with 0.4.0: a 0.4.0 gateway or admin API fails on the dropped columns,
+  so stop them, migrate and start 0.4.1 together. On a database that never ran 0.4.0 it changes nothing.
+- It also **deletes the rows of MCP traffic**: usage records, monthly totals and refused-key records with `Endpoint` `Mcp` or
+  `McpToolCall`. 0.4.1 cannot read them, so they would break *Usage > Requests and costs* and *PII incidents*. Their cost no
+  longer counts in usage reports or in budget counters rebuilt from Postgres. If you need the MCP calls for accounting,
+  export them before upgrading: `SELECT * FROM "UsageRecords" WHERE "Endpoint" IN ('Mcp', 'McpToolCall')`.
+- LLM requests that ran inside an MCP tool loop (`/v1/responses` turns) are ordinary records and are kept; only their
+  `ParentRequestId` link is dropped.
+- Redeploy the stack or run `init-deployment.sh` and restart Redis so the ACL no longer allows `ume:mcp:events`.
+
 ## Upgrade procedure
 
 1. Review release/source changes, package/image advisories, licenses and SBOM; approve exact

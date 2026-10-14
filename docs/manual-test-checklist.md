@@ -145,6 +145,15 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
 - [ ] **Link from PII incidents:** a request link from *PII incidents* opens the *Requests and costs* tab with the drawer.
 - [ ] **OpenTelemetry:** the Aspire dashboard (or your collector) has `ume.gateway.overhead` and `ume.gateway.time_to_first_token`.
 
+## Upgrade 0.4.0 to 0.4.1: MCP gateway removed (uncommitted)
+
+- [ ] **Upgrade a 0.4.0 database with MCP traffic:** on a copy of a 0.4.0 instance that has MCP calls (or after calling a
+  tool through `/mcp` on 0.4.0), deploy 0.4.1. The migration service log says `Database schema is at migration
+  20261014144400_RemoveMcpGateway`, and `\dt "Mcp*"` in psql lists no tables.
+- [ ] **Usage still opens:** *Usage > Requests and costs* and *PII incidents* load for a range that covered the MCP calls
+  (no error); the MCP calls are gone, LLM requests from the same period are still listed.
+- [ ] **Redis ACL:** after redeploying and restarting Redis, the gateway and admin API logs have no `NOPERM`.
+
 ## Whole release
 
 - [ ] **Portainer upgrade to 0.3.0:** new stack file pasted, image variables at 0.3.0, Redis restarted after the redeploy;
