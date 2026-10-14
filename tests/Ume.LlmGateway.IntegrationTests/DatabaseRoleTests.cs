@@ -1,5 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Testcontainers.PostgreSql;
+using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.IntegrationTests;
@@ -47,6 +50,22 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
         await ScalarAsync<long>(gateway, """SELECT count(*) FROM "GatewaySettings" """);
         await ScalarAsync<long>(gateway, """SELECT count("AllowedIpRanges") FROM "VirtualKeys" """);
         await ShouldBeDeniedAsync(gateway, """UPDATE "GatewaySettings" SET "TrustedProxies" = '{}' """);
+    }
+
+    [Fact]
+    public async Task Gateway_writes_usage_with_copy_and_sets_last_used()
+    {
+        await using var db = new GatewayDbContext(new DbContextOptionsBuilder<GatewayDbContext>().UseNpgsql(Connection("ume_gateway")).Options);
+        var requestId = "req_" + Guid.NewGuid().ToString("N");
+        await using (var transaction = await db.Database.BeginTransactionAsync(Ct))
+        {
+            await db.CopyUsageRecordsAsync(
+                [new UsageRecord { RequestId = requestId, Timestamp = DateTimeOffset.UtcNow, RequestedModel = "m", StatusCode = 200 }], Ct);
+            await db.UpdateKeysLastUsedAsync([(Guid.NewGuid(), DateTimeOffset.UtcNow)], Ct);
+            await transaction.CommitAsync(Ct);
+        }
+
+        (await ScalarAsync<long>(Connection("ume_gateway"), $"""SELECT count(*) FROM "UsageRecords" WHERE "RequestId" = '{requestId}' """)).ShouldBe(1);
     }
 
     [Fact]
