@@ -192,6 +192,11 @@ and invalidate the gateway catalogue.
   canonicalised; `/0` networks are refused). `observed` is the connection the admin API saw for this request, to help find
   the proxy's address. Saving is audited (`Settings`) and publishes a configuration change, so the gateways apply it within
   seconds. See *Client addresses and trusted proxies* in [the runbook](runbook.md).
+- `GET /api/settings/request-log` *(gateway-admin)* → `{ active, until, updatedAt }` · `PUT /api/settings/request-log`
+  `{ logAllRequests, noTimeLimit }` *(gateway-admin)*. Whether the gateways log successful requests too (normally only refused,
+  failed and cancelled ones; every request is a usage record either way). Switched on, it lasts 24 hours unless `noTimeLimit` is
+  true; `until` is when it switches itself off (null with `active` = no time limit; `active` is false once it has expired).
+  Saving is audited (`Settings`) and publishes a configuration change; the gateways check the end time on every request.
 - Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
   also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
   full the alert is stored but not sent (a warning is logged).

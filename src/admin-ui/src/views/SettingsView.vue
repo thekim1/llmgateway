@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
+import RequestLogCard from '@/components/settings/RequestLogCard.vue'
 import RetentionCard from '@/components/settings/RetentionCard.vue'
 import TrustedProxiesCard from '@/components/settings/TrustedProxiesCard.vue'
 
@@ -70,6 +71,10 @@ onMounted(load)
 
   <div class="mt-6">
     <RetentionCard />
+  </div>
+
+  <div class="mt-6">
+    <RequestLogCard />
   </div>
 
   <ConfirmDialog

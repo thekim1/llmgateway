@@ -93,8 +93,9 @@ public sealed partial class GatewayRequestHandler
 
         metrics.Record(record);
         // Successful requests are in the usage table and the metrics already; a log line for each cost 9-16 % of peak
-        // throughput (docs/performance.md), so only refused, failed and cancelled requests are logged at Information.
-        var level = outcome == RequestOutcome.Success ? LogLevel.Debug : LogLevel.Information;
+        // throughput (docs/performance.md), so only refused, failed and cancelled requests are logged at Information,
+        // unless an admin has switched on logging every request (Settings, GatewaySettings.LogAllRequests).
+        var level = outcome != RequestOutcome.Success || snapshot?.LogsAllRequests(now) == true ? LogLevel.Information : LogLevel.Debug;
         if (logger.IsEnabled(level))
         {
             LogCompleted(logger, level, state.RequestId, key.Prefix, record.RequestedModel, record.ProviderName ?? "-", status, record.LatencyMs, state.Fallbacks);

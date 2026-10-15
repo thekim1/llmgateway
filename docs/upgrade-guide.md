@@ -7,6 +7,15 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Next release: request logging
+
+- **Successful requests are no longer written to the gateway log.** Refused, failed and cancelled requests still are, and
+  every request is still a usage record. If dashboards or alerts count the "Request … status … in … ms" log lines, switch
+  them to the usage data or the `ume.gateway.requests` metric, or turn on *Settings > Request logging*.
+- The migration `RequestLogSwitch` adds `GatewaySettings.LogAllRequests` and `LogAllRequestsUntil`; it is additive, so the
+  previous gateway and admin API keep working against the new schema. No grant changes.
+- The usage writer now writes with `COPY`; it needs only the existing `INSERT` grant on `UsageRecords`.
+
 ## Next release: shared routing rules
 
 - The migration `RoutingRuleScopeSets` converts `RoutingRules.ScopeId` into the set `ScopeIds` (`uuid[]`), drops
