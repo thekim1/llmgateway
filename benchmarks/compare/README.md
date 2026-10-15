@@ -59,6 +59,9 @@ CORES="1 2 4" LOAD_VUS="1 16 128" STREAM=false benchmarks/compare/scale.sh
 
 It writes `results/scale-report.md` and `results/scale/scale-data.json` (for charts).
 
+The fake LLM runs on hardware threads 0–1. At high rates it can become the limit (above about 18 000 streaming msg/s
+through the gateway): `FAKE_CPUS="0-1,12-13" DATA_CPUS="14-15"` gives it two more threads, taken from Postgres and Redis.
+
 **Streaming latency with real-provider timing** (`latency.sh`, about 12 minutes). The fake LLM is given a real
 provider's timing: by default 400 ms to the first token, 25 ms ±30 % per word and 200-word answers (`FAKE_*` variables,
 see the script). k6 cannot see inside a stream, so a small probe (`stream-probe` in the benchmark project, run as a

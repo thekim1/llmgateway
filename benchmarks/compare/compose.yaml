@@ -16,7 +16,7 @@ x-data-cpus: &data-cpus
 services:
   fake-llm:
     image: ume-llm-gateway/fake-llm:compare
-    cpuset: "0-1"
+    cpuset: "${FAKE_CPUS:-0-1}"
     environment:
       ASPNETCORE_HTTP_PORTS: "8080"
       Logging__LogLevel__Default: Warning
