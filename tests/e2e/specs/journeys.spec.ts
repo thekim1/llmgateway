@@ -103,7 +103,7 @@ test('viewer and department administrator permissions come from real OIDC claims
 test('portal copy, explicit session renewal, operations and OIDC logout', async ({ page }) => {
   await login(page)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-  await ready(page, '/getting-started')
+  await ready(page, '/catalog')
   await page.getByRole('button', { name: 'Copy' }).first().click()
   expect((await page.evaluate(() => navigator.clipboard.readText())).length).toBeGreaterThan(0)
   const renewed = await mutate(page, '/bff/session/extend')

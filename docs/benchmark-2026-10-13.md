@@ -214,7 +214,7 @@ The fake LLM has a new, optional `FakeLlm:Latency` section (all 0 = instant, as 
 | `StallProbability`, `StallMs` | 0.01, 1 500 (profile `stalls` only) |
 
 With `stream_options.include_usage`, its chat chunks now carry `"usage":null` the way OpenAI's do, so instant runs also
-exercise the real wire format. Locally, set the section in the AppHost user secrets (see the README). In the compare
+exercise the real wire format. Locally, set the section in the AppHost user secrets (see [Local development](local-development.md#fake-llm-toggle)). In the compare
 stack, use the `FAKE_*` variables of `latency.sh`.
 
 ## Re-running

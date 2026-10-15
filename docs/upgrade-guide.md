@@ -7,7 +7,7 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Next release: request logging
+## 0.5.0: request logging
 
 - **Successful requests are no longer written to the gateway log.** Refused, failed and cancelled requests still are, and
   every request is still a usage record. If dashboards or alerts count the "Request … status … in … ms" log lines, switch
@@ -15,44 +15,6 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - The migration `RequestLogSwitch` adds `GatewaySettings.LogAllRequests` and `LogAllRequestsUntil`; it is additive, so the
   previous gateway and admin API keep working against the new schema. No grant changes.
 - The usage writer now writes with `COPY`; it needs only the existing `INSERT` grant on `UsageRecords`.
-
-## Next release: shared routing rules
-
-- The migration `RoutingRuleScopeSets` converts `RoutingRules.ScopeId` into the set `ScopeIds` (`uuid[]`), drops
-  `ScopeId`, adds `IsTemplate` and inserts four disabled template rules. It is not expand/contract compatible: gateways and
-  the admin API of the previous version cannot read the new schema, so drain traffic, migrate and roll out both together.
-- Admin API clients: send `scopeIds: [...]` instead of `scopeId` when creating, updating or reassigning a rule, and
-  `{ scope, ruleIds }` to reorder. Responses carry `scopeIds` and `owners` instead of `scopeId`/`scopeName`.
-
-## Next release: data retention
-
-- **Data older than 365 days is removed the first night after the upgrade** (usage records, refused-key records, ended
-  budget alerts, audit entries), with monthly usage totals kept. If your records-retention decision says otherwise, set
-  *Settings > Data retention* right after deploying, or deploy with `Retention__Enabled=false` on the admin API until it is set.
-- The migration `DataRetention` adds retention columns to `GatewaySettings`, the table `UsageMonthlyTotals` and the function
-  `ume_retention_step`; it is additive. Re-run the role grants (the migration service does it) so `ume_admin` may execute the
-  function: until then runs fail with `SQL state 42501`, shown on the Settings page.
-
-## Next release: client address restrictions
-
-- The migration `KeyIpRangesTrustedProxies` adds `VirtualKeys.AllowedIpRanges` (`text[]`, default empty) and the table
-  `GatewaySettings`. It is additive: the previous gateway and admin API keep working against the new schema. `app-roles.sql`
-  grants the admin role writes on `GatewaySettings` and the Data API role `SELECT` on the new column; the migration service
-  applies it on start. Run the migration before starting the new Data API, whose key inventory reads the column.
-- `UME_FORWARDED_HEADERS` / `ASPNETCORE_FORWARDEDHEADERS_ENABLED` no longer affect the gateway. Behind a reverse proxy, list
-  the proxy under *Settings > Trusted proxies* after the upgrade, or refused keys are recorded with the proxy's address and
-  keys given an address restriction are refused. Check the proxy sends `X-Forwarded-For` (see the runbook).
-- New 403 error code `address_not_allowed` for clients of keys with an address restriction.
-
-## Next release: usage dashboard
-
-- The migration `RequestTimings` adds the nullable columns `UsageRecords.UpstreamMs` and `TimeToFirstTokenMs` (no table
-  rewrite). It is additive: the previous gateway keeps writing records without them. The existing grants cover the new
-  columns (the gateway inserts and the Data API reads the whole table).
-- Records written before the upgrade have no provider time or time to first token, so the *Gateway overhead* and
-  *Time to first token* cards fill in from the upgrade on.
-- The Data API usage feed and `GET /api/usage/requests` have the new fields `upstreamMs` and `timeToFirstTokenMs`
-  (`/api/usage/requests` also `costUsd`); clients that ignore unknown fields need no change.
 
 ## 0.4.1: MCP gateway removed
 
@@ -66,6 +28,44 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - LLM requests that ran inside an MCP tool loop (`/v1/responses` turns) are ordinary records and are kept; only their
   `ParentRequestId` link is dropped.
 - Redeploy the stack or run `init-deployment.sh` and restart Redis so the ACL no longer allows `ume:mcp:events`.
+
+## 0.4.0: usage dashboard
+
+- The migration `RequestTimings` adds the nullable columns `UsageRecords.UpstreamMs` and `TimeToFirstTokenMs` (no table
+  rewrite). It is additive: the previous gateway keeps writing records without them. The existing grants cover the new
+  columns (the gateway inserts and the Data API reads the whole table).
+- Records written before the upgrade have no provider time or time to first token, so the *Gateway overhead* and
+  *Time to first token* cards fill in from the upgrade on.
+- The Data API usage feed and `GET /api/usage/requests` have the new fields `upstreamMs` and `timeToFirstTokenMs`
+  (`/api/usage/requests` also `costUsd`); clients that ignore unknown fields need no change.
+
+## 0.4.0: data retention
+
+- **Data older than 365 days is removed the first night after the upgrade** (usage records, refused-key records, ended
+  budget alerts, audit entries), with monthly usage totals kept. If your records-retention decision says otherwise, set
+  *Settings > Data retention* right after deploying, or deploy with `Retention__Enabled=false` on the admin API until it is set.
+- The migration `DataRetention` adds retention columns to `GatewaySettings`, the table `UsageMonthlyTotals` and the function
+  `ume_retention_step`; it is additive. Re-run the role grants (the migration service does it) so `ume_admin` may execute the
+  function: until then runs fail with `SQL state 42501`, shown on the Settings page.
+
+## 0.4.0: client address restrictions
+
+- The migration `KeyIpRangesTrustedProxies` adds `VirtualKeys.AllowedIpRanges` (`text[]`, default empty) and the table
+  `GatewaySettings`. It is additive: the previous gateway and admin API keep working against the new schema. `app-roles.sql`
+  grants the admin role writes on `GatewaySettings` and the Data API role `SELECT` on the new column; the migration service
+  applies it on start. Run the migration before starting the new Data API, whose key inventory reads the column.
+- `UME_FORWARDED_HEADERS` / `ASPNETCORE_FORWARDEDHEADERS_ENABLED` no longer affect the gateway. Behind a reverse proxy, list
+  the proxy under *Settings > Trusted proxies* after the upgrade, or refused keys are recorded with the proxy's address and
+  keys given an address restriction are refused. Check the proxy sends `X-Forwarded-For` (see the runbook).
+- New 403 error code `address_not_allowed` for clients of keys with an address restriction.
+
+## 0.3.0: shared routing rules
+
+- The migration `RoutingRuleScopeSets` converts `RoutingRules.ScopeId` into the set `ScopeIds` (`uuid[]`), drops
+  `ScopeId`, adds `IsTemplate` and inserts four disabled template rules. It is not expand/contract compatible: gateways and
+  the admin API of the previous version cannot read the new schema, so drain traffic, migrate and roll out both together.
+- Admin API clients: send `scopeIds: [...]` instead of `scopeId` when creating, updating or reassigning a rule, and
+  `{ scope, ruleIds }` to reorder. Responses carry `scopeIds` and `owners` instead of `scopeId`/`scopeName`.
 
 ## Upgrade procedure
 

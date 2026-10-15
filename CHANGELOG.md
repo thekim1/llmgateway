@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-10-15
+
+**Website.** The project now has a website on GitHub Pages (<https://thekim1.github.io/llmgateway/>), built from `site/`
+after the claude.ai/design *Website* design: a product page, Getting started (local and production), Benchmarks and every
+documentation page, rendered from the Markdown in `docs/` so the repository and the site never disagree. The new workflow
+`.github/workflows/pages.yml` builds it on pull requests (a link to a missing page, file or heading fails the build) and
+publishes it from `main` when the site, the docs, the changelog or the admin UI's design tokens change. The admin UI
+pictures on the site are taken from the real UI in all three themes by `tests/e2e/docs/website.spec.ts`.
+
+The README is now a short overview; its sections moved to their own pages in `docs/` (introduction, local development,
+production setup, personal data, attached files, speech to text, image generation, live audio, providers and models, admin
+UI, client addresses, data retention and logging, security events). The routing examples were already in
+`docs/routing-rules.md`.
+
+**Getting started moved from the admin UI to the website.** The admin UI's *Getting started* page is gone (old links go to
+the *Catalogue*). The Catalogue now shows the gateway base URL with a copy button and links to the website's guide, which has
+SDK examples, the error codes and the terms. The per-alias code snippets (`utils/snippets.ts`) went with the page.
 
 **Fix: a key change could be missed right after it was published.** The gateway shares one database lookup per key
 among concurrent requests. A lookup that had started before a revocation or other key change could still be handed to

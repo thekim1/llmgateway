@@ -1,0 +1,15 @@
+{
+  "name": "ume-llm-gateway-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node build.mjs --serve"
+  },
+  "devDependencies": {
+    "marked": "18.0.14"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

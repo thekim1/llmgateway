@@ -28,7 +28,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/organisation', name: 'organisation', component: () => import('@/views/OrganisationView.vue'), meta: { title: 'Organisation', roles: ADMIN_ROLES } },
   { path: '/data-access', name: 'data-access', component: () => import('@/views/DataAccessView.vue'), meta: { title: 'Data API access', roles: GATEWAY_ADMIN } },
   { path: '/catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Catalogue' } },
-  { path: '/getting-started', name: 'getting-started', component: () => import('@/views/GettingStartedView.vue'), meta: { title: 'Getting started' } },
+  // Getting started moved to the website (site/); keep old bookmarks working.
+  { path: '/getting-started', redirect: { name: 'catalog' } },
   { path: '/routes', name: 'routes', component: () => import('@/views/RoutesView.vue'), meta: { title: 'Routes', roles: GATEWAY_ADMIN } },
   { path: '/routing-rules', name: 'routing-rules', component: () => import('@/views/RoutingRulesView.vue'), meta: { title: 'Routing rules', roles: GATEWAY_ADMIN } },
   { path: '/providers', name: 'providers', component: () => import('@/views/ProvidersView.vue'), meta: { title: 'Providers & models', roles: GATEWAY_ADMIN } },

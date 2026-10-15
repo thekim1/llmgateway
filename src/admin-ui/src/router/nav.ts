@@ -36,7 +36,6 @@ export const navGroups: NavGroup[] = [
       { name: 'organisation', label: 'Organisation', icon: 'account_tree', roles: ADMIN_ROLES },
       { name: 'data-access', label: 'Data API access', icon: 'data_object', roles: GATEWAY_ADMIN },
       { name: 'catalog', label: 'Catalogue', icon: 'menu_book' },
-      { name: 'getting-started', label: 'Getting started', icon: 'rocket_launch' },
     ],
   },
   {

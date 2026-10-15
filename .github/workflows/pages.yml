@@ -1,0 +1,64 @@
+name: Website
+# Builds site/ (the product page, Getting started, Benchmarks and every Markdown page in site/content.mjs) and publishes it
+# to GitHub Pages whenever the site, the documentation or the admin UI's design tokens change on main.
+# Pull requests only build it, so a broken link fails the check before merge.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'src/admin-ui/src/styles/tokens.css'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'src/admin-ui/src/styles/tokens.css'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - id: pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Build
+        working-directory: site
+        env:
+          SITE_BASE: ${{ github.event_name == 'pull_request' && '/llmgateway' || steps.pages.outputs.base_path }}/
+          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+        run: |
+          npm ci
+          npm audit --audit-level=low
+          npm run build
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
