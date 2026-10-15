@@ -7,8 +7,8 @@
 map $http_upgrade $ume_connection { default upgrade; '' ''; }
 
 # With compose.rolling.yaml (init-deployment.sh --rolling) each service has a second slot; nginx sends requests to
-# both and, when one refuses the connection while it is replaced, retries on the other (proxy_next_upstream's
-# default "error timeout"; a request already sent is not repeated). See docs/zero-downtime-updates.md.
+# both and retries on the other when one fails while it is replaced (proxy_next_upstream below).
+# See docs/zero-downtime-updates.md.
 upstream ume_gateway {
     server @UPSTREAM@:@GATEWAY_PORT@;
     #rolling server @UPSTREAM@:@GATEWAY_B_PORT@;
@@ -40,6 +40,13 @@ server {
         proxy_request_buffering off;   # pass uploads straight through: no recordings in proxy temp files
         proxy_read_timeout 600s;       # long generations; live sessions stay open through the gateway's 30 s pings
         proxy_send_timeout 600s;
+        # Retry on the other slot when a connection fails before any response, also for POST (non_idempotent): a slot
+        # being replaced resets connections it accepted but never read, so the request did not run. Only within 10 s,
+        # so a request that ran long and then failed is never repeated.
+        proxy_next_upstream error timeout non_idempotent;
+        proxy_next_upstream_timeout 10s;
+        proxy_next_upstream_tries 2;
+        proxy_connect_timeout 5s;
         # The upstream presents the internal CA's certificate. To verify it, copy
         # certs/ca.pem to the proxy and enable:
         # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
@@ -59,6 +66,10 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # shown on the Settings page to identify this proxy
+        proxy_next_upstream error timeout non_idempotent;  # as for the gateway
+        proxy_next_upstream_timeout 10s;
+        proxy_next_upstream_tries 2;
+        proxy_connect_timeout 5s;
         # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
         # proxy_ssl_name adminapi;
     }

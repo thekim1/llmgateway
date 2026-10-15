@@ -26,8 +26,9 @@ When an instance is told to stop (`docker stop`, a Kubernetes pod being replaced
    proxy closes its pooled connection after the current request. Without this, a proxy can send a request on a pooled
    connection at the moment the instance closes it. The proxy retries such a request when it is a GET, but not when it is a
    POST (every model call), so the client gets a 502.
-3. **Closes its listener.** New connections are refused, and the proxy sends the request to the other instance. That retry
-   is safe for any method, because nothing was sent yet.
+3. **Closes its listener.** New connections are refused, and the proxy sends the request to the other instance. The few
+   connections the operating system had already accepted for it but the instance never read are reset; the request in
+   them did not run, so the proxy can retry them too (see the nginx settings below).
 4. **Finishes the requests it has** within the shutdown timeout (`DOTNET_SHUTDOWNTIMEOUTSECONDS`), including long
    streamed answers, then exits.
 
@@ -76,14 +77,28 @@ upstream ume_admin {
 }
 ```
 
-nginx's default `proxy_next_upstream error timeout` is what makes a refused connection go to the other slot. Do not add
-`non_idempotent`: it would repeat a model call that may already have been made (and paid for).
+And in each `location`:
+
+```nginx
+proxy_next_upstream error timeout non_idempotent;
+proxy_next_upstream_timeout 10s;
+proxy_next_upstream_tries 2;
+proxy_connect_timeout 5s;
+```
+
+`proxy_next_upstream` makes a failed connection go to the other slot. `non_idempotent` lets nginx retry a POST (every
+model call) too. Without it, a POST in a connection the stopping slot reset is lost as a 502. The CI test lost 3 of
+62 000 that way. A retry happens only when the connection failed before any response, and `proxy_next_upstream_timeout`
+allows it only within 10 seconds, so a request that ran long and then failed is never repeated. The one case where a
+model call could run twice is a gateway that crashes within 10 seconds of receiving it, after passing it on to the
+provider; that client would otherwise get an error.
 
 **Nginx Proxy Manager:** a proxy host has one upstream. Put the `upstream` blocks above in a custom configuration
 (`/data/nginx/custom/http_top.conf`) and point the proxy host's *Advanced* tab at them (`proxy_pass https://ume_gateway;`).
 
 **F5, HAProxy or another load balancer with health monitors:** add both ports to the pool and monitor
-`GET /health/ready` over HTTPS (expect 200). Set the drain time to more than the monitor interval times the number of
+`GET /health/ready` over HTTPS (expect 200). Let it resend a request when the connection fails before a response (F5:
+*Reselect Tries*; HAProxy: `retry-on conn-failure empty-response` with `option redispatch`). Set the drain time to more than the monitor interval times the number of
 failures before a member is marked down, for example `UME_DRAIN_SECONDS=15` with a 5-second interval and 2 failures.
 
 ### Update
