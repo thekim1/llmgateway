@@ -22,6 +22,7 @@ export const DOCS = [
     { slug: 'client-addresses', title: 'Client addresses', source: 'docs/client-addresses.md', lead: 'Limit a key to the addresses it may be used from, also behind a reverse proxy.' },
   ] },
   { group: 'Operate', items: [
+    { slug: 'identity-and-roles', title: 'Identity provider and roles', source: 'docs/identity-and-roles.md', lead: 'Sign in with Keycloak, Entra ID or AD FS, and what gateway admins, department admins and viewers may do.' },
     { slug: 'runbook', title: 'Runbook', source: 'docs/runbook.md', lead: 'Deployment, identity provider, certificates, backups and incidents.' },
     { slug: 'upgrade-guide', title: 'Upgrade guide', source: 'docs/upgrade-guide.md', lead: 'Migrations, rollback and certificates, per release.' },
     { slug: 'data-retention', title: 'Data retention and logging', source: 'docs/data-retention.md', lead: 'How long request data is kept, and when successful requests are logged.' },

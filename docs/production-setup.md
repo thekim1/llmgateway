@@ -33,7 +33,7 @@ an nginx config is generated). With certificates from your **PKI**: pass `--gate
 Manager settings are in the runbook, *Reverse proxy and PKI*.
 
 Production never uses the bundled Keycloak: point `UME_OIDC_AUTHORITY` at your existing Keycloak, AD FS or Entra ID.
-Roles, department codes and AD groups are mapped by claims; see the runbook, *Identity provider*.
+Roles, department codes and AD groups are mapped by claims; see [Identity provider and roles](identity-and-roles.md).
 
 `deploy/compose.prod.yaml` is the recommended, self-contained production file (hardened,
 read-only, non-root, internal data network). The older route, `aspire publish -o deploy\generated`
