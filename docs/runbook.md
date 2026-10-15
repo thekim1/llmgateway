@@ -58,7 +58,8 @@ The bundled Keycloak realm (`dev/keycloak`) is for local runs only; **production
 existing OIDC provider** (`UME_OIDC_AUTHORITY` in `deploy/.env`). The admin API needs a client
 (authorization code + PKCE; redirect URIs `https://<admin host>/signin-oidc` and
 `/signout-callback-oidc`) and these
-claims **in the ID token**:
+claims **in the ID token** (step-by-step setup per provider and what each role may do:
+[Identity provider and roles](identity-and-roles.md)):
 
 | Claim | Meaning |
 |---|---|
