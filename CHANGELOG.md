@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Fix: a key change could be missed right after it was published.** The gateway shares one database lookup per key
+among concurrent requests. A lookup that had started before a revocation or other key change could still be handed to
+a request that arrived just after the change, which was then served with the old key state (once; it was never cached).
+Lookups are now only shared within the same cache generation. This also made the test
+`Expired_key_is_served_while_it_refreshes_and_revocation_drops_it` fail now and then.
+
 **Request logging switch.** *Settings > Request logging* lets a gateway admin log every request again, for 24 hours (it
 switches itself off) or without a time limit. It applies to all gateway instances within seconds, without a restart, and is
 audited. The card explains what is recorded with the switch off (every request is a usage record) and what turning it on
