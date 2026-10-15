@@ -251,6 +251,10 @@ The change, at the production default (Information), two runs:
 | Non-streaming, 16 clients | 7 687 / 8 421 | 9 264 / 9 047 (+14 %) | |
 | Streaming, 16 clients | 6 290 / 6 580 | 7 073 / 6 688 (+7 %) | |
 
+The admin switch *Settings > Request logging* (log every request for 24 hours or without a time limit) is read from the
+cached catalogue snapshot: with it off, a request costs one comparison more. Measured with it off, two runs: non-streaming
+at 64 clients 18 126 / 17 902 req/s, streaming 12 721 / 13 067, the same as without the switch within run-to-run noise.
+
 Not done: a covering index (`INCLUDE ("CostSek")` on the key/team/department + timestamp indexes) would let a cold
 budget counter be seeded with an index-only scan. On 5 million records it seeded a yearly department budget in 22 ms
 instead of 86 ms (team budgets 2.8 vs 3.5 ms), but made `COPY` inserts 28 % slower and the indexes 55 % larger. Seeding
@@ -341,6 +345,37 @@ physical cores). Measured 2026-10-09.
   (see *Usage writer: COPY* above), which lifted the 64-client peak from about 8 500 to 15 000 non-streaming requests/s
   on this machine; more than one writer is the next step if that is ever not enough. Several gateway instances each
   bring their own writer.
+
+#### Re-run 2026-10-15 (COPY writer, per-request log line at Debug)
+
+Same script, same machine, gateway only (`PLATFORMS=ume ./scale.sh`); the eneo figures above are unchanged.
+
+| Concurrent clients (4 vCPUs) | 1 | 4 | 16 | 64 | 128 | 256 |
+|---|---:|---:|---:|---:|---:|---:|
+| Gateway 2026-10-09, msg/s | 581 | 2 157 | 6 393 | 10 668 | 11 470 | 11 417 |
+| Gateway 2026-10-15, msg/s | 614 | 2 372 | 6 612 | **13 036** | **15 817** | **17 642** |
+| Median 2026-10-09 → 10-15 | 1.71 → 1.52 ms | 1.70 → 1.56 ms | 2.39 → 2.17 ms | 4.97 → 4.37 ms | 8.24 → 7.12 ms | 20.6 → 12.6 ms |
+| p99 2026-10-09 → 10-15 | 2.23 → 1.91 ms | 2.97 → 2.41 ms | 7.46 → 7.50 ms | 25.1 → 14.5 ms | 48.3 → 24.0 ms | 61.1 → 55.5 ms |
+
+| vCPUs | 1 | 2 | 4 | 6 |
+|---|---:|---:|---:|---:|
+| Gateway 2026-10-09, peak msg/s | 4 570 | 9 791 | 11 345 | 11 106 |
+| Gateway 2026-10-15, peak msg/s | 4 770 | 10 785 | **17 750** | 18 089 |
+| Speed-up over 1 vCPU (efficiency) | 1.00× | 2.26× (113 %) | 3.72× (93 %) | 3.79× (63 %) |
+| Gateway CPU per message | 0.21 ms | 0.18 ms | 0.20 ms | 0.26 ms |
+| With 4 threads for the fake LLM | | | 17 997 | **20 944** (4.39×, 73 %) |
+
+- With few clients there is little to gain (a request then takes about 1.5 ms of which the gateway's own work is a small part);
+  the change shows where the usage writer used to be the ceiling: from 64 clients and from 4 vCPUs up. Postgres statements
+  fell from 1.0 to 0.1 per message (the writer now copies about ten records per statement) and Postgres CPU from 0.78
+  to 0.3 cores at the peak.
+- The gateway now scales close to linearly up to 4 vCPUs (93 % efficiency, was 62 %). Up to 2 vCPUs the efficiency is
+  above 100 % because the first thread also carries the runtime's own work.
+- At 6 vCPUs the test harness becomes the limit: the fake LLM, on two hardware threads (one physical core), was 83 % busy
+  while the gateway used 4.7 of its 6 threads. Given four threads (`FAKE_CPUS=0-1,12-13 DATA_CPUS=14-15`; Postgres and
+  Redis use under one thread together) it served 20 944 msg/s with the gateway at 5.1 of 6 threads. The 4-vCPU peak did not
+  move (17 997), so there the gateway is the limit.
+- Redis: 18 commands per message and about half of one thread at the peak, so it is not close to its single-thread limit yet.
 
 ### Data protection and resilience (not performance)
 

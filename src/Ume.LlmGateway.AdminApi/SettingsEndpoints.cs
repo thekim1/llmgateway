@@ -50,9 +50,59 @@ public sealed record ObservedConnectionDto(string? RemoteAddress, string? Forwar
 
 public sealed record NetworkSettingsDto(IReadOnlyList<string> TrustedProxies, DateTimeOffset? UpdatedAt, ObservedConnectionDto Observed);
 
+/// <summary>
+/// Turns logging of every request on or off. <c>NoTimeLimit</c>: when switched on, it stays on until it is turned off;
+/// otherwise it switches itself off after <see cref="GatewaySettingsService.RequestLogDuration"/>. Ignored when switching off.
+/// </summary>
+public sealed record RequestLogSettingsRequest(bool LogAllRequests, bool NoTimeLimit) : AdminRequest;
+
+/// <summary>
+/// Whether the gateways log every request. <c>Active</c>: logging is on right now (switched on and not expired).
+/// <c>Until</c>: when it switches itself off; null with <c>Active</c> = no time limit.
+/// </summary>
+public sealed record RequestLogSettingsDto(bool Active, DateTimeOffset? Until, DateTimeOffset? UpdatedAt);
+
 /// <summary>Gateway-wide settings (the single <see cref="GatewaySettings"/> row). Gateway admins only.</summary>
 public sealed class GatewaySettingsService(AdminContext ctx, RetentionService retention)
 {
+    /// <summary>How long logging every request stays on when switched on with a time limit.</summary>
+    public static readonly TimeSpan RequestLogDuration = TimeSpan.FromHours(24);
+
+    public async Task<RequestLogSettingsDto> GetRequestLogAsync(CancellationToken ct) =>
+        RequestLogDto(await ctx.Db.Settings.AsNoTracking().SingleOrDefaultAsync(ct) ?? new GatewaySettings());
+
+    public async Task<RequestLogSettingsDto> SetRequestLogAsync(ClaimsPrincipal user, RequestLogSettingsRequest input, CancellationToken ct)
+    {
+        var settings = await ctx.Db.Settings.SingleOrDefaultAsync(ct);
+        if (settings is null)
+        {
+            settings = new GatewaySettings();
+            ctx.Db.Settings.Add(settings);
+        }
+
+        var before = RequestLogSettingsAudit.Of(settings);
+        settings.LogAllRequests = input.LogAllRequests;
+        settings.LogAllRequestsUntil = input.LogAllRequests && !input.NoTimeLimit ? ctx.Now + RequestLogDuration : null;
+        settings.UpdatedAt = ctx.Now;
+        try
+        {
+            // Config: the gateways read the switch with the catalogue.
+            await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, RequestLogSettingsAudit.Of(settings), InvalidationKind.Config, ct);
+        }
+        catch (DbUpdateException)
+        {
+            throw new ApiFaultException(409, "Inställningarna ändrades samtidigt av någon annan. Ladda om sidan och försök igen.");
+        }
+
+        return RequestLogDto(settings);
+    }
+
+    private RequestLogSettingsDto RequestLogDto(GatewaySettings s)
+    {
+        var active = s.LogsAllRequestsAt(ctx.Now);
+        return new RequestLogSettingsDto(active, active ? s.LogAllRequestsUntil : null, s.UpdatedAt);
+    }
+
     public async Task<RetentionSettingsDto> GetRetentionAsync(CancellationToken ct) =>
         RetentionDto(await ctx.Db.Settings.AsNoTracking().SingleOrDefaultAsync(ct) ?? new GatewaySettings());
 
@@ -155,6 +205,11 @@ public static class SettingsEndpoints
         settings.MapPut("/network", (NetworkSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, HttpContext http, CancellationToken ct) =>
             service.SetNetworkAsync(user, http, input, ct))
             .WithName("SetNetworkSettings").WithSummary("Replaces the trusted reverse proxies; the gateways apply them on their next request");
+        settings.MapGet("/request-log", (GatewaySettingsService service, CancellationToken ct) => service.GetRequestLogAsync(ct))
+            .WithName("GetRequestLogSettings").WithSummary("Whether the gateways log every request, and until when");
+        settings.MapPut("/request-log", (RequestLogSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
+            service.SetRequestLogAsync(user, input, ct))
+            .WithName("SetRequestLogSettings").WithSummary("Switches logging of every request on (for 24 hours or without a time limit) or off; the gateways apply it within seconds");
         settings.MapGet("/retention", (GatewaySettingsService service, CancellationToken ct) => service.GetRetentionAsync(ct))
             .WithName("GetRetentionSettings").WithSummary("How long usage and audit data are kept, and the nightly removal's state");
         settings.MapPut("/retention", (RetentionSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, CancellationToken ct) =>

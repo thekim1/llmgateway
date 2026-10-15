@@ -476,6 +476,15 @@ export interface NetworkSettings {
   observed: ObservedConnection
 }
 
+/** Whether the gateways log every request (normally only refused, failed and cancelled ones). */
+export interface RequestLogSettings {
+  /** Logging every request is on right now. */
+  active: boolean
+  /** When it switches itself off; null while active = no time limit. */
+  until: IsoDateTime | null
+  updatedAt: IsoDateTime | null
+}
+
 export interface RetentionSettings {
   usageRetentionDays: number
   /** null = audit entries are kept for ever. */

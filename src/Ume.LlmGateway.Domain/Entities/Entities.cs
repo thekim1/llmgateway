@@ -400,6 +400,18 @@ public sealed class GatewaySettings
     /// </summary>
     public List<string> TrustedProxies { get; set; } = [];
 
+    /// <summary>
+    /// Log every request at Information, successful ones too (normally only refused, failed and cancelled requests are).
+    /// Costs throughput while on; every request is in the usage records either way.
+    /// </summary>
+    public bool LogAllRequests { get; set; }
+
+    /// <summary>When <see cref="LogAllRequests"/> switches itself off; null = it stays on until it is turned off.</summary>
+    public DateTimeOffset? LogAllRequestsUntil { get; set; }
+
+    /// <summary>Whether every request is logged at <paramref name="now"/>.</summary>
+    public bool LogsAllRequestsAt(DateTimeOffset now) => LogAllRequests && (LogAllRequestsUntil is not { } until || now < until);
+
     public DateTimeOffset? UpdatedAt { get; set; }
 
     /// <summary>

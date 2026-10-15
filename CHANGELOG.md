@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Request logging switch.** *Settings > Request logging* lets a gateway admin log every request again, for 24 hours (it
+switches itself off) or without a time limit. It applies to all gateway instances within seconds, without a restart, and is
+audited. The card explains what is recorded with the switch off (every request is a usage record) and what turning it on
+costs. Admin API: `GET`/`PUT /api/settings/request-log`. Migration `RequestLogSwitch` adds two columns to `GatewaySettings`.
+With the switch off, the gateway's speed is unchanged: it reads the setting from its cached configuration.
+
 **Successful requests are no longer logged one by one.** The per-request line "Request … key … model … status … in … ms"
 is now written at Debug for successful requests; refused, failed and cancelled requests still log it at Information.
 Every request is still in the usage records and the metrics. Writing that line for every request cost 9–16 % of peak

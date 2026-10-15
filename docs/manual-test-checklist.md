@@ -194,3 +194,13 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
 - [ ] **Gateway log:** after deploying, a successful chat request leaves no "Request … status 200 in … ms" line in the gateway log
   (it is in *Monitor > Usage*); a request with an unknown model or an exhausted budget still logs "Request … status 4xx".
 - [ ] **Debug switch:** with `Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` on the gateway, successful requests are logged again.
+
+## Request logging switch (uncommitted)
+
+- [ ] **Card text:** *Settings > Request logging* shows *Off* and explains that every request is still in the usage records; the
+  *Monitor › Usage* link works; *What it costs* opens.
+- [ ] **24 hours:** turn on *For 24 hours*; within a few seconds successful requests appear in the gateway log
+  ("Request … status 200 …") on every gateway instance; the card shows *On until* tomorrow's time; the audit log has the change.
+- [ ] **No time limit / off:** switch to *No time limit* (card: *On, no time limit*), then *Turn off…*; successful requests leave the log again.
+- [ ] **Department admin:** a department admin does not see the card's settings page (or gets 403 from `/api/settings/request-log`).
+

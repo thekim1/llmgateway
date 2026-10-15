@@ -104,6 +104,44 @@ public sealed class AccountingTests(GatewayFixture fixture)
         (await CompletedLogAsync(refused)).Level.ShouldBe(LogLevel.Information);
     }
 
+    [Fact]
+    public async Task Admin_switch_logs_successful_requests_at_information_until_it_expires()
+    {
+        var key = await fixture.CreateKeyAsync();
+        try
+        {
+            await SetRequestLogAsync(true, until: null);
+            using var on = await SendAsync(fixture.Client, key);
+            (await CompletedLogAsync(on)).Level.ShouldBe(LogLevel.Information);
+
+            // Expired 24-hour switch: back to Debug without anyone turning it off.
+            await SetRequestLogAsync(true, until: DateTimeOffset.UtcNow.AddMinutes(-1));
+            using var expired = await SendAsync(fixture.Client, key);
+            (await CompletedLogAsync(expired)).Level.ShouldBe(LogLevel.Debug);
+        }
+        finally
+        {
+            await SetRequestLogAsync(false, until: null);
+        }
+    }
+
+    /// <summary>Sets the switch in the one settings row (an upsert: other tests change the same row) and reloads the catalogue.</summary>
+    private async Task SetRequestLogAsync(bool on, DateTimeOffset? until)
+    {
+        var defaults = new GatewaySettings();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().Database.ExecuteSqlAsync(
+                $"""
+                 INSERT INTO "GatewaySettings" ("Id", "TrustedProxies", "AuditRetentionDays", "LogAllRequests", "LogAllRequestsUntil")
+                 VALUES ({GatewaySettings.SingletonId}, {defaults.TrustedProxies.ToArray()}, {defaults.AuditRetentionDays}, {on}, {until})
+                 ON CONFLICT ("Id") DO UPDATE SET "LogAllRequests" = excluded."LogAllRequests", "LogAllRequestsUntil" = excluded."LogAllRequestsUntil"
+                 """, Ct);
+        }
+
+        fixture.Services.GetRequiredService<GatewayCatalog>().Invalidate();
+    }
+
     /// <summary>The "Request … status … in … ms" entry of a response (accounting may finish just after the answer).</summary>
     private async Task<LogEntry> CompletedLogAsync(HttpResponseMessage response)
     {

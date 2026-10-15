@@ -415,6 +415,18 @@ The admin API runs the removal every night at 03:00 (and on *Run now*) through a
 delete rights on those tables itself. Set both periods from your records-retention decision (gallringsbeslut) before going
 live: removed rows cannot be restored except from a backup. Details: *Data retention* in the [runbook](docs/runbook.md).
 
+## Request logging
+
+Every request made with a valid key is recorded as a usage record (time, key, team, department, model, provider, tokens,
+cost, latency, status, outcome, PII categories and routing rule), whatever the log level: request counts, outcomes and
+latency are on **Monitor > Usage**, in the Data API and in the `ume.gateway.requests` metric. Requests refused before a key is
+recognised are counted as refused credentials. Message content is never logged or stored.
+
+The gateway log only has a line for refused, failed and cancelled requests: writing one for every request costs 6–14 % of
+peak throughput ([performance](docs/performance.md)). To follow successful requests in the log too, a gateway admin turns on
+**Settings > Request logging**, for 24 hours (it then switches itself off) or without a time limit. It reaches every gateway
+instance within seconds, without a restart, and is audited.
+
 ## Personal data (PII)
 
 Each key has a **PII policy**; the default is **Off**, which means the key's requests are **not scanned at all**. To test

@@ -24,10 +24,12 @@ public sealed class CatalogSnapshot
         RoutingRuleSet? rules = null,
         IReadOnlyList<RuleBuildError>? ruleErrors = null,
         bool usesFallbackRate = false,
-        ImmutableArray<IPNetwork> trustedProxies = default)
+        ImmutableArray<IPNetwork> trustedProxies = default,
+        DateTimeOffset? logAllRequestsUntil = null)
     {
         Providers = providers;
         TrustedProxies = trustedProxies.IsDefault ? [] : trustedProxies;
+        _logAllRequestsUntil = logAllRequestsUntil;
         var duplicates = new List<string>();
         Routes = ByName(routes, r => r.Name, duplicates);
 
@@ -95,6 +97,15 @@ public sealed class CatalogSnapshot
 
     /// <summary>Proxies whose <c>X-Forwarded-For</c> is believed (<see cref="ClientAddressMiddleware"/>). Empty = none.</summary>
     public ImmutableArray<IPNetwork> TrustedProxies { get; }
+
+    /// <summary>Until when every request is logged at Information (the admin's switch); null = off, <see cref="DateTimeOffset.MaxValue"/> = no limit.</summary>
+    private readonly DateTimeOffset? _logAllRequestsUntil;
+
+    /// <summary>
+    /// Whether successful requests are logged at Information too. Checked against the clock on every request, so a
+    /// 24-hour switch ends on time even if the snapshot is older.
+    /// </summary>
+    public bool LogsAllRequests(DateTimeOffset now) => _logAllRequestsUntil is { } until && now < until;
 
     /// <summary>No USD exchange rate was in effect: <see cref="SekPerUsd"/> is <c>Gateway:FallbackSekPerUsd</c>.</summary>
     public bool UsesFallbackRate { get; }
@@ -353,7 +364,8 @@ public sealed partial class GatewayCatalog : IDisposable
         }
 
         var snapshot = new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
-            usesFallbackRate: rate is null, trustedProxies: [.. NetworkRanges.ParseValid(settings.TrustedProxies)]);
+            usesFallbackRate: rate is null, trustedProxies: [.. NetworkRanges.ParseValid(settings.TrustedProxies)],
+            logAllRequestsUntil: settings.LogAllRequests ? settings.LogAllRequestsUntil ?? DateTimeOffset.MaxValue : null);
         foreach (var name in snapshot.DuplicateNames)
         {
             LogDuplicateName(_logger, name);

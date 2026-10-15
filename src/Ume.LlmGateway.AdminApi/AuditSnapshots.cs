@@ -92,6 +92,11 @@ public sealed record NetworkSettingsAudit(IReadOnlyList<string> TrustedProxies)
     public static NetworkSettingsAudit Of(GatewaySettings s) => new([.. s.TrustedProxies]);
 }
 
+public sealed record RequestLogSettingsAudit(bool LogAllRequests, DateTimeOffset? LogAllRequestsUntil)
+{
+    public static RequestLogSettingsAudit Of(GatewaySettings s) => new(s.LogAllRequests, s.LogAllRequestsUntil);
+}
+
 public sealed record KeyRotationAudit(KeyAudit PreviousKey, KeyAudit Key);
 
 /// <summary>A reveal or copy of a key's secret: which key, never the secret.</summary>
