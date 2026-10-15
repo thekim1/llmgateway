@@ -9,6 +9,8 @@
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.6.1-preview.1.26506.6" />
     <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.1" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="13.6.0" />
+    <!-- Transitive via Aspire.Hosting; pinned above GHSA-qhrr-8q5h-9q3h until Aspire ships a fixed version. -->
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
   </ItemGroup>
   <ItemGroup Label="Runtime">
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
