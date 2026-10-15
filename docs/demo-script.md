@@ -5,7 +5,7 @@ screen recordings, browser traces, screenshots of show-once dialogs or saved pla
 Do not copy dashboard login tokens into documents. A human may keep a show-once key in
 memory during the demo and then revoke it; never paste it into shell history.
 
-For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -Empty` (see README).
+For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -Empty` (see [Local development](local-development.md)).
 
 1. Start `src\Ume.LlmGateway.AppHost\Ume.LlmGateway.AppHost.csproj` via Aspire and wait for admin-ui. Sign in through real
    Keycloak as gateway-admin using the development secret store without printing credentials.
@@ -36,7 +36,7 @@ For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -
 11. Revoke synthetic demo keys, inspect masked audit and stop the exact AppHost cleanly.
     Retain/delete metadata only under the approved POC records policy; do not wipe the volume.
 
-Automated browser evidence is in `tests\e2e` (run on the separate test database, see the README): five user
+Automated browser evidence is in `tests\e2e` (run on the separate test database, see [Local development](local-development.md#browser-tests)): five user
 journeys, the final synthetic demo, routing rules checks (journeys, UI details, permissions, focus) and nine accessibility checks. On 2026-10-09,
 all 34 passed. There are also six real-container integration tests (fallback, PII on-prem, budgets, rotation,
 accounting, rate limits and invalidation). Production-shaped TLS/ACL/roles/SPA verification

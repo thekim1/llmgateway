@@ -1032,24 +1032,6 @@ export interface ScopedRulesProblem extends ProblemDetails {
   rules: { id: string; name: string; isEnabled: boolean }[]
 }
 
-// ---------- Gateway (data plane) error codes, for the developer portal ----------
-export const GATEWAY_ERROR_CODES = [
-  'invalid_api_key',
-  'key_expired',
-  'key_revoked',
-  'key_disabled',
-  'model_not_allowed',
-  'model_not_found',
-  'budget_exceeded',
-  'rate_limited',
-  'pii_blocked',
-  'attachment_not_allowed',
-  'no_eligible_provider',
-  'all_providers_failed',
-  'invalid_request',
-] as const
-export type GatewayErrorCode = (typeof GATEWAY_ERROR_CODES)[number]
-
 export interface DiscoveredModel {
   id: string
   displayName: string

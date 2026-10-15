@@ -84,15 +84,11 @@ Notes:
   Use a rule when you want it per team or department, per model, with a chosen on-prem model, or combined with other conditions
   (for example `pii_detected && department_name == "Individ- och familjeomsorgen"`).
 - Detection covers Swedish personnummer and samordningsnummer, email addresses, Swedish phone numbers and IBANs (not bankgiro numbers);
-  see *Personal data (PII)* in the README for the formats.
+  see [Personal data (PII)](personal-data.md) for the formats.
   It is a safety net, not a guarantee that no personal data reaches a provider.
 
-The same two examples are on the **Getting started** page of the admin UI:
-
-![The Routing examples card on the Getting started page](images/getting-started-routing.png)
-
 To regenerate the screenshots after a UI change, start the test stack (`.\scripts\Start-E2E.ps1`) and run
-`npx playwright test -c playwright.docs.config.ts` in `tests\e2e`. The script builds the two rules through the UI, so it
+`npx playwright test -c playwright.docs.config.ts screenshots` in `tests\e2e`. The script builds the two rules through the UI, so it
 changes the (disposable) test database only.
 
 ## Templates: example rules to start from
@@ -318,7 +314,7 @@ prompt_tokens > 20000 || params["max_tokens"] > 8000
 
 ## Demo data
 
-The seeded demo environment (see the README) contains three global rules:
+The seeded demo environment (see [Local development](local-development.md#demo-data-or-an-empty-environment)) contains three global rules:
 
 | Rule | Condition | Effect |
 |---|---|---|

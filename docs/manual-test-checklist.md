@@ -3,6 +3,16 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Website and Getting started (uncommitted)
+
+- [ ] **Website published:** after the push to `main`, the *Website* workflow succeeds and <https://thekim1.github.io/llmgateway/>
+  opens. The menu, theme switch (light, dark, Lumen, remembered on reload), Getting started's *Try it locally* / *Deploy to
+  production* switch, the copy buttons and the docs page filter work. On a phone the menu button opens the navigation.
+- [ ] **Docs pages:** a few pages under *Docs* render with their images and tables; links between pages and to headings
+  (for example *Runbook* from *Production setup*) land on the right place under `/llmgateway/`.
+- [ ] **Admin UI:** *Getting started* is gone from the menu; `/getting-started` opens the *Catalogue*, which shows the
+  gateway base URL (copy works) and a *Getting started guide* link that opens the website in a new tab.
+
 ## Already built (from earlier sessions)
 
 - [ ] **Migration startup log:** a fresh database starts without the `42P01 DataProtectionKeys` error in the migration log (commit e9871ad).

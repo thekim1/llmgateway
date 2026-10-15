@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { login, mutate, ready, remove } from '../helpers'
 
-// Builds the two routing examples from the README through the real UI and photographs each step into docs/images.
+// Builds the two routing examples in docs/routing-rules.md through the real UI and photographs each step into docs/images.
 // Only demo data and synthetic values appear on screen; no secrets are shown.
 const images = '../../docs/images'
 const FALLBACK = 'Advanced model with fallback'
@@ -109,9 +109,4 @@ test('routing example screenshots', async ({ page }) => {
   } finally {
     await mutate(page, `/api/keys/${key.key.id}/revoke`)
   }
-
-  // 5. Getting started.
-  await ready(page, '/getting-started')
-  const card = page.getByRole('heading', { name: 'Routing examples' }).locator('xpath=ancestor::*[contains(@class,"material")][1]')
-  await card.screenshot({ path: `${images}/getting-started-routing.png` })
 })

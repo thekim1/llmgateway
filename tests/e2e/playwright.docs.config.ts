@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test'
 
-// Regenerates the screenshots in docs/images. Not part of the normal suite: run it against a stack from scripts/Start-E2E.ps1 with
+// Regenerates the screenshots in docs/images (screenshots.spec.ts) and site/public/screenshots (website.spec.ts). Not part of the normal suite: run it against a stack from scripts/Start-E2E.ps1 with
 //   npx playwright test -c playwright.docs.config.ts
 export default defineConfig({
   testDir: './docs',
