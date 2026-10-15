@@ -62,6 +62,7 @@ Every page below is also on the [website](https://thekim1.github.io/llmgateway/d
 | [Introduction](docs/introduction.md) | [Routing rules](docs/routing-rules.md) | [Runbook](docs/runbook.md) |
 | [Local development](docs/local-development.md) | [Personal data (PII)](docs/personal-data.md) | [Upgrade guide](docs/upgrade-guide.md) |
 | [Production setup](docs/production-setup.md) | [Attached files](docs/attached-files.md) | [Data retention and logging](docs/data-retention.md) |
+| [Kubernetes](docs/kubernetes.md) | | [Updates without downtime](docs/zero-downtime-updates.md) |
 | | [Speech to text](docs/speech-to-text.md) | [Security events](docs/security-events.md) |
 | | [Image generation](docs/image-generation.md) | [Data API](docs/data-access.md) |
 | | [Live audio](docs/live-audio.md) | [Admin API](docs/admin-api.md) |

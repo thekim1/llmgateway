@@ -1,0 +1,51 @@
+name: Deploy end to end
+# Updates without downtime, tested for real (docs/zero-downtime-updates.md, docs/kubernetes.md): builds the service
+# images, then replaces every instance under load with Docker Compose (compose.rolling.yaml + rolling-update.sh behind
+# nginx) and on a kind cluster (deploy.sh + a rolling restart). Fails if a single request is lost.
+on:
+  pull_request:
+    paths:
+      - deploy/**
+      - src/Ume.LlmGateway.ServiceDefaults/**
+      - .github/workflows/deploy-e2e.yml
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rolling-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Build admin UI
+        working-directory: src/admin-ui
+        run: |
+          npm ci
+          npm run build
+      - name: Build service images
+        run: |
+          for entry in gateway:Gateway adminapi:AdminApi migrations:MigrationService dataapi:DataApi; do
+            name="${entry%%:*}"; project="${entry#*:}"
+            extra=""; [ "$name" = adminapi ] && extra="-p:PublishAdminUi=true"
+            dotnet publish "src/Ume.LlmGateway.$project" -c Release -t:PublishContainer --os linux --arch x64 --nologo $extra
+          done
+      - name: Docker Compose rolling update under load
+        run: deploy/tests/compose-rolling-e2e.sh
+      - name: Install kind
+        run: |
+          command -v kind && exit 0
+          curl -fsSLo kind https://github.com/kubernetes-sigs/kind/releases/download/v0.29.0/kind-linux-amd64
+          curl -fsSL https://github.com/kubernetes-sigs/kind/releases/download/v0.29.0/kind-linux-amd64.sha256sum | awk '{print $1"  kind"}' | sha256sum -c
+          sudo install kind /usr/local/bin/kind
+      - name: Kubernetes rolling restart under load
+        run: deploy/tests/kubernetes-e2e.sh

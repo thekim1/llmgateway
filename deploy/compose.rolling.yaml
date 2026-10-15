@@ -1,0 +1,64 @@
+# Optional overlay for updates without downtime (docs/zero-downtime-updates.md). Runs a second gateway and admin API
+# ("b" slots) next to the ones in compose.prod.yaml, on their own host ports, so a reverse proxy can send traffic to
+# both while deploy/rolling-update.sh replaces one slot at a time.
+#
+#   docker compose -f deploy/compose.prod.yaml -f deploy/compose.rolling.yaml --env-file deploy/.env up -d --wait
+#   ./deploy/rolling-update.sh        # later, for every update
+#
+# Needs a reverse proxy in front that lists both ports of each service (init-deployment.sh --proxy --rolling writes
+# that nginx configuration). Without this file the stack runs one of each, as before.
+
+services:
+  gateway:
+    environment:
+      # On the stop signal a slot first answers for 5 s more with "Connection: close", so the proxy retires its pooled
+      # connections to it cleanly; then it closes its listener (the proxy retries new requests on the other slot) and
+      # finishes the requests it has (long streamed answers) for up to 5 minutes.
+      Shutdown__DrainSeconds: "${UME_DRAIN_SECONDS:-5}"
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "${UME_SHUTDOWN_TIMEOUT_SECONDS:-300}"
+    stop_grace_period: 320s
+    networks:
+      llm:
+      data:
+      edge:
+        aliases: [gateway]
+
+  gateway-b:
+    extends: {file: compose.prod.yaml, service: gateway}
+    ports: !override ["${UME_GATEWAY_BIND:-127.0.0.1}:${UME_GATEWAY_B_PORT:-8444}:8443"]
+    environment:
+      Shutdown__DrainSeconds: "${UME_DRAIN_SECONDS:-5}"
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "${UME_SHUTDOWN_TIMEOUT_SECONDS:-300}"
+      OTEL_SERVICE_INSTANCE_ID: gateway-b
+    stop_grace_period: 320s
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks:
+      llm:
+      data:
+      # The admin API reaches the gateway's operations endpoint as https://gateway:8443; with the alias that name
+      # resolves to whichever slots are running.
+      edge:
+        aliases: [gateway]
+
+  adminapi:
+    environment:
+      Shutdown__DrainSeconds: "${UME_DRAIN_SECONDS:-5}"
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "30"
+    stop_grace_period: 40s
+
+  adminapi-b:
+    extends: {file: compose.prod.yaml, service: adminapi}
+    ports: !override ["${UME_ADMIN_BIND:-127.0.0.1}:${UME_ADMIN_B_PORT:-9444}:8443"]
+    environment:
+      Shutdown__DrainSeconds: "${UME_DRAIN_SECONDS:-5}"
+      DOTNET_SHUTDOWNTIMEOUTSECONDS: "30"
+      OTEL_SERVICE_INSTANCE_ID: adminapi-b
+    stop_grace_period: 40s
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrations: {condition: service_completed_successfully}
+    networks: [edge, data]

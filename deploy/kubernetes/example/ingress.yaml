@@ -1,0 +1,47 @@
+# Public entry for the gateway and the admin UI. The pods speak HTTPS (certificates from create-secrets.sh), so the
+# controller must connect to them with TLS. The annotations are for ingress-nginx; for other controllers set the
+# equivalent (Traefik: a ServersTransport; Gateway API: an HTTPRoute with a BackendTLSPolicy). Pass the Host header
+# through unchanged (the admin UI builds its sign-in redirect from it) and do not buffer: streamed answers must reach
+# clients as they are produced.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [llm.example.se]           # change
+      secretName: ume-gateway-public-tls  # your certificate (or cert-manager's)
+  rules:
+    - host: llm.example.se              # change
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: gateway, port: {name: https}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adminapi
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [llm-admin.example.se]     # change
+      secretName: ume-admin-public-tls
+  rules:
+    - host: llm-admin.example.se        # change
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: adminapi, port: {name: https}}}

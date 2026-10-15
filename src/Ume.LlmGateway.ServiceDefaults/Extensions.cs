@@ -88,8 +88,14 @@ public static class Extensions
 
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        builder.Services.AddOptions<ShutdownOptions>().BindConfiguration(ShutdownOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<ShutdownDrain>(sp, sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<ShutdownDrain>());
+        builder.Services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, ShutdownDrain.StartupFilter>();
+        // "shutdown" has no "live" tag: a stopping host is not ready, but it is alive and must not be restarted.
         builder.Services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"])
+            .AddCheck<ShutdownDrain>("shutdown");
         return builder;
     }
 

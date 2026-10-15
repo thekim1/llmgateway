@@ -205,6 +205,24 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
   (it is in *Monitor > Usage*); a request with an unknown model or an exhausted budget still logs "Request … status 4xx".
 - [ ] **Debug switch:** with `Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` on the gateway, successful requests are logged again.
 
+## Updates without downtime and Kubernetes (uncommitted)
+
+- [ ] **Single instance unchanged:** an existing `compose.prod.yaml` stack upgraded to this version starts and works as
+  before (no second slots, no new `.env` values needed).
+- [ ] **Compose rolling setup:** `init-deployment.sh --proxy --rolling` on a test host writes `proxy/nginx.conf` with two
+  servers per upstream and `UME_GATEWAY_B_PORT` / `UME_ADMIN_B_PORT` in `.env`; the stack starts with both compose files and
+  shows `gateway`, `gateway-b`, `adminapi` and `adminapi-b` healthy.
+- [ ] **Rolling update with your real proxy:** behind the proxy you use in production (nginx, Nginx Proxy Manager or F5),
+  keep a streamed chat request and a stream of short requests running and run `./deploy/rolling-update.sh --force`; no
+  request fails, the long stream finishes, and you stay signed in to the admin UI throughout.
+- [ ] **F5 / HAProxy monitor:** with a `/health/ready` monitor, a stopping slot is marked down before it stops answering
+  (set `UME_DRAIN_SECONDS` above interval × failures).
+- [ ] **Kubernetes:** on a test cluster, follow docs/kubernetes.md with the example overlay (your Ingress controller,
+  your IdP): sign in, send a chat request through the Ingress, then change an image tag and run `deploy.sh` while requests
+  run; none fail.
+- [ ] **Own Postgres:** with an external Postgres (CloudNativePG or managed) and the roles from `init.sql`, the migrations
+  Job succeeds and the gateway works.
+
 ## Request logging switch (uncommitted)
 
 - [ ] **Card text:** *Settings > Request logging* shows *Off* and explains that every request is still in the usage records; the

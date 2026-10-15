@@ -6,8 +6,18 @@
 # WebSocket upgrade for live audio (/v1/realtime); other requests keep the pooled keep-alive connection.
 map $http_upgrade $ume_connection { default upgrade; '' ''; }
 
-upstream ume_gateway { server @UPSTREAM@:@GATEWAY_PORT@; keepalive 32; }
-upstream ume_admin   { server @UPSTREAM@:@ADMIN_PORT@; }
+# With compose.rolling.yaml (init-deployment.sh --rolling) each service has a second slot; nginx sends requests to
+# both and, when one refuses the connection while it is replaced, retries on the other (proxy_next_upstream's
+# default "error timeout"; a request already sent is not repeated). See docs/zero-downtime-updates.md.
+upstream ume_gateway {
+    server @UPSTREAM@:@GATEWAY_PORT@;
+    #rolling server @UPSTREAM@:@GATEWAY_B_PORT@;
+    keepalive 32;
+}
+upstream ume_admin {
+    server @UPSTREAM@:@ADMIN_PORT@;
+    #rolling server @UPSTREAM@:@ADMIN_B_PORT@;
+}
 
 server {
     listen 443 ssl;

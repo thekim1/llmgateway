@@ -13,6 +13,9 @@
 #   --proxy                 a reverse proxy (nginx, Nginx Proxy Manager, F5...) terminates public
 #                           TLS on 443 and re-encrypts to this host; needs distinct hostnames
 #   --upstream-host HOST    address the proxy uses to reach this Docker host (default: hostname)
+#   --rolling               run two gateway and admin API slots (compose.rolling.yaml) for updates without
+#                           downtime; needs a proxy in front (docs/zero-downtime-updates.md)
+#   --no-chown              leave the files owned by you, for deploy/kubernetes/create-secrets.sh
 #   --oidc-client-secret-file FILE
 #                           confidential OIDC client: install the secret for the admin API
 #                           (omit for a public client using PKCE only)
@@ -26,10 +29,10 @@ umask 077
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 certs="$here/certs"; secrets="$here/secrets"; env_file="$here/.env"
 oidc_authority=""; oidc_client="ume-admin"; gateway_host=""; admin_host=""; data_host=""
-gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0
+gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0; rolling=0; chown=1
 oidc_secret_file=""; proxy=0; upstream_host=""; gw_cert=""; gw_key=""; adm_cert=""; adm_key=""; ca_file=""
 
-usage() { sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die() { echo "error: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -47,6 +50,8 @@ while [ $# -gt 0 ]; do
     --oidc-client-secret-file) oidc_secret_file="$2"; shift 2;;
     --proxy) proxy=1; shift;;
     --upstream-host) upstream_host="$2"; shift 2;;
+    --rolling) rolling=1; shift;;
+    --no-chown) chown=0; shift;;
     --gateway-cert) gw_cert="$2"; shift 2;;
     --gateway-key) gw_key="$2"; shift 2;;
     --admin-cert) adm_cert="$2"; shift 2;;
@@ -204,6 +209,7 @@ fi
 # --- Ownership: container UIDs must be able to read their own files -------------------
 own() { # own UID DIR... (needs root; falls back to a printed command)
   local id="$1"; shift
+  [ "$chown" = 1 ] || return 0
   if [ "$(id -u)" = 0 ]; then chown -R "$id:$id" "$@"; return; fi
   if command -v sudo >/dev/null && sudo chown -R "$id:$id" "$@"; then return; fi
   chown_todo+=("chown -R $id:$id $*")
@@ -238,6 +244,9 @@ UME_GATEWAY_BIND=$bind
 UME_GATEWAY_PORT=$gateway_port
 UME_ADMIN_BIND=$bind
 UME_ADMIN_PORT=$admin_port
+# Second slots for updates without downtime (compose.rolling.yaml, docs/zero-downtime-updates.md).
+UME_GATEWAY_B_PORT=$((gateway_port + 1))
+UME_ADMIN_B_PORT=$((admin_port + 1))
 # Optional read-only Data API (docs/data-access.md): uncomment to start it with the stack.
 # COMPOSE_PROFILES=data
 UME_DATA_HOST=$data_host
@@ -266,14 +275,29 @@ proxy_note=""
 if [ "$proxy" = 1 ]; then
   sed -e "s/@GATEWAY_HOST@/$gateway_host/g" -e "s/@ADMIN_HOST@/$admin_host/g" \
       -e "s/@UPSTREAM@/$upstream_host/g" -e "s/@GATEWAY_PORT@/$gateway_port/g" \
-      -e "s/@ADMIN_PORT@/$admin_port/g" "$here/proxy/nginx.conf.example" > "$here/proxy/nginx.conf"
+      -e "s/@ADMIN_PORT@/$admin_port/g" -e "s/@GATEWAY_B_PORT@/$((gateway_port + 1))/g" \
+      -e "s/@ADMIN_B_PORT@/$((admin_port + 1))/g" "$here/proxy/nginx.conf.example" > "$here/proxy/nginx.conf"
+  [ "$rolling" = 1 ] && sed -i 's/#rolling //' "$here/proxy/nginx.conf"
   proxy_note="
 Reverse proxy: $here/proxy/nginx.conf is ready for nginx; for Nginx Proxy Manager or F5 use
 the same settings (see docs/runbook.md, 'Reverse proxy and PKI'). Both hosts forward to
 HTTPS upstreams: $upstream_host:$gateway_port (gateway) and $upstream_host:$admin_port (admin UI),
 preserving the Host header. Restrict those ports to the proxy with the host firewall."
+  [ "$rolling" = 1 ] && proxy_note="$proxy_note
+With --rolling, also list the second slots: $upstream_host:$((gateway_port + 1)) (gateway) and
+$upstream_host:$((admin_port + 1)) (admin UI); proxy/nginx.conf already does."
+fi
+up_cmd="docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait"
+update_note=""
+if [ "$rolling" = 1 ]; then
+  up_cmd="docker compose -f deploy/compose.prod.yaml -f deploy/compose.rolling.yaml --env-file deploy/.env up -d --wait"
+  update_note="
+  5. Update later without downtime with ./deploy/rolling-update.sh (docs/zero-downtime-updates.md)."
+  [ "$proxy" = 1 ] || update_note="$update_note
+     The second slots listen on ports $((gateway_port + 1)) and $((admin_port + 1)): put a proxy in front that uses both."
 fi
 own_step="  0. File ownership is set."
+[ "$chown" = 1 ] || own_step="  0. Files stay owned by you (--no-chown). For Kubernetes, run deploy/kubernetes/create-secrets.sh next."
 if [ ${#chown_todo[@]} -gt 0 ]; then
   own_step="  0. Run as root first (containers run as other users and must read their files):"
   for c in "${chown_todo[@]}"; do own_step="$own_step
@@ -292,10 +316,10 @@ $own_step
   1. Register these redirect URIs for client '$oidc_client' in your IdP (code + PKCE):
        https://$admin_host$public_admin/signin-oidc
        https://$admin_host$public_admin/signout-callback-oidc
-  2. docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
+  2. $up_cmd
   3. Back up $secrets/.pepper and $certs/data-protection.pfx separately from database
      dumps. Without them a restored database is unusable.
   4. Internal certificates last 825 days; re-issue with: $0 --renew-certs
-     To use your PKI instead, re-run with --gateway-cert/--gateway-key/--admin-cert/--admin-key.
+     To use your PKI instead, re-run with --gateway-cert/--gateway-key/--admin-cert/--admin-key.$update_note
 $proxy_note
 EOF

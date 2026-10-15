@@ -20,7 +20,15 @@ jobs:
           # ${X_IMAGE:-ume-llm-gateway/<service>:<version>} is the locally built image; a release bundle pins the pushed one.
           version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)"
           stale="$(grep -Hn 'ume-llm-gateway/[a-z]*:' deploy/compose.prod.yaml deploy/compose.portainer.template.yaml deploy/compose.portainer.yaml | grep -v ":$version}" || true)"
+          stale="$stale$(grep -rHn 'image: ume-llm-gateway/' deploy/kubernetes | grep -v ":$version$" || true)"
+          stale="$stale$(grep -Hn 'newTag:' deploy/kubernetes/example/kustomization.yaml | grep -v "newTag: \"$version\"" || true)"
           [ -z "$stale" ] || { echo "Image defaults are not $version (Directory.Build.props):"; echo "$stale"; exit 1; }
+      - name: Kubernetes manifests are up to date and render
+        run: |
+          sh deploy/kubernetes/sync-config.sh
+          git diff --exit-code -- deploy/kubernetes || { echo "Run deploy/kubernetes/sync-config.sh and commit the copies"; exit 1; }
+          kubectl kustomize deploy/kubernetes/base > /dev/null
+          kubectl kustomize deploy/kubernetes/example > /dev/null
       - name: Production Compose files are valid
         env:
           UME_CERTS_DIR: /certs
@@ -35,6 +43,7 @@ jobs:
           for file in deploy/compose.prod.yaml deploy/compose.portainer.yaml; do
             docker compose -f "$file" --profile data config --quiet
           done
+          docker compose -f deploy/compose.prod.yaml -f deploy/compose.rolling.yaml --profile data config --quiet
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.401

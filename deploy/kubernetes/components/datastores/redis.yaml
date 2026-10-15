@@ -1,0 +1,65 @@
+# Redis holds counters and caches only (no persistence, as in Compose); a restart loses nothing the gateway cannot
+# rebuild from Postgres.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: redis
+          image: docker.io/library/redis:8.6@sha256:2f07354308a997554f9d676888ca927ada1293c7c2154dd01ae77f57dd9c6d5f
+          command: [redis-server, /run/config/redis.conf]
+          ports: [{name: redis, containerPort: 6379}]
+          readinessProbe:
+            tcpSocket: {port: redis}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: redis}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /run/config, readOnly: true}
+            - {name: certs, mountPath: /run/certs, readOnly: true}
+            - {name: secrets, mountPath: /run/redis-secrets, readOnly: true}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: config
+          configMap: {name: ume-redis-config}
+        - name: certs
+          secret: {secretName: ume-redis-certs, defaultMode: 0440}
+        - name: secrets
+          secret: {secretName: ume-redis-secrets, defaultMode: 0440}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+spec:
+  selector: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
