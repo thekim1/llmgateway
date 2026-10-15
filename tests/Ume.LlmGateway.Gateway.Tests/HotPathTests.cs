@@ -375,6 +375,50 @@ public sealed class HotPathTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task A_lookup_running_before_an_invalidation_is_not_shared_after_it()
+    {
+        var key = await fixture.CreateKeyAsync();
+        var bus = new InMemoryInvalidationBus();
+        using var held = new SemaphoreSlim(0);
+        var scopes = new HoldFirstScopeFactory(fixture.Services.GetRequiredService<IServiceScopeFactory>(), held);
+        using var keys = new KeyAuthenticator(fixture.Services.GetRequiredService<VirtualKeyHasher>(), scopes,
+            new StaticOptions(new GatewayOptions { KeyCacheSeconds = 30 }), bus, TimeProvider.System);
+
+        // The first lookup starts while the key is enabled and is held before it finishes.
+        var before = keys.FindAsync(key.Secret, Ct);
+        await scopes.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+
+        // The key is disabled and the change published while that lookup is still running.
+        await SetEnabledAsync(key.Id, false);
+        await bus.PublishAsync(InvalidationKind.Keys, Ct);
+
+        // A lookup after the invalidation must not wait for (and return) the old one.
+        (await keys.FindAsync(key.Secret, Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct))!.IsEnabled.ShouldBeFalse();
+
+        held.Release();
+        await before;
+    }
+
+    /// <summary>Holds the first scope (the first database lookup) until released; later scopes go straight through.</summary>
+    private sealed class HoldFirstScopeFactory(IServiceScopeFactory inner, SemaphoreSlim held) : IServiceScopeFactory
+    {
+        private int _created;
+
+        public TaskCompletionSource FirstStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IServiceScope CreateScope()
+        {
+            if (Interlocked.Increment(ref _created) == 1)
+            {
+                FirstStarted.SetResult();
+                held.Wait(TimeSpan.FromSeconds(30));
+            }
+
+            return inner.CreateScope();
+        }
+    }
+
+    [Fact]
     public async Task Unknown_key_is_remembered_until_it_expires_or_a_key_is_created()
     {
         var hasher = fixture.Services.GetRequiredService<VirtualKeyHasher>();

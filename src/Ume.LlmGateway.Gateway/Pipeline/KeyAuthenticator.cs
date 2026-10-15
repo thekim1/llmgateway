@@ -22,7 +22,7 @@ public sealed class KeyAuthenticator : IDisposable
 {
     private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = 100_000 });
     private readonly MemoryCache _unknown = new(new MemoryCacheOptions { SizeLimit = 10_000 });
-    private readonly ConcurrentDictionary<string, Task<VirtualKey?>> _loading = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SharedLoad> _loading = new(StringComparer.Ordinal);
     private readonly VirtualKeyHasher _hasher;
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<GatewayOptions> _options;
@@ -31,6 +31,9 @@ public sealed class KeyAuthenticator : IDisposable
     private CancellationTokenSource _generation = new();
 
     private sealed record CachedKey(VirtualKey Key, DateTimeOffset LoadedAt);
+
+    /// <summary>A database lookup in progress, and the cache generation it started in.</summary>
+    private sealed record SharedLoad(Task<VirtualKey?> Task, CancellationToken Generation);
 
     public KeyAuthenticator(VirtualKeyHasher hasher, IServiceScopeFactory scopes, IOptionsMonitor<GatewayOptions> options, IInvalidationBus bus, TimeProvider time)
     {
@@ -97,25 +100,31 @@ public sealed class KeyAuthenticator : IDisposable
         return await LoadSharedAsync(hash, ttl).WaitAsync(cancellationToken);
     }
 
-    /// <summary>One database lookup per key hash at a time, not tied to any single request's cancellation.</summary>
+    /// <summary>
+    /// One database lookup per key hash at a time, not tied to any single request's cancellation. A lookup that started
+    /// before the latest invalidation is not shared: it may have read the key before a revocation, so a new one starts.
+    /// </summary>
     private Task<VirtualKey?> LoadSharedAsync(string hash, TimeSpan ttl)
     {
-        if (_loading.TryGetValue(hash, out var running))
+        // Captured before the query: if a revocation lands while it runs, the result is neither cached nor shared.
+        var generation = CurrentGeneration();
+        if (_loading.TryGetValue(hash, out var running) && !running.Generation.IsCancellationRequested)
         {
-            return running;
+            return running.Task;
         }
 
         var load = new TaskCompletionSource<VirtualKey?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_loading.TryAdd(hash, load.Task))
+        var entry = new SharedLoad(load.Task, generation);
+        if (!(running is null ? _loading.TryAdd(hash, entry) : _loading.TryUpdate(hash, entry, running)))
         {
-            return _loading.TryGetValue(hash, out running) ? running : LoadSharedAsync(hash, ttl);
+            return LoadSharedAsync(hash, ttl); // another request registered a lookup first
         }
 
         _ = Task.Run(async () =>
         {
             try
             {
-                load.SetResult(await LoadAsync(hash, ttl));
+                load.SetResult(await LoadAsync(hash, ttl, generation));
             }
             catch (Exception ex)
             {
@@ -123,25 +132,26 @@ public sealed class KeyAuthenticator : IDisposable
             }
             finally
             {
-                _loading.TryRemove(hash, out _);
+                _loading.TryRemove(new KeyValuePair<string, SharedLoad>(hash, entry));
             }
         });
         return load.Task;
     }
 
-    private async Task<VirtualKey?> LoadAsync(string hash, TimeSpan ttl)
+    private CancellationToken CurrentGeneration()
     {
-        // Captured before the query: if a revocation lands while it runs, the result must not be cached.
-        CancellationToken generation;
         try
         {
-            generation = Volatile.Read(ref _generation).Token;
+            return Volatile.Read(ref _generation).Token;
         }
         catch (ObjectDisposedException)
         {
-            generation = new CancellationToken(canceled: true); // invalidated this instant: don't cache
+            return new CancellationToken(canceled: true); // invalidated this instant: don't cache or share
         }
+    }
 
+    private async Task<VirtualKey?> LoadAsync(string hash, TimeSpan ttl, CancellationToken generation)
+    {
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
         var key = await db.VirtualKeys.AsNoTracking()
