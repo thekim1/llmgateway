@@ -11,6 +11,7 @@
     <PackageReference Include="Aspire.Hosting.Keycloak" />
     <PackageReference Include="Aspire.Hosting.JavaScript" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" />
+    <PackageReference Include="MessagePack" />
   </ItemGroup>
   <ItemGroup>
     <!-- Health endpoint paths, shared with the services without referencing ServiceDefaults (the type is internal on both sides). -->
