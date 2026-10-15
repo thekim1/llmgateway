@@ -32,6 +32,9 @@ an nginx config is generated). With certificates from your **PKI**: pass `--gate
 `--gateway-key`, `--admin-cert`, `--admin-key` (and `--ca-file`). Details and the Nginx Proxy
 Manager settings are in the runbook, *Reverse proxy and PKI*.
 
+To update without downtime, run two instances of the gateway and admin API behind your proxy; see
+[Updates without downtime](zero-downtime-updates.md). For Kubernetes instead of Compose, see [Kubernetes](kubernetes.md).
+
 Production never uses the bundled Keycloak: point `UME_OIDC_AUTHORITY` at your existing Keycloak, AD FS or Entra ID.
 Roles, department codes and AD groups are mapped by claims; see [Identity provider and roles](identity-and-roles.md).
 

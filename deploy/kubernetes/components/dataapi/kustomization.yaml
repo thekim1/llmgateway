@@ -1,0 +1,7 @@
+# Optional read-only Data API (docs/data-access.md). Needs the ume-dataapi-secrets and ume-dataapi-certs secrets
+# (create-secrets.sh) and the ume_data database role (deploy/postgres/init.sql or add-data-role.sql).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Its settings (ume-dataapi-config) are generated in the base, so an overlay can merge DataApi__Authority into them.
+resources:
+  - dataapi.yaml

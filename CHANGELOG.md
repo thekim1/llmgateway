@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**Updates without downtime (opt-in).** Every service now fails `/health/ready` as soon as it is told to stop and, for the
+new setting `Shutdown__DrainSeconds` (default 0), keeps answering with `Connection: close` before it closes its listener,
+so a load balancer stops sending it requests and a proxy retires its pooled connections without losing a POST. For Docker
+Compose, the overlay `deploy/compose.rolling.yaml` runs a second gateway and admin API on their own host ports, and
+`deploy/rolling-update.sh` migrates and then replaces one slot at a time; `init-deployment.sh --rolling` writes the nginx
+configuration with both slots. A single-instance `compose.prod.yaml` installation is unchanged; Portainer is not supported.
+See [Updates without downtime](docs/zero-downtime-updates.md).
+
+**Kubernetes.** Kustomize manifests in `deploy/kubernetes`: gateway and admin API with rolling updates, probes and
+PodDisruptionBudgets, the migrations Job, optional in-cluster Postgres and Redis and the optional Data API, all under the
+restricted Pod Security Standard. `create-secrets.sh` turns what `init-deployment.sh --no-chown` generates into secrets, and
+`deploy.sh` runs the migration before rolling out. The release bundle includes them, pinned to the released images. See
+[Kubernetes](docs/kubernetes.md).
+
+**Tested.** The new workflow *Deploy end to end* builds the images and replaces every instance under load, with Compose
+behind nginx and on a kind cluster, and fails on a single lost request (0 of about 800 000 locally; without the drain one
+POST was lost). The upgrade guide now marks every release *Rolling update: yes/no*.
+
 ## 0.5.0 - 2026-10-15
 
 **Website.** The project now has a website on GitHub Pages (<https://thekim1.github.io/llmgateway/>), built from `site/`

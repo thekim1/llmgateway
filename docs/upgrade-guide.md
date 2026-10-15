@@ -1,5 +1,9 @@
 # Upgrade guide and release checklist
 
+Each release says whether it supports a **rolling update** ([Updates without downtime](zero-downtime-updates.md)): the
+previous version keeps running against the new schema while its instances are replaced. "No" means a planned stop: stop
+the gateway, admin API and Data API, migrate, start the new version.
+
 ## POC 0.1.0
 
 Initial demonstrator: .NET 10.0.12, Aspire 13.6, Vue 3, PostgreSQL 17 and Redis 8.6.
@@ -7,8 +11,20 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: updates without downtime
+
+- **Rolling update: yes** (no migration).
+- Every service now fails `/health/ready` from the moment it is told to stop and accepts the new setting
+  `Shutdown__DrainSeconds` (default 0, no change). Load balancers that poll readiness see a stopping instance as down; a
+  Compose `healthcheck` may briefly show a stopping container as unhealthy.
+- New, opt-in: `compose.rolling.yaml` and `rolling-update.sh` for Docker Compose, and Kustomize manifests in
+  `deploy/kubernetes`. A single-instance `compose.prod.yaml` installation needs no change.
+- The first rolling update to this version still stops instances of 0.5.0, which do not drain; a few POSTs can fail at the
+  moment each old instance stops.
+
 ## 0.5.0: request logging
 
+- **Rolling update: yes** (from 0.4.1).
 - **Successful requests are no longer written to the gateway log.** Refused, failed and cancelled requests still are, and
   every request is still a usage record. If dashboards or alerts count the "Request … status … in … ms" log lines, switch
   them to the usage data or the `ume.gateway.requests` metric, or turn on *Settings > Request logging*.
@@ -18,6 +34,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
 
 ## 0.4.1: MCP gateway removed
 
+- **Rolling update: no** (drops columns 0.4.0 reads).
 - The migration `RemoveMcpGateway` drops the MCP tables and columns of 0.4.0 (migration `McpGateway`) and deletes its
   history row. It is not expand/contract compatible with 0.4.0: a 0.4.0 gateway or admin API fails on the dropped columns,
   so stop them, migrate and start 0.4.1 together. On a database that never ran 0.4.0 it changes nothing.
@@ -31,6 +48,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
 
 ## 0.4.0: usage dashboard
 
+- **Rolling update: yes** (from 0.3.x; all three 0.4.0 migrations are additive).
 - The migration `RequestTimings` adds the nullable columns `UsageRecords.UpstreamMs` and `TimeToFirstTokenMs` (no table
   rewrite). It is additive: the previous gateway keeps writing records without them. The existing grants cover the new
   columns (the gateway inserts and the Data API reads the whole table).
@@ -61,6 +79,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
 
 ## 0.3.0: shared routing rules
 
+- **Rolling update: no**.
 - The migration `RoutingRuleScopeSets` converts `RoutingRules.ScopeId` into the set `ScopeIds` (`uuid[]`), drops
   `ScopeId`, adds `IsTemplate` and inserts four disabled template rules. It is not expand/contract compatible: gateways and
   the admin API of the previous version cannot read the new schema, so drain traffic, migrate and roll out both together.
@@ -75,7 +94,8 @@ See [runbook](runbook.md) for the actual deployment procedure.
    checks and accessibility/manual regression appropriate to the change.
 3. Back up the database, pepper, Data Protection key ring/certificate and nonsecret config.
    Rehearse restoring the backup in isolation; record RPO/RTO.
-4. Review migrations for expand/contract compatibility. Drain gateway traffic; run the
+4. Review migrations for expand/contract compatibility and mark the release *Rolling update: yes/no* above. For a rolling
+   update use `deploy/rolling-update.sh` or `deploy/kubernetes/deploy.sh`; otherwise drain gateway traffic and run the
    one-shot migration/role-grant job with **only** migrator credentials. Do not give DDL to apps.
 5. Deploy digest-pinned API images; verify health, schema/version, queue drain, OIDC/CSRF,
    role scoping and a synthetic inference request. Preserve credentials/key encryption material.

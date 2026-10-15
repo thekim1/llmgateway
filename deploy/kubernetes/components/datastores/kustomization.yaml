@@ -1,0 +1,14 @@
+# Single-instance Postgres and Redis inside the cluster, configured like the Compose stack (TLS, separate roles, Redis
+# ACL). Meant for evaluation and small installations: they are not replicated, so updating them is a short outage. In
+# production prefer your platform's database service or an operator such as CloudNativePG (docs/kubernetes.md).
+# init.sql, pg_hba.conf and redis.conf are copies (../../sync-config.sh).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - postgres.yaml
+  - redis.yaml
+configMapGenerator:
+  - name: ume-postgres-config
+    files: [init.sql, pg_hba.conf]
+  - name: ume-redis-config
+    files: [redis.conf]

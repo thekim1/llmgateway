@@ -105,6 +105,13 @@ mapping and should be verified against the real IdP: sign in, then check `/bff/u
 the bundled Keycloak and passes all `Oidc:*` settings to the admin API. Register the local admin
 callback URL (see the dashboard) at the provider. The test users from `dev/keycloak` no longer apply.
 
+## Updates without downtime and Kubernetes
+
+A single Compose stack is briefly down during an update. To avoid that, run two slots of the gateway and admin API
+(`compose.rolling.yaml`, `init-deployment.sh --rolling`) behind your proxy and update with `deploy/rolling-update.sh`;
+see [Updates without downtime](zero-downtime-updates.md). On Kubernetes, rolling updates are built in:
+[Kubernetes](kubernetes.md). Check the release's *Rolling update* line in the [upgrade guide](upgrade-guide.md) first.
+
 ## Reverse proxy and PKI
 
 `deploy/init-deployment.sh` supports three ways of exposing the stack. Pick the one that

@@ -1,0 +1,107 @@
+# The gateway: stateless, so it runs as several replicas that share Postgres and Redis. A rolling update starts a new
+# pod, waits until it is ready, and only then stops an old one; the old pod first fails its readiness check
+# (Shutdown__DrainSeconds) so it leaves the Service before it stops accepting connections, then finishes the requests
+# it has (long streamed answers) within DOTNET_SHUTDOWNTIMEOUTSECONDS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  minReadySeconds: 5
+  selector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Drain (10 s) + longest request (300 s) + margin.
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+      containers:
+        - name: gateway
+          image: ume-llm-gateway/gateway:0.5.0
+          ports: [{name: https, containerPort: 8443}]
+          envFrom:
+            - configMapRef: {name: ume-gateway-config}
+          env:
+            - {name: ASPNETCORE_ENVIRONMENT, value: Production}
+            - {name: Security__SecretsDirectory, value: /run/app-secrets}
+            - {name: DataProtection__CertificatePath, value: /run/certs/data-protection.pfx}
+            - {name: Kestrel__Endpoints__Https__Url, value: "https://+:8443"}
+            - {name: Kestrel__Endpoints__Https__Certificate__Path, value: /run/certs/gateway.crt}
+            - {name: Kestrel__Endpoints__Https__Certificate__KeyPath, value: /run/certs/gateway.key}
+            - {name: SSL_CERT_FILE, value: /run/certs/ca.pem}
+            - {name: OTEL_SERVICE_NAME, value: gateway}
+            - {name: Shutdown__DrainSeconds, value: "10"}
+            - {name: DOTNET_SHUTDOWNTIMEOUTSECONDS, value: "310"}
+          startupProbe:
+            httpGet: {path: /health/live, port: https, scheme: HTTPS}
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health/ready, port: https, scheme: HTTPS}
+            periodSeconds: 3
+            timeoutSeconds: 5
+            failureThreshold: 1
+          livenessProbe:
+            httpGet: {path: /health/live, port: https, scheme: HTTPS}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: secrets, mountPath: /run/app-secrets, readOnly: true}
+            - {name: certs, mountPath: /run/certs, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: secrets
+          secret: {secretName: ume-gateway-secrets, defaultMode: 0440}
+        - name: certs
+          secret: {secretName: ume-gateway-certs, defaultMode: 0440}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+---
+# "gateway" is also the name in the generated certificate and in the admin API's Gateway__OperationsUrl.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+spec:
+  selector: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+  ports: [{name: https, port: 8443, targetPort: https}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}

@@ -9,6 +9,7 @@ export const DOCS = [
     { slug: '', title: 'Introduction', source: 'docs/introduction.md', lead: 'What the gateway does, what it stores and what it does not.' },
     { slug: 'local-development', title: 'Local development', source: 'docs/local-development.md', lead: 'Run the full stack on Windows with Aspire, demo data and a fake LLM, and run the tests.' },
     { slug: 'production-setup', title: 'Production setup', source: 'docs/production-setup.md', lead: 'Deploy a release bundle with Docker Compose on a Linux host, behind your own login.' },
+    { slug: 'kubernetes', title: 'Kubernetes', source: 'docs/kubernetes.md', lead: 'Kustomize manifests with rolling updates, optional in-cluster Postgres and Redis, and the restricted Pod Security Standard.' },
   ] },
   { group: 'Guides', items: [
     { slug: 'routing-rules', title: 'Routing rules', source: 'docs/routing-rules.md', lead: 'Send requests to the right model based on headers, team, budget use or personal data, with weights and fallbacks.' },
@@ -24,6 +25,7 @@ export const DOCS = [
   { group: 'Operate', items: [
     { slug: 'identity-and-roles', title: 'Identity provider and roles', source: 'docs/identity-and-roles.md', lead: 'Sign in with Keycloak, Entra ID or AD FS, and what gateway admins, department admins and viewers may do.' },
     { slug: 'runbook', title: 'Runbook', source: 'docs/runbook.md', lead: 'Deployment, identity provider, certificates, backups and incidents.' },
+    { slug: 'zero-downtime-updates', title: 'Updates without downtime', source: 'docs/zero-downtime-updates.md', lead: 'Two instances behind a load balancer, replaced one at a time: opt-in for Docker Compose, built in on Kubernetes.' },
     { slug: 'upgrade-guide', title: 'Upgrade guide', source: 'docs/upgrade-guide.md', lead: 'Migrations, rollback and certificates, per release.' },
     { slug: 'data-retention', title: 'Data retention and logging', source: 'docs/data-retention.md', lead: 'How long request data is kept, and when successful requests are logged.' },
     { slug: 'security-events', title: 'Security events', source: 'docs/security-events.md', lead: 'Send security events to your SIEM with OpenTelemetry, and what the Data API offers.' },

@@ -1,0 +1,29 @@
+# Ume LLM Gateway on Kubernetes: gateway, admin API and the migrations Job. Postgres and Redis come from your platform
+# or from components/datastores; the optional Data API from components/dataapi. Do not edit this base: make an overlay
+# (start from ../example) and see docs/kubernetes.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs: {app.kubernetes.io/part-of: ume-llm-gateway}
+resources:
+  - migrations.yaml
+  - gateway.yaml
+  - adminapi.yaml
+configMapGenerator:
+  # app-roles.sql is a copy of deploy/postgres/app-roles.sql (deploy/kubernetes/sync-config.sh; CI checks it).
+  - name: ume-app-roles
+    files: [app-roles.sql]
+  # Settings as the apps read them (section__key). The overlay merges its own values in; see ../example.
+  - name: ume-gateway-config
+    literals:
+      - Gateway__Security__SourceAddress=Truncated
+  - name: ume-adminapi-config
+    literals:
+      - Oidc__ClientId=ume-admin
+      - Gateway__OperationsUrl=https://gateway:8443
+  # Used only with ../components/dataapi; generated here because an overlay merges its values before components apply.
+  - name: ume-dataapi-config
+    literals:
+      - DataApi__Audience=ume-data-api
+      - DataApi__MinimumGroupSize=5
+      - DataApi__TimeZone=Europe/Stockholm

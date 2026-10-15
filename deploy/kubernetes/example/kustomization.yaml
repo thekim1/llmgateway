@@ -1,0 +1,48 @@
+# Example overlay: copy this directory, change the values marked "change", then
+#   ./deploy/kubernetes/deploy.sh path/to/your-overlay
+# See docs/kubernetes.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ume-gateway
+resources:
+  - namespace.yaml
+  - ../base
+  - ingress.yaml
+components:
+  # In-cluster Postgres and Redis. Remove this line to use your own (then edit the connection strings before running
+  # create-secrets.sh; see docs/kubernetes.md).
+  - ../components/datastores
+  # - ../components/dataapi
+images:
+  # The released images. A release bundle already pins the base to them by digest, so these lines only matter when you
+  # deploy from the repository, or set newName to your own registry (pin by digest: digest: sha256:...).
+  - {name: ume-llm-gateway/gateway, newName: ghcr.io/thekim1/llmgateway/gateway, newTag: "0.5.0"}
+  - {name: ume-llm-gateway/adminapi, newName: ghcr.io/thekim1/llmgateway/adminapi, newTag: "0.5.0"}
+  - {name: ume-llm-gateway/migrations, newName: ghcr.io/thekim1/llmgateway/migrations, newTag: "0.5.0"}
+  - {name: ume-llm-gateway/dataapi, newName: ghcr.io/thekim1/llmgateway/dataapi, newTag: "0.5.0"}
+configMapGenerator:
+  - name: ume-adminapi-config
+    behavior: merge
+    literals:
+      # change: your identity provider (docs/identity-and-roles.md) and the gateway's public address.
+      - Oidc__Authority=https://idp.example.se/realms/ume
+      - Gateway__BaseUrl=https://llm.example.se
+      # - Oidc__RoleClaim=roles
+      # - Oidc__RoleGroups__gateway-admin=GG-Llm-Admins
+      # - DataApi__PublicUrl=https://llm-data.example.se
+  - name: ume-gateway-config
+    behavior: merge
+    literals: []
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.observability:4317
+  # With ../components/dataapi:
+  # - name: ume-dataapi-config
+  #   behavior: merge
+  #   literals:
+  #     - DataApi__Authority=https://idp.example.se/realms/ume
+patches:
+  # More gateway replicas for more traffic (each replica handles thousands of requests per second; docs/performance.md).
+  - target: {kind: Deployment, name: gateway}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

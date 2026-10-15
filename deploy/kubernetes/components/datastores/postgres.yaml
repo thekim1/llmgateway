@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+          args: [-c, ssl=on, -c, ssl_cert_file=/run/certs/postgres.crt, -c, ssl_key_file=/run/certs/postgres.key, -c, ssl_ca_file=/run/certs/ca.pem, -c, hba_file=/run/config/pg_hba.conf, -c, log_statement=none]
+          env:
+            - {name: POSTGRES_PASSWORD_FILE, value: /run/postgres-secrets/bootstrap_password}
+            - {name: POSTGRES_INITDB_ARGS, value: --auth-host=scram-sha-256 --auth-local=trust}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{name: postgres, containerPort: 5432}]
+          readinessProbe:
+            exec: {command: [pg_isready, -U, postgres, -d, gatewaydb]}
+            periodSeconds: 5
+          livenessProbe:
+            exec: {command: [pg_isready, -U, postgres]}
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: certs, mountPath: /run/certs, readOnly: true}
+            - {name: secrets, mountPath: /run/postgres-secrets, readOnly: true}
+            - {name: config, mountPath: /run/config/pg_hba.conf, subPath: pg_hba.conf, readOnly: true}
+            - {name: config, mountPath: /docker-entrypoint-initdb.d/10-roles.sql, subPath: init.sql, readOnly: true}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        # Postgres accepts a key file owned by root when it is not readable by others (0440, group = fsGroup 70).
+        - name: certs
+          secret: {secretName: ume-postgres-certs, defaultMode: 0440}
+        - name: secrets
+          secret: {secretName: ume-postgres-secrets, defaultMode: 0440}
+        - name: config
+          configMap: {name: ume-postgres-config}
+        - name: run
+          emptyDir: {medium: Memory}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+  volumeClaimTemplates:
+    # apiVersion, kind and volumeMode spelled out as the API server stores them, so a re-apply is a no-op.
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
+        resources:
+          requests: {storage: 20Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+spec:
+  selector: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+  ports: [{name: postgres, port: 5432, targetPort: postgres}]
