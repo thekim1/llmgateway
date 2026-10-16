@@ -1,218 +1,10 @@
 using System.Net.Http.Headers;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Infrastructure.Providers;
-
-/// <summary>
-/// Dedicated HTTP client for upstream LLM providers. Deliberately NOT built through the default
-/// HttpClientFactory pipeline: the standard resilience handler's total timeout (30 s) and retries would break
-/// long streaming responses and double-bill requests. Timeouts, fallback and circuit breaking are handled by
-/// the gateway pipeline instead.
-/// </summary>
-public sealed class ProviderHttpClient : IDisposable
-{
-    public ProviderHttpClient(bool requireHttps = false)
-        : this(CreateHandler(System.Net.DecompressionMethods.All), CreateHandler(System.Net.DecompressionMethods.None), requireHttps)
-    {
-    }
-
-    public ProviderHttpClient(HttpMessageHandler handler, bool requireHttps = false)
-        : this(handler, null, requireHttps)
-    {
-    }
-
-    private ProviderHttpClient(HttpMessageHandler handler, HttpMessageHandler? streamHandler, bool requireHttps)
-    {
-        RequireHttps = requireHttps;
-        Client = Create(handler);
-        StreamClient = streamHandler is null ? Client : Create(streamHandler);
-    }
-
-    public HttpClient Client { get; }
-
-    /// <summary>
-    /// For streamed calls: sends no <c>Accept-Encoding</c>. A provider or proxy that compresses <c>text/event-stream</c>
-    /// holds tokens back until a compression block fills, so the client sees bursts separated by silences.
-    /// </summary>
-    public HttpClient StreamClient { get; }
-
-    internal bool RequireHttps { get; }
-
-    /// <summary>Whether content and credentials may be sent to <paramref name="uri"/> (production: only over TLS).</summary>
-    internal bool Permits(Uri uri) => ProviderTransport.IsPermitted(uri, RequireHttps);
-
-    public void Dispose()
-    {
-        Client.Dispose();
-        if (!ReferenceEquals(StreamClient, Client))
-        {
-            StreamClient.Dispose();
-        }
-    }
-
-    private static SocketsHttpHandler CreateHandler(System.Net.DecompressionMethods decompression) => new()
-    {
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        ConnectTimeout = TimeSpan.FromSeconds(10),
-        AutomaticDecompression = decompression,
-        AllowAutoRedirect = false,
-    };
-
-    private static HttpClient Create(HttpMessageHandler handler)
-    {
-        var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        client.DefaultRequestHeaders.UserAgent.Add(ProviderTransport.UserAgent);
-        return client;
-    }
-}
-
-public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAdapter
-{
-    protected static readonly JsonSerializerOptions Compact = new() { WriteIndented = false };
-
-    public abstract bool CanHandle(ProviderType type);
-
-    public abstract Task<ProviderResult> SendAsync(ProviderCall call, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Sends the request and returns either the (successful) response with headers read, or a failure.
-    /// Caller cancellation propagates as <see cref="OperationCanceledException"/>; provider timeouts become a
-    /// transient 504 failure.
-    /// </summary>
-    protected Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
-        Uri uri, JsonObject body, ProviderCall call, CancellationTokenSource timeout, CancellationToken cancellationToken)
-    {
-        var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(body, Compact));
-        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        return SendRawAsync(uri, content, call, timeout, cancellationToken);
-    }
-
-    /// <summary>As above with any request content (the multipart upload of the audio endpoints). The content is disposed.</summary>
-    protected async Task<(HttpResponseMessage? Response, ProviderFailure? Failure)> SendRawAsync(
-        Uri uri, HttpContent content, ProviderCall call, CancellationTokenSource timeout, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(timeout);
-        ArgumentNullException.ThrowIfNull(call);
-        using var request = new HttpRequestMessage(HttpMethod.Post, uri) { Content = content };
-        if (!http.Permits(uri))
-        {
-            return (null, ProviderFailure.HttpsRequired);
-        }
-
-        if (call.Stream)
-        {
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-        }
-
-        ProviderAuth.Apply(request, call.Provider, call.Credential);
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await (call.Stream ? http.StreamClient : http.Client).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return (null, ProviderFailure.Timeout);
-        }
-        catch (HttpRequestException ex)
-        {
-            return (null, new ProviderFailure(502, FailureKind.Transient, $"connection_error:{ex.HttpRequestError}"));
-        }
-
-        if (response.IsSuccessStatusCode)
-        {
-            return (response, null);
-        }
-
-        using (response)
-        {
-            string? errorBody = null;
-            try
-            {
-                errorBody = await response.Content.ReadAsStringAsync(timeout.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-            }
-
-            var status = (int)response.StatusCode;
-            return (null, ProviderFailure.FromStatus(status, errorBody, response.Content.Headers.ContentType?.ToString()));
-        }
-    }
-
-    /// <summary>
-    /// Reads a complete JSON answer and its token usage without building a document tree: the bytes are passed to
-    /// the client as received. Returns a failure for timeouts and invalid JSON.
-    /// </summary>
-    protected static async Task<ProviderResult> ReadJsonResultAsync(HttpResponseMessage response, CancellationToken timeout, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(response);
-        byte[] buffer;
-        int length;
-        try
-        {
-            (buffer, length) = await ProviderJson.ReadBodyAsync(response.Content, timeout);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return ProviderFailure.Timeout;
-        }
-
-        try
-        {
-            var usage = ProviderJson.ReadUsage(buffer.AsSpan(0, length));
-            return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer);
-        }
-        catch (JsonException)
-        {
-            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-            return ProviderFailure.InvalidJson;
-        }
-    }
-
-    protected static CancellationTokenSource CreateTimeout(ProviderCall call, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(ProviderTransport.RequestTimeout(call.Provider));
-        return cts;
-    }
-
-    protected static async IAsyncEnumerable<SseEvent> StreamEvents(
-        HttpResponseMessage response, Func<SseEvent, IEnumerable<SseEvent>> transform, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(response);
-        ArgumentNullException.ThrowIfNull(transform);
-        await using var stream = Decoded(await response.Content.ReadAsStreamAsync(cancellationToken), response.Content.Headers.ContentEncoding);
-        await foreach (var evt in SseReader.ReadAsync(stream, cancellationToken))
-        {
-            foreach (var output in transform(evt))
-            {
-                yield return output;
-            }
-        }
-    }
-
-    /// <summary>
-    /// The stream client asks for no compression, but an upstream may compress anyway: decode it here rather than hand
-    /// compressed bytes to the SSE reader.
-    /// </summary>
-    internal static Stream Decoded(Stream stream, ICollection<string> contentEncoding) =>
-        contentEncoding.Count == 0 ? stream : contentEncoding.Last().ToLowerInvariant() switch
-        {
-            "gzip" => new System.IO.Compression.GZipStream(stream, System.IO.Compression.CompressionMode.Decompress),
-            "br" => new System.IO.Compression.BrotliStream(stream, System.IO.Compression.CompressionMode.Decompress),
-            "deflate" => new System.IO.Compression.ZLibStream(stream, System.IO.Compression.CompressionMode.Decompress),
-            _ => stream,
-        };
-
-    protected static string Serialize(JsonNode node) => node.ToJsonString(Compact);
-}
 
 /// <summary>
 /// OpenAI-compatible providers: OpenAI, Azure OpenAI (v1 API), Azure AI Foundry, Ollama (/v1), Ollama Cloud,
@@ -240,25 +32,22 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             return await SendImageAsync(call, cancellationToken);
         }
 
-        var timeout = CreateTimeout(call, cancellationToken);
+        // The timeout covers the headers and a complete answer; a stream lives as long as the client is connected.
+        using var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), call.Body, call, timeout, cancellationToken);
         if (failure is not null)
         {
-            timeout.Dispose();
             return failure;
         }
 
         if (!call.Stream)
         {
-            using (timeout)
             using (response)
             {
                 return await ReadJsonResultAsync(response!, timeout.Token, cancellationToken);
             }
         }
 
-        // Streaming: header timeout no longer applies; the stream lives as long as the client is connected.
-        timeout.Dispose();
         var acc = new UsageAccumulator();
         var events = StreamEvents(response!, evt => TransformChunk(evt, acc, call.ClientRequestedStreamUsage), cancellationToken);
         return new ProviderStreamResult(events, acc, response);
@@ -271,59 +60,34 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
     /// </summary>
     private async Task<ProviderResult> SendAudioAsync(ProviderCall call, CancellationToken cancellationToken)
     {
-        var audio = call.Audio!;
-        var timeout = CreateTimeout(call, cancellationToken);
-        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), AudioForm(call.Body, audio), call, timeout, cancellationToken);
+        using var timeout = CreateTimeout(call, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), AudioForm(call.Body, call.Audio!), call, timeout, cancellationToken);
         if (failure is not null)
         {
-            timeout.Dispose();
             return failure;
         }
 
-        var contentType = response!.Content.Headers.ContentType;
-        if (call.Stream && contentType?.MediaType == "text/event-stream")
+        if (call.Stream && response!.Content.Headers.ContentType?.MediaType == "text/event-stream")
         {
-            timeout.Dispose();
             var acc = new UsageAccumulator();
             return new ProviderStreamResult(StreamEvents(response, evt => TransformChunk(evt, acc, clientWantsUsage: true), cancellationToken), acc, response);
         }
 
-        using (timeout)
         using (response)
         {
-            byte[] buffer;
-            int length;
-            try
+            return await ReadCompleteAsync(response!, call.Audio!, static (response, buffer, length, audio) =>
             {
-                (buffer, length) = await ProviderJson.ReadBodyAsync(response.Content, timeout.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                return ProviderFailure.Timeout;
-            }
+                var contentType = response.Content.Headers.ContentType;
+                var json = contentType?.MediaType is null or "application/json" || contentType.MediaType.EndsWith("+json", StringComparison.Ordinal);
+                var (usage, reported) = json ? ProviderJson.ReadTranscriptionUsage(buffer.AsSpan(0, length)) : default;
 
-            var json = contentType?.MediaType is null or "application/json" || contentType.MediaType.EndsWith("+json", StringComparison.Ordinal);
-            TokenUsage usage = default;
-            var reported = false;
-            if (json)
-            {
-                try
-                {
-                    (usage, reported) = ProviderJson.ReadTranscriptionUsage(buffer.AsSpan(0, length));
-                }
-                catch (JsonException)
-                {
-                    System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-                    return ProviderFailure.InvalidJson;
-                }
-            }
-
-            // What the provider did not report is estimated: audio length from the file, transcript from the answer.
-            var estimate = CostCalculator.EstimateTranscription(audio.EstimatedSeconds);
-            usage = reported
-                ? usage with { AudioSeconds = usage.AudioSeconds > 0 ? usage.AudioSeconds : estimate.AudioSeconds }
-                : estimate with { OutputTokens = CostCalculator.EstimateTokens(length) };
-            return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer, json ? null : contentType!.ToString());
+                // What the provider did not report is estimated: audio length from the file, transcript from the answer.
+                var estimate = CostCalculator.EstimateTranscription(audio.EstimatedSeconds);
+                usage = reported
+                    ? usage with { AudioSeconds = usage.AudioSeconds > 0 ? usage.AudioSeconds : estimate.AudioSeconds }
+                    : estimate with { OutputTokens = CostCalculator.EstimateTokens(length) };
+                return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer, json ? null : contentType!.ToString());
+            }, timeout.Token, cancellationToken);
         }
     }
 
@@ -334,41 +98,21 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
     /// </summary>
     private async Task<ProviderResult> SendImageAsync(ProviderCall call, CancellationToken cancellationToken)
     {
-        var timeout = CreateTimeout(call, cancellationToken);
+        using var timeout = CreateTimeout(call, cancellationToken);
         var uri = ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint));
         var (response, failure) = call.Images is { } images
             ? await SendRawAsync(uri, ImageForm(call.Body, images), call, timeout, cancellationToken)
             : await SendRawAsync(uri, call.Body, call, timeout, cancellationToken);
         if (failure is not null)
         {
-            timeout.Dispose();
             return failure;
         }
 
-        using (timeout)
         using (response)
         {
-            byte[] buffer;
-            int length;
-            try
-            {
-                (buffer, length) = await ProviderJson.ReadBodyAsync(response!.Content, timeout.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                return ProviderFailure.Timeout;
-            }
-
-            try
-            {
-                var usage = ProviderJson.ReadImageUsage(buffer.AsSpan(0, length));
-                return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), usage, buffer);
-            }
-            catch (JsonException)
-            {
-                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
-                return ProviderFailure.InvalidJson;
-            }
+            return await ReadCompleteAsync(response!, 0, static (response, buffer, length, _) =>
+                new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), ProviderJson.ReadImageUsage(buffer.AsSpan(0, length)), buffer),
+                timeout.Token, cancellationToken);
         }
     }
 

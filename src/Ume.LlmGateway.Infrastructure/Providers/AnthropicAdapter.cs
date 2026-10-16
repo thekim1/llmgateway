@@ -36,11 +36,11 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
             return new ProviderFailure(400, FailureKind.ClientError, "unsupported_content", error.ToJsonString(), "application/json");
         }
 
-        var timeout = CreateTimeout(call, cancellationToken);
+        // The timeout covers the headers and a complete answer; a stream lives as long as the client is connected.
+        using var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(GatewayEndpoint.AnthropicMessages)), body, call, timeout, cancellationToken);
         if (failure is not null)
         {
-            timeout.Dispose();
             return translate && failure.Body is not null
                 ? new ProviderFailure(failure.StatusCode, failure.Kind, failure.Reason, AnthropicTranslator.ToOpenAIError(failure.Body), "application/json")
                 : failure;
@@ -49,7 +49,6 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         var created = time.GetUtcNow().ToUnixTimeSeconds();
         if (!call.Stream)
         {
-            using (timeout)
             using (response)
             {
                 var result = await ReadJsonResultAsync(response!, timeout.Token, cancellationToken);
@@ -70,7 +69,6 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
             }
         }
 
-        timeout.Dispose();
         var acc = new UsageAccumulator();
         IAsyncEnumerable<SseEvent> events;
         if (translate)
