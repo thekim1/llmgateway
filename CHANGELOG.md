@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+**Budgets in USD.** Budget limits, spend counters and reservations are now in USD, the currency provider prices are in,
+so what a budget allows no longer moves with the exchange rate. The migration `BudgetsInUsd` converts existing limits at
+the current rate (stored alerts at the rate when they were raised). The admin UI shows budgets and alerts in USD; the
+admin API uses `limitUsd` / `spentUsd`; the gateway adds `x-ume-cost-usd` and `x-ume-budget-remaining-usd`, the alert
+webhook `spentUsd` / `limitUsd` and the Data API budgets feed `limitUsd`. The SEK headers and fields stay, converted at
+the exchange rate, until SEK is removed. Not a rolling update: see the [upgrade guide](docs/upgrade-guide.md).
+
+**Error messages in English.** Every message the gateway, admin API and Data API answer with is in English (the admin
+UI no longer marks server messages as Swedish). Error codes are unchanged. In the gateway every refusal is one
+`GatewayError` (status, code, message) from a single catalogue in `GatewayErrors.cs`.
+
+**Admin API internals.** `AdminContext` carries the signed-in user of the request, so department scoping and audit
+entries no longer depend on every endpoint passing the user along; role and claim names are constants (`AdminRoles`,
+`AdminClaims`).
+
 **Updates without downtime (opt-in).** Every service now fails `/health/ready` as soon as it is told to stop and, for the
 new setting `Shutdown__DrainSeconds` (default 0), keeps answering with `Connection: close` before it closes its listener,
 so a load balancer stops sending it requests and a proxy retires its pooled connections without losing a POST. For Docker

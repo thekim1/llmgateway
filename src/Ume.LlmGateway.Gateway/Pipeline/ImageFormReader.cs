@@ -6,10 +6,7 @@ using Ume.LlmGateway.Infrastructure.Providers;
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
 /// <summary>The parsed image edit upload, or the error to answer with.</summary>
-public sealed record ImageForm(JsonObject? Fields, ImageUploads? Images, int Status = 0, string? Code = null, string? Message = null)
-{
-    public bool Failed => Status != 0;
-}
+public sealed record ImageForm(JsonObject? Fields, ImageUploads? Images, GatewayError? Error = null);
 
 /// <summary>
 /// Reads the <c>multipart/form-data</c> body of <c>/v1/images/edits</c> (OpenAI format: one or more pictures in
@@ -30,7 +27,7 @@ public static class ImageFormReader
             || !type.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase)
             || HeaderUtilities.RemoveQuotes(type.Boundary).Value is not { Length: > 0 and <= 200 } boundary)
         {
-            return Error(415, GatewayErrorCodes.UnsupportedMediaType, "Content-Type måste vara multipart/form-data med bilderna i fältet 'image'.");
+            return Error(GatewayError.MultipartRequired("image", "pictures"));
         }
 
         if (request.ContentLength > maxBytes)
@@ -51,14 +48,14 @@ public static class ImageFormReader
                 if (++count > AudioFormReader.MaxFields || !ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition)
                     || !disposition.DispositionType.Equals("form-data", StringComparison.OrdinalIgnoreCase) || HeaderUtilities.RemoveQuotes(disposition.Name).Value is not { Length: > 0 } name)
                 {
-                    return Fail(400, GatewayErrorCodes.InvalidRequest, "Formuläret är inte giltigt multipart/form-data.");
+                    return Fail(GatewayError.InvalidForm);
                 }
 
                 if (disposition.IsFileDisposition())
                 {
                     if (name is not ("image" or "image[]" or "mask") || (name == "mask" && files.Any(f => f.Field == "mask")) || files.Count >= MaxImages + 1)
                     {
-                        return Fail(400, GatewayErrorCodes.InvalidRequest, $"Skicka bilderna i fältet 'image' (högst {MaxImages}) och en eventuell mask i fältet 'mask'.");
+                        return Fail(GatewayError.ImageFields(MaxImages));
                     }
 
                     var fileName = Path.GetFileName(HeaderUtilities.RemoveQuotes(disposition.FileNameStar.HasValue ? disposition.FileNameStar : disposition.FileName).Value);
@@ -76,7 +73,7 @@ public static class ImageFormReader
                 var value = await AudioFormReader.ReadFieldAsync(section.Body, ct);
                 if (value is null)
                 {
-                    return Fail(400, GatewayErrorCodes.InvalidRequest, $"Fältet '{(name.Length > 50 ? name[..50] : name)}' är för stort.");
+                    return Fail(GatewayError.FieldTooLarge(name));
                 }
 
                 AudioFormReader.Add(fields, name, value);
@@ -91,7 +88,7 @@ public static class ImageFormReader
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or BadHttpRequestException)
         {
-            return Fail(400, GatewayErrorCodes.InvalidRequest, "Formuläret är inte giltigt multipart/form-data.");
+            return Fail(GatewayError.InvalidForm);
         }
         catch
         {
@@ -101,16 +98,16 @@ public static class ImageFormReader
 
         if (!files.Any(f => f.Field != "mask"))
         {
-            return Fail(400, GatewayErrorCodes.InvalidRequest, "Bilden saknas. Skicka den i fältet 'image' (png, jpg eller webp).");
+            return Fail(GatewayError.ImageMissing);
         }
 
         return new ImageForm(fields, new ImageUploads(files, pooled));
 
         // Every early exit hands the pooled file buffers back.
-        ImageForm Fail(int status, string code, string message)
+        ImageForm Fail(GatewayError error)
         {
             ReturnAll();
-            return Error(status, code, message);
+            return Error(error);
         }
 
         void ReturnAll()
@@ -125,7 +122,7 @@ public static class ImageFormReader
     }
 
     private static ImageForm TooLarge(long maxBytes) =>
-        Error(413, GatewayErrorCodes.RequestTooLarge, $"Bilderna är för stora (högst {maxBytes / (1024 * 1024)} MB tillsammans). Minska upplösningen eller komprimera dem.");
+        Error(GatewayError.ImagesTooLarge(maxBytes));
 
-    private static ImageForm Error(int status, string code, string message) => new(null, null, status, code, message);
+    private static ImageForm Error(GatewayError error) => new(null, null, error);
 }

@@ -1,4 +1,3 @@
-using System.Security.Claims;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -15,20 +14,20 @@ public static class DataAccessEndpoints
             .WithName("ListDataApiKeys").WithSummary("Data API keys; never their secrets");
         keys.MapGet("/{id:guid}", async (Guid id, DataAccessService service, CancellationToken ct) => TypedResults.Ok(await service.GetAsync(id, ct)))
             .WithName("GetDataApiKey");
-        keys.MapPost("", async (DataApiKeyRequest input, DataAccessService service, ClaimsPrincipal user, CancellationToken ct) =>
+        keys.MapPost("", async (DataApiKeyRequest input, DataAccessService service, CancellationToken ct) =>
         {
-            var created = await service.CreateAsync(user, input, ct);
+            var created = await service.CreateAsync(input, ct);
             return TypedResults.Created($"/api/data-access/keys/{created.Key.Id}", created);
         }).WithName("CreateDataApiKey").WithSummary("Creates a Data API key; the response holds its secret, shown this once");
-        keys.MapPut("/{id:guid}", async (Guid id, DataApiKeyRequest input, DataAccessService service, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await service.UpdateAsync(user, id, input, ct)))
+        keys.MapPut("/{id:guid}", async (Guid id, DataApiKeyRequest input, DataAccessService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.UpdateAsync(id, input, ct)))
             .WithName("UpdateDataApiKey").WithSummary("Changes a key's name, description, permissions or expiry");
-        keys.MapPost("/{id:guid}/revoke", async (Guid id, DataAccessService service, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await service.RevokeAsync(user, id, ct)))
+        keys.MapPost("/{id:guid}/revoke", async (Guid id, DataAccessService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.RevokeAsync(id, ct)))
             .WithName("RevokeDataApiKey").WithSummary("Revokes a key; the Data API refuses it within DataApi:KeyCacheSeconds");
-        keys.MapDelete("/{id:guid}", async (Guid id, DataAccessService service, ClaimsPrincipal user, CancellationToken ct) =>
+        keys.MapDelete("/{id:guid}", async (Guid id, DataAccessService service, CancellationToken ct) =>
         {
-            await service.DeleteAsync(user, id, ct);
+            await service.DeleteAsync(id, ct);
             return TypedResults.NoContent();
         }).WithName("DeleteDataApiKey").WithSummary("Deletes a revoked or expired key");
     }

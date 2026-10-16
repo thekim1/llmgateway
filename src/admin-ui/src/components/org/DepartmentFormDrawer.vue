@@ -15,7 +15,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'saved'
 
 const departments = useDepartmentsStore()
 const ui = useUiStore()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'dept-name',
   costCenterCode: 'dept-code',
 })
@@ -64,7 +64,7 @@ async function submit(): Promise<void> {
 <template>
   <UiDrawer :open="open" :title="department ? 'Edit department' : 'New department'" @update:open="emit('update:open', $event)">
     <form id="department-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <TextField id="dept-name" v-model="name" label="Name" :error="errors.name" hint="Use the official name of the department." />
       <TextField id="dept-code" v-model="costCenterCode" label="Cost center" mono :error="errors.costCenterCode" hint="The ansvarskod that costs are charged to." />
       <CheckField v-if="department" v-model="isActive" label="Active" description="Turn off to retire this department." />

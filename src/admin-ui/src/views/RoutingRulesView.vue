@@ -16,7 +16,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import { useRoutingRulesStore } from '@/stores/routingRules'
 import { useUiStore } from '@/stores/ui'
 import { ROUTING_SCOPE_LABEL } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import { groupRules } from '@/utils/routingRules'
 
 type Filter = 'all' | 'orphaned' | RoutingScope
@@ -184,13 +184,13 @@ onMounted(async () => {
         </p>
       </div>
 
-      <InlineError v-if="toggleError" :title="`Could not switch “${toggleError.name}”`" :message="problemMessage(toggleError.error)" :lang="problemLang(toggleError.error)" />
+      <InlineError v-if="toggleError" :title="`Could not switch “${toggleError.name}”`" :message="problemMessage(toggleError.error)" />
 
       <div class="grid grid-cols-[minmax(280px,360px)_1fr] items-start gap-6 max-lg:grid-cols-1">
         <RuleList :sections="sections" :selected-id="selectedId" :pending-id="pendingId" @select="select" @toggle="setEnabled" />
 
         <div v-if="selected" class="flex min-w-0 flex-col gap-4">
-          <InlineError v-if="actionError" :message="problemMessage(actionError)" :lang="problemLang(actionError)" />
+          <InlineError v-if="actionError" :message="problemMessage(actionError)" />
           <RuleDetail
             ref="detail"
             :rule="selected"

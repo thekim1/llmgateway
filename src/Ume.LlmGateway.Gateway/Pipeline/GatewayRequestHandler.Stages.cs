@@ -28,32 +28,30 @@ public sealed partial class GatewayRequestHandler
             authFailures.Record(string.IsNullOrEmpty(presented) ? AuthFailureReason.MissingKey : AuthFailureReason.InvalidKey,
                 endpoint, null, http.Connection.RemoteIpAddress);
             http.Response.Headers.WWWAuthenticate = "Bearer";
-            await GatewayErrors.WriteAsync(http, endpoint, 401, GatewayErrorCodes.InvalidApiKey,
-                "API-nyckeln saknas eller är ogiltig. Skicka den som 'Authorization: Bearer ume-sk-…'.", docs);
+            await GatewayErrors.WriteAsync(http, endpoint, GatewayError.InvalidApiKey, docs);
             return null;
         }
 
-        var (status, code, message, reason) = key.GetStatus(now) switch
+        var (error, reason) = key.GetStatus(now) switch
         {
-            KeyStatus.Revoked => (401, GatewayErrorCodes.KeyRevoked, "API-nyckeln är återkallad. Använd den nya nyckeln eller be om en ny.", AuthFailureReason.KeyRevoked),
-            KeyStatus.Expired => (401, GatewayErrorCodes.KeyExpired, "API-nyckeln har gått ut. Be administratören att rotera den.", AuthFailureReason.KeyExpired),
-            KeyStatus.Disabled => (403, GatewayErrorCodes.KeyDisabled, "API-nyckeln är tillfälligt inaktiverad.", AuthFailureReason.KeyDisabled),
+            KeyStatus.Revoked => (GatewayError.KeyRevoked, AuthFailureReason.KeyRevoked),
+            KeyStatus.Expired => (GatewayError.KeyExpired, AuthFailureReason.KeyExpired),
+            KeyStatus.Disabled => (GatewayError.KeyDisabled, AuthFailureReason.KeyDisabled),
             _ when key.Team is not { IsActive: true } || key.Team.Department is not { IsActive: true }
-                => (403, GatewayErrorCodes.KeyDisabled, "Teamet eller förvaltningen som äger nyckeln är inaktiverad.", AuthFailureReason.OwnerInactive),
-            _ => (0, string.Empty, string.Empty, default),
+                => (GatewayError.KeyOwnerInactive, AuthFailureReason.OwnerInactive),
+            _ => (null, default),
         };
 
         // After the status checks, so a revoked key is reported as revoked from wherever it is used.
-        if (status == 0 && !key.IsAddressAllowed(http.Connection.RemoteIpAddress))
+        if (error is null && !key.IsAddressAllowed(http.Connection.RemoteIpAddress))
         {
-            (status, code, message, reason) = (403, GatewayErrorCodes.AddressNotAllowed,
-                "API-nyckeln får inte användas från den här adressen. Be administratören lägga till adressen på nyckeln.", AuthFailureReason.AddressNotAllowed);
+            (error, reason) = (GatewayError.AddressNotAllowed, AuthFailureReason.AddressNotAllowed);
         }
 
-        if (status != 0)
+        if (error is not null)
         {
             authFailures.Record(reason, endpoint, key, http.Connection.RemoteIpAddress);
-            await GatewayErrors.WriteAsync(http, endpoint, status, code, message, docs);
+            await GatewayErrors.WriteAsync(http, endpoint, error, docs);
             return null;
         }
 
@@ -77,8 +75,7 @@ public sealed partial class GatewayRequestHandler
 
         var retryAfter = Math.Max(1, (int)Math.Ceiling(rate.RetryAfter.TotalSeconds));
         http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
-        var what = rate.Reason == "tokens" ? "token per minut" : "anrop per minut";
-        await RejectAsync(http, state, 429, GatewayErrorCodes.RateLimited, $"Gränsen för {what} är nådd för nyckeln. Försök igen om {retryAfter} s.", RequestOutcome.RateLimited);
+        await RejectAsync(http, state, GatewayError.RateLimited(rate.Reason == "tokens", retryAfter), RequestOutcome.RateLimited);
         return false;
     }
 
@@ -112,14 +109,14 @@ public sealed partial class GatewayRequestHandler
         var plan = router.Plan(snapshot, key, state.Endpoint, model, requested, routing);
         if (plan.Rejection is { } planRejection)
         {
-            await RejectAsync(http, state, planRejection);
+            await RejectAsync(http, state, planRejection, RequestOutcome.Rejected);
             return null;
         }
 
         var selection = await router.SelectCandidatesAsync(plan.Models, key, state.Endpoint, restrictTo, stream, ct, prefetch);
         if (selection.Rejection is { } selectionRejection)
         {
-            await RejectAsync(http, state, selectionRejection);
+            await RejectAsync(http, state, selectionRejection, RequestOutcome.Rejected);
             return null;
         }
 
@@ -127,17 +124,17 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>
-    /// Reserves <paramref name="estimateSek"/> against every applicable budget and reports what remains in
-    /// <c>x-ume-budget-remaining-sek</c>. Null when a budget is exhausted (the 402 has been written).
+    /// Reserves <paramref name="estimateUsd"/> against every applicable budget and reports what remains in
+    /// <c>x-ume-budget-remaining-usd</c>. Null when a budget is exhausted (the 402 has been written).
     /// </summary>
     private async Task<BudgetReservation?> TryReserveAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, IReadOnlyList<Budget> applicable,
-        decimal estimateSek, CancellationToken ct)
+        decimal estimateUsd, CancellationToken ct)
     {
-        var reservation = await budgets.ReserveAsync(applicable, estimateSek, ct);
+        var reservation = await budgets.ReserveAsync(applicable, estimateUsd, ct);
         state.Reservation = reservation;
-        if (reservation.RemainingSek is { } remainingBefore)
+        if (reservation.RemainingUsd is { } remainingBefore)
         {
-            http.Response.Headers[GatewayHeaders.BudgetRemainingSek] = FormatSek(remainingBefore);
+            SetBudgetRemainingHeaders(http, remainingBefore, snapshot);
         }
 
         if (reservation.Allowed)
@@ -145,8 +142,7 @@ public sealed partial class GatewayRequestHandler
             return reservation;
         }
 
-        await RejectAsync(http, state, 402, GatewayErrorCodes.BudgetExceeded,
-            BudgetExceededMessage(reservation.Exceeded!.Budget, "Kontakta budgetansvarig."), RequestOutcome.BudgetExceeded);
+        await RejectAsync(http, state, GatewayError.BudgetExceeded(reservation.Exceeded!.Budget, "Contact the budget owner."), RequestOutcome.BudgetExceeded);
         return null;
     }
 
@@ -200,13 +196,11 @@ public sealed partial class GatewayRequestHandler
         }
     }
 
-    private Task RejectAsync(HttpContext http, RequestState state, RouteRejection rejection) =>
-        RejectAsync(http, state, rejection.StatusCode, rejection.Code, rejection.Message, RequestOutcome.Rejected);
-
-    private async Task RejectAsync(HttpContext http, RequestState state, int status, string code, string message, RequestOutcome outcome)
+    /// <summary>Answers with <paramref name="error"/> and accounts the refused request.</summary>
+    private async Task RejectAsync(HttpContext http, RequestState state, GatewayError error, RequestOutcome outcome)
     {
-        await GatewayErrors.WriteAsync(http, state.Endpoint, status, code, message, options.CurrentValue.DocsUrl);
-        await AccountAsync(state, null, default, status, outcome, code, null);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await AccountAsync(state, null, default, error.StatusCode, outcome, error.Code, null);
     }
 
     /// <summary>
@@ -217,10 +211,9 @@ public sealed partial class GatewayRequestHandler
     {
         state.Fallbacks = Math.Max(0, candidates - 1);
         http.Response.Headers[GatewayHeaders.Fallbacks] = state.Fallbacks.ToString(CultureInfo.InvariantCulture);
-        var status = lastFailure?.StatusCode == 504 ? 504 : 502;
-        await GatewayErrors.WriteAsync(http, state.Endpoint, status, GatewayErrorCodes.AllProvidersFailed,
-            $"Alla {candidates} leverantörer för '{modelName}' misslyckades. Senaste fel: {lastFailure?.Reason ?? "okänt"}.", options.CurrentValue.DocsUrl);
-        await AccountAsync(state, state.Deployment, default, status, RequestOutcome.ProviderError, GatewayErrorCodes.AllProvidersFailed, null);
+        var error = GatewayError.AllProvidersFailed(lastFailure?.StatusCode == 504, candidates, modelName, lastFailure?.Reason);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await AccountAsync(state, state.Deployment, default, error.StatusCode, RequestOutcome.ProviderError, error.Code, null);
     }
 
     /// <summary>
@@ -244,20 +237,8 @@ public sealed partial class GatewayRequestHandler
             return false;
         }
 
-        await GatewayErrors.WriteAsync(http, state.Endpoint, 500, GatewayErrorCodes.InternalError,
-            "Ett internt fel uppstod i gatewayen. Försök igen; om felet kvarstår, kontakta förvaltningen och ange request-id.", options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, GatewayError.InternalError, options.CurrentValue.DocsUrl);
         return true;
-    }
-
-    private static string BudgetExceededMessage(Budget budget, string action)
-    {
-        var scope = budget.Scope switch
-        {
-            BudgetScope.Department => "Förvaltningens",
-            BudgetScope.Team => "Teamets",
-            _ => "Nyckelns",
-        };
-        return $"{scope} budget ({budget.LimitSek:0.##} kr per {PeriodName(budget.Period)}) är förbrukad. {action}";
     }
 
     private static void SetRoutingHeaders(HttpContext http, ModelDeployment deployment, int fallbacks)
@@ -339,23 +320,12 @@ public sealed partial class GatewayRequestHandler
         };
     }
 
-    private static readonly (AttachmentKinds Kind, string Name)[] AttachmentKindNames =
-        [(AttachmentKinds.Image, "bilder"), (AttachmentKinds.Document, "dokument"), (AttachmentKinds.Audio, "ljudfiler"), (AttachmentKinds.Video, "videofiler")];
-
-    private static string AttachmentNames(AttachmentKinds kinds) =>
-        string.Join(" eller ", AttachmentKindNames.Where(n => kinds.HasFlag(n.Kind)).Select(n => n.Name));
-
-    private static string FormatSek(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
-
-    private static string PeriodName(BudgetPeriod period) => period switch
+    /// <summary>The remaining budget in USD, and in SEK at the snapshot's rate for clients that still read the SEK header.</summary>
+    private static void SetBudgetRemainingHeaders(HttpContext http, decimal remainingUsd, CatalogSnapshot snapshot)
     {
-        BudgetPeriod.Hourly => "timme",
-        BudgetPeriod.Daily => "dag",
-        BudgetPeriod.Weekly => "vecka",
-        BudgetPeriod.Monthly => "månad",
-        BudgetPeriod.Quarterly => "kvartal",
-        _ => "år",
-    };
+        http.Response.Headers[GatewayHeaders.BudgetRemainingUsd] = remainingUsd.ToString("0.00", CultureInfo.InvariantCulture);
+        http.Response.Headers[GatewayHeaders.BudgetRemainingSek] = (remainingUsd * snapshot.SekPerUsd).ToString("0.00", CultureInfo.InvariantCulture);
+    }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: provider {Provider} failed with {Status} ({Reason}); trying next")]
     private static partial void LogProviderFailed(ILogger logger, string requestId, string provider, int status, string reason);

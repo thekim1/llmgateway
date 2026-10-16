@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useOpsStore } from '@/stores/ops'
 import { PROVIDER_STATUS, SCOPE_LABEL, plural } from '@/utils/labels'
-import { formatMs, formatNumber, formatPercent, formatSek, startOfMonthIso } from '@/utils/format'
+import { formatMs, formatNumber, formatPercent, formatSek, formatUsdCost, startOfMonthIso } from '@/utils/format'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import AttentionCard from '@/components/ui/AttentionCard.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
@@ -61,9 +61,9 @@ const attentionCount = computed(() => openAlerts.value.length + openCircuits.val
 
 const budgetPercent = computed(() => {
   const active = budgets.items.filter((b) => b.isActive && b.scope === 'Department')
-  const limit = active.reduce((sum, b) => sum + b.limitSek, 0)
+  const limit = active.reduce((sum, b) => sum + b.limitUsd, 0)
   if (limit <= 0) return null
-  return (active.reduce((sum, b) => sum + b.spentSek, 0) / limit) * 100
+  return (active.reduce((sum, b) => sum + b.spentUsd, 0) / limit) * 100
 })
 
 const errorRate = computed(() => {
@@ -105,7 +105,7 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
           icon="payments"
           tone="warn"
           :title="alert.scopeName"
-          :body="`${SCOPE_LABEL[alert.scope]} budget passed ${alert.thresholdPercent}%: ${formatSek(alert.spentSek)} of ${formatSek(alert.limitSek)}.`"
+          :body="`${SCOPE_LABEL[alert.scope]} budget passed ${alert.thresholdPercent}%: ${formatUsdCost(alert.spentUsd)} of ${formatUsdCost(alert.limitUsd)}.`"
           action="Review"
           @action="router.push({ name: 'budgets' })"
         />

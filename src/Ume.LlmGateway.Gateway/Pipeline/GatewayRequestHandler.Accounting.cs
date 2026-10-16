@@ -42,10 +42,14 @@ public sealed partial class GatewayRequestHandler
             try
             {
                 // Issued together so a shared store pipelines them into a single round trip.
-                var commit = state.Reservation is { } reservation ? budgets.CommitAsync(reservation, cost.Sek, stores.Token) : Task.FromResult(alerts);
+                var commit = state.Reservation is { } reservation ? budgets.CommitAsync(reservation, cost.Usd, stores.Token) : Task.FromResult(alerts);
                 var tokens = usage.Total > 0 ? rateLimiter.RecordTokensAsync(key.Id, usage.Total, stores.Token) : Task.CompletedTask;
                 await Task.WhenAll(commit, tokens);
                 alerts = await commit;
+                if (alerts.Count > 0 && snapshot is not null)
+                {
+                    alerts = [.. alerts.Select(a => a with { SekPerUsd = snapshot.SekPerUsd })];
+                }
             }
             catch (OperationCanceledException)
             {

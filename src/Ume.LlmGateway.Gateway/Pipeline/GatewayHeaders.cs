@@ -15,10 +15,16 @@ public static class GatewayHeaders
     /// <summary>Providers tried before the one that answered (or all of them, when every one failed).</summary>
     public const string Fallbacks = "x-ume-fallbacks";
 
-    /// <summary>Cost of the request in SEK (complete JSON answers only).</summary>
+    /// <summary>Cost of the request in USD, the currency it is calculated in (complete JSON answers only).</summary>
+    public const string CostUsd = "x-ume-cost-usd";
+
+    /// <summary>Smallest remaining amount over the budgets that apply, in USD.</summary>
+    public const string BudgetRemainingUsd = "x-ume-budget-remaining-usd";
+
+    /// <summary><see cref="CostUsd"/> in SEK at the current exchange rate (display only; to be removed with SEK).</summary>
     public const string CostSek = "x-ume-cost-sek";
 
-    /// <summary>Smallest remaining amount over the budgets that apply, in SEK.</summary>
+    /// <summary><see cref="BudgetRemainingUsd"/> in SEK at the current exchange rate (display only; to be removed with SEK).</summary>
     public const string BudgetRemainingSek = "x-ume-budget-remaining-sek";
 
     /// <summary>Ids of the routing rules that decided where the request went, comma separated.</summary>

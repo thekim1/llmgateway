@@ -16,7 +16,7 @@ public sealed class RoutingSignalsTests(GatewayFixture fixture)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static Budget TeamBudget(Guid teamId, decimal limit) =>
-        new() { Scope = BudgetScope.Team, ScopeId = teamId, LimitSek = limit, Period = BudgetPeriod.Daily, CreatedAt = DateTimeOffset.UtcNow };
+        new() { Scope = BudgetScope.Team, ScopeId = teamId, LimitUsd = limit, Period = BudgetPeriod.Daily, CreatedAt = DateTimeOffset.UtcNow };
 
     private BudgetService Service(ISpendLedger ledger, TimeProvider? time = null) =>
         new(ledger, fixture.Services.GetRequiredService<IServiceScopeFactory>(), time ?? TimeProvider.System);
@@ -49,7 +49,7 @@ public sealed class RoutingSignalsTests(GatewayFixture fixture)
         var ledger = new InMemorySpendLedger();
         var service = Service(ledger);
         var roomy = TeamBudget(Guid.NewGuid(), 1000m);
-        var tight = new Budget { Scope = BudgetScope.Department, ScopeId = Guid.NewGuid(), LimitSek = 10m, Period = BudgetPeriod.Monthly, CreatedAt = DateTimeOffset.UtcNow };
+        var tight = new Budget { Scope = BudgetScope.Department, ScopeId = Guid.NewGuid(), LimitUsd = 10m, Period = BudgetPeriod.Monthly, CreatedAt = DateTimeOffset.UtcNow };
         var now = DateTimeOffset.UtcNow;
         await ledger.InitializeAsync(SpendCounter.KeyFor(roomy.Scope, roomy.ScopeId, roomy.Period, BudgetPeriods.GetWindow(roomy.Period, now).Start), 100_000_000, TimeSpan.FromDays(2), Ct); // 10 %
         await ledger.InitializeAsync(SpendCounter.KeyFor(tight.Scope, tight.ScopeId, tight.Period, BudgetPeriods.GetWindow(tight.Period, now).Start), 8_000_000, TimeSpan.FromDays(40), Ct); // 80 %
@@ -89,7 +89,7 @@ public sealed class RoutingSignalsTests(GatewayFixture fixture)
             db.UsageRecords.Add(new UsageRecord
             {
                 RequestId = requestId, RequestedModel = "m", Timestamp = DateTimeOffset.UtcNow, TeamId = teamId,
-                VirtualKeyId = Guid.NewGuid(), DepartmentId = Guid.NewGuid(), CostSek = 40m,
+                VirtualKeyId = Guid.NewGuid(), DepartmentId = Guid.NewGuid(), CostUsd = 40m,
             });
             await db.SaveChangesAsync(Ct);
         }

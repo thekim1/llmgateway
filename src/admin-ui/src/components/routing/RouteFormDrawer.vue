@@ -28,7 +28,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'saved'
 const routes = useRoutesStore()
 const models = useModelsStore()
 const ui = useUiStore()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'route-name',
   description: 'route-desc',
   kind: 'route-kind',
@@ -117,7 +117,7 @@ async function submit(): Promise<void> {
 <template>
   <UiDrawer wide :open="open" :title="route ? 'Edit route' : 'New route'" @update:open="emit('update:open', $event)">
     <form id="route-form" class="flex flex-col gap-6" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <TextField id="route-name" v-model="name" label="Name" mono :error="errors.name" hint="The model name clients put in their requests." />
       <TextField id="route-desc" v-model="description" label="Description" hint="Optional." :error="errors.description" />
       <SelectField id="route-kind" v-model="kind" label="Kind" :options="kindOptions" :error="errors.kind" />

@@ -5,7 +5,7 @@ import { useRuleOwners } from '@/composables/useRuleOwners'
 import { useRoutingRulesStore } from '@/stores/routingRules'
 import { useUiStore } from '@/stores/ui'
 import { ROUTING_SCOPE_HINT, ROUTING_SCOPE_LABEL, ROUTING_SCOPE_PLURAL } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import CheckField from '../ui/CheckField.vue'
 import InlineError from '../ui/InlineError.vue'
 import SegmentedControl from '../ui/SegmentedControl.vue'
@@ -79,7 +79,7 @@ async function submit(): Promise<void> {
       <span class="font-medium">{{ rule?.name }}</span> keeps its condition, targets and order. Only who it applies to changes.
     </template>
     <form id="reassign-form" class="flex flex-col gap-4" novalidate @submit.prevent="submit">
-      <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+      <InlineError v-if="error" :message="problemMessage(error)" />
       <SegmentedControl :model-value="scope" label="Applies to" mode="radio" :options="scopeOptions" @update:model-value="setScope($event)" />
       <p class="-mt-2 text-small text-fg-3">{{ ROUTING_SCOPE_HINT[scope] }}</p>
       <OwnerPicker v-if="scope !== 'Global'" id="reassign-owner" v-model="scopeIds" :label="ROUTING_SCOPE_PLURAL[scope]" :options="owners.options.value" :error="ownerError" />

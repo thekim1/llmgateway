@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import type { KeyRotationMode, RotateKeyResponse, VirtualKey } from '@/api/types'
 import { useKeysStore } from '@/stores/keys'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import InlineError from '@/components/ui/InlineError.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -74,7 +74,7 @@ async function rotate(): Promise<void> {
         </label>
       </fieldset>
       <p class="text-small text-fg-3">Budgets and spend carry over to the new key.</p>
-      <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+      <InlineError v-if="error" :message="problemMessage(error)" />
     </form>
     <template #actions>
       <UiButton :disabled="busy" @click="emit('update:open', false)">Cancel</UiButton>

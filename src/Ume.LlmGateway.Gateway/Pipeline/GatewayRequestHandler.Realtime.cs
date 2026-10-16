@@ -38,24 +38,21 @@ public sealed partial class GatewayRequestHandler
         state.Key = key;
         if (!http.WebSockets.IsWebSocketRequest)
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest,
-                "Endpointen kräver en WebSocket-anslutning: wss://…/v1/realtime?model=<alias>.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.WebSocketRequired, RequestOutcome.Rejected);
             return;
         }
 
         var model = http.Request.Query["model"].ToString();
         if (string.IsNullOrWhiteSpace(model))
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest,
-                "Parametern 'model' saknas. Anslut med ?model=<alias>, t.ex. 'ume/live-transcribe'.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.SessionModelMissing, RequestOutcome.Rejected);
             return;
         }
 
         state.RequestedModel = ModelNames.Truncate(model);
         if (AttachmentScanner.Disallowed(key.AttachmentPolicy, AttachmentKinds.Audio) is var refused and not AttachmentKinds.None)
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.AttachmentNotAllowed,
-                $"Nyckeln tillåter inte {AttachmentNames(refused)}, och en realtidssession skickar ljud.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.SessionAudioNotAllowed(refused), RequestOutcome.Rejected);
             return;
         }
 
@@ -63,7 +60,7 @@ public sealed partial class GatewayRequestHandler
         var resolution = router.ResolveModel(snapshot, key, endpoint, model);
         if (resolution.Rejection is { } modelRejection)
         {
-            await RejectAsync(http, state, modelRejection);
+            await RejectAsync(http, state, modelRejection, RequestOutcome.Rejected);
             return;
         }
 
@@ -91,8 +88,7 @@ public sealed partial class GatewayRequestHandler
         // A slot per open session, shared across instances; it expires by itself if this instance dies.
         if (!await TryOpenSessionAsync(key.Id, state.RequestId, settings.MaxSessionsPerKey, settings.SessionSlotLifetime, ct))
         {
-            await RejectAsync(http, state, 429, GatewayErrorCodes.RateLimited,
-                $"Nyckeln har redan {settings.MaxSessionsPerKey} öppna realtidssessioner. Stäng en session och försök igen.", RequestOutcome.RateLimited);
+            await RejectAsync(http, state, GatewayError.TooManySessions(settings.MaxSessionsPerKey), RequestOutcome.RateLimited);
             return;
         }
 
@@ -122,7 +118,7 @@ public sealed partial class GatewayRequestHandler
 
         // Budget: a block of minutes is reserved now and topped up while the session runs.
         var block = CostCalculator.EstimateRealtime(settings.ReserveMinutes * 60m);
-        var estimate = candidates.Max(t => CostCalculator.Calculate(block, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
+        var estimate = candidates.Max(t => CostCalculator.Calculate(block, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
         var applicable = BudgetService.ApplicableBudgets(snapshot, key);
         var reservation = await TryReserveAsync(http, state, snapshot, applicable, estimate, ct);
         if (reservation is null)
@@ -178,8 +174,7 @@ public sealed partial class GatewayRequestHandler
                 if (!failure.CanFallBack)
                 {
                     SetRoutingHeaders(http, target, i);
-                    await GatewayErrors.WriteAsync(http, endpoint, failure.StatusCode, GatewayErrorCodes.ProviderRejected,
-                        $"Leverantören avvisade sessionen ({failure.StatusCode}). Kontrollera parametrarna i anslutningsadressen.", options.CurrentValue.DocsUrl);
+                    await GatewayErrors.WriteAsync(http, endpoint, GatewayError.SessionRejectedByProvider(failure.StatusCode), options.CurrentValue.DocsUrl);
                     await AccountAsync(state, target, default, failure.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
                     return;
                 }
@@ -222,9 +217,9 @@ public sealed partial class GatewayRequestHandler
             var sessionMeter = meter = new RealtimeMeter();
             var sessionPrice = price = deployment.PriceAt(now);
             var started = time.GetTimestamp();
-            var reservedSek = estimate;
-            var blockSek = CostCalculator.Calculate(block, sessionPrice, snapshot.SekPerUsd).Sek;
-            var intervalSek = CostCalculator.Calculate(CostCalculator.EstimateRealtime(settings.BudgetCheckSeconds), sessionPrice, snapshot.SekPerUsd).Sek;
+            var reservedUsd = estimate;
+            var blockUsd = CostCalculator.Calculate(block, sessionPrice, snapshot.SekPerUsd).Usd;
+            var intervalUsd = CostCalculator.Calculate(CostCalculator.EstimateRealtime(settings.BudgetCheckSeconds), sessionPrice, snapshot.SekPerUsd).Usd;
 
             async Task<RealtimeStop?> CheckAsync(CancellationToken token)
             {
@@ -239,26 +234,25 @@ public sealed partial class GatewayRequestHandler
 
                 if (time.GetElapsedTime(started) >= TimeSpan.FromMinutes(settings.MaxSessionMinutes))
                 {
-                    return new RealtimeStop(RealtimeEndReason.TimeLimit, "session_time_limit",
-                        $"Sessionen har nått maxlängden {settings.MaxSessionMinutes} minuter. Anslut igen för att fortsätta.", WebSocketCloseStatus.NormalClosure);
+                    return new RealtimeStop(RealtimeEndReason.TimeLimit, GatewayError.SessionTimeLimit(settings.MaxSessionMinutes), WebSocketCloseStatus.NormalClosure);
                 }
 
-                if (reservation.Checks.Count == 0 || SessionCost(sessionMeter, sessionPolicy, sessionPrice, snapshot).Sek + intervalSek <= reservedSek)
+                if (reservation.Checks.Count == 0 || SessionCost(sessionMeter, sessionPolicy, sessionPrice, snapshot).Usd + intervalUsd <= reservedUsd)
                 {
                     return null;
                 }
 
                 try
                 {
-                    var more = await budgets.ReserveAsync(applicable, blockSek, token);
+                    var more = await budgets.ReserveAsync(applicable, blockUsd, token);
                     if (!more.Allowed)
                     {
-                        return new RealtimeStop(RealtimeEndReason.BudgetExceeded, GatewayErrorCodes.BudgetExceeded,
-                            BudgetExceededMessage(more.Exceeded!.Budget, "Sessionen avslutas."), WebSocketCloseStatus.PolicyViolation);
+                        return new RealtimeStop(RealtimeEndReason.BudgetExceeded,
+                            GatewayError.BudgetExceeded(more.Exceeded!.Budget, "The session is ending."), WebSocketCloseStatus.PolicyViolation);
                     }
 
                     extra.Add(more);
-                    reservedSek += blockSek;
+                    reservedUsd += blockUsd;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

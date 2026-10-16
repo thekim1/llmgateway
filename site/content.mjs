@@ -105,7 +105,7 @@ export const PROOF = [
 
 export const PILLARS = [
   { icon: 'shield_lock', tone: 'ok', title: 'Personal data stays where it should', body: 'Detect Swedish personnummer, samordningsnummer, emails, phone numbers and IBANs, then block, redact or keep the request on-prem.', points: ['Per-key PII policy', 'Residency limits: on-prem, EU, external', 'Prompts and responses never stored'] },
-  { icon: 'savings', tone: 'accent', title: 'Budgets, not surprises', body: 'Set limits per department, team and key. Alerts fire at your thresholds and requests stop when a budget runs out.', points: ['Monthly, weekly or quarterly periods', 'Cost centres per department', 'Exports for finance and BI'] },
+  { icon: 'savings', tone: 'accent', title: 'Budgets, not surprises', body: 'Set limits per department, team and key. Alerts fire at your thresholds and requests stop when a budget runs out.', points: ['Monthly, weekly or quarterly periods', 'Limits in USD, like provider prices', 'Exports for finance and BI'] },
   { icon: 'electric_bolt', tone: 'warn', title: 'Keeps working when a provider doesn\'t', body: 'Ordered fallback within the allowed residencies. A circuit breaker moves a failing provider to the back of the line.', points: ['Retries only what is safe to retry', 'Never falls back mid-stream', 'Health visible in the admin UI'] },
 ]
 

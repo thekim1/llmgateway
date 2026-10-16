@@ -57,7 +57,10 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Provider failures carry a `FailureKind`: only `Transient` counts toward the circuit breaker; `ClientError` is answered without fallback.
   - Every accepted gateway request is accounted exactly once (`AccountAsync`); new failure paths must go through it.
   - Admin API endpoints stay thin; logic belongs in the services (`RoutingRuleService`, `ProviderCatalogService`, `BudgetAdminService`,
-    `ConfigTransferService`, `OwnerScopeResolver`). Throw `ApiFaultException` (Swedish message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
+    `ConfigTransferService`, `OwnerScopeResolver`). `AdminContext` carries the signed-in user (`ctx.Keys()`, `ctx.Teams()`, `ctx.Actor`, `ctx.SaveAsync(...)`):
+    never pass a `ClaimsPrincipal` around. Throw `ApiFaultException` (English message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
+  - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
+  - Budgets, spend counters and reservations are in USD; SEK appears only as display amounts (usage records' `CostSek`, the `-sek` headers).
   - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
   - Options are validated on start (DataAnnotations/`IValidatableObject`); add a range or `[Required]` with each new setting.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.

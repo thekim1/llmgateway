@@ -21,10 +21,10 @@ builder.AddGatewaySecurity();
 builder.AddGatewayStores();
 builder.AddUmeWebDefaults(maxRequestBodySize: 1024 * 1024, errors =>
 {
-    errors.Title = "Åtgärden kunde inte utföras";
+    errors.Title = "The action could not be completed";
     // Concurrent edits and unique or foreign key violations are the caller's to resolve, not internal errors.
     errors.Translators.Add(exception => exception is DbUpdateConcurrencyException or DbUpdateException { InnerException: PostgresException { SqlState: "23505" or "23503" } }
-        ? new ApiFaultException(StatusCodes.Status409Conflict, "Ändringen krockar med befintliga uppgifter.")
+        ? new ApiFaultException(StatusCodes.Status409Conflict, "The change conflicts with existing data.")
         : null);
 });
 builder.Services.AddOptions<AdminOptions>().BindConfiguration(AdminOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
@@ -47,14 +47,14 @@ builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
 builder.Services.AddRateLimiter(o =>
 {
     o.AddPolicy("admin", http => RateLimitPartition.GetFixedWindowLimiter(
-        http.User.FindFirst("sub")?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        http.User.FindFirst(AdminClaims.Subject)?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = http.RequestServices.GetRequiredService<IOptions<AdminOptions>>().Value.RequestsPerMinute,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
         }));
-    o.RejectWithProblem("För många anrop. Vänta en minut.");
+    o.RejectWithProblem("Too many requests. Wait a minute.");
 });
 builder.Services.AddAntiforgery(o =>
 {
@@ -119,9 +119,9 @@ builder.Services.AddAuthentication(o =>
 });
 builder.Services.AddAuthorization(o =>
 {
-    o.AddPolicy("admin", p => p.RequireRole("gateway-admin"));
-    o.AddPolicy("manage", p => p.RequireRole("gateway-admin", "department-admin"));
-    o.AddPolicy("read", p => p.RequireRole("gateway-admin", "department-admin", "viewer"));
+    o.AddPolicy("admin", p => p.RequireRole(AdminRoles.GatewayAdmin));
+    o.AddPolicy("manage", p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin));
+    o.AddPolicy("read", p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
 });
 // Read from the validated options when the handler is first used, not while services are registered.
 builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme).Configure<IOptions<OidcOptions>>((o, oidc) =>
@@ -142,7 +142,7 @@ app.UseUmeSecurityHeaders(o =>
     o.NoStorePrefixes.Add("/api");
     o.NoStorePrefixes.Add("/bff");
 });
-app.UseProblemDetailsForEmptyErrors("Åtgärden kunde inte utföras");
+app.UseProblemDetailsForEmptyErrors("The action could not be completed");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

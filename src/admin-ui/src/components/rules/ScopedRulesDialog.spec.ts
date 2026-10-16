@@ -51,11 +51,11 @@ describe('ScopedRulesDialog', () => {
   })
 
   it('keeps the dialog open and shows the server’s message when the delete fails', async () => {
-    const action = vi.fn().mockRejectedValue(new ApiError(409, 'DELETE', { detail: 'Teamet har nycklar och kan inte tas bort.' }))
+    const action = vi.fn().mockRejectedValue(new ApiError(409, 'DELETE', { detail: 'The team has keys and cannot be deleted.' }))
     const { wrapper } = mountDialog(action)
     await button(wrapper, 'Delete team, deactivate').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[role="alert"]').text()).toContain('Teamet har nycklar')
+    expect(wrapper.find('[role="alert"]').text()).toContain('The team has keys')
     expect(wrapper.emitted('update:open')).toBeUndefined()
   })
 

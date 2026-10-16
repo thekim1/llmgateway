@@ -51,7 +51,7 @@ const ids = {
   requestsPerMinute: 'key-rpm',
   tokensPerMinute: 'key-tpm',
 } as const
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors(ids)
+const { errors, formError, clear, validate, applyServerError } = useFormErrors(ids)
 
 const values = reactive({
   teamId: '',
@@ -231,7 +231,7 @@ async function submit(): Promise<void> {
   >
     <AsyncState :loading="teams.loading" :error="teams.error" :empty="false" @retry="teams.load()">
       <form id="key-form" class="flex flex-col gap-8" novalidate @submit.prevent="submit">
-        <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+        <InlineError v-if="formError" :message="formError" />
 
         <FieldGroup legend="Basics">
           <SelectField

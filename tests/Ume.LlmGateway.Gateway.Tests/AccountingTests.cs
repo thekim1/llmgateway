@@ -72,7 +72,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
     public async Task Alerts_are_raised_once_per_budget_period_and_threshold_across_batches()
     {
         var key = await fixture.CreateKeyAsync();
-        var budget = new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitSek = 10, Period = BudgetPeriod.Monthly };
+        var budget = new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitUsd = 10, Period = BudgetPeriod.Monthly };
         var window = BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow);
         var writer = fixture.Services.GetRequiredService<UsageWriter>();
         foreach (var spent in new[] { 5.5m, 6m })
@@ -83,7 +83,40 @@ public sealed class AccountingTests(GatewayFixture fixture)
 
         using var scope = fixture.Services.CreateScope();
         var alerts = await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().AlertEvents.Where(a => a.BudgetId == budget.Id).ToListAsync(Ct);
-        alerts.ShouldHaveSingleItem().SpentSek.ShouldBe(5.5m);
+        alerts.ShouldHaveSingleItem().SpentUsd.ShouldBe(5.5m);
+    }
+
+    [Fact]
+    public async Task Alert_webhook_gets_the_amounts_in_USD_and_in_SEK_at_the_rate_when_the_alert_was_raised()
+    {
+        var received = new TaskCompletionSource<JsonNode>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var gateway = fixture.Derive(services =>
+        {
+            services.PostConfigure<GatewayOptions>(o => o.AlertWebhookUrl = new Uri("https://hooks.test/alerts"));
+            services.AddHttpClient(AlertNotifier.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => new CapturingHandler(received));
+        });
+        var key = await fixture.CreateKeyAsync();
+        var budget = new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitUsd = 10, Period = BudgetPeriod.Monthly };
+        var window = BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow);
+        var writer = gateway.Services.GetRequiredService<UsageWriter>();
+
+        await writer.EnqueueAsync(new UsageWork(Record(key), [new AlertCandidate(budget, window, 80, 8.5m) { SekPerUsd = 9.5m }]), Ct);
+        await writer.FlushAsync(Ct);
+
+        var payload = await received.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        payload["type"]!.GetValue<string>().ShouldBe("budget_threshold");
+        payload["thresholdPercent"]!.GetValue<int>().ShouldBe(80);
+        (payload["spentUsd"]!.GetValue<decimal>(), payload["limitUsd"]!.GetValue<decimal>()).ShouldBe((8.5m, 10m));
+        (payload["spentSek"]!.GetValue<decimal>(), payload["limitSek"]!.GetValue<decimal>()).ShouldBe((80.75m, 95m));
+    }
+
+    private sealed class CapturingHandler(TaskCompletionSource<JsonNode> received) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            received.TrySetResult(JsonNode.Parse(await request.Content!.ReadAsStringAsync(cancellationToken))!);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
     }
 
     [Fact]

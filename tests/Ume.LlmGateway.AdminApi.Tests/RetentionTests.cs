@@ -95,7 +95,7 @@ public sealed class RetentionTests(AdminFixture fixture)
             db.AlertEvents.Add(new AlertEvent
             {
                 BudgetId = Guid.NewGuid(), Scope = BudgetScope.VirtualKey, ScopeId = keyId, PeriodStart = now.AddDays(-500), ThresholdPercent = 80,
-                SpentSek = 80, LimitSek = 100, Timestamp = now.AddDays(-480),
+                SpentUsd = 80, LimitUsd = 100, Timestamp = now.AddDays(-480),
             });
             db.AuditLog.Add(new AuditLogEntry { Timestamp = now.AddDays(-200), Actor = "test", Action = "update", EntityType = "Test", EntityId = auditId });
             await db.SaveChangesAsync(Ct);
@@ -125,7 +125,7 @@ public sealed class RetentionTests(AdminFixture fixture)
                 var kept = await db.UsageRetainedFromAsync(Ct);
                 kept.ShouldNotBeNull();
                 kept.Value.ShouldBe(RetentionPolicy.UsageCutoff(now, 90), TimeSpan.FromDays(1));
-                (await db.CostsIn(new PeriodWindow(oldMonth, now.AddMinutes(1)), kept).Where(c => c.VirtualKeyId == keyId).SumAsync(c => c.CostSek, Ct)).ShouldBe(8m);
+                (await db.CostsIn(new PeriodWindow(oldMonth, now.AddMinutes(1)), kept).Where(c => c.VirtualKeyId == keyId).SumAsync(c => c.CostUsd, Ct)).ShouldBe(8m);
             }
 
             using (var status = await client.GetAsync("/api/settings/retention", Ct))
@@ -221,6 +221,6 @@ public sealed class RetentionTests(AdminFixture fixture)
     {
         RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = at, VirtualKeyId = key, TeamId = org.Team, DepartmentId = org.Department,
         Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", ProviderName = "test", InputTokens = 10, OutputTokens = 5,
-        CostSek = cost, Outcome = outcome, StatusCode = outcome == RequestOutcome.Success ? 200 : 503, FallbackCount = fallbacks,
+        CostUsd = cost, CostSek = cost, Outcome = outcome, StatusCode = outcome == RequestOutcome.Success ? 200 : 503, FallbackCount = fallbacks,
     };
 }

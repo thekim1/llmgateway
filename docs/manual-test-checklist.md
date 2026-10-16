@@ -18,7 +18,7 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 - [ ] **Migration startup log:** a fresh database starts without the `42P01 DataProtectionKeys` error in the migration log (commit e9871ad).
 - [ ] **Budget refunds with the Redis ACL:** no more `NOPERM ... 'decrby'` in the gateway log after a failed or cancelled request
   (redeploy with the updated `deploy/redis/users.acl.example` ACL) (commit d31f5e3).
-- [ ] **Costs with 2 decimals:** spend, budgets and usage show öre (`12,34 kr`), not whole kronor (commit d31f5e3).
+- [ ] **Costs with 2 decimals:** spend and usage show öre (`12,34 kr`), not whole kronor (commit d31f5e3); budgets are in USD (see *Budgets in USD* below).
 
 ## Foundry and prices (uncommitted)
 
@@ -98,7 +98,7 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
 
 - [ ] **Key form:** edit a key, enter `203.0.113.0/24` under *Allowed client addresses*, save. The key details show *Client addresses* `203.0.113.0/24`.
 - [ ] **Typo caught:** enter `10.20.1.5/16`: the form says *Did you mean 10.20.0.0/16?* and does not save; `example.se` is refused too.
-- [ ] **Refused from elsewhere:** call the gateway with that key: `403` with `"code": "address_not_allowed"` and a Swedish message. Within 10 s the
+- [ ] **Refused from elsewhere:** call the gateway with that key: `403` with `"code": "address_not_allowed"` and an English message. Within 10 s the
   refused-key record has reason `AddressNotAllowed` and your (truncated) address; `gateway.auth.failed` has `address_not_allowed`.
 - [ ] **Allowed from here:** change the list to your own address (`127.0.0.1` and `::1` locally): the call answers 200 within 30 s
   (key cache) or at once after saving (the admin API clears the cache).
@@ -232,3 +232,22 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
 - [ ] **No time limit / off:** switch to *No time limit* (card: *On, no time limit*), then *Turn off…*; successful requests leave the log again.
 - [ ] **Department admin:** a department admin does not see the card's settings page (or gets 403 from `/api/settings/request-log`).
 
+
+## Budgets in USD, English messages (uncommitted)
+
+- [ ] **Upgrade conversion:** on a copy of a database with SEK budgets (e.g. 10 000 kr per month) and a USD rate of 9,50, run the
+  migration: *Budgets & alerts* shows the budget as about 1 052,63 US$ and the same percentage used as before; old alerts
+  show their amounts in US$.
+- [ ] **Budget forms in USD:** *Budgets & alerts > New budget*, the key details' budgets and *New team* ask for the limit in USD;
+  lists, the department page and the overview's alert banner show US$ amounts.
+- [ ] **Enforcement:** give a key a budget of 0,01 USD and send a few chat requests: they stop with `402 budget_exceeded` and a
+  message such as *The key's budget (USD 0.01 per month) is used up*.
+- [ ] **Headers:** a successful chat request answers `x-ume-cost-usd` and `x-ume-budget-remaining-usd`, and still
+  `x-ume-cost-sek` / `x-ume-budget-remaining-sek` (the USD amounts × the exchange rate).
+- [ ] **Webhook:** with `Gateway:AlertWebhookUrl` pointing at a request catcher, cross an alert threshold: the body has
+  `spentUsd`, `limitUsd`, `spentSek` and `limitSek`.
+- [ ] **Data API:** `GET /v1/catalog/budgets` has `limitUsd` and `limitSek` for each budget.
+- [ ] **English messages:** a wrong API key, a missing `model`, an unknown model and a PII block all answer English messages;
+  in the admin UI, deleting a team that has keys and saving a duplicate budget show English messages.
+- [ ] **Department admin scope:** signed in as a department admin, *Keys*, *Budgets & alerts* and *Usage* show only your own
+  departments' data, and changes appear in the audit log under your name.

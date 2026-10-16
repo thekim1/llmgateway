@@ -258,16 +258,16 @@ public sealed class HotPathTests(GatewayFixture fixture)
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            db.UsageRecords.Add(new UsageRecord { RequestId = "seed-" + teamId, Timestamp = DateTimeOffset.UtcNow, TeamId = teamId, RequestedModel = "m", CostSek = 4m });
+            db.UsageRecords.Add(new UsageRecord { RequestId = "seed-" + teamId, Timestamp = DateTimeOffset.UtcNow, TeamId = teamId, RequestedModel = "m", CostUsd = 4m });
             await db.SaveChangesAsync(Ct);
         }
 
-        Budget[] budget = [new() { Scope = BudgetScope.Team, ScopeId = teamId, LimitSek = 10, Period = BudgetPeriod.Monthly }];
+        Budget[] budget = [new() { Scope = BudgetScope.Team, ScopeId = teamId, LimitUsd = 10, Period = BudgetPeriod.Monthly }];
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => budgets.ReserveAsync(budget, 0.5m, Ct)));
 
         // 4 SEK already spent: 10 - 4 = 6 SEK allows 12 reservations of 0.5, so all 8 pass and none is double-seeded.
         results.ShouldAllBe(r => r.Allowed);
-        results.Max(r => r.RemainingSek).ShouldBe(6m);
+        results.Max(r => r.RemainingUsd).ShouldBe(6m);
         var key = results[0].Checks[0].Counter.Key;
         (await ledger.GetAsync([key], Ct))[0].ShouldBe(BudgetService.ToMicro(4m + (8 * 0.5m)));
     }

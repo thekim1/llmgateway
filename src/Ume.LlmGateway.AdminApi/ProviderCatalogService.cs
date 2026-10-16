@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -22,45 +21,45 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
 
     public async Task<ProviderAccount> ProviderAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ProviderAccounts.Include(p => p.Deployments).SingleOrDefaultAsync(p => p.Id == id, ct)
-        ?? throw new ApiFaultException(404, "Leverantören finns inte.");
+        ?? throw new ApiFaultException(404, "The provider does not exist.");
 
-    public async Task<ProviderDto> CreateProviderAsync(ClaimsPrincipal user, ProviderRequest input, CancellationToken ct)
+    public async Task<ProviderDto> CreateProviderAsync(ProviderRequest input, CancellationToken ct)
     {
         var p = new ProviderAccount { Name = input.Name, BaseUrl = input.BaseUrl, CreatedAt = ctx.Now };
         Apply(p, input);
         ctx.Db.ProviderAccounts.Add(p);
-        await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.Provider, p.Id, null, ProviderAudit.Of(p), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Provider, p.Id, null, ProviderAudit.Of(p), InvalidationKind.Config, ct);
         return ProviderDto.Of(p);
     }
 
-    public async Task<ProviderDto> UpdateProviderAsync(ClaimsPrincipal user, Guid id, ProviderRequest input, CancellationToken ct)
+    public async Task<ProviderDto> UpdateProviderAsync(Guid id, ProviderRequest input, CancellationToken ct)
     {
         var p = await ProviderAsync(id, ct);
         var before = ProviderAudit.Of(p);
         Apply(p, input);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Provider, id, before, ProviderAudit.Of(p), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.Provider, id, before, ProviderAudit.Of(p), InvalidationKind.Config, ct);
         return ProviderDto.Of(p);
     }
 
-    public async Task<ProviderDto> DrainAsync(ClaimsPrincipal user, Guid id, bool drained, CancellationToken ct)
+    public async Task<ProviderDto> DrainAsync(Guid id, bool drained, CancellationToken ct)
     {
         var p = await ProviderAsync(id, ct);
         var before = ProviderAudit.Of(p);
         p.IsDrained = drained;
-        await ctx.SaveAsync(user, AuditActions.Drain, AuditEntities.Provider, id, before, ProviderAudit.Of(p), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Drain, AuditEntities.Provider, id, before, ProviderAudit.Of(p), InvalidationKind.Config, ct);
         return ProviderDto.Of(p);
     }
 
-    public async Task DeleteProviderAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
+    public async Task DeleteProviderAsync(Guid id, CancellationToken ct)
     {
         var p = await ProviderAsync(id, ct);
         if (p.Deployments.Count > 0)
         {
-            throw new ApiFaultException(409, "Leverantören har modeller och kan inte tas bort.");
+            throw new ApiFaultException(409, "The provider has models and cannot be deleted.");
         }
 
         ctx.Db.ProviderAccounts.Remove(p);
-        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.Provider, id, ProviderAudit.Of(p), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Provider, id, ProviderAudit.Of(p), null, InvalidationKind.Config, ct);
     }
 
     /// <summary>Copies the request onto the provider. A <c>null</c> credential keeps the stored one; an empty one removes it.</summary>
@@ -79,9 +78,9 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
 
     public async Task<ModelDeployment> ModelAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).SingleOrDefaultAsync(m => m.Id == id, ct)
-        ?? throw new ApiFaultException(404, "Modellen finns inte.");
+        ?? throw new ApiFaultException(404, "The model does not exist.");
 
-    public async Task<ModelDto> CreateModelAsync(ClaimsPrincipal user, ModelRequest input, CancellationToken ct)
+    public async Task<ModelDto> CreateModelAsync(ModelRequest input, CancellationToken ct)
     {
         var provider = await ProviderAsync(input.ProviderId, ct);
         await EnsureModelNameFreeAsync(input.Name.Trim(), null, provider.Id, ct);
@@ -89,29 +88,29 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         Apply(m, input);
         if (input.Price is { } price) { m.Prices.Add(NewPrice(price)); }
         ctx.Db.ModelDeployments.Add(m);
-        await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.Model, m.Id, null, ModelAudit.Of(m), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Model, m.Id, null, ModelAudit.Of(m), InvalidationKind.Config, ct);
         return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
     }
 
-    public async Task<ModelDto> UpdateModelAsync(ClaimsPrincipal user, Guid id, ModelRequest input, CancellationToken ct)
+    public async Task<ModelDto> UpdateModelAsync(Guid id, ModelRequest input, CancellationToken ct)
     {
         var m = await ModelAsync(id, ct);
         await EnsureKindCanChangeAsync(m, input.Kind, ct);
         await EnsureModelNameFreeAsync(input.Name.Trim(), id, m.ProviderAccountId, ct);
-        if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(m.Name, "byta namn", ct); }
+        if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(m.Name, "renamed", ct); }
         var before = ModelAudit.Of(m);
         Apply(m, input);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Model, id, before, ModelAudit.Of(m), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.Model, id, before, ModelAudit.Of(m), InvalidationKind.Config, ct);
         return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
     }
 
-    public async Task DeleteModelAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
+    public async Task DeleteModelAsync(Guid id, CancellationToken ct)
     {
         var m = await ModelAsync(id, ct);
-        if (await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new ApiFaultException(409, "Modellen används i en rutt."); }
-        await rules.EnsureNotUsedByRulesAsync(m.Name, "tas bort", ct);
+        if (await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == id, ct)) { throw new ApiFaultException(409, "The model is used in a route."); }
+        await rules.EnsureNotUsedByRulesAsync(m.Name, "deleted", ct);
         ctx.Db.ModelDeployments.Remove(m);
-        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.Model, id, ModelAudit.Of(m), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Model, id, ModelAudit.Of(m), null, InvalidationKind.Config, ct);
     }
 
     /// <summary>A route only holds models of its own kind, so a model in a route keeps its kind.</summary>
@@ -119,7 +118,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     {
         if (m.Kind != kind && await ctx.Db.RouteTargets.AnyAsync(t => t.ModelDeploymentId == m.Id, ct))
         {
-            throw new ApiFaultException(409, "Modelltypen kan inte ändras när modellen används i en rutt.");
+            throw new ApiFaultException(409, "The model type cannot be changed while the model is used in a route.");
         }
     }
 
@@ -142,7 +141,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         var pattern = LikeLiteral(name);
         if (await ctx.Db.ModelDeployments.AnyAsync(x => x.Id != id && x.ProviderAccountId == providerId && EF.Functions.ILike(x.Name, pattern, LikeEscape), ct))
         {
-            throw new ApiFaultException(409, $"Leverantören har redan en modell som heter {name}.");
+            throw new ApiFaultException(409, $"The provider already has a model called {name}.");
         }
     }
 
@@ -157,14 +156,14 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     public async Task<List<PriceDto>> PricesAsync(Guid id, CancellationToken ct) =>
         [.. (await ModelAsync(id, ct)).Prices.OrderByDescending(p => p.EffectiveFrom).Select(PriceDto.Of)];
 
-    public async Task<PriceDto> AddPriceAsync(ClaimsPrincipal user, Guid id, PriceRequest input, CancellationToken ct)
+    public async Task<PriceDto> AddPriceAsync(Guid id, PriceRequest input, CancellationToken ct)
     {
         var m = await ModelAsync(id, ct);
         var price = NewPrice(input);
         price.ModelDeploymentId = m.Id;
         m.Prices.Add(price);
         ctx.Db.ModelPrices.Add(price);
-        await ctx.SaveAsync(user, AuditActions.Price, AuditEntities.Model, id, null, PriceDto.Of(price), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Price, AuditEntities.Model, id, null, PriceDto.Of(price), InvalidationKind.Config, ct);
         return PriceDto.Of(price);
     }
 
@@ -188,35 +187,35 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         [.. (await Routes().OrderBy(r => r.Name).ToListAsync(ct)).Select(RouteDto.Of)];
 
     private async Task<RouteAlias> RouteAsync(Guid id, CancellationToken ct) =>
-        await Routes().SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new ApiFaultException(404, "Rutten finns inte.");
+        await Routes().SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new ApiFaultException(404, "The route does not exist.");
 
-    public async Task<RouteDto> CreateRouteAsync(ClaimsPrincipal user, RouteRequest input, CancellationToken ct)
+    public async Task<RouteDto> CreateRouteAsync(RouteRequest input, CancellationToken ct)
     {
         var r = new RouteAlias { Name = input.Name.Trim() };
         await EnsureRouteNameFreeAsync(r.Name, null, ct);
         await ApplyRouteAsync(r, input, ct);
         ctx.Db.RouteAliases.Add(r);
-        await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.Route, r.Id, null, RouteAudit.Of(r), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Route, r.Id, null, RouteAudit.Of(r), InvalidationKind.Config, ct);
         return RouteDto.Of(r);
     }
 
-    public async Task<RouteDto> UpdateRouteAsync(ClaimsPrincipal user, Guid id, RouteRequest input, CancellationToken ct)
+    public async Task<RouteDto> UpdateRouteAsync(Guid id, RouteRequest input, CancellationToken ct)
     {
         var r = await RouteAsync(id, ct);
-        if (!string.Equals(r.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(r.Name, "byta namn", ct); }
+        if (!string.Equals(r.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(r.Name, "renamed", ct); }
         await EnsureRouteNameFreeAsync(input.Name.Trim(), id, ct);
         var before = RouteAudit.Of(r);
         await ApplyRouteAsync(r, input, ct);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Route, id, before, RouteAudit.Of(r), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.Route, id, before, RouteAudit.Of(r), InvalidationKind.Config, ct);
         return RouteDto.Of(r);
     }
 
-    public async Task DeleteRouteAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
+    public async Task DeleteRouteAsync(Guid id, CancellationToken ct)
     {
         var r = await RouteAsync(id, ct);
-        await rules.EnsureNotUsedByRulesAsync(r.Name, "tas bort", ct);
+        await rules.EnsureNotUsedByRulesAsync(r.Name, "deleted", ct);
         ctx.Db.RouteAliases.Remove(r);
-        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.Route, id, RouteAudit.Of(r), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Route, id, RouteAudit.Of(r), null, InvalidationKind.Config, ct);
     }
 
     private const string LikeEscape = "\\";
@@ -232,7 +231,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         var pattern = LikeLiteral(name);
         if (await ctx.Db.RouteAliases.AnyAsync(x => x.Id != id && EF.Functions.ILike(x.Name, pattern, LikeEscape), ct))
         {
-            throw new ApiFaultException(409, $"Det finns redan en rutt som heter {name}.");
+            throw new ApiFaultException(409, $"There is already a route called {name}.");
         }
     }
 
@@ -241,7 +240,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     {
         var ids = input.Targets.Select(t => t.ModelId).Distinct().ToArray();
         var deployments = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Where(m => ids.Contains(m.Id)).ToDictionaryAsync(m => m.Id, ct);
-        if (deployments.Count != ids.Length || deployments.Values.Any(m => m.Kind != input.Kind)) { throw new ApiFaultException(400, "Ruttens modeller måste finnas och ha samma typ som rutten."); }
+        if (deployments.Count != ids.Length || deployments.Values.Any(m => m.Kind != input.Kind)) { throw new ApiFaultException(400, "The route's models must exist and be of the same kind as the route."); }
         r.Name = input.Name.Trim(); r.Description = input.Description; r.Kind = input.Kind; r.IsEnabled = input.IsEnabled;
         ctx.Db.RouteTargets.RemoveRange(r.Targets);
         r.Targets = [.. input.Targets.Select(t => new RouteTarget { ModelDeploymentId = t.ModelId, ModelDeployment = deployments[t.ModelId], Priority = t.Priority, Weight = t.Weight })];
@@ -253,12 +252,12 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     public async Task<ExchangeRateDto?> CurrentRateAsync(CancellationToken ct) =>
         await ctx.Db.CurrentRateAsync(ctx.Now, ct) is { } rate ? ExchangeRateDto.Of(rate) : null;
 
-    public async Task<ExchangeRateDto> SetRateAsync(ClaimsPrincipal user, decimal sekPerUnit, CancellationToken ct)
+    public async Task<ExchangeRateDto> SetRateAsync(decimal sekPerUnit, CancellationToken ct)
     {
         var before = await CurrentRateAsync(ct);
         var rate = new ExchangeRate { Currency = GatewayQueries.PriceCurrency, SekPerUnit = sekPerUnit, EffectiveFrom = ctx.Now };
         ctx.Db.ExchangeRates.Add(rate);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.ExchangeRate, rate.Id, before, ExchangeRateDto.Of(rate), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.ExchangeRate, rate.Id, before, ExchangeRateDto.Of(rate), InvalidationKind.Config, ct);
         return ExchangeRateDto.Of(rate);
     }
 }

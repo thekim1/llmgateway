@@ -123,7 +123,7 @@ describe('RoutingRulesView', () => {
   it('leaves the switch off and says why when the server refuses to enable a rule', async () => {
     const template = rule({ name: 'Personal data to a local model', isTemplate: true, isEnabled: false, missingModels: ['local'] })
     const wrapper = await mountView([template])
-    setEnabled.mockRejectedValue(new ApiError(400, 'PUT', { detail: 'Regeln kan inte aktiveras. Okänd modell eller alias: local.' }))
+    setEnabled.mockRejectedValue(new ApiError(400, 'PUT', { detail: 'The rule cannot be activated. Unknown model or alias: local.' }))
     await wrapper.find('nav [role="switch"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toContain('Could not switch “Personal data to a local model”')
@@ -146,10 +146,10 @@ describe('RoutingRulesView', () => {
 
   it('shows a failed action as an inline message and keeps the rule as it was', async () => {
     const wrapper = await mountView([first])
-    setEnabled.mockRejectedValue(new ApiError(409, 'PUT', { detail: 'Ändringen krockar med befintliga uppgifter.' }))
+    setEnabled.mockRejectedValue(new ApiError(409, 'PUT', { detail: 'The change conflicts with existing data.' }))
     await button(wrapper, 'Disable').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[role="alert"]').text()).toContain('krockar')
+    expect(wrapper.find('[role="alert"]').text()).toContain('conflicts with existing data')
     expect(wrapper.find('nav').text()).not.toContain('Off')
   })
 

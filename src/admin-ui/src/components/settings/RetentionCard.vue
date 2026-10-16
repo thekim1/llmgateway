@@ -5,7 +5,7 @@ import type { RetentionSettings } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useUiStore } from '@/stores/ui'
 import { formatDate, formatDateTime, formatNumber } from '@/utils/format'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import { isBlank, parseInteger } from '@/utils/validation'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -178,7 +178,7 @@ onBeforeUnmount(() => clearTimeout(poll))
           <template v-if="settings.nextRunAt"> Next run {{ formatDateTime(settings.nextRunAt) }}.</template>
           <template v-else> The nightly run is switched off (<code class="font-mono">Retention__Enabled</code>).</template>
         </p>
-        <InlineError v-if="runError" :message="problemMessage(runError)" :lang="problemLang(runError)" />
+        <InlineError v-if="runError" :message="problemMessage(runError)" />
         <div>
           <UiButton size="sm" icon="play_arrow" :loading="starting" :disabled="settings.running" @click="runNow">Run now</UiButton>
         </div>

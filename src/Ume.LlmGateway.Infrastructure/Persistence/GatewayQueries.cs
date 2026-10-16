@@ -39,7 +39,7 @@ public static class GatewayQueries
     {
         var recordsFrom = retainedFrom is { } r && r > window.Start ? r : window.Start;
         var records = db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= recordsFrom && u.Timestamp < window.End)
-            .Select(u => new UsageCost { VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostSek = u.CostSek });
+            .Select(u => new UsageCost { VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostUsd = u.CostUsd });
         if (retainedFrom is not { } kept || kept <= window.Start)
         {
             return records;
@@ -47,11 +47,11 @@ public static class GatewayQueries
 
         var totalsUntil = kept < window.End ? kept : window.End;
         return records.Concat(db.UsageMonthlyTotals.AsNoTracking().Where(t => t.MonthStart >= window.Start && t.MonthStart < totalsUntil)
-            .Select(t => new UsageCost { VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostSek = t.CostSek }));
+            .Select(t => new UsageCost { VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostUsd = t.CostUsd }));
     }
 
     /// <summary>
-    /// SEK spent against <paramref name="budget"/> in <paramref name="window"/>. A key budget covers the key and every key it was rotated into.
+    /// USD spent against <paramref name="budget"/> in <paramref name="window"/>. A key budget covers the key and every key it was rotated into.
     /// Pass <paramref name="rotations"/> when it is already loaded (e.g. when summing many budgets).
     /// </summary>
     public static async Task<decimal> SpentAsync(this GatewayDbContext db, Budget budget, PeriodWindow window, CancellationToken cancellationToken,
@@ -74,7 +74,7 @@ public static class GatewayQueries
                 throw new ArgumentOutOfRangeException(nameof(budget), budget.Scope, "Unknown budget scope.");
         }
 
-        return await query.SumAsync(u => u.CostSek, cancellationToken);
+        return await query.SumAsync(u => u.CostUsd, cancellationToken);
     }
 }
 
@@ -84,5 +84,5 @@ public sealed class UsageCost
     public Guid VirtualKeyId { get; init; }
     public Guid TeamId { get; init; }
     public Guid DepartmentId { get; init; }
-    public decimal CostSek { get; init; }
+    public decimal CostUsd { get; init; }
 }

@@ -420,20 +420,20 @@ export interface Budget {
   scope: BudgetScope
   scopeId: string
   scopeName: string
-  limitSek: number
+  limitUsd: number
   period: BudgetPeriod
   alertThresholds: number[]
   isActive: boolean
   periodStart: IsoDateTime
   periodEnd: IsoDateTime
-  spentSek: number
+  spentUsd: number
   percentUsed: number
 }
 
 export interface BudgetRequest {
   scope: BudgetScope
   scopeId: string
-  limitSek: number
+  limitUsd: number
   period: BudgetPeriod
   alertThresholds: number[]
   isActive: boolean
@@ -450,8 +450,8 @@ export interface BudgetAlert {
   scope: BudgetScope
   scopeName: string
   thresholdPercent: number
-  spentSek: number
-  limitSek: number
+  spentUsd: number
+  limitUsd: number
   periodStart: IsoDateTime
   timestamp: IsoDateTime
   acknowledged: boolean

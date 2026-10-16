@@ -150,6 +150,13 @@ public static class RealtimeEvents
     }
 
     /// <summary>An OpenAI-style <c>error</c> server event, so clients handle gateway refusals like provider errors.</summary>
+    /// <summary>An <c>error</c> event for <paramref name="error"/> (its code and message; the status does not apply to an event).</summary>
+    public static byte[] Error(GatewayError error, string? clientEventId, string type = "invalid_request_error")
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return Error(error.Code, error.Message, clientEventId, type);
+    }
+
     public static byte[] Error(string code, string message, string? clientEventId, string type = "invalid_request_error") =>
         JsonSerializer.SerializeToUtf8Bytes(new JsonObject
         {
@@ -254,9 +261,6 @@ public sealed class RealtimeMeter
     }
 }
 
-/// <summary>Why the gateway refused a client event; the session stays open.</summary>
-public sealed record RealtimeRejection(string Code, string Message);
-
 /// <summary>
 /// The gateway's rules for client events in a live session: model names are the gateway's (the client never names an
 /// upstream model), and text goes through the key's PII policy. The session's routing was decided at connect, so PII
@@ -279,7 +283,7 @@ public sealed class RealtimeEventPolicy(
     public string? PiiCategories => _pii.Count == 0 ? null : new PiiScanResult(_pii).Summary;
 
     /// <summary>Applies the rules to <paramref name="evt"/> (rewriting it in place). Returns audio bytes found, or a rejection.</summary>
-    public (RealtimeRejection? Rejection, long AudioBytes) Apply(JsonObject evt, RealtimeClientEvent kind)
+    public (GatewayError? Rejection, long AudioBytes) Apply(JsonObject evt, RealtimeClientEvent kind)
     {
         ArgumentNullException.ThrowIfNull(evt);
         if (kind == RealtimeClientEvent.SessionUpdate && evt["session"] is JsonObject config && RewriteModels(config) is { } refused)
@@ -307,15 +311,13 @@ public sealed class RealtimeEventPolicy(
         PiiApplied = piiPolicy;
         return PiiJsonScanner.Decide(piiPolicy, scan) switch
         {
-            PiiDecision.Block => (new RealtimeRejection(GatewayErrorCodes.PiiBlocked,
-                $"Händelsen innehåller personuppgifter ({scan.Summary}) och nyckelns policy tillåter inte det. Den skickades inte vidare."), 0),
-            PiiDecision.ForwardOnPremOnly when !onPrem => (new RealtimeRejection(GatewayErrorCodes.PiiBlocked,
-                $"Händelsen innehåller personuppgifter ({scan.Summary}) som bara får skickas till en lokal (on-prem) modell, men sessionen går till en extern leverantör. Den skickades inte vidare."), 0),
+            PiiDecision.Block => (GatewayError.EventPiiBlocked(scan.Summary), 0),
+            PiiDecision.ForwardOnPremOnly when !onPrem => (GatewayError.EventPiiNeedsOnPrem(scan.Summary), 0),
             _ => (null, audio),
         };
     }
 
-    private RealtimeRejection? RewriteModels(JsonObject config)
+    private GatewayError? RewriteModels(JsonObject config)
     {
         if (config["model"] is JsonValue)
         {
@@ -338,8 +340,7 @@ public sealed class RealtimeEventPolicy(
 
             if (resolveTranscriptionModel(requested) is not { } deployment)
             {
-                return new RealtimeRejection(GatewayErrorCodes.ModelNotAllowed,
-                    $"Transkriberingsmodellen '{ModelNames.Truncate(requested)}' finns inte hos sessionens leverantör eller får inte användas med nyckeln. Ange ett tal till text-alias från GET /v1/models.");
+                return GatewayError.TranscriptionModelNotAllowed(requested);
             }
 
             t["model"] = deployment.UpstreamModel;

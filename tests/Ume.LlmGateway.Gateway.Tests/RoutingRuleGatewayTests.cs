@@ -148,7 +148,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
             db.UsageRecords.Add(new UsageRecord
             {
                 RequestId = "budget-" + Guid.NewGuid().ToString("N"), RequestedModel = "x", Timestamp = DateTimeOffset.UtcNow,
-                VirtualKeyId = key.Id, TeamId = key.TeamId, DepartmentId = fixture.DepartmentId, CostSek = 95m,
+                VirtualKeyId = key.Id, TeamId = key.TeamId, DepartmentId = fixture.DepartmentId, CostUsd = 95m,
             });
             await db.SaveChangesAsync(Ct);
         }
@@ -326,7 +326,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
         {
             using var response = await fixture.SendAsync(key, "eu/ok", headers: new Dictionary<string, string> { ["x-t"] = tier });
             await AssertErrorAsync(response, 503, "no_eligible_provider");
-            (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("Routingregeln");
+            (await response.Content.ReadAsStringAsync(Ct)).ShouldContain("routing rule");
         }
     }
 

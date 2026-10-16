@@ -1,10 +1,10 @@
 # Admin API contract (control plane)
 
 Base path: same origin as the admin UI (BFF pattern). JSON uses **camelCase**, enums are serialised as
-**strings** (e.g. `"RevokeImmediately"`), timestamps are ISO-8601 with offset, money is SEK unless the field
-name says `Usd`. Errors use RFC 9457 `application/problem+json`:
-`{ "type", "title", "status", "detail", "errors": { "field": ["message"] } }` (Swedish messages).
-A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "Ett internt fel inträffade."
+**strings** (e.g. `"RevokeImmediately"`), timestamps are ISO-8601 with offset, money is in the currency the field
+name says (`Usd` or `Sek`; budgets and alerts are in USD, SEK amounts are for display). Errors use RFC 9457 `application/problem+json`:
+`{ "type", "title", "status", "detail", "errors": { "field": ["message"] } }` (English messages).
+A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "An internal error occurred."
 (the exception is only logged, by type). Every response, error responses included, carries `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 
@@ -173,9 +173,11 @@ and invalidate the gateway catalogue.
 - Key rotation: a rule scoped to a key keeps applying to the key that replaced it, like budgets.
 
 ## Budgets & alerts
-- `Budget = { id, scope, scopeId, scopeName, limitSek, period, alertThresholds: number[], isActive, periodStart, periodEnd, spentSek, percentUsed }`
-- `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitSek, period, alertThresholds, isActive }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
-- `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentSek, limitSek, periodStart, timestamp, acknowledged }]`
+- Budgets are in USD, the currency provider prices are in, so what a budget allows does not change with the exchange rate.
+  Spend is the sum of the usage records' `costUsd`.
+- `Budget = { id, scope, scopeId, scopeName, limitUsd, period, alertThresholds: number[], isActive, periodStart, periodEnd, spentUsd, percentUsed }`
+- `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitUsd, period, alertThresholds, isActive }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
+- `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentUsd, limitUsd, periodStart, timestamp, acknowledged }]`
 - `POST /api/alerts/{id}/acknowledge` → 204
 - `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
   Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
@@ -199,7 +201,9 @@ and invalidate the gateway catalogue.
   Saving is audited (`Settings`) and publishes a configuration change; the gateways check the end time on every request.
 - Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
   also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
-  full the alert is stored but not sent (a warning is logged).
+  full the alert is stored but not sent (a warning is logged). Body: `{ type: "budget_threshold", scope, scopeId,
+  thresholdPercent, spentUsd, limitUsd, spentSek, limitSek, periodStart }`; the SEK amounts are the USD amounts at the
+  exchange rate when the alert was raised, kept for existing receivers until SEK is removed.
 
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
@@ -301,10 +305,12 @@ and invalidate the gateway catalogue.
   attachments, so keys set to `None` get `attachment_not_allowed` on edits. Billing: the number of pictures in `data` ×
   `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
-- Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-sek`,
-  `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-sek`,
+- Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-usd`,
+  `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-usd`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
-- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` with codes
+  `x-ume-cost-sek` and `x-ume-budget-remaining-sek` carry the same amounts in SEK at the current exchange rate; they are
+  for display and will be removed with SEK.
+- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
   client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,

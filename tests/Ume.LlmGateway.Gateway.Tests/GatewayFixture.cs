@@ -419,7 +419,7 @@ public sealed class GatewayFixture : IAsyncLifetime
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        db.Budgets.Add(new Budget { Scope = scopeType, ScopeId = id, LimitSek = limit, Period = period, CreatedAt = DateTimeOffset.UtcNow });
+        db.Budgets.Add(new Budget { Scope = scopeType, ScopeId = id, LimitUsd = limit, Period = period, CreatedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
     }
 

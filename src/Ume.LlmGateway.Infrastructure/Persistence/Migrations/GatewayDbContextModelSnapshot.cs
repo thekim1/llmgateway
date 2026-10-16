@@ -54,7 +54,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BudgetId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("LimitSek")
+                    b.Property<decimal>("LimitUsd")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
@@ -69,7 +69,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ScopeId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("SpentSek")
+                    b.Property<decimal>("SpentUsd")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
@@ -206,7 +206,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<decimal>("LimitSek")
+                    b.Property<decimal>("LimitUsd")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 

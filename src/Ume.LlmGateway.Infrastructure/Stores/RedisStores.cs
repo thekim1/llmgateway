@@ -149,10 +149,10 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
         return [.. values.Select(v => v.HasValue ? (long?)(long)v : null)];
     }
 
-    public Task InitializeAsync(string key, long valueMicroSek, TimeSpan timeToLive, CancellationToken cancellationToken) =>
-        redis.GetDatabase().StringSetAsync(key, valueMicroSek, timeToLive, When.NotExists);
+    public Task InitializeAsync(string key, long valueMicroUsd, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        redis.GetDatabase().StringSetAsync(key, valueMicroUsd, timeToLive, When.NotExists);
 
-    public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken)
+    public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroUsd, bool missingAsZero, CancellationToken cancellationToken)
     {
         if (counters.Count == 0)
         {
@@ -160,11 +160,11 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
         }
 
         var args = new RedisValue[2 + (counters.Count * 2)];
-        args[0] = amountMicroSek;
+        args[0] = amountMicroUsd;
         args[1] = missingAsZero ? 1 : 0;
         for (var i = 0; i < counters.Count; i++)
         {
-            args[2 + (i * 2)] = counters[i].LimitMicroSek;
+            args[2 + (i * 2)] = counters[i].LimitMicroUsd;
             args[3 + (i * 2)] = (long)Math.Max(60, counters[i].TimeToLive.TotalSeconds);
         }
 
@@ -176,11 +176,11 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
             : new SpendReservation(status, [.. items.Select(r => (long)r)], []);
     }
 
-    public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroSek, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroUsd, CancellationToken cancellationToken)
     {
         // Issued together so they are pipelined: one round trip however many budgets apply.
         var db = redis.GetDatabase();
-        return await Task.WhenAll(counters.Select(c => db.StringIncrementAsync(c.Key, deltaMicroSek)));
+        return await Task.WhenAll(counters.Select(c => db.StringIncrementAsync(c.Key, deltaMicroUsd)));
     }
 }
 

@@ -74,7 +74,7 @@ describe('ProviderFormDrawer discovery', () => {
 
   it('does not discover when saving fails', async () => {
     update.mockImplementation(async () => {
-      throw new ApiError(400, 'PUT', { detail: 'Kontrollera de markerade fälten.' })
+      throw new ApiError(400, 'PUT', { detail: 'Check the highlighted fields.' })
     })
     const wrapper = mountForm()
     await wrapper.find('#prov-url').setValue('https://other.services.ai.azure.com/openai/v1')

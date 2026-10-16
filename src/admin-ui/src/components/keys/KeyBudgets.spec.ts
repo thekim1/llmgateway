@@ -8,10 +8,10 @@ const create = vi.fn()
 const remove = vi.fn()
 vi.mock('@/api', () => ({ api: { budgets: { list: (...a: unknown[]) => list(...a), create: (...a: unknown[]) => create(...a), remove: (...a: unknown[]) => remove(...a) } } }))
 
-function budget(period: BudgetPeriod, limitSek: number, spentSek = 0): Budget {
+function budget(period: BudgetPeriod, limitUsd: number, spentUsd = 0): Budget {
   return {
-    id: `b-${period}`, scope: 'VirtualKey', scopeId: 'k1', scopeName: 'Key', limitSek, period, alertThresholds: [80, 100], isActive: true,
-    periodStart: '2026-10-01T00:00:00Z', periodEnd: '2026-11-01T00:00:00Z', spentSek, percentUsed: limitSek ? (spentSek / limitSek) * 100 : 0,
+    id: `b-${period}`, scope: 'VirtualKey', scopeId: 'k1', scopeName: 'Key', limitUsd, period, alertThresholds: [80, 100], isActive: true,
+    periodStart: '2026-10-01T00:00:00Z', periodEnd: '2026-11-01T00:00:00Z', spentUsd, percentUsed: limitUsd ? (spentUsd / limitUsd) * 100 : 0,
   }
 }
 
@@ -49,7 +49,7 @@ describe('KeyBudgets', () => {
     await wrapper.find('input').setValue('500')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(create).toHaveBeenCalledWith({ scope: 'VirtualKey', scopeId: 'k1', limitSek: 500, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
+    expect(create).toHaveBeenCalledWith({ scope: 'VirtualKey', scopeId: 'k1', limitUsd: 500, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
     expect(list).toHaveBeenCalledTimes(2)
   })
 
@@ -61,7 +61,7 @@ describe('KeyBudgets', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(create).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Enter a limit above 0 kr')
+    expect(wrapper.text()).toContain('Enter a limit in USD above 0')
   })
 
   it('hides editing controls for read-only users', async () => {
@@ -74,7 +74,7 @@ describe('KeyBudgets', () => {
 
   it('shows the server’s message when a budget cannot be created', async () => {
     list.mockResolvedValue([])
-    create.mockRejectedValue(new Error('Det finns redan en budget för samma period.'))
+    create.mockRejectedValue(new Error('There is already a budget for the same period.'))
     const wrapper = mount(KeyBudgets, { props: { keyId: 'k1', editable: true } })
     await flushPromises()
     await wrapper.find('input').setValue('5')

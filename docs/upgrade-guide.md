@@ -11,9 +11,26 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: updates without downtime
+## Unreleased: updates without downtime, budgets in USD
 
-- **Rolling update: yes** (no migration).
+- **Rolling update: no** (renames budget columns 0.5.0 reads). Stop the gateway, admin API and Data API, migrate, start the
+  new version. Later releases can use the rolling update described below.
+- **Budgets are in USD.** The migration `BudgetsInUsd` renames `Budgets.LimitSek` to `LimitUsd` and `AlertEvents.SpentSek`
+  / `LimitSek` to `SpentUsd` / `LimitUsd`, and converts the amounts: budget limits at the USD exchange rate in effect at
+  migration time (so each budget allows what it allowed just before the upgrade; with no rate entered, the default
+  fallback of 10 SEK per USD), stored alerts at the rate in effect when they were raised. Check the converted limits on
+  *Budgets & alerts* and round them if you like. Spend is now summed from `CostUsd`.
+- The gateway's Redis spend counters move from `ume:spend:*` (micro-SEK) to `ume:spend-usd:*` (micro-USD). The new
+  counters are seeded from the usage records on first use; the old ones are never read again and expire with their
+  period. No Redis ACL change is needed (`~ume:*`).
+- **API changes.** Admin API budgets and alerts use `limitUsd` / `spentUsd` instead of `limitSek` / `spentSek`. The
+  gateway adds `x-ume-cost-usd` and `x-ume-budget-remaining-usd`; `x-ume-cost-sek` and `x-ume-budget-remaining-sek` stay
+  (converted at the current rate). The alert webhook adds `spentUsd` / `limitUsd` and keeps `spentSek` / `limitSek`. The
+  Data API budgets feed adds `limitUsd` and keeps `limitSek` (converted at the current rate). A budget-exceeded message
+  states the limit in USD.
+- **Error messages are in English** in the gateway (`error.message`, realtime `error` events), the admin API and the
+  Data API (`detail`, `title`, field errors). Error **codes** are unchanged; clients that match on message text must match
+  the code instead.
 - Every service now fails `/health/ready` from the moment it is told to stop and accepts the new setting
   `Shutdown__DrainSeconds` (default 0, no change). Load balancers that poll readiness see a stopping instance as down; a
   Compose `healthcheck` may briefly show a stopping container as unhealthy.

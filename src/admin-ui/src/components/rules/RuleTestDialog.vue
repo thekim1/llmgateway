@@ -6,7 +6,7 @@ import { useModelOptions } from '@/composables/useModelOptions'
 import { useKeysStore } from '@/stores/keys'
 import { useTeamsStore } from '@/stores/teams'
 import { ROUTING_SCOPE_LABEL } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import { isBlank, parseDecimal } from '@/utils/validation'
 import AppIcon from '../ui/AppIcon.vue'
 import FormField from '../ui/FormField.vue'
@@ -193,7 +193,7 @@ const OUTCOME = {
         </div>
       </details>
 
-      <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+      <InlineError v-if="error" :message="problemMessage(error)" />
       <div><UiButton variant="primary" type="submit" icon="play_arrow" :loading="busy">Run test</UiButton></div>
     </form>
 

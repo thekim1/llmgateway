@@ -28,7 +28,7 @@ public enum RealtimeEndReason
 }
 
 /// <summary>A reason for the gateway to end a running session, with the error event the client gets first.</summary>
-public sealed record RealtimeStop(RealtimeEndReason Reason, string Code, string Message, WebSocketCloseStatus CloseStatus);
+public sealed record RealtimeStop(RealtimeEndReason Reason, GatewayError Error, WebSocketCloseStatus CloseStatus);
 
 /// <summary>
 /// Relays one live session between the client and the provider. Messages pass through as received; only the few
@@ -93,8 +93,7 @@ public sealed partial class RealtimeRelay(
             {
                 if (length == buffer.Length && !Grow(ref buffer, length))
                 {
-                    await SendToClientAsync(RealtimeEvents.Error(GatewayErrorCodes.RequestTooLarge,
-                        $"Händelsen är större än {maxMessageBytes / 1024} kB. Skicka ljudet i mindre bitar.", null), ct);
+                    await SendToClientAsync(RealtimeEvents.Error(GatewayError.EventTooLarge(maxMessageBytes), null), ct);
                     await CloseBothAsync(WebSocketCloseStatus.MessageTooBig, "message_too_large");
                     return RealtimeEndReason.Closed;
                 }
@@ -137,8 +136,7 @@ public sealed partial class RealtimeRelay(
         if (type != WebSocketMessageType.Text)
         {
             // The protocol is JSON text; binary audio would bypass metering.
-            await SendToClientAsync(RealtimeEvents.Error(GatewayErrorCodes.InvalidRequest,
-                "Binära meddelanden stöds inte. Skicka ljud som base64 i input_audio_buffer.append.", null), ct);
+            await SendToClientAsync(RealtimeEvents.Error(GatewayError.BinaryMessagesNotSupported, null), ct);
             return;
         }
 
@@ -170,7 +168,7 @@ public sealed partial class RealtimeRelay(
         if (rejection is not null)
         {
             var eventId = evt["event_id"] is JsonValue id && id.TryGetValue<string>(out var s) ? s : null;
-            await SendToClientAsync(RealtimeEvents.Error(rejection.Code, rejection.Message, eventId), ct);
+            await SendToClientAsync(RealtimeEvents.Error(rejection, eventId), ct);
             return;
         }
 
@@ -227,8 +225,8 @@ public sealed partial class RealtimeRelay(
         catch (WebSocketException ex)
         {
             LogUpstreamLost(logger, ex.WebSocketErrorCode.ToString());
-            await SendToClientAsync(RealtimeEvents.Error("provider_disconnected", "Anslutningen till leverantören bröts.", null, "server_error"), CancellationToken.None);
-            await CloseClientAsync(WebSocketCloseStatus.EndpointUnavailable, "provider_disconnected");
+            await SendToClientAsync(RealtimeEvents.Error(GatewayError.ProviderDisconnected, null, "server_error"), CancellationToken.None);
+            await CloseClientAsync(WebSocketCloseStatus.EndpointUnavailable, GatewayError.ProviderDisconnected.Code);
             return RealtimeEndReason.ProviderFailed;
         }
         finally
@@ -286,8 +284,7 @@ public sealed partial class RealtimeRelay(
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            stop = new RealtimeStop(RealtimeEndReason.Shutdown, "gateway_shutting_down",
-                "Gatewayen startas om. Anslut igen för att fortsätta.", WebSocketCloseStatus.EndpointUnavailable);
+            stop = new RealtimeStop(RealtimeEndReason.Shutdown, GatewayError.GatewayShuttingDown, WebSocketCloseStatus.EndpointUnavailable);
         }
         catch (OperationCanceledException)
         {
@@ -299,9 +296,9 @@ public sealed partial class RealtimeRelay(
             return RealtimeEndReason.Closed;
         }
 
-        await SendToClientAsync(RealtimeEvents.Error(stop.Code, stop.Message, null,
+        await SendToClientAsync(RealtimeEvents.Error(stop.Error, null,
             stop.Reason == RealtimeEndReason.BudgetExceeded ? "insufficient_quota" : "invalid_request_error"), CancellationToken.None);
-        await CloseBothAsync(stop.CloseStatus, stop.Code);
+        await CloseBothAsync(stop.CloseStatus, stop.Error.Code);
         return stop.Reason;
     }
 

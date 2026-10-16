@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -25,9 +24,9 @@ public static class OperationsEndpoints
             var gateway = await gatewayClient.ReadAsync(ct);
             ComponentHealthDto[] components =
             [
-                .. report.Entries.Select(e => new ComponentHealthDto(e.Key, e.Value.Status.ToString(), e.Value.Status == HealthStatus.Healthy ? "OK" : "Kontrollera tjänstens anslutning.")),
+                .. report.Entries.Select(e => new ComponentHealthDto(e.Key, e.Value.Status.ToString(), e.Value.Status == HealthStatus.Healthy ? "OK" : "Check the service's connection.")),
                 new ComponentHealthDto("gateway", gateway?.Status ?? "Unhealthy",
-                    gateway is null ? "Gatewayens hälsa kunde inte hämtas." : gateway.Status == "Healthy" ? "OK" : "Kontrollera gatewayens anslutningar eller användningskö."),
+                    gateway is null ? "The gateway's health could not be fetched." : gateway.Status == "Healthy" ? "OK" : "Check the gateway's connections or usage queue."),
             ];
             return TypedResults.Ok(new OpsHealthDto(
                 checkedAt, components,
@@ -49,23 +48,23 @@ public static class OperationsEndpoints
         ops.MapGet("/providers/stats", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, AdminContext ctx, ProviderStabilityService stability, CancellationToken ct) =>
             TypedResults.Ok(await stability.StabilityAsync(from, to, bucket, ctx.Now, ct)))
             .WithName("GetProviderStability").WithSummary("Requests, provider errors, fallbacks and latency per provider per hour or day, and a ranking for the period");
-        ops.MapPost("/providers/{id:guid}/circuit", async (Guid id, CircuitRequest input, AdminContext ctx, ProviderCatalogService catalog, ClaimsPrincipal user, ICircuitBreakerStore circuits, CancellationToken ct) =>
+        ops.MapPost("/providers/{id:guid}/circuit", async (Guid id, CircuitRequest input, AdminContext ctx, ProviderCatalogService catalog, ICircuitBreakerStore circuits, CancellationToken ct) =>
         {
             _ = await catalog.ProviderAsync(id, ct);
             await circuits.SetStateAsync(id, input.State, TimeSpan.FromMinutes(15), ct);
-            await ctx.SaveAsync(user, AuditActions.Circuit, AuditEntities.Provider, id, null, new CircuitAudit(input.State), InvalidationKind.Config, ct);
+            await ctx.SaveAsync(AuditActions.Circuit, AuditEntities.Provider, id, null, new CircuitAudit(input.State), InvalidationKind.Config, ct);
             return TypedResults.NoContent();
         }).WithName("SetProviderCircuit").WithSummary("Opens or closes a provider's circuit for 15 minutes");
         // A deliberate operator action, so it is audited (unlike the invalidations that accompany saved changes).
-        ops.MapPost("/cache/invalidate-keys", async (AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        ops.MapPost("/cache/invalidate-keys", async (AdminContext ctx, CancellationToken ct) =>
         {
-            await ctx.SaveAsync(user, AuditActions.Invalidate, AuditEntities.Keys, "all", null, null, InvalidationKind.Keys, ct);
+            await ctx.SaveAsync(AuditActions.Invalidate, AuditEntities.Keys, "all", null, null, InvalidationKind.Keys, ct);
             return TypedResults.NoContent();
         }).WithName("InvalidateKeyCaches").WithSummary("Makes every gateway reload keys");
         ops.MapGet("/config/export", async (ConfigTransferService transfer, CancellationToken ct) => TypedResults.Ok(await transfer.ExportAsync(ct)))
             .WithName("ExportConfiguration").WithSummary("Providers (without secrets), models, prices, routes and global routing rules");
-        ops.MapPost("/config/import", async (ConfigDocument input, ConfigTransferService transfer, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await transfer.ImportAsync(input, user, ct)))
+        ops.MapPost("/config/import", async (ConfigDocument input, ConfigTransferService transfer, CancellationToken ct) =>
+            TypedResults.Ok(await transfer.ImportAsync(input, ct)))
             .WithName("ImportConfiguration").WithSummary("Creates or updates everything in an exported document, in one transaction");
     }
 }

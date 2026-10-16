@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { ConfigDocument } from '@/api/types'
 import { useOpsStore } from '@/stores/ops'
 import { useUiStore } from '@/stores/ui'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineError from '@/components/ui/InlineError.vue'
@@ -18,7 +18,6 @@ const ui = useUiStore()
 const text = ref('')
 const exporting = ref(false)
 const error = ref<string | null>(null)
-const errorLang = ref<'sv' | undefined>(undefined)
 const confirmOpen = ref(false)
 const parsed = ref<ConfigDocument | null>(null)
 const empty = computed(() => text.value.trim() === '')
@@ -28,7 +27,6 @@ watch(
   (open) => {
     if (open) {
       error.value = null
-      errorLang.value = undefined
     }
   },
 )
@@ -41,7 +39,6 @@ async function exportConfig(): Promise<void> {
     ui.notify('Configuration exported to the text box.')
   } catch (e) {
     error.value = problemMessage(e)
-    errorLang.value = problemLang(e)
   } finally {
     exporting.value = false
   }
@@ -49,7 +46,6 @@ async function exportConfig(): Promise<void> {
 
 function reviewImport(): void {
   error.value = null
-  errorLang.value = undefined
   let value: unknown
   try {
     value = JSON.parse(text.value)
@@ -79,7 +75,7 @@ async function runImport(): Promise<void> {
     <FormField v-slot="{ id, describedBy }" label="Configuration JSON" hint="Paste a configuration document, or export the current one.">
       <textarea :id="id" v-model="text" rows="12" spellcheck="false" :aria-describedby="describedBy" class="field-input font-mono" />
     </FormField>
-    <InlineError v-if="error" :message="error" :lang="errorLang" />
+    <InlineError v-if="error" :message="error" />
     <p v-if="empty" class="text-small text-fg-3">Import is unavailable until the text box contains a configuration.</p>
     <template #actions>
       <UiButton @click="emit('update:open', false)">Close</UiButton>

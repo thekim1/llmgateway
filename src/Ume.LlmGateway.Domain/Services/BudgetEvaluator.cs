@@ -3,7 +3,7 @@ using Ume.LlmGateway.Domain.Entities;
 namespace Ume.LlmGateway.Domain.Services;
 
 /// <summary>A budget together with how much has been spent (and reserved) in its current period.</summary>
-public sealed record BudgetState(Budget Budget, PeriodWindow Window, decimal SpentSek);
+public sealed record BudgetState(Budget Budget, PeriodWindow Window, decimal SpentUsd);
 
 public sealed record BudgetDecision(bool Allowed, BudgetState? ExceededBudget)
 {
@@ -20,7 +20,7 @@ public static class BudgetEvaluator
     {
         ArgumentNullException.ThrowIfNull(states);
         var exceeded = states
-            .Where(s => s.Budget.IsActive && s.SpentSek >= s.Budget.LimitSek)
+            .Where(s => s.Budget.IsActive && s.SpentUsd >= s.Budget.LimitUsd)
             .OrderBy(s => s.Budget.Scope == BudgetScope.VirtualKey ? 0 : s.Budget.Scope == BudgetScope.Team ? 1 : 2)
             .FirstOrDefault();
         return exceeded is null ? BudgetDecision.Allow : new BudgetDecision(false, exceeded);
@@ -30,7 +30,7 @@ public static class BudgetEvaluator
     public static IReadOnlyList<int> CrossedThresholds(Budget budget, decimal before, decimal after)
     {
         ArgumentNullException.ThrowIfNull(budget);
-        if (budget.LimitSek <= 0 || after <= before)
+        if (budget.LimitUsd <= 0 || after <= before)
         {
             return [];
         }
@@ -41,7 +41,7 @@ public static class BudgetEvaluator
             .Order()
             .Where(t =>
             {
-                var level = budget.LimitSek * t / 100m;
+                var level = budget.LimitUsd * t / 100m;
                 return before < level && after >= level;
             })
             .ToList();

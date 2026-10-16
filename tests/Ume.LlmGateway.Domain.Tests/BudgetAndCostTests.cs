@@ -81,7 +81,7 @@ public class BudgetEvaluatorTests
     private static readonly PeriodWindow Window = new(DateTimeOffset.MinValue, DateTimeOffset.MaxValue);
 
     private static BudgetState State(BudgetScope scope, decimal limit, decimal spent, bool active = true) =>
-        new(new Budget { Scope = scope, ScopeId = Guid.NewGuid(), LimitSek = limit, IsActive = active }, Window, spent);
+        new(new Budget { Scope = scope, ScopeId = Guid.NewGuid(), LimitUsd = limit, IsActive = active }, Window, spent);
 
     [Fact]
     public void Allows_when_all_budgets_have_room() =>
@@ -113,7 +113,7 @@ public class BudgetEvaluatorTests
     [Fact]
     public void Crossed_thresholds_are_reported_once()
     {
-        var budget = new Budget { LimitSek = 1000, AlertThresholds = [50, 80, 100] };
+        var budget = new Budget { LimitUsd = 1000, AlertThresholds = [50, 80, 100] };
 
         BudgetEvaluator.CrossedThresholds(budget, 400, 450).ShouldBeEmpty();
         BudgetEvaluator.CrossedThresholds(budget, 450, 850).ShouldBe([50, 80]);

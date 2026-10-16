@@ -7,7 +7,7 @@ import { useDepartmentsStore } from '@/stores/departments'
 import { useTeamsStore } from '@/stores/teams'
 import { useKeysStore } from '@/stores/keys'
 import { OUTCOME_LABEL } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import { formatDate, formatDateTime, formatMs, formatNumber, formatSek, formatUsdCost, todayIso, toIsoDate } from '@/utils/format'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -268,7 +268,7 @@ onMounted(() => {
         <TextField v-model="lookupId" label="Request ID" mono hint="Find it in the x-request-id response header." :error="lookupMessage" />
         <UiButton type="submit" :loading="lookupBusy">Look up</UiButton>
       </form>
-      <InlineError v-if="lookupError" :message="problemMessage(lookupError)" :lang="problemLang(lookupError)" class="mt-3" />
+      <InlineError v-if="lookupError" :message="problemMessage(lookupError)" class="mt-3" />
     </UiCard>
   </div>
 

@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -65,18 +64,18 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
     }
 
     /// <summary>Creates or updates everything in the document, by name, in one transaction; nothing is deleted.</summary>
-    public async Task<ConfigImportResult> ImportAsync(ConfigDocument input, ClaimsPrincipal user, CancellationToken ct)
+    public async Task<ConfigImportResult> ImportAsync(ConfigDocument input, CancellationToken ct)
     {
         if (input.Providers.Any(p => p.Configuration.Credential is not null))
         {
-            throw new ApiFaultException(400, "Importera inte hemligheter. Använd credentialEnvironment med en UME_PROVIDER_-miljövariabel.");
+            throw new ApiFaultException(400, "Do not import secrets. Use credentialEnvironment with a UME_PROVIDER_ environment variable.");
         }
         if (input.Providers.Select(p => p.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Providers.Length ||
             input.Models.Select(m => m.Configuration.Name).Distinct(StringComparer.Ordinal).Count() != input.Models.Length ||
             input.Routes.Select(r => r.Name).Distinct(StringComparer.Ordinal).Count() != input.Routes.Length ||
             (input.RoutingRules ?? []).Select(r => r.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != (input.RoutingRules ?? []).Length)
         {
-            throw new ApiFaultException(400, "Konfigurationen har dubbletter.");
+            throw new ApiFaultException(400, "The configuration has duplicates.");
         }
         var result = await ctx.Db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
@@ -96,7 +95,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 if (item.CredentialEnvironment is { } reference)
                 {
                     var secret = Environment.GetEnvironmentVariable(reference);
-                    if (string.IsNullOrEmpty(secret)) { throw new ApiFaultException(400, "En refererad leverantörshemlighet saknas."); }
+                    if (string.IsNullOrEmpty(secret)) { throw new ApiFaultException(400, "A referenced provider secret is missing."); }
                     config = config with { Credential = secret };
                 }
                 catalog.Apply(p, config);
@@ -105,7 +104,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             foreach (var item in input.Models)
             {
                 var config = item.Configuration;
-                var provider = await ctx.Db.ProviderAccounts.SingleOrDefaultAsync(p => p.Name == item.ProviderName, ct) ?? throw new ApiFaultException(400, "En modell refererar till en okänd leverantör.");
+                var provider = await ctx.Db.ProviderAccounts.SingleOrDefaultAsync(p => p.Name == item.ProviderName, ct) ?? throw new ApiFaultException(400, "A model refers to an unknown provider.");
                 // Model names are unique per provider.
                 var m = await ctx.Db.ModelDeployments.Include(m => m.Prices).SingleOrDefaultAsync(m => m.ProviderAccountId == provider.Id && m.Name == config.Name, ct);
                 if (m is null)
@@ -133,7 +132,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                     else if (existing.InputPerMillionUsd != price.InputPerMillionUsd || existing.CachedInputPerMillionUsd != price.CachedInputPerMillionUsd || existing.OutputPerMillionUsd != price.OutputPerMillionUsd || existing.AudioPerMinuteUsd != price.AudioPerMinuteUsd
                         || existing.AudioInputPerMillionUsd != price.AudioInputPerMillionUsd || existing.AudioOutputPerMillionUsd != price.AudioOutputPerMillionUsd || existing.PerImageUsd != price.PerImageUsd)
                     {
-                        throw new ApiFaultException(409, "Prishistorik är oföränderlig. Lägg till ett nytt giltighetsdatum.");
+                        throw new ApiFaultException(409, "Price history cannot be changed. Add a new effective date.");
                     }
                 }
             }
@@ -154,7 +153,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 else { updated++; }
                 var models = item.Targets.Select(t => t.ModelName).Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(n => n, n => byName.GetValueOrDefault(n), StringComparer.OrdinalIgnoreCase);
-                if (models.Values.Any(m => m is null)) { throw new ApiFaultException(400, "En rutt refererar till en okänd modell. Ange leverantör/modell när flera leverantörer har modellen."); }
+                if (models.Values.Any(m => m is null)) { throw new ApiFaultException(400, "A route refers to an unknown model. Give provider/model when several providers offer the model."); }
                 await catalog.ApplyRouteAsync(r, new RouteRequest(item.Name, item.Kind,
                     [.. item.Targets.Select(t => new TargetRequest(models[t.ModelName]!.Id, t.Priority, t.Weight))], item.Description, item.IsEnabled), ct);
             }
@@ -162,7 +161,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                 [.. input.Routes.Select(r => r.Name), .. input.Models.Select(m => m.Configuration.Name)], ct);
             created += rulesCreated; updated += rulesUpdated;
             var counts = new ConfigImportResult(created, updated, 0);
-            ctx.Db.AuditLog.Add(ctx.Audit(user, AuditActions.Import, AuditEntities.Config, null, null, counts));
+            ctx.Db.AuditLog.Add(ctx.Audit(AuditActions.Import, AuditEntities.Config, null, null, counts));
             await ctx.Db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return counts;

@@ -5,7 +5,7 @@ import type { DiscoveredModel, DiscoveredPrice, Model, Provider } from '@/api/ty
 import { useModelsStore } from '@/stores/models'
 import { formatNumber, formatUsd } from '@/utils/format'
 import { KIND_LABEL, MODEL_FEATURES, featureLabel } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import AppIcon from '../ui/AppIcon.vue'
 import FilterSelect from '../ui/FilterSelect.vue'
 import InlineError from '../ui/InlineError.vue'
@@ -327,7 +327,7 @@ async function addSelected(): Promise<void> {
     @update:open="emit('update:open', $event)"
   >
     <div v-if="loading" class="text-fg-2" role="status">Contacting provider…</div>
-    <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+    <InlineError v-if="error" :message="problemMessage(error)" />
     <p v-if="addedCount" class="text-ok" role="status">Added {{ addedCount }} {{ addedCount === 1 ? 'model' : 'models' }}.</p>
     <p v-if="updatedCount !== null" class="text-ok" role="status">Updated {{ updatedCount }} {{ updatedCount === 1 ? 'model' : 'models' }} with capabilities from the provider.</p>
 
@@ -416,7 +416,7 @@ async function addSelected(): Promise<void> {
                 <p v-if="m.alreadyAdded" class="text-caption text-fg-3">A changed price is added as a new price from now. Earlier requests keep their old price.</p>
                 <p v-else class="text-caption text-fg-3">Leave empty to add the model without a price.</p>
               </fieldset>
-              <InlineError v-if="rowError?.id === m.id" :message="problemMessage(rowError.error)" :lang="problemLang(rowError.error)" />
+              <InlineError v-if="rowError?.id === m.id" :message="problemMessage(rowError.error)" />
               <div v-if="m.alreadyAdded" class="flex items-center justify-end gap-3">
                 <span v-if="savedId === m.id" class="text-small text-ok" role="status">Saved.</span>
                 <UiButton variant="primary" size="sm" :loading="saving === m.id" @click="saveExisting(m)">Save changes</UiButton>

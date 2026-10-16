@@ -34,7 +34,7 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         record["costSek"]!.GetValue<decimal>().ShouldBeGreaterThan(0);
         using var budget = await admin.PostAsJsonAsync("/api/budgets", new
         {
-            scope = "VirtualKey", scopeId = key.Id, limitSek = 0, period = "Monthly",
+            scope = "VirtualKey", scopeId = key.Id, limitUsd = 0, period = "Monthly",
             alertThresholds = new[] { 80, 100 }, isActive = true,
         }, Cancellation);
         budget.EnsureSuccessStatusCode();

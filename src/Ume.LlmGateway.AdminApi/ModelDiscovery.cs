@@ -71,7 +71,7 @@ public static partial class ModelDiscovery
         ArgumentNullException.ThrowIfNull(protector);
         if (provider.Type == ProviderType.AzureOpenAI)
         {
-            throw new ApiFaultException(400, "Azure OpenAI kan inte lista distributioner via API:et. Lägg till modellerna manuellt.");
+            throw new ApiFaultException(400, "Azure OpenAI cannot list deployments through its API. Add the models manually.");
         }
 
         var anthropic = provider.Type == ProviderType.Anthropic;
@@ -88,7 +88,7 @@ public static partial class ModelDiscovery
         }
         if (!ProviderTransport.IsPermitted(listUri, requireHttps))
         {
-            throw new ApiFaultException(400, "Leverantörens adress måste använda https.");
+            throw new ApiFaultException(400, "The provider's address must use https.");
         }
         var credential = protector.Unprotect(provider.EncryptedCredential);
 
@@ -115,14 +115,14 @@ public static partial class ModelDiscovery
             {
                 var hint = ((int)response.StatusCode, foundry) switch
                 {
-                    (401 or 403, true) => "Kontrollera att API-nyckeln hör till Foundry-resursen och att den tillåter projektets API.",
-                    (401 or 403, false) => "Kontrollera API-nyckeln.",
+                    (401 or 403, true) => "Check that the API key belongs to the Foundry resource and allows the project API.",
+                    (401 or 403, false) => "Check the API key.",
                     (404, true) => FoundryEndpoint.ProjectName(provider.BaseUrl) is null
-                        ? "Ange projektets adress från Foundry-portalen (https://<resurs>.services.ai.azure.com/api/projects/<projekt>) som bas-URL, så att modellerna kan listas."
-                        : "Kontrollera projektnamnet i bas-URL:en (https://<resurs>.services.ai.azure.com/api/projects/<projekt>).",
-                    _ => "Kontrollera adressen och inloggningsmetoden.",
+                        ? "Use the project address from the Foundry portal (https://<resource>.services.ai.azure.com/api/projects/<project>) as the base URL, so the models can be listed."
+                        : "Check the project name in the base URL (https://<resource>.services.ai.azure.com/api/projects/<project>).",
+                    _ => "Check the address and the authentication method.",
                 };
-                throw new ApiFaultException(502, $"Leverantören svarade {(int)response.StatusCode}. {hint}");
+                throw new ApiFaultException(502, $"The provider answered {(int)response.StatusCode}. {hint}");
             }
             return JsonNode.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
         }
@@ -138,15 +138,15 @@ public static partial class ModelDiscovery
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ApiFaultException(504, "Leverantören svarade inte i tid.");
+            throw new ApiFaultException(504, "The provider did not answer in time.");
         }
         catch (HttpRequestException)
         {
-            throw new ApiFaultException(502, "Kunde inte ansluta till leverantören. Kontrollera adressen.");
+            throw new ApiFaultException(502, "Could not connect to the provider. Check the address.");
         }
         catch (System.Text.Json.JsonException)
         {
-            throw new ApiFaultException(502, "Leverantören returnerade ett oväntat svar och verkar inte ha en modellista.");
+            throw new ApiFaultException(502, "The provider returned an unexpected answer and does not seem to have a model list.");
         }
 
         var items = body switch
@@ -154,7 +154,7 @@ public static partial class ModelDiscovery
             JsonArray array => array,
             JsonObject obj => (obj["data"] ?? obj["models"] ?? obj["value"]) as JsonArray,
             _ => null,
-        } ?? throw new ApiFaultException(502, "Leverantören returnerade ingen modellista.");
+        } ?? throw new ApiFaultException(502, "The provider returned no model list.");
 
         if (ollama)
         {
@@ -180,7 +180,7 @@ public static partial class ModelDiscovery
         }
         catch (UriFormatException)
         {
-            throw new ApiFaultException(400, "Leverantörens adress är ogiltig.");
+            throw new ApiFaultException(400, "The provider's address is invalid.");
         }
     }
 
@@ -192,7 +192,7 @@ public static partial class ModelDiscovery
         }
         catch (UriFormatException)
         {
-            throw new ApiFaultException(400, "Leverantörens adress är ogiltig.");
+            throw new ApiFaultException(400, "The provider's address is invalid.");
         }
     }
 

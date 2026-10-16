@@ -8,8 +8,8 @@ import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { PERIOD_LABEL, SCOPE_LABEL } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
-import { formatDate, formatPercent, formatSek } from '@/utils/format'
+import { problemMessage } from '@/utils/problem'
+import { formatDate, formatPercent, formatUsdCost } from '@/utils/format'
 import { parseDecimal } from '@/utils/validation'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -51,9 +51,9 @@ const form = reactive({
   thresholds: '50, 80, 100',
   isActive: true,
 })
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   scopeId: 'budget-scope-id',
-  limitSek: 'budget-limit',
+  limitUsd: 'budget-limit',
   alertThresholds: 'budget-thresholds',
 })
 
@@ -132,7 +132,7 @@ async function openForm(budget: Budget | null): Promise<void> {
   editing.value = budget
   form.scope = budget?.scope ?? 'Team'
   form.scopeId = budget?.scopeId ?? ''
-  form.limit = budget ? String(budget.limitSek).replace('.', ',') : ''
+  form.limit = budget ? String(budget.limitUsd).replace('.', ',') : ''
   form.period = budget?.period ?? 'Monthly'
   form.thresholds = budget ? budget.alertThresholds.join(', ') : '50, 80, 100'
   form.isActive = budget?.isActive ?? true
@@ -156,7 +156,7 @@ async function save(): Promise<void> {
   const thresholds = parseThresholds()
   const ok = validate({
     scopeId: !form.scopeId && `Choose the ${ownerLabel.value.toLowerCase()} this budget applies to.`,
-    limitSek: (limit === null || Number.isNaN(limit) || limit <= 0) && 'Enter a limit above 0 kr, for example 5000.',
+    limitUsd: (limit === null || Number.isNaN(limit) || limit <= 0) && 'Enter a limit in USD above 0, for example 500.',
     alertThresholds: !thresholds && 'Enter alert levels as percentages from 1 to 100, separated by commas, for example 50, 80, 100.',
   })
   if (!ok || limit === null || !thresholds) {
@@ -164,7 +164,7 @@ async function save(): Promise<void> {
     return
   }
   saving.value = true
-  const request = { scope: form.scope, scopeId: form.scopeId, limitSek: limit, period: form.period, alertThresholds: [...new Set(thresholds)].sort((a, b) => a - b), isActive: form.isActive }
+  const request = { scope: form.scope, scopeId: form.scopeId, limitUsd: limit, period: form.period, alertThresholds: [...new Set(thresholds)].sort((a, b) => a - b), isActive: form.isActive }
   try {
     if (editing.value) await budgets.update(editing.value.id, request)
     else await budgets.create(request)
@@ -195,7 +195,7 @@ async function remove(): Promise<void> {
   <section aria-labelledby="open-alerts-h" class="mb-8">
     <h2 id="open-alerts-h" tabindex="-1" class="mb-3 text-heading outline-none">Open alerts</h2>
     <AsyncState :loading="budgets.alertsLoading && openAlerts.length === 0" :error="budgets.alertsError" :empty="false" @retry="load">
-      <InlineError v-if="ackError" :message="problemMessage(ackError)" :lang="problemLang(ackError)" class="mb-3" />
+      <InlineError v-if="ackError" :message="problemMessage(ackError)" class="mb-3" />
       <p v-if="openAlerts.length === 0" class="flex items-center gap-2 text-fg-2"><AppIcon name="check_circle" filled class="text-ok" />No open alerts.</p>
       <ul v-else class="m-0 flex list-none flex-col gap-2 p-0">
         <li v-for="alert in openAlerts" :key="alert.id" class="flex flex-wrap items-center justify-between gap-3 rounded-card bg-warn-soft p-4">
@@ -203,7 +203,7 @@ async function remove(): Promise<void> {
             <AppIcon name="warning" filled class="mt-0.5 text-warn" />
             <div class="min-w-0">
               <p class="font-medium text-fg"><span lang="sv">{{ alert.scopeName }}</span> passed {{ alert.thresholdPercent }}%</p>
-              <p class="text-small text-fg-2">{{ SCOPE_LABEL[alert.scope] }} budget · {{ formatSek(alert.spentSek) }} of {{ formatSek(alert.limitSek) }}</p>
+              <p class="text-small text-fg-2">{{ SCOPE_LABEL[alert.scope] }} budget · {{ formatUsdCost(alert.spentUsd) }} of {{ formatUsdCost(alert.limitUsd) }}</p>
             </div>
           </div>
           <UiButton :id="`ack-${alert.id}`" size="sm" :loading="ackBusy === alert.id" :aria-label="`Acknowledge alert for ${alert.scopeName}`" @click="acknowledge(alert.id)">Acknowledge</UiButton>
@@ -240,7 +240,7 @@ async function remove(): Promise<void> {
             <span class="tabular w-12 text-right text-small font-medium">{{ formatPercent(row.percentUsed) }}</span>
           </span>
         </template>
-        <template #cell-amount="{ row }">{{ formatSek(row.spentSek) }} <span class="text-fg-3">/ {{ formatSek(row.limitSek) }}</span></template>
+        <template #cell-amount="{ row }">{{ formatUsdCost(row.spentUsd) }} <span class="text-fg-3">/ {{ formatUsdCost(row.limitUsd) }}</span></template>
         <template #cell-resets="{ row }">{{ formatDate(row.periodEnd) }}</template>
       </DataTable>
     </AsyncState>
@@ -252,11 +252,11 @@ async function remove(): Promise<void> {
       <UiBadge :tone="editing.isActive ? 'ok' : 'neutral'" :label="editing.isActive ? 'Active' : 'Inactive'" />
     </template>
     <form id="budget-form" class="flex flex-col gap-5" novalidate @submit.prevent="save">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <SegmentedControl :model-value="form.scope" :options="scopeOptions" label="Applies to" mode="radio" @update:model-value="setScope" />
-      <InlineError v-if="optionsError" :message="problemMessage(optionsError)" :lang="problemLang(optionsError)" />
+      <InlineError v-if="optionsError" :message="problemMessage(optionsError)" />
       <SelectField v-model="form.scopeId" :label="ownerLabel" :options="ownerOptions" placeholder="Choose…" :error="errors.scopeId" />
-      <TextField v-model="form.limit" label="Limit (kr)" inputmode="decimal" :error="errors.limitSek" hint="Total spend allowed per period." />
+      <TextField v-model="form.limit" label="Limit (USD)" inputmode="decimal" :error="errors.limitUsd" hint="Total spend allowed per period." />
       <SelectField v-model="form.period" label="Period" :options="periodOptions" />
       <TextField v-model="form.thresholds" label="Alert levels (%)" :error="errors.alertThresholds" hint="An alert opens when spend passes each level, for example 50, 80, 100." />
       <CheckField v-model="form.isActive" label="Active" description="Inactive budgets are kept but not enforced." />

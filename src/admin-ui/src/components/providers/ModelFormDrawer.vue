@@ -28,7 +28,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'delete
 
 const models = useModelsStore()
 const ui = useUiStore()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   providerId: 'model-provider',
   name: 'model-name',
   upstreamModel: 'model-upstream',
@@ -164,7 +164,7 @@ async function priceAdded(): Promise<void> {
       <UiBadge :tone="model.isEnabled ? 'ok' : 'neutral'" :label="model.isEnabled ? 'Enabled' : 'Disabled'" />
     </template>
     <form id="model-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <SelectField v-if="!model" id="model-provider" v-model="providerId" label="Provider" :options="providerOptions" placeholder="Choose a provider" :error="errors.providerId" />
       <TextField id="model-name" v-model="name" label="Name" mono :error="errors.name" hint="The name clients can request directly." />
       <TextField id="model-upstream" v-model="upstreamModel" label="Upstream model" mono :error="errors.upstreamModel" hint="The model or deployment name at the provider." />

@@ -49,7 +49,7 @@ test('OIDC login, team and show-once key, rotation, usage, budget and audit', as
   expect(completion.headers()['x-ume-fallbacks']).toBe('1')
   const requestId = completion.headers()['x-request-id']
   await expect.poll(async () => (await page.request.get(`/api/usage/requests/${requestId}`)).status()).toBe(200)
-  const budget = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: createdKey.key.id, limitSek: 0, period: 'Monthly', alertThresholds: [80, 100], isActive: true })
+  const budget = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: createdKey.key.id, limitUsd: 0, period: 'Monthly', alertThresholds: [80, 100], isActive: true })
   expect(budget.status()).toBe(201)
 
   await ready(page, '/keys')

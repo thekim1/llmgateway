@@ -200,17 +200,17 @@ public sealed partial class UsageWriter : BackgroundService
         PruneLastUsed(now);
 
         // Committed: notify now. A retry of a batch whose commit answer was lost finds these alerts stored and does not raise them again.
-        foreach (var alert in newAlerts)
+        foreach (var (alert, sekPerUsd) in newAlerts)
         {
             LogBudgetAlert(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
-            _alerts.Enqueue(alert);
+            _alerts.Enqueue(alert, sekPerUsd);
         }
     }
 
     /// <summary>Stores the batch's alerts not raised before: unique per (budget, period, threshold), one query for the whole batch.</summary>
-    private async Task<List<AlertEvent>> AddNewAlertsAsync(GatewayDbContext db, List<UsageWork> batch, CancellationToken cancellationToken)
+    private async Task<List<(AlertEvent Alert, decimal SekPerUsd)>> AddNewAlertsAsync(GatewayDbContext db, List<UsageWork> batch, CancellationToken cancellationToken)
     {
-        var newAlerts = new List<AlertEvent>();
+        var newAlerts = new List<(AlertEvent Alert, decimal SekPerUsd)>();
         var groups = batch.SelectMany(b => b.Alerts).GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)).ToList();
         if (groups.Count == 0)
         {
@@ -228,21 +228,21 @@ public sealed partial class UsageWriter : BackgroundService
         foreach (var group in groups.Where(g => !raised.Contains(g.Key)))
         {
             var (budgetId, start, threshold) = group.Key;
-            var a = group.MaxBy(x => x.SpentSek)!;
-            newAlerts.Add(new AlertEvent
+            var a = group.MaxBy(x => x.SpentUsd)!;
+            newAlerts.Add((new AlertEvent
             {
                 BudgetId = budgetId,
                 Scope = a.Budget.Scope,
                 ScopeId = a.Budget.ScopeId,
                 PeriodStart = start,
                 ThresholdPercent = threshold,
-                SpentSek = decimal.Round(a.SpentSek, 2),
-                LimitSek = a.Budget.LimitSek,
+                SpentUsd = decimal.Round(a.SpentUsd, 2),
+                LimitUsd = a.Budget.LimitUsd,
                 Timestamp = _time.GetUtcNow(),
-            });
+            }, a.SekPerUsd));
         }
 
-        db.AlertEvents.AddRange(newAlerts);
+        db.AlertEvents.AddRange(newAlerts.Select(n => n.Alert));
         await db.SaveChangesAsync(cancellationToken);
         return newAlerts;
     }

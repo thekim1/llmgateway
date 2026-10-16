@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Claims;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -95,11 +94,11 @@ public sealed class UsageMetricsService(AdminContext ctx)
 
     private static readonly string[] SessionEndpoints = [nameof(GatewayEndpoint.Realtime), nameof(GatewayEndpoint.RealtimeTranslations)];
 
-    public async Task<UsageMetricsDto> GetAsync(UsageMetricsQuery query, ClaimsPrincipal user, CancellationToken ct)
+    public async Task<UsageMetricsDto> GetAsync(UsageMetricsQuery query, CancellationToken ct)
     {
         var requested = query.Bucket is null ? MetricsBucket.Auto
             : EnumQuery.TryParse<MetricsBucket>(query.Bucket, out var parsed) ? parsed
-            : throw new ApiFaultException(400, "Indelningen måste vara auto, hour eller day.");
+            : throw new ApiFaultException(400, "The bucket must be auto, hour or day.");
         var (start, end) = ReportEndpoints.Range(query.From, query.To, ctx.Now);
         var bucket = requested switch
         {
@@ -108,14 +107,14 @@ public sealed class UsageMetricsService(AdminContext ctx)
         };
         if (bucket == MetricsBucket.Hour && end - start > TimeSpan.FromDays(MaxHourBucketDays) + TimeSpan.FromHours(1))
         {
-            throw new ApiFaultException(400, $"Timvis indelning tillåter högst {MaxHourBucketDays} dygn. Välj day för längre perioder.");
+            throw new ApiFaultException(400, $"Hourly buckets allow at most {MaxHourBucketDays} days. Choose day for longer periods.");
         }
 
         // Usage before the oldest kept record is only in monthly totals, which have no timings or days.
         var kept = await ctx.Db.UsageRetainedFromAsync(ct);
         var recordsFrom = kept is { } k && k > start ? (k < end ? k : end) : start;
 
-        var departments = AdminContext.IsAdmin(user) ? null : await ctx.Departments(user).Select(d => d.Id).ToArrayAsync(ct);
+        var departments = ctx.IsAdmin ? null : await ctx.Departments().Select(d => d.Id).ToArrayAsync(ct);
         var unit = EnumQuery.Name(bucket);
         var zone = bucket == MetricsBucket.Hour ? "UTC" : DayZone;
         // A parameter belongs to one command, so each query gets its own set.

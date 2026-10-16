@@ -4,7 +4,7 @@ import type { Tone } from '@/utils/labels'
 import UiButton from './UiButton.vue'
 import UiDialog from './UiDialog.vue'
 import InlineError from './InlineError.vue'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 
 const props = withDefaults(
   defineProps<{
@@ -58,7 +58,7 @@ async function confirm(): Promise<void> {
     @update:open="emit('update:open', $event)"
   >
     <template v-if="consequence || $slots.default" #description><slot>{{ consequence }}</slot></template>
-    <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+    <InlineError v-if="error" :message="problemMessage(error)" />
     <template #actions>
       <UiButton @click="emit('update:open', false)">{{ cancelLabel }}</UiButton>
       <UiButton :variant="danger ? 'danger-solid' : 'primary'" :loading="busy" @click="confirm">{{ confirmLabel }}</UiButton>

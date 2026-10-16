@@ -7,7 +7,7 @@ namespace Ume.LlmGateway.ServiceDefaults;
 public sealed class ApiFaultException : Exception
 {
     /// <summary>Title of validation problems (field errors).</summary>
-    public const string ValidationTitle = "Kontrollera de markerade fälten.";
+    public const string ValidationTitle = "Check the highlighted fields.";
 
     public ApiFaultException(int status, string detail, IDictionary<string, object?>? extensions = null) : base(detail)
     {

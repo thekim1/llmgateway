@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import type { Model } from '@/api/types'
 import { useModelsStore } from '@/stores/models'
 import { useUiStore } from '@/stores/ui'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import InlineError from '../ui/InlineError.vue'
 import UiButton from '../ui/UiButton.vue'
 import UiDialog from '../ui/UiDialog.vue'
@@ -52,7 +52,7 @@ async function submit(): Promise<void> {
 <template>
   <UiDialog :open="open" title="Add price" description="The new price applies from the date you choose. Earlier requests keep their old price." @update:open="emit('update:open', $event)">
     <form id="price-form" class="flex flex-col gap-4" novalidate @submit.prevent="submit">
-      <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+      <InlineError v-if="error" :message="problemMessage(error)" />
       <PriceFields v-model="draft" :errors="errors" id-prefix="price" optional-from />
     </form>
     <template #actions>

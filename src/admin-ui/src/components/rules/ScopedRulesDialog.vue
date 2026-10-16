@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { RoutingRulesChoice, ScopedRulesProblem } from '@/api/types'
 import { plural } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import InlineError from '../ui/InlineError.vue'
 import UiButton from '../ui/UiButton.vue'
 import UiDialog from '../ui/UiDialog.vue'
@@ -71,7 +71,7 @@ async function confirm(): Promise<void> {
         <span class="flex flex-col"><span class="font-medium">Delete them</span><span class="text-small text-fg-2">They are removed for good.</span></span>
       </label>
     </fieldset>
-    <InlineError v-if="error" :message="problemMessage(error)" :lang="problemLang(error)" />
+    <InlineError v-if="error" :message="problemMessage(error)" />
     <template #actions>
       <UiButton @click="emit('update:open', false)">Cancel</UiButton>
       <UiButton :variant="choice === 'delete' ? 'danger-solid' : 'primary'" :loading="busy" @click="confirm">{{ confirmLabel }}</UiButton>

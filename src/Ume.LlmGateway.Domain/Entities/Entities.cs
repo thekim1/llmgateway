@@ -374,7 +374,9 @@ public sealed class Budget
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public BudgetScope Scope { get; set; }
     public Guid ScopeId { get; set; }
-    public decimal LimitSek { get; set; }
+
+    /// <summary>The limit in USD, the currency costs are calculated and counted in.</summary>
+    public decimal LimitUsd { get; set; }
     public BudgetPeriod Period { get; set; }
 
     /// <summary>Percentages (1-100) at which alerts are raised.</summary>
@@ -567,8 +569,8 @@ public sealed class AlertEvent
     public Guid ScopeId { get; set; }
     public DateTimeOffset PeriodStart { get; set; }
     public int ThresholdPercent { get; set; }
-    public decimal SpentSek { get; set; }
-    public decimal LimitSek { get; set; }
+    public decimal SpentUsd { get; set; }
+    public decimal LimitUsd { get; set; }
     public DateTimeOffset Timestamp { get; set; }
     public bool Acknowledged { get; set; }
 }

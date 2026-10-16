@@ -7,19 +7,18 @@ using Ume.LlmGateway.Infrastructure.Stores;
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
 /// <summary>A request that routing refuses, with the HTTP status and client-facing error to return.</summary>
-public sealed record RouteRejection(int StatusCode, string Code, string Message);
 
 /// <summary>
 /// Outcome of resolving the model name the client asked for. When both <c>Model</c> and <c>Rejection</c> are null the
 /// name is unknown but routing rules exist that may rewrite it, so the decision is deferred until they have run.
 /// </summary>
-public sealed record ModelResolution(ResolvedModel? Model, RouteRejection? Rejection);
+public sealed record ModelResolution(ResolvedModel? Model, GatewayError? Rejection);
 
 /// <summary>The models a request may be sent to, in attempt order, or a rejection.</summary>
-public sealed record RoutePlan(IReadOnlyList<ResolvedModel> Models, RouteRejection? Rejection);
+public sealed record RoutePlan(IReadOnlyList<ResolvedModel> Models, GatewayError? Rejection);
 
 /// <summary>Outcome of candidate selection: the ordered attempt list, or a rejection when none is eligible.</summary>
-public sealed record CandidateSelection(IReadOnlyList<RouteTarget> Candidates, RouteRejection? Rejection);
+public sealed record CandidateSelection(IReadOnlyList<RouteTarget> Candidates, GatewayError? Rejection);
 
 /// <summary>A circuit-state lookup started early (see <see cref="IRouteResolver.PrefetchCircuits"/>) for these providers.</summary>
 public sealed record CircuitPrefetch(IReadOnlySet<Guid> ProviderIds, Task<IReadOnlySet<Guid>> Open);
@@ -58,24 +57,24 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
         {
             // A rule may rewrite an unknown (e.g. legacy) or ambiguous name; without rules it is refused.
             return snapshot.Rules.Count > 0 ? new ModelResolution(null, null)
-                : snapshot.AmbiguousChoices(model) is { } choices ? Reject(400, GatewayErrorCodes.ModelAmbiguous, Ambiguous(model, choices))
-                : Reject(404, GatewayErrorCodes.ModelNotFound, NotFound(model));
+                : snapshot.AmbiguousChoices(model) is { } choices ? Reject(GatewayError.ModelAmbiguous(model, choices))
+                : Reject(GatewayError.ModelNotFound(model));
         }
 
         if (!resolved.IsAllowedFor(key))
         {
-            return Reject(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(resolved.Name));
+            return Reject(GatewayError.ModelNotAllowed(resolved.Name));
         }
 
         if (key.AllowedProviders.Count > 0
             && !resolved.Targets.Any(t => t.ModelDeployment?.ProviderAccount is { } p && RouteSelector.IsProviderAllowed(p, key.AllowedProviders)))
         {
-            return Reject(403, GatewayErrorCodes.ModelNotAllowed, $"Nyckeln får inte använda någon leverantör som tillhandahåller '{resolved.Name}'.");
+            return Reject(GatewayError.NoAllowedProvider(resolved.Name));
         }
 
         if (!GatewayEndpoints.Info(endpoint).Serves(resolved.Kind))
         {
-            return Reject(400, GatewayErrorCodes.InvalidRequest, $"Modellen '{resolved.Name}' kan inte användas med denna endpoint.");
+            return Reject(GatewayError.EndpointNotSupported(resolved.Name));
         }
 
         return new ModelResolution(resolved, null);
@@ -90,8 +89,8 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
         if (!decision.Matched)
         {
             return requested is not null ? new RoutePlan([requested], null)
-                : snapshot.AmbiguousChoices(requestedModel) is { } choices ? Rejected(400, GatewayErrorCodes.ModelAmbiguous, Ambiguous(requestedModel, choices))
-                : Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel));
+                : snapshot.AmbiguousChoices(requestedModel) is { } choices ? Rejected(GatewayError.ModelAmbiguous(requestedModel, choices))
+                : Rejected(GatewayError.ModelNotFound(requestedModel));
         }
 
         if (requested is null)
@@ -101,12 +100,12 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             var entitled = decision.Applied.Select(a => snapshot.Resolve(a.ToModel)).FirstOrDefault(r => r is not null);
             if (entitled is null)
             {
-                return Rejected(404, GatewayErrorCodes.ModelNotFound, NotFound(requestedModel));
+                return Rejected(GatewayError.ModelNotFound(requestedModel));
             }
 
             if (!entitled.IsAllowedFor(key))
             {
-                return Rejected(403, GatewayErrorCodes.ModelNotAllowed, ModelNotAllowed(entitled.Name));
+                return Rejected(GatewayError.ModelNotAllowed(entitled.Name));
             }
         }
 
@@ -118,7 +117,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             .ToList();
         return models.Count > 0
             ? new RoutePlan(models, null)
-            : Rejected(503, GatewayErrorCodes.NoEligibleProvider, $"Routingregeln för '{requestedModel}' pekar på modeller som inte finns eller inte kan användas med denna endpoint.");
+            : Rejected(GatewayError.RuleTargetsUnusable(requestedModel));
     }
 
     public CircuitPrefetch PrefetchCircuits(ResolvedModel model, CancellationToken ct)
@@ -167,25 +166,13 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits) : IRouteResolve
             return new CandidateSelection(candidates, null);
         }
 
-        var reason = restrictTo == DataResidency.OnPrem
-            ? "Förfrågan innehåller personuppgifter och får bara skickas till en lokal (on-prem) modell, men ingen sådan finns för detta alias."
-            : "Ingen tillgänglig leverantör kan hantera förfrågan för detta alias med nyckelns begränsningar.";
-        return new CandidateSelection(candidates, new RouteRejection(503, GatewayErrorCodes.NoEligibleProvider, reason));
+        return new CandidateSelection(candidates, GatewayError.NoEligibleProvider(onPremOnly: restrictTo == DataResidency.OnPrem));
     }
 
     private static HashSet<Guid> ProviderIds(IEnumerable<ResolvedModel> models) =>
         [.. models.SelectMany(m => m.Targets).Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId)];
 
-    private static string NotFound(string model) =>
-        $"Modellen '{ModelNames.Truncate(model)}' finns inte. Se GET /v1/models för tillgängliga modeller.";
+    private static ModelResolution Reject(GatewayError error) => new(null, error);
 
-    private static string Ambiguous(string model, IReadOnlyList<string> choices) =>
-        $"Flera leverantörer har modellen '{ModelNames.Truncate(model)}'. Ange leverantören: {string.Join(", ", choices)}. " +
-        "En administratör kan också skapa en rutt med namnet för att välja leverantör eller reserv.";
-
-    private static string ModelNotAllowed(string name) => $"Nyckeln får inte använda modellen '{name}'.";
-
-    private static ModelResolution Reject(int status, string code, string message) => new(null, new RouteRejection(status, code, message));
-
-    private static RoutePlan Rejected(int status, string code, string message) => new([], new RouteRejection(status, code, message));
+    private static RoutePlan Rejected(GatewayError error) => new([], error);
 }

@@ -255,7 +255,7 @@ The admin switch *Settings > Request logging* (log every request for 24 hours or
 cached catalogue snapshot: with it off, a request costs one comparison more. Measured with it off, two runs: non-streaming
 at 64 clients 18 126 / 17 902 req/s, streaming 12 721 / 13 067, the same as without the switch within run-to-run noise.
 
-Not done: a covering index (`INCLUDE ("CostSek")` on the key/team/department + timestamp indexes) would let a cold
+Not done: a covering index (`INCLUDE ("CostUsd")`, `CostSek` when this was measured) on the key/team/department + timestamp indexes) would let a cold
 budget counter be seeded with an index-only scan. On 5 million records it seeded a yearly department budget in 22 ms
 instead of 86 ms (team budgets 2.8 vs 3.5 ms), but made `COPY` inserts 28 % slower and the indexes 55 % larger. Seeding
 happens once per budget and period; inserts happen for every request, so it was left out.
