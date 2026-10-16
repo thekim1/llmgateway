@@ -63,7 +63,7 @@ public static class RoutingRuleEndpoints
 {
     public static void MapRoutingRules(this RouteGroupBuilder api)
     {
-        var rules = api.MapGroup("/routing-rules").RequireAuthorization("admin").WithTags("Routing rules");
+        var rules = api.MapGroup("/routing-rules").RequireAuthorization(AdminPolicies.Admin).WithTags("Routing rules");
 
         rules.MapGet("", async (RoutingScope? scope, Guid? scopeId, bool? orphaned, RoutingRuleService service, CancellationToken ct) =>
             TypedResults.Ok(await service.ListAsync(scope, scopeId, orphaned, ct)))

@@ -51,7 +51,7 @@ public static class ReportEndpoints
 {
     public static void MapReports(this RouteGroupBuilder api)
     {
-        var reports = api.MapGroup("").RequireAuthorization("read").WithTags("Reports");
+        var reports = api.MapGroup("").RequireAuthorization(AdminPolicies.Read).WithTags("Reports");
         reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, CancellationToken ct) =>
         {
             var (skip, take) = Pagination(page, pageSize);
@@ -159,7 +159,7 @@ public static class ReportEndpoints
             var items = await query.OrderByDescending(a => a.Id).Skip(skip).Take(take)
                 .Select(a => new AuditEntryDto(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details)).ToListAsync(ct);
             return TypedResults.Ok(new PageDto<AuditEntryDto>(items, await query.CountAsync(ct)));
-        }).RequireAuthorization("admin").WithTags("Reports").WithName("ListAudit");
+        }).RequireAuthorization(AdminPolicies.Admin).WithTags("Reports").WithName("ListAudit");
         api.MapGet("/catalog", async (AdminContext ctx, ProviderCatalogService catalog, IOptions<GatewayLinkOptions> gateway, CancellationToken ct) =>
         {
             var now = ctx.Now;

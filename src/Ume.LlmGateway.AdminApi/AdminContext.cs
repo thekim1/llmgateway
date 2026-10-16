@@ -121,21 +121,6 @@ public sealed class AdminContext
     }
 }
 
-/// <summary>Admin console roles, from the identity provider's role claim (see docs/identity-and-roles.md).</summary>
-public static class AdminRoles
-{
-    public const string GatewayAdmin = "gateway-admin";
-    public const string DepartmentAdmin = "department-admin";
-    public const string Viewer = "viewer";
-}
-
-/// <summary>Claims the admin API reads from the signed-in user.</summary>
-public static class AdminClaims
-{
-    public const string Subject = "sub";
-    public const string DepartmentCodes = "departmentCodes";
-}
-
 public sealed class AdminValidationFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)

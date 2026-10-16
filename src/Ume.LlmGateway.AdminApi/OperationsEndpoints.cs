@@ -11,7 +11,7 @@ public static class OperationsEndpoints
 {
     public static void MapOperations(this RouteGroupBuilder api)
     {
-        var ops = api.MapGroup("/ops").RequireAuthorization("admin").WithTags("Operations");
+        var ops = api.MapGroup("/ops").RequireAuthorization(AdminPolicies.Admin).WithTags("Operations");
         ops.MapGet("/health", async (AdminContext ctx, ProviderStabilityService stability, ICircuitBreakerStore circuits, HealthCheckService health, GatewayOperationsClient gatewayClient, CancellationToken ct) =>
         {
             var checkedAt = ctx.Now;

@@ -20,7 +20,7 @@ public static class OrganisationEndpoints
 {
     public static void MapOrganisation(this RouteGroupBuilder api)
     {
-        api = api.MapGroup("").RequireAuthorization("read").WithTags("Organisation");
+        api = api.MapGroup("").RequireAuthorization(AdminPolicies.Read).WithTags("Organisation");
         api.MapGet("/departments", async (AdminContext ctx, CancellationToken ct) =>
             TypedResults.Ok((await ctx.Departments().Include(d => d.Teams).OrderBy(d => d.Name).ToListAsync(ct)).Select(DepartmentDto.Of).ToList()))
             .WithName("ListDepartments");
@@ -30,7 +30,7 @@ public static class OrganisationEndpoints
             ctx.Db.Departments.Add(d);
             await ctx.SaveAsync(AuditActions.Create, AuditEntities.Department, d.Id, null, DepartmentAudit.Of(d), InvalidationKind.Config, ct);
             return TypedResults.Created($"/api/departments/{d.Id}", DepartmentDto.Of(d));
-        }).RequireAuthorization("admin").WithName("CreateDepartment");
+        }).RequireAuthorization(AdminPolicies.Admin).WithName("CreateDepartment");
         api.MapPut("/departments/{id:guid}", async (Guid id, DepartmentRequest input, AdminContext ctx, CancellationToken ct) =>
         {
             var d = await ctx.Db.Departments.Include(d => d.Teams).SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw new ApiFaultException(404, "The department does not exist.");
@@ -39,7 +39,7 @@ public static class OrganisationEndpoints
             // Keys too: an authenticated key carries its department's name and state.
             await ctx.SaveAsync(AuditActions.Update, AuditEntities.Department, id, before, DepartmentAudit.Of(d), [InvalidationKind.Config, InvalidationKind.Keys], ct);
             return TypedResults.Ok(DepartmentDto.Of(d));
-        }).RequireAuthorization("admin").WithName("UpdateDepartment");
+        }).RequireAuthorization(AdminPolicies.Admin).WithName("UpdateDepartment");
         api.MapDelete("/departments/{id:guid}", async (Guid id, string? routingRules, AdminContext ctx, RoutingRuleService rules, CancellationToken ct) =>
         {
             var d = await ctx.Db.Departments.SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw new ApiFaultException(404, "The department does not exist.");
@@ -48,7 +48,7 @@ public static class OrganisationEndpoints
             ctx.Db.Departments.Remove(d);
             await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Department, id, DepartmentAudit.Of(d), null, InvalidationKind.Config, ct);
             return TypedResults.NoContent();
-        }).RequireAuthorization("admin").WithName("DeleteDepartment")
+        }).RequireAuthorization(AdminPolicies.Admin).WithName("DeleteDepartment")
             .WithSummary("Deletes an empty department; routingRules=delete|deactivate says what happens to its routing rules");
         api.MapGet("/teams", async (Guid? departmentId, AdminContext ctx, CancellationToken ct) =>
         {
@@ -63,7 +63,7 @@ public static class OrganisationEndpoints
             ctx.Db.Teams.Add(t);
             await ctx.SaveAsync(AuditActions.Create, AuditEntities.Team, t.Id, null, TeamAudit.Of(t), InvalidationKind.Config, ct);
             return TypedResults.Created($"/api/teams/{t.Id}", TeamDto.Of(t));
-        }).RequireAuthorization("manage").WithName("CreateTeam");
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("CreateTeam");
         api.MapPut("/teams/{id:guid}", async (Guid id, TeamRequest input, AdminContext ctx, CancellationToken ct) =>
         {
             var t = await ctx.Teams().Include(t => t.VirtualKeys).SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
@@ -71,7 +71,7 @@ public static class OrganisationEndpoints
             t.Name = input.Name.Trim(); t.Description = input.Description; t.IsActive = input.IsActive;
             await ctx.SaveAsync(AuditActions.Update, AuditEntities.Team, id, before, TeamAudit.Of(t), InvalidationKind.Keys, ct);
             return TypedResults.Ok(TeamDto.Of(t));
-        }).RequireAuthorization("manage").WithName("UpdateTeam");
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("UpdateTeam");
         api.MapDelete("/teams/{id:guid}", async (Guid id, string? routingRules, AdminContext ctx, RoutingRuleService rules, CancellationToken ct) =>
         {
             var t = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
@@ -80,7 +80,7 @@ public static class OrganisationEndpoints
             ctx.Db.Teams.Remove(t);
             await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Team, id, TeamAudit.Of(t), null, InvalidationKind.Config, ct);
             return TypedResults.NoContent();
-        }).RequireAuthorization("manage").WithName("DeleteTeam")
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("DeleteTeam")
             .WithSummary("Deletes a team without keys; routingRules=delete|deactivate says what happens to its routing rules");
     }
 }
