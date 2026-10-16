@@ -140,7 +140,7 @@ test('budget_used and tokens_used rules read the key\'s own budget and token lim
   const limited = await mutate(page, '/api/keys', { teamId: team, name: `Browser limited ${s}`, allowedModels: [], allowedResidencies: [], piiPolicy: 'RerouteToOnPrem', tokensPerMinute: 100000 })
   expect(limited.status()).toBe(201)
   const limitedKey = await limited.json()
-  const budget = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: withBudget.id, limitSek: 1000, period: 'Monthly', alertThresholds: [80, 100], isActive: true })
+  const budget = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: withBudget.id, limitUsd: 1000, period: 'Monthly', alertThresholds: [80, 100], isActive: true })
   expect(budget.status()).toBe(201)
   const budgetRule = await createRule(page, { name: `Browser budget rule ${s}`, condition: `budget_used >= 0 && ${marker(s)}` })
   const tokensRule = await createRule(page, { name: `Browser tokens rule ${s}`, condition: `tokens_used >= 0 && ${marker(s + 't')}` })

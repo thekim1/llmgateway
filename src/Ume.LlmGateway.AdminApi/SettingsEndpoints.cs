@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
@@ -24,7 +23,7 @@ public sealed record NetworkSettingsRequest(
         else if (canonical.Any(e => NetworkRanges.TryParse(e, out var n, out _) && NetworkRanges.IsEverything(n)))
         {
             // Every caller could then claim any address in X-Forwarded-For and walk past key address restrictions.
-            yield return new ValidationResult("Ett nät som omfattar alla adresser (/0) kan inte vara betrodd proxy. Ange proxyns egna adresser.", [nameof(TrustedProxies)]);
+            yield return new ValidationResult("A network that covers every address (/0) cannot be a trusted proxy. Enter the proxy's own addresses.", [nameof(TrustedProxies)]);
         }
     }
 }
@@ -71,7 +70,7 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
     public async Task<RequestLogSettingsDto> GetRequestLogAsync(CancellationToken ct) =>
         RequestLogDto(await ctx.Db.Settings.AsNoTracking().SingleOrDefaultAsync(ct) ?? new GatewaySettings());
 
-    public async Task<RequestLogSettingsDto> SetRequestLogAsync(ClaimsPrincipal user, RequestLogSettingsRequest input, CancellationToken ct)
+    public async Task<RequestLogSettingsDto> SetRequestLogAsync(RequestLogSettingsRequest input, CancellationToken ct)
     {
         var settings = await ctx.Db.Settings.SingleOrDefaultAsync(ct);
         if (settings is null)
@@ -87,11 +86,11 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
         try
         {
             // Config: the gateways read the switch with the catalogue.
-            await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, RequestLogSettingsAudit.Of(settings), InvalidationKind.Config, ct);
+            await ctx.SaveAsync(AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, RequestLogSettingsAudit.Of(settings), InvalidationKind.Config, ct);
         }
         catch (DbUpdateException)
         {
-            throw new ApiFaultException(409, "Inställningarna ändrades samtidigt av någon annan. Ladda om sidan och försök igen.");
+            throw new ApiFaultException(409, "Someone else changed the settings at the same time. Reload the page and try again.");
         }
 
         return RequestLogDto(settings);
@@ -106,7 +105,7 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
     public async Task<RetentionSettingsDto> GetRetentionAsync(CancellationToken ct) =>
         RetentionDto(await ctx.Db.Settings.AsNoTracking().SingleOrDefaultAsync(ct) ?? new GatewaySettings());
 
-    public async Task<RetentionSettingsDto> SetRetentionAsync(ClaimsPrincipal user, RetentionSettingsRequest input, CancellationToken ct)
+    public async Task<RetentionSettingsDto> SetRetentionAsync(RetentionSettingsRequest input, CancellationToken ct)
     {
         var settings = await ctx.Db.Settings.SingleOrDefaultAsync(ct);
         if (settings is null)
@@ -122,24 +121,24 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
         try
         {
             // No gateway cache holds these; budget spend reads UsageRetainedFrom, which only the retention job moves.
-            await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, RetentionSettingsAudit.Of(settings), [], ct);
+            await ctx.SaveAsync(AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, RetentionSettingsAudit.Of(settings), [], ct);
         }
         catch (DbUpdateException)
         {
-            throw new ApiFaultException(409, "Inställningarna ändrades samtidigt av någon annan. Ladda om sidan och försök igen.");
+            throw new ApiFaultException(409, "Someone else changed the settings at the same time. Reload the page and try again.");
         }
 
         return RetentionDto(settings);
     }
 
-    public async Task<RetentionSettingsDto> RunRetentionAsync(ClaimsPrincipal user, CancellationToken ct)
+    public async Task<RetentionSettingsDto> RunRetentionAsync(CancellationToken ct)
     {
         if (!retention.TryTrigger())
         {
-            throw new ApiFaultException(409, "Rensningen körs redan.");
+            throw new ApiFaultException(409, "The clean-up is already running.");
         }
 
-        await ctx.AuditAsync(user, AuditActions.Run, AuditEntities.Settings, GatewaySettings.SingletonId, new { Retention = "run" }, ct);
+        await ctx.AuditAsync(AuditActions.Run, AuditEntities.Settings, GatewaySettings.SingletonId, new { Retention = "run" }, ct);
         return await GetRetentionAsync(ct);
     }
 
@@ -159,7 +158,7 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
         return Dto(settings, http);
     }
 
-    public async Task<NetworkSettingsDto> SetNetworkAsync(ClaimsPrincipal user, HttpContext http, NetworkSettingsRequest input, CancellationToken ct)
+    public async Task<NetworkSettingsDto> SetNetworkAsync(HttpContext http, NetworkSettingsRequest input, CancellationToken ct)
     {
         NetworkRanges.Normalize(input.TrustedProxies, out var proxies);
         var settings = await ctx.Db.Settings.SingleOrDefaultAsync(ct);
@@ -175,12 +174,12 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
         try
         {
             // Config: the gateways read trusted proxies with the catalogue.
-            await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, NetworkSettingsAudit.Of(settings), InvalidationKind.Config, ct);
+            await ctx.SaveAsync(AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, NetworkSettingsAudit.Of(settings), InvalidationKind.Config, ct);
         }
         catch (DbUpdateException)
         {
             // Two admins saving the very first settings at once: one insert wins.
-            throw new ApiFaultException(409, "Inställningarna ändrades samtidigt av någon annan. Ladda om sidan och försök igen.");
+            throw new ApiFaultException(409, "Someone else changed the settings at the same time. Reload the page and try again.");
         }
 
         return Dto(settings, http);
@@ -202,21 +201,21 @@ public static class SettingsEndpoints
         var settings = api.MapGroup("/settings").RequireAuthorization("admin").WithTags("Settings");
         settings.MapGet("/network", (GatewaySettingsService service, HttpContext http, CancellationToken ct) => service.GetNetworkAsync(http, ct))
             .WithName("GetNetworkSettings").WithSummary("Trusted reverse proxies, and the connection the admin API saw for this request");
-        settings.MapPut("/network", (NetworkSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, HttpContext http, CancellationToken ct) =>
-            service.SetNetworkAsync(user, http, input, ct))
+        settings.MapPut("/network", (NetworkSettingsRequest input, GatewaySettingsService service, HttpContext http, CancellationToken ct) =>
+            service.SetNetworkAsync(http, input, ct))
             .WithName("SetNetworkSettings").WithSummary("Replaces the trusted reverse proxies; the gateways apply them on their next request");
         settings.MapGet("/request-log", (GatewaySettingsService service, CancellationToken ct) => service.GetRequestLogAsync(ct))
             .WithName("GetRequestLogSettings").WithSummary("Whether the gateways log every request, and until when");
-        settings.MapPut("/request-log", (RequestLogSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
-            service.SetRequestLogAsync(user, input, ct))
+        settings.MapPut("/request-log", (RequestLogSettingsRequest input, GatewaySettingsService service, CancellationToken ct) =>
+            service.SetRequestLogAsync(input, ct))
             .WithName("SetRequestLogSettings").WithSummary("Switches logging of every request on (for 24 hours or without a time limit) or off; the gateways apply it within seconds");
         settings.MapGet("/retention", (GatewaySettingsService service, CancellationToken ct) => service.GetRetentionAsync(ct))
             .WithName("GetRetentionSettings").WithSummary("How long usage and audit data are kept, and the nightly removal's state");
-        settings.MapPut("/retention", (RetentionSettingsRequest input, GatewaySettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
-            service.SetRetentionAsync(user, input, ct))
+        settings.MapPut("/retention", (RetentionSettingsRequest input, GatewaySettingsService service, CancellationToken ct) =>
+            service.SetRetentionAsync(input, ct))
             .WithName("SetRetentionSettings").WithSummary("Sets how long usage and audit data are kept; applied at the next run");
-        settings.MapPost("/retention/run", async (GatewaySettingsService service, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Accepted("/api/settings/retention", await service.RunRetentionAsync(user, ct)))
+        settings.MapPost("/retention/run", async (GatewaySettingsService service, CancellationToken ct) =>
+            TypedResults.Accepted("/api/settings/retention", await service.RunRetentionAsync(ct)))
             .WithName("RunRetention").WithSummary("Starts the removal of old data now (it runs in the background)");
     }
 }

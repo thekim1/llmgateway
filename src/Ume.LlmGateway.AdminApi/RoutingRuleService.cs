@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
@@ -45,36 +44,36 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
     // ---- writes ------------------------------------------------------------------------------------------
 
-    public async Task<RuleView> CreateAsync(ClaimsPrincipal user, RoutingRuleRequest input, CancellationToken ct)
+    public async Task<RuleView> CreateAsync(RoutingRuleRequest input, CancellationToken ct)
     {
         var rule = new RoutingRule { Name = input.Name.Trim(), CreatedAt = ctx.Now, UpdatedAt = ctx.Now };
         await ApplyRequestAsync(rule, input, isNew: true, ct);
         ctx.Db.RoutingRules.Add(rule);
-        await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.RoutingRule, rule.Id, null, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.RoutingRule, rule.Id, null, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
         return await ViewAsync(rule, ct);
     }
 
-    public async Task<RuleView> UpdateAsync(ClaimsPrincipal user, Guid id, RoutingRuleRequest input, CancellationToken ct)
+    public async Task<RuleView> UpdateAsync(Guid id, RoutingRuleRequest input, CancellationToken ct)
     {
         var rule = await FindAsync(id, ct);
         var before = RoutingRuleAudit.Of(rule);
         await ApplyRequestAsync(rule, input, isNew: false, ct);
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
         return await ViewAsync(rule, ct);
     }
 
-    public async Task DeleteAsync(ClaimsPrincipal user, Guid id, CancellationToken ct)
+    public async Task DeleteAsync(Guid id, CancellationToken ct)
     {
         var rule = await FindAsync(id, ct);
         ctx.Db.RoutingRules.Remove(rule);
-        await ctx.SaveAsync(user, AuditActions.Delete, AuditEntities.RoutingRule, id, RoutingRuleAudit.Of(rule), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.RoutingRule, id, RoutingRuleAudit.Of(rule), null, InvalidationKind.Config, ct);
     }
 
     /// <summary>
     /// Attaches a rule (typically one deactivated when its last team or department was removed) to new owners. Every owner
     /// must exist; enabling also requires the rule's models to exist.
     /// </summary>
-    public async Task<RuleView> ReassignAsync(ClaimsPrincipal user, Guid id, RoutingRuleReassignRequest input, CancellationToken ct)
+    public async Task<RuleView> ReassignAsync(Guid id, RoutingRuleReassignRequest input, CancellationToken ct)
     {
         var rule = await FindAsync(id, ct);
         var ids = RuleInput.Owners(input.ScopeIds);
@@ -94,7 +93,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         rule.IsEnabled = input.Enable;
         rule.IsTemplate = false;
         rule.UpdatedAt = ctx.Now;
-        await ctx.SaveAsync(user, AuditActions.Reassign, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Reassign, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
         return await ViewAsync(rule, ct);
     }
 
@@ -102,7 +101,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     /// The on/off switch. Enabling checks the stored rule as a save would (owners and models must exist), so a template
     /// whose models are not set up yet stays off with a clear message; an enabled template becomes an ordinary rule.
     /// </summary>
-    public async Task<RuleView> SetEnabledAsync(ClaimsPrincipal user, Guid id, bool enabled, CancellationToken ct)
+    public async Task<RuleView> SetEnabledAsync(Guid id, bool enabled, CancellationToken ct)
     {
         var rule = await FindAsync(id, ct);
         if (rule.IsEnabled == enabled)
@@ -116,7 +115,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             var errors = await ProblemsAsync(rule.Id, input, unchanged: [], ct);
             if (errors.Count > 0)
             {
-                throw new ApiFaultException(400, $"Regeln kan inte aktiveras. {string.Join(" ", errors.Values.SelectMany(m => m))}",
+                throw new ApiFaultException(400, $"The rule cannot be activated. {string.Join(" ", errors.Values.SelectMany(m => m))}",
                     new Dictionary<string, object?> { ["errors"] = errors });
             }
         }
@@ -125,7 +124,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         rule.IsEnabled = enabled;
         rule.IsTemplate &= !enabled;
         rule.UpdatedAt = ctx.Now;
-        await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Update, AuditEntities.RoutingRule, id, before, RoutingRuleAudit.Of(rule), InvalidationKind.Config, ct);
         return await ViewAsync(rule, ct);
     }
 
@@ -133,14 +132,14 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     /// Sets the evaluation order within one scope (all key rules, all team rules, ...): the listed rules get priorities
     /// 0, 10, 20, ... Rules shared by several owners keep the same relative order for each of them.
     /// </summary>
-    public async Task<List<RuleView>> ReorderAsync(ClaimsPrincipal user, RoutingRuleReorderRequest input, CancellationToken ct)
+    public async Task<List<RuleView>> ReorderAsync(RoutingRuleReorderRequest input, CancellationToken ct)
     {
         var ids = input.RuleIds.Distinct().ToArray();
         var list = await ctx.Db.RoutingRules.Include(r => r.Targets)
             .Where(r => ids.Contains(r.Id) && r.Scope == input.Scope).ToListAsync(ct);
         if (list.Count != ids.Length || ids.Length != input.RuleIds.Length)
         {
-            throw new ApiFaultException(400, "Alla regler måste finnas och höra till samma omfång, och får bara anges en gång.");
+            throw new ApiFaultException(400, "All rules must exist and belong to the same scope, and each may be given only once.");
         }
 
         var before = list.OrderBy(r => r.Priority).Select(r => new RulePriorityAudit(r.Id, r.Priority)).ToList();
@@ -151,7 +150,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             rule.UpdatedAt = ctx.Now;
         }
 
-        await ctx.SaveAsync(user, AuditActions.Reorder, AuditEntities.RoutingRule, input.Scope.ToString(), before,
+        await ctx.SaveAsync(AuditActions.Reorder, AuditEntities.RoutingRule, input.Scope.ToString(), before,
             ids.Select((id, i) => new RulePriorityAudit(id, i * 10)).ToList(), InvalidationKind.Config, ct);
         return [.. (await ViewsAsync(list, ct)).OrderBy(r => r.Priority)];
     }
@@ -205,7 +204,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     /// them (<see cref="ScopedRulesChoice"/>); without a choice the delete fails with 409 and a machine-readable list of
     /// those rules and the choices. The changes are staged and saved with the delete.
     /// </summary>
-    public async Task ApplyScopeRemovalAsync(ClaimsPrincipal user, RoutingScope scope, Guid scopeId, string? choice, string what, CancellationToken ct)
+    public async Task ApplyScopeRemovalAsync(RoutingScope scope, Guid scopeId, string? choice, string what, CancellationToken ct)
     {
         var rules = await ctx.Db.RoutingRules.Include(r => r.Targets).Where(r => r.Scope == scope && r.ScopeIds.Contains(scopeId)).ToListAsync(ct);
         if (rules.Count == 0)
@@ -221,7 +220,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             if (string.IsNullOrWhiteSpace(choice))
             {
                 throw new ApiFaultException(409,
-                    $"{what} är enda ägare till {sole.Count} routingregel(er). Välj om reglerna ska tas bort eller inaktiveras tills de kopplas till en ny ägare.",
+                    $"{what} is the only owner of {sole.Count} routing rule(s). Choose whether the rules are deleted or deactivated until they are linked to a new owner.",
                     new Dictionary<string, object?>
                     {
                         ["code"] = ScopedRulesCode,
@@ -232,7 +231,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
             if (!EnumQuery.TryParse(choice, out parsed))
             {
-                throw new ApiFaultException(400, $"routingRules måste vara {string.Join(" eller ", EnumQuery.Names<ScopedRulesChoice>().Select(c => $"'{c}'"))}.");
+                throw new ApiFaultException(400, $"routingRules must be {string.Join(" or ", EnumQuery.Names<ScopedRulesChoice>().Select(c => $"'{c}'"))}.");
             }
         }
 
@@ -241,8 +240,8 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             var before = RoutingRuleAudit.Of(rule);
             rule.ScopeIds = [.. rule.ScopeIds.Where(id => id != scopeId)];
             rule.UpdatedAt = ctx.Now;
-            ctx.StageAudit(user, AuditActions.Update, AuditEntities.RoutingRule, rule.Id, before,
-                new RuleScopeRemovalAudit($"{what} {scope} {scopeId} togs bort; regeln gäller fortfarande övriga ägare", ScopeIds: [.. rule.ScopeIds]));
+            ctx.StageAudit(AuditActions.Update, AuditEntities.RoutingRule, rule.Id, before,
+                new RuleScopeRemovalAudit($"{what} {scope} {scopeId} was deleted; the rule still applies to its other owners", ScopeIds: [.. rule.ScopeIds]));
         }
 
         foreach (var rule in sole)
@@ -251,15 +250,15 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             if (parsed == ScopedRulesChoice.Delete)
             {
                 ctx.Db.RoutingRules.Remove(rule);
-                ctx.StageAudit(user, AuditActions.Delete, AuditEntities.RoutingRule, rule.Id, before, new RuleScopeRemovalAudit($"{what} {scope} {scopeId} togs bort"));
+                ctx.StageAudit(AuditActions.Delete, AuditEntities.RoutingRule, rule.Id, before, new RuleScopeRemovalAudit($"{what} {scope} {scopeId} was deleted"));
             }
             else
             {
                 rule.IsEnabled = false;
                 rule.ScopeIds = [];
                 rule.UpdatedAt = ctx.Now;
-                ctx.StageAudit(user, AuditActions.Deactivate, AuditEntities.RoutingRule, rule.Id, before,
-                    new RuleScopeRemovalAudit($"{what} {scope} {scopeId} togs bort; väntar på ny koppling", false, []));
+                ctx.StageAudit(AuditActions.Deactivate, AuditEntities.RoutingRule, rule.Id, before,
+                    new RuleScopeRemovalAudit($"{what} {scope} {scopeId} was deleted; waiting to be linked to a new owner", false, []));
             }
         }
     }
@@ -275,7 +274,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             r.Fallbacks.Any(f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase)));
         if (user is not null)
         {
-            throw new ApiFaultException(409, $"'{name}' används av routingregeln '{user.Name}' och kan inte {action}. Ändra regeln först.");
+            throw new ApiFaultException(409, $"'{name}' is used by the routing rule '{user.Name}' and cannot be {action}. Change the rule first.");
         }
     }
 
@@ -303,11 +302,11 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             var rule = existing.FirstOrDefault(r => string.Equals(r.Name, input.Name, StringComparison.OrdinalIgnoreCase));
             var problems = Check(rule?.Id ?? Guid.Empty, input, known);
             var problem = problems.Definition.Select(e => e.Message).FirstOrDefault()
-                ?? (input.IsEnabled ? problems.UnknownTargets.Select(t => $"okänd modell eller alias '{t}'").FirstOrDefault() : null)
-                ?? (input.IsEnabled ? problems.UnknownFallbacks.Select(f => $"okänd reservmodell eller alias '{f}'").FirstOrDefault() : null);
+                ?? (input.IsEnabled ? problems.UnknownTargets.Select(t => $"unknown model or alias '{t}'").FirstOrDefault() : null)
+                ?? (input.IsEnabled ? problems.UnknownFallbacks.Select(f => $"unknown fallback model or alias '{f}'").FirstOrDefault() : null);
             if (problem is not null)
             {
-                throw new ApiFaultException(400, $"Routingregeln '{input.Name}' är ogiltig: {problem.TrimEnd('.')}.");
+                throw new ApiFaultException(400, $"The routing rule '{input.Name}' is invalid: {problem.TrimEnd('.')}.");
             }
 
             if (rule is null)
@@ -391,7 +390,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
     private async Task<RoutingRule> FindAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.RoutingRules.Include(r => r.Targets).SingleOrDefaultAsync(r => r.Id == id, ct)
-        ?? throw new ApiFaultException(404, "Regeln finns inte.");
+        ?? throw new ApiFaultException(404, "The rule does not exist.");
 
     /// <summary>Validates the request (field errors are a validation fault) and writes it onto the rule.</summary>
     private async Task ApplyRequestAsync(RoutingRule rule, RoutingRuleRequest request, bool isNew, CancellationToken ct)
@@ -448,13 +447,13 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
         if (problems.UnknownTargets.Count > 0)
         {
-            errors["targets"] = [$"Okänd modell eller alias: {string.Join(", ", problems.UnknownTargets)}. Skapa aliaset eller ändra målet innan regeln aktiveras " +
-                "(endast kedjade regler får peka på namn som en annan regel hanterar)."];
+            errors["targets"] = [$"Unknown model or alias: {string.Join(", ", problems.UnknownTargets)}. Create the alias or change the target before the rule is activated " +
+                "(only chained rules may point to names that another rule handles)."];
         }
 
         if (problems.UnknownFallbacks.Count > 0)
         {
-            errors["fallbacks"] = [$"Okänd reservmodell eller alias: {string.Join(", ", problems.UnknownFallbacks)}. Skapa aliaset eller ändra reserven innan regeln aktiveras."];
+            errors["fallbacks"] = [$"Unknown fallback model or alias: {string.Join(", ", problems.UnknownFallbacks)}. Create the alias or change the fallback before the rule is activated."];
         }
     }
 
@@ -469,7 +468,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         {
             if (scopeIds.Count > 0)
             {
-                errors["scopeIds"] = ["En global regel ska inte ha några ägare."];
+                errors["scopeIds"] = ["A global rule must not have owners."];
             }
 
             return;
@@ -479,7 +478,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         {
             if (requireOwner)
             {
-                errors["scopeIds"] = ["Välj minst en nyckel, ett team eller en förvaltning som regeln gäller."];
+                errors["scopeIds"] = ["Choose at least one key, team or department the rule applies to."];
             }
 
             return;
@@ -487,7 +486,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
         if (scopeIds.Count > RoutingRuleSet.MaxOwners)
         {
-            errors["scopeIds"] = [$"En regel kan gälla högst {RoutingRuleSet.MaxOwners} ägare."];
+            errors["scopeIds"] = [$"A rule can apply to at most {RoutingRuleSet.MaxOwners} owners."];
             return;
         }
 
@@ -497,12 +496,12 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
             return;
         }
 
-        var found = await owners.NamesAsync(check, null, ct);
+        var found = await owners.AllNamesAsync(check, ct);
         var missing = check.Where(o => !found.ContainsKey(o)).Select(o => o.Id).ToList();
         if (missing.Count > 0)
         {
             var label = OwnerScopeResolver.Label(check[0].Kind);
-            errors["scopeIds"] = [$"{label} finns inte: {string.Join(", ", missing)}. Koppla regeln till befintliga ägare innan den aktiveras."];
+            errors["scopeIds"] = [$"{label} does not exist: {string.Join(", ", missing)}. Link the rule to existing owners before it is activated."];
         }
     }
 
@@ -517,8 +516,8 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         if (scope == RoutingScope.Global ? sameName.Count > 0 : sameName.Any(other => other.Intersect(scopeIds).Any()))
         {
             throw new ApiFaultException(409, scope == RoutingScope.Global
-                ? "Det finns redan en global regel med samma namn."
-                : "Det finns redan en regel med samma namn för någon av regelns ägare.");
+                ? "There is already a global rule with the same name."
+                : "There is already a rule with the same name for one of the rule's owners.");
         }
     }
 
@@ -545,7 +544,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
     private async Task<List<RuleView>> ViewsAsync(IReadOnlyCollection<RoutingRule> rules, CancellationToken ct)
     {
-        var names = await owners.NamesAsync(rules.SelectMany(r => r.ScopeIds.Select(id => Owner.Of(r.Scope, id))).OfType<Owner>(), null, ct);
+        var names = await owners.AllNamesAsync(rules.SelectMany(r => r.ScopeIds.Select(id => Owner.Of(r.Scope, id))).OfType<Owner>(), ct);
         var known = await KnownModelNamesAsync(ct);
         return [.. rules.Select(r => View(r, names, known))];
     }
@@ -575,7 +574,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         if (keyId is { } kid)
         {
             var key = await ctx.Db.VirtualKeys.AsNoTracking().Include(k => k.Team!).ThenInclude(t => t.Department).SingleOrDefaultAsync(k => k.Id == kid, ct)
-                ?? throw new ApiFaultException(404, "Nyckeln finns inte.");
+                ?? throw new ApiFaultException(404, "The key does not exist.");
             keyName = key.Name;
             teamId ??= key.TeamId;
             departmentId ??= key.Team?.DepartmentId;

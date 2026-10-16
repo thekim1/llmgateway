@@ -33,7 +33,7 @@ public static class AdminAuthentication
             }
         }
         CopyClaims(identity, options.RoleClaim, "roles");
-        CopyClaims(identity, options.DepartmentClaim, "departmentCodes");
+        CopyClaims(identity, options.DepartmentClaim, AdminClaims.DepartmentCodes);
         var groups = identity.FindAll(options.GroupClaim).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (role, mapped) in options.RoleGroups)
         {
@@ -65,7 +65,7 @@ public static class AdminAuthentication
             if (!destination.StartsWith('/') || destination.StartsWith("//", StringComparison.Ordinal) || destination.Contains('\\', StringComparison.Ordinal) ||
                 destination.Any(char.IsControl))
             {
-                return Results.Problem(statusCode: 400, detail: "Returadressen måste vara en lokal sökväg.");
+                return Results.Problem(statusCode: 400, detail: "The return address must be a local path.");
             }
             return Results.Challenge(new AuthenticationProperties { RedirectUri = destination }, [OpenIdConnectDefaults.AuthenticationScheme]);
         });
@@ -84,7 +84,7 @@ public static class AdminAuthentication
                 name = http.User.Identity?.Name,
                 email = http.User.FindFirstValue("email"),
                 roles = http.User.FindAll("roles").Select(c => c.Value).ToArray(),
-                departmentCodes = http.User.FindAll("departmentCodes").Select(c => c.Value).ToArray(),
+                departmentCodes = http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value).ToArray(),
                 sessionExpiresAt = auth.Properties?.ExpiresUtc,
             });
         });
@@ -109,7 +109,7 @@ public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
         {
             if (http.Request.Headers["X-Requested-With"] != "XMLHttpRequest")
             {
-                await Results.Problem(statusCode: 400, detail: "CSRF-skydd saknas. Läs in sidan igen.").ExecuteAsync(http);
+                await Results.Problem(statusCode: 400, detail: "CSRF protection is missing. Reload the page.").ExecuteAsync(http);
                 return;
             }
             try
@@ -118,7 +118,7 @@ public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
             }
             catch (AntiforgeryValidationException)
             {
-                await Results.Problem(statusCode: 400, detail: "CSRF-token är ogiltig. Läs in sidan igen.").ExecuteAsync(http);
+                await Results.Problem(statusCode: 400, detail: "The CSRF token is invalid. Reload the page.").ExecuteAsync(http);
                 return;
             }
         }

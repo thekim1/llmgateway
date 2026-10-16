@@ -122,7 +122,7 @@ public sealed class GatewayHost : IAsyncDisposable
         db.ExchangeRates.Add(new ExchangeRate { SekPerUnit = 10, EffectiveFrom = now.AddDays(-1) });
         foreach (var (scope, id) in new[] { (BudgetScope.VirtualKey, key.Id), (BudgetScope.Team, team.Id), (BudgetScope.Department, department.Id) })
         {
-            db.Budgets.Add(new Budget { Scope = scope, ScopeId = id, LimitSek = 1_000_000_000, Period = BudgetPeriod.Monthly, CreatedAt = now });
+            db.Budgets.Add(new Budget { Scope = scope, ScopeId = id, LimitUsd = 1_000_000_000, Period = BudgetPeriod.Monthly, CreatedAt = now });
         }
 
         var deployments = new List<ModelDeployment>();

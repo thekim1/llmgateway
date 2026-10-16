@@ -1,12 +1,6 @@
 import { isApiError } from '@/api/client'
 import type { ScopedRulesProblem } from '@/api/types'
 
-/** Server-provided messages (409 conflicts, validation) arrive in Swedish; local fallbacks are English. */
-export function problemLang(error: unknown): 'sv' | undefined {
-  if (!isApiError(error)) return undefined
-  return error.problem?.detail || error.problem?.title ? 'sv' : undefined
-}
-
 export function problemMessage(error: unknown): string {
   if (!isApiError(error)) return 'Something went wrong. Try again.'
   if (error.status === 0) return "Can't reach the server. Check your connection and try again."

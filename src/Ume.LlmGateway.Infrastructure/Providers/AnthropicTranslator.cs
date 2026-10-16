@@ -294,12 +294,12 @@ public static class AnthropicTranslator
                             blocks.Add(DocumentBlock(part["file"] as JsonObject));
                             break;
                         case "input_audio":
-                            throw new NotSupportedException("Claude-modeller tar inte emot ljud. Välj en modell som stöder ljud.");
+                            throw new NotSupportedException("Claude models do not accept audio. Choose a model that supports audio.");
                         case "video_url" or "input_video":
-                            throw new NotSupportedException("Claude-modeller tar inte emot video. Välj en modell som stöder video.");
+                            throw new NotSupportedException("Claude models do not accept video. Choose a model that supports video.");
                         case var other:
                             // Dropping a part would silently send a different question than the client asked.
-                            throw new NotSupportedException($"Innehållstypen '{other}' kan inte skickas till en Claude-modell.");
+                            throw new NotSupportedException($"Content of type '{other}' cannot be sent to a Claude model.");
                     }
                 }
 
@@ -319,8 +319,8 @@ public static class AnthropicTranslator
         if (file?["file_data"]?.GetValue<string>() is not { Length: > 0 } fileData)
         {
             throw new NotSupportedException(file?["file_id"] is not null
-                ? "Filreferenser (file_id) från OpenAI kan inte användas med en Claude-modell. Skicka filen som file_data i stället."
-                : "Filen saknar innehåll (file_data).");
+                ? "OpenAI file references (file_id) cannot be used with a Claude model. Send the file as file_data instead."
+                : "The file has no content (file_data).");
         }
 
         string mediaType, data;
@@ -356,14 +356,14 @@ public static class AnthropicTranslator
             }
             catch (FormatException)
             {
-                throw new NotSupportedException("Filens innehåll är inte giltig base64.");
+                throw new NotSupportedException("The file content is not valid base64.");
             }
 
             source = new JsonObject { ["type"] = "text", ["media_type"] = "text/plain", ["data"] = text };
         }
         else
         {
-            throw new NotSupportedException($"Claude-modeller kan läsa PDF- och textfiler, inte '{(mediaType.Length > 0 ? mediaType : filename ?? "okänd filtyp")}'.");
+            throw new NotSupportedException($"Claude models can read PDF and text files, not '{(mediaType.Length > 0 ? mediaType : filename ?? "unknown file type")}'.");
         }
 
         var block = new JsonObject { ["type"] = "document", ["source"] = source };

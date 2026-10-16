@@ -292,10 +292,10 @@ public sealed partial class DevSeeder(
         db.Add(new ExchangeRate { Currency = "USD", SekPerUnit = 9.50m, EffectiveFrom = priceDate });
 
         db.AddRange(
-            new Budget { Scope = BudgetScope.Department, ScopeId = klk.Id, LimitSek = 10_000m, Period = BudgetPeriod.Monthly, CreatedAt = now },
-            new Budget { Scope = BudgetScope.Department, ScopeId = soc.Id, LimitSek = 5_000m, Period = BudgetPeriod.Monthly, CreatedAt = now },
-            new Budget { Scope = BudgetScope.Team, ScopeId = aiTeam.Id, LimitSek = 2_000m, Period = BudgetPeriod.Monthly, CreatedAt = now },
-            new Budget { Scope = BudgetScope.Team, ScopeId = contact.Id, LimitSek = 300m, Period = BudgetPeriod.Daily, AlertThresholds = [80, 100], CreatedAt = now });
+            new Budget { Scope = BudgetScope.Department, ScopeId = klk.Id, LimitUsd = 1_000m, Period = BudgetPeriod.Monthly, CreatedAt = now },
+            new Budget { Scope = BudgetScope.Department, ScopeId = soc.Id, LimitUsd = 500m, Period = BudgetPeriod.Monthly, CreatedAt = now },
+            new Budget { Scope = BudgetScope.Team, ScopeId = aiTeam.Id, LimitUsd = 200m, Period = BudgetPeriod.Monthly, CreatedAt = now },
+            new Budget { Scope = BudgetScope.Team, ScopeId = contact.Id, LimitUsd = 30m, Period = BudgetPeriod.Daily, AlertThresholds = [80, 100], CreatedAt = now });
 
         db.AuditLog.Add(new AuditLogEntry { Timestamp = now, Actor = "system:seed", Action = "seed", EntityType = "Database", Details = "Demo data created" });
         await db.SaveChangesAsync(cancellationToken);
@@ -362,7 +362,7 @@ public sealed partial class DevSeeder(
             PiiPolicy = PiiPolicy.RerouteToOnPrem,
         };
         db.VirtualKeys.Add(key);
-        db.Budgets.Add(new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitSek = 500m, Period = BudgetPeriod.Monthly, CreatedAt = time.GetUtcNow() });
+        db.Budgets.Add(new Budget { Scope = BudgetScope.VirtualKey, ScopeId = key.Id, LimitUsd = 50m, Period = BudgetPeriod.Monthly, CreatedAt = time.GetUtcNow() });
         await db.SaveChangesAsync(cancellationToken);
     }
 

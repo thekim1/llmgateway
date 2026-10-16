@@ -137,10 +137,10 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
     }
 
     [Theory]
-    [InlineData("from=2025-01-01T00:00:00Z&to=2025-01-09T00:00:00Z&bucket=hour", "Timvis indelning tillåter högst 7 dygn. Välj day för längre perioder.")]
-    [InlineData("from=2025-01-01T00:00:00Z&to=2025-05-01T00:00:00Z&bucket=day", "Välj ett tidsintervall på högst 90 dygn.")]
-    [InlineData("from=2025-01-02T00:00:00Z&to=2025-01-01T00:00:00Z", "Tidsintervallets slut måste ligga efter dess början.")]
-    [InlineData("bucket=week", "Indelningen måste vara hour eller day.")]
+    [InlineData("from=2025-01-01T00:00:00Z&to=2025-01-09T00:00:00Z&bucket=hour", "Hourly buckets allow at most 7 days. Choose day for longer periods.")]
+    [InlineData("from=2025-01-01T00:00:00Z&to=2025-05-01T00:00:00Z&bucket=day", "Choose a time range of at most 90 days.")]
+    [InlineData("from=2025-01-02T00:00:00Z&to=2025-01-01T00:00:00Z", "The end of the time range must be after its start.")]
+    [InlineData("bucket=week", "The bucket must be hour or day.")]
     public async Task Stats_reject_invalid_ranges(string query, string message)
     {
         using var client = await fixture.ClientAsync();

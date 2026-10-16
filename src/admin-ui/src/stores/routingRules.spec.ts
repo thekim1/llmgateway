@@ -71,7 +71,7 @@ describe('routing rules store', () => {
     expect(update).not.toHaveBeenCalled()
     expect(store.items[0]!.isEnabled).toBe(false)
 
-    setEnabled.mockRejectedValue(new Error('Regeln kan inte aktiveras.'))
+    setEnabled.mockRejectedValue(new Error('The rule cannot be activated.'))
     await expect(store.setEnabled(store.items[0]!, true)).rejects.toThrow()
     expect(store.items[0]!.isEnabled).toBe(false)
   })

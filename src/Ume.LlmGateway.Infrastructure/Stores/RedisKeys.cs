@@ -36,7 +36,10 @@ internal static class RedisKeys
     /// <summary>Failures of a provider in the current sampling window.</summary>
     public static string CircuitFailures(Guid providerId) => $"ume:circuit-fail:{providerId:N}";
 
-    /// <summary>Spend of one budget scope in one period window, in micro-SEK.</summary>
+    /// <summary>
+    /// Spend of one budget scope in one period window, in micro-USD. (Before budgets were counted in USD the counters
+    /// were <c>ume:spend:…</c> in micro-SEK; those are never read again and expire with their period.)
+    /// </summary>
     public static string Spend(BudgetScope scope, Guid scopeId, BudgetPeriod period, DateTimeOffset periodStart) =>
-        $"ume:spend:{scope}:{scopeId:N}:{period}:{periodStart.ToUnixTimeSeconds()}";
+        $"ume:spend-usd:{scope}:{scopeId:N}:{period}:{periodStart.ToUnixTimeSeconds()}";
 }

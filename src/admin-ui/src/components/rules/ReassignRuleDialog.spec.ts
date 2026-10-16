@@ -77,10 +77,10 @@ describe('ReassignRuleDialog', () => {
   it('shows a clash such as a duplicate name inside the dialog', async () => {
     const wrapper = await mountDialog()
     await ownerBox(wrapper, 'Ny grupp').setValue(true)
-    reassign.mockRejectedValue(new ApiError(409, 'POST', { detail: 'Det finns redan en regel med samma namn i detta omfång.' }))
+    reassign.mockRejectedValue(new ApiError(409, 'POST', { detail: 'There is already a rule with the same name in this scope.' }))
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(wrapper.find('[role="alert"]').text()).toContain('samma namn')
+    expect(wrapper.find('[role="alert"]').text()).toContain('same name')
     expect(wrapper.emitted('update:open')).toBeUndefined()
   })
 

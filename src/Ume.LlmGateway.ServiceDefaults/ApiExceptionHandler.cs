@@ -9,7 +9,7 @@ namespace Ume.LlmGateway.ServiceDefaults;
 public sealed class ApiExceptionOptions
 {
     /// <summary>Detail of every 500 response; the exception itself is never shown.</summary>
-    public const string InternalErrorDetail = "Ett internt fel inträffade.";
+    public const string InternalErrorDetail = "An internal error occurred.";
 
     /// <summary>Title of every problem response except validation problems; <c>null</c> uses the status code's reason phrase.</summary>
     public string? Title { get; set; }

@@ -53,9 +53,9 @@ public class RoutingBenchmarks
         };
         var budgets = new List<Budget>
         {
-            new() { Scope = BudgetScope.VirtualKey, ScopeId = _key.Id, LimitSek = 100, Period = BudgetPeriod.Monthly },
-            new() { Scope = BudgetScope.Team, ScopeId = team.Id, LimitSek = 1000, Period = BudgetPeriod.Monthly },
-            new() { Scope = BudgetScope.Department, ScopeId = department.Id, LimitSek = 10000, Period = BudgetPeriod.Monthly },
+            new() { Scope = BudgetScope.VirtualKey, ScopeId = _key.Id, LimitUsd = 100, Period = BudgetPeriod.Monthly },
+            new() { Scope = BudgetScope.Team, ScopeId = team.Id, LimitUsd = 1000, Period = BudgetPeriod.Monthly },
+            new() { Scope = BudgetScope.Department, ScopeId = department.Id, LimitUsd = 10000, Period = BudgetPeriod.Monthly },
         };
         var replacements = Enumerable.Range(0, RotatedKeys).ToDictionary(_ => Guid.NewGuid(), _ => Guid.NewGuid());
 

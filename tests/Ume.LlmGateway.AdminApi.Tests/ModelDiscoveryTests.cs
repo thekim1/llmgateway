@@ -209,7 +209,7 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
         var fault = await Should.ThrowAsync<ApiFaultException>(() =>
             DiscoverAsync(Provider("https://res.services.ai.azure.com/openai/v1", ProviderType.AzureAIFoundry, ProviderAuthMode.ApiKeyHeader), list));
 
-        fault.Message.ShouldContain("/api/projects/<projekt>");
+        fault.Message.ShouldContain("/api/projects/<project>");
     }
 
     [Fact]
@@ -298,9 +298,9 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.Unauthorized, "Kontrollera API-nyckeln.")]
-    [InlineData(HttpStatusCode.Forbidden, "Kontrollera API-nyckeln.")]
-    [InlineData(HttpStatusCode.NotFound, "Kontrollera adressen och inloggningsmetoden.")]
+    [InlineData(HttpStatusCode.Unauthorized, "Check the API key.")]
+    [InlineData(HttpStatusCode.Forbidden, "Check the API key.")]
+    [InlineData(HttpStatusCode.NotFound, "Check the address and the authentication method.")]
     public async Task An_error_status_becomes_a_bad_gateway_with_a_hint(HttpStatusCode status, string hint)
     {
         using var list = new FakeProvider("""{"error":"nope"}""", status);

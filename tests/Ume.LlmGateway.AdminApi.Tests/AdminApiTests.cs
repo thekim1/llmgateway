@@ -152,7 +152,7 @@ public sealed class AdminApiTests(AdminFixture fixture)
         denied.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         using var create = await client.PostAsJsonAsync("/api/teams", new { departmentId = other.Department, name = "Forbidden" }, TestContext.Current.CancellationToken);
         create.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        using var budget = await client.PostAsJsonAsync("/api/budgets", new { scope = "Team", scopeId = other.Team, limitSek = 100, period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }, TestContext.Current.CancellationToken);
+        using var budget = await client.PostAsJsonAsync("/api/budgets", new { scope = "Team", scopeId = other.Team, limitUsd = 100, period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }, TestContext.Current.CancellationToken);
         budget.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
@@ -252,13 +252,13 @@ public sealed class AdminApiTests(AdminFixture fixture)
         {
             using var budget = await client.PostAsJsonAsync("/api/budgets", new
             {
-                scope = "VirtualKey", scopeId = keyId, limitSek = 100, period, alertThresholds = new[] { 80, 100 }, isActive = true,
+                scope = "VirtualKey", scopeId = keyId, limitUsd = 100, period, alertThresholds = new[] { 80, 100 }, isActive = true,
             }, TestContext.Current.CancellationToken);
             (await AdminFixture.ReadAsync(budget, HttpStatusCode.Created))["period"]!.GetValue<string>().ShouldBe(period);
         }
         using var duplicate = await client.PostAsJsonAsync("/api/budgets", new
         {
-            scope = "VirtualKey", scopeId = keyId, limitSek = 5, period = "Hourly", alertThresholds = new[] { 100 }, isActive = true,
+            scope = "VirtualKey", scopeId = keyId, limitUsd = 5, period = "Hourly", alertThresholds = new[] { 100 }, isActive = true,
         }, TestContext.Current.CancellationToken);
         duplicate.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         using var list = await client.GetAsync($"/api/budgets?scope=VirtualKey&scopeId={keyId}", TestContext.Current.CancellationToken);
@@ -274,7 +274,7 @@ public sealed class AdminApiTests(AdminFixture fixture)
         {
             using var response = await client.PostAsJsonAsync("/api/budgets", new
             {
-                scope = "Team", scopeId = org.Team, limitSek = 10, period, alertThresholds = new[] { 100 }, isActive = true,
+                scope = "Team", scopeId = org.Team, limitUsd = 10, period, alertThresholds = new[] { 100 }, isActive = true,
             }, TestContext.Current.CancellationToken);
             return (await AdminFixture.ReadAsync(response, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
         }
@@ -282,14 +282,14 @@ public sealed class AdminApiTests(AdminFixture fixture)
         var monthly = await AddAsync("Monthly");
         using var clash = await client.PutAsJsonAsync($"/api/budgets/{monthly}", new
         {
-            scope = "Team", scopeId = org.Team, limitSek = 20, period = "Daily", alertThresholds = new[] { 100 }, isActive = true,
+            scope = "Team", scopeId = org.Team, limitUsd = 20, period = "Daily", alertThresholds = new[] { 100 }, isActive = true,
         }, TestContext.Current.CancellationToken);
         clash.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         using var sameKeepsWorking = await client.PutAsJsonAsync($"/api/budgets/{monthly}", new
         {
-            scope = "Team", scopeId = org.Team, limitSek = 20, period = "Monthly", alertThresholds = new[] { 100 }, isActive = true,
+            scope = "Team", scopeId = org.Team, limitUsd = 20, period = "Monthly", alertThresholds = new[] { 100 }, isActive = true,
         }, TestContext.Current.CancellationToken);
-        (await AdminFixture.ReadAsync(sameKeepsWorking))["limitSek"]!.GetValue<decimal>().ShouldBe(20);
+        (await AdminFixture.ReadAsync(sameKeepsWorking))["limitUsd"]!.GetValue<decimal>().ShouldBe(20);
     }
 
     [Fact]
@@ -506,11 +506,11 @@ public sealed class AdminApiTests(AdminFixture fixture)
         var org = await fixture.OrganisationAsync(client);
         using var budgetResponse = await client.PostAsJsonAsync("/api/budgets", new
         {
-            scope = "Team", scopeId = org.Team, limitSek = 100, period = "Monthly", alertThresholds = new[] { 50, 80, 100 }, isActive = true,
+            scope = "Team", scopeId = org.Team, limitUsd = 100, period = "Monthly", alertThresholds = new[] { 50, 80, 100 }, isActive = true,
         }, TestContext.Current.CancellationToken);
         var budget = await AdminFixture.ReadAsync(budgetResponse, HttpStatusCode.Created);
         budget["scopeName"]!.GetValue<string>().ShouldBe("Team");
-        budget["spentSek"]!.GetValue<decimal>().ShouldBe(0);
+        budget["spentUsd"]!.GetValue<decimal>().ShouldBe(0);
         using var export = await client.GetAsync("/api/ops/config/export", TestContext.Current.CancellationToken);
         var config = await AdminFixture.ReadAsync(export);
         using var import = await client.PostAsJsonAsync("/api/ops/config/import", config, TestContext.Current.CancellationToken);

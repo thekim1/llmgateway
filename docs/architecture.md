@@ -60,10 +60,11 @@ and logged), and invalidated like other configuration over the Redis bus (30 s c
 constraint afterwards, so a rule can never widen a key's access. The matched rule id is returned in `x-ume-rule` and stored on the usage record; credentials and prompt content are never
 visible to conditions. The admin API (`/api/routing-rules`) audits every change and offers validation and a dry run.
 
-Budgets are calendar-aligned in Europe/Stockholm; persisted timestamps are UTC.
-Reservations atomically check every budget. Rotation shares predecessor budgets and
+Budgets are calendar-aligned in Europe/Stockholm; persisted timestamps are UTC. Limits, spend counters and
+reservations are in USD (micro-USD in Redis), the currency prices are in, so enforcement does not move with the
+exchange rate. Reservations atomically check every budget. Rotation shares predecessor budgets and
 spend, including grace-period keys. Redis counters rebuild from persisted usage on a
-cold start. Pricing uses effective-date USD rates and SEK exchange rates. While no USD exchange rate is in effect the
+cold start. Pricing uses effective-date USD rates; SEK amounts (usage records, `x-ume-cost-sek`) use the SEK exchange rate. While no USD exchange rate is in effect the
 gateway prices with `Gateway:FallbackSekPerUsd` (10), logs a warning on each catalogue load and reports its readiness
 check `exchange-rate` as Degraded.
 
@@ -88,7 +89,7 @@ availability objectives; this POC must not be presented as exact invoicing.
   dedicated audit snapshots.
 - **ServiceDefaults.** `WebDefaults` (`ExitIfHealthProbeAsync`, `AddUmeWebDefaults`/`UseUmeWebDefaults`,
   `UseUmeSecurityHeaders`) and `ApiExceptionHandler` with `ApiFaultException` give the admin API and Data API the same
-  JSON, problem responses, security headers and Swedish 500 message.
+  JSON, problem responses, security headers and 500 message. API messages are in English.
 
 ## Stored and transient data
 
@@ -125,7 +126,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Admin auth | Generic OIDC through a BFF; Keycloak in local run mode, an external HTTPS IdP in production |
 | Content logging | Metadata only; prompts and responses are never persisted |
 | PII guard | Optional, per key: Off / Allow / Redact / Block / Reroute to on-prem |
-| Currency | Budgets in SEK; prices in USD with a configurable USD to SEK rate |
+| Currency | Prices, costs and budgets in USD; SEK amounts for display at a configurable USD to SEK rate |
 | Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`, `/v1/audio/transcriptions` and `/v1/audio/translations` (multipart, held in memory), `/v1/images/generations` and `/v1/images/edits` (JSON; multipart held in memory), live audio over WebSocket on `/v1/realtime` and `/v1/realtime/translations` (OpenAI Realtime protocol, relayed and metered); Anthropic `/v1/messages` |
 | Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |

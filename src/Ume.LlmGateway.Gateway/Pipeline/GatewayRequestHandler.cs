@@ -44,7 +44,6 @@ public sealed partial class GatewayRequestHandler(
 
     /// <summary>Bodies this large are walked for images even when the key allows all files (see the token estimate).</summary>
     private const long AttachmentInspectBytes = 32 * 1024;
-    private const string MissingModelMessage = "Fältet 'model' saknas. Ange ett modellalias, t.ex. 'ume/chat-standard'.";
     private readonly ProviderAdapterLookup _adapters = new(adapters);
     private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
 
@@ -78,7 +77,7 @@ public sealed partial class GatewayRequestHandler(
 
         if (body["model"] is not JsonValue modelValue || !modelValue.TryGetValue<string>(out var model) || string.IsNullOrWhiteSpace(model))
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, MissingModelMessage, RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
             return;
         }
 
@@ -86,7 +85,7 @@ public sealed partial class GatewayRequestHandler(
 
         if (info.IsImage && RequestRewriter.IsStreaming(body))
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, "Strömmande bildsvar (stream) stöds inte. Skicka förfrågan utan 'stream'.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.ImageStreamingNotSupported, RequestOutcome.Rejected);
             return;
         }
 
@@ -98,9 +97,7 @@ public sealed partial class GatewayRequestHandler(
             : default;
         if (AttachmentScanner.Disallowed(key.AttachmentPolicy, attachments.Kinds) is var refused and not AttachmentKinds.None)
         {
-            await RejectAsync(http, state, 400, GatewayErrorCodes.AttachmentNotAllowed,
-                $"Nyckeln tillåter inte bifogade {AttachmentNames(refused)}{(key.AttachmentPolicy == AttachmentPolicy.ImagesOnly ? " (endast bilder är tillåtna)" : string.Empty)}. Skicka förfrågan utan filer.",
-                RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.AttachmentNotAllowed(refused, key.AttachmentPolicy == AttachmentPolicy.ImagesOnly), RequestOutcome.Rejected);
             return;
         }
 
@@ -109,7 +106,7 @@ public sealed partial class GatewayRequestHandler(
         var resolution = router.ResolveModel(snapshot, key, endpoint, model);
         if (resolution.Rejection is { } modelRejection)
         {
-            await RejectAsync(http, state, modelRejection);
+            await RejectAsync(http, state, modelRejection, RequestOutcome.Rejected);
             return;
         }
 
@@ -151,9 +148,7 @@ public sealed partial class GatewayRequestHandler(
 
             if (decision == PiiDecision.Block)
             {
-                await RejectAsync(http, state, 400, GatewayErrorCodes.PiiBlocked,
-                    $"Förfrågan innehåller personuppgifter ({scan.Summary}) och nyckelns policy tillåter inte det. Ta bort uppgifterna och försök igen.",
-                    RequestOutcome.PiiBlocked);
+                await RejectAsync(http, state, GatewayError.PiiBlocked(scan.Summary), RequestOutcome.PiiBlocked);
                 return;
             }
 
@@ -186,7 +181,7 @@ public sealed partial class GatewayRequestHandler(
         var expectedUsage = audio is not null ? audioEstimate
             : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
             : new TokenUsage(estimatedInputTokens, 0, maxOutput);
-        var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Sek);
+        var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
         if (await TryReserveAsync(http, state, snapshot, BudgetService.ApplicableBudgets(snapshot, key), estimate, ct) is null)
         {
             return;
@@ -274,10 +269,11 @@ public sealed partial class GatewayRequestHandler(
                         await RecordSuccessAsync(state, provider);
                         var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
                         SetRoutingHeaders(http, deployment, i);
+                        http.Response.Headers[GatewayHeaders.CostUsd] = cost.Usd.ToString("0.00000000", CultureInfo.InvariantCulture);
                         http.Response.Headers[GatewayHeaders.CostSek] = cost.Sek.ToString("0.000000", CultureInfo.InvariantCulture);
-                        if (state.Reservation?.RemainingSek is { } rem)
+                        if (state.Reservation?.RemainingUsd is { } rem)
                         {
-                            http.Response.Headers[GatewayHeaders.BudgetRemainingSek] = FormatSek(Math.Max(0, rem - cost.Sek));
+                            SetBudgetRemainingHeaders(http, Math.Max(0, rem - cost.Usd), snapshot);
                         }
 
                         // The answer goes out first (complete, thanks to Content-Length); accounting then runs off the
@@ -379,9 +375,9 @@ public sealed partial class GatewayRequestHandler(
             }
 
             var form = await AudioFormReader.ReadAsync(http.Request, maxAudioBytes, ct);
-            if (form.Failed)
+            if (form.Error is { } audioError)
             {
-                await RejectAsync(http, state, form.Status, form.Code!, form.Message!, RequestOutcome.Rejected);
+                await RejectAsync(http, state, audioError, RequestOutcome.Rejected);
                 return default;
             }
 
@@ -397,9 +393,9 @@ public sealed partial class GatewayRequestHandler(
             }
 
             var form = await ImageFormReader.ReadAsync(http.Request, maxImageBytes, ct);
-            if (form.Failed)
+            if (form.Error is { } imageError)
             {
-                await RejectAsync(http, state, form.Status, form.Code!, form.Message!, RequestOutcome.Rejected);
+                await RejectAsync(http, state, imageError, RequestOutcome.Rejected);
                 return default;
             }
 
@@ -410,22 +406,21 @@ public sealed partial class GatewayRequestHandler(
 
         if (!http.Request.HasJsonContentType())
         {
-            await RejectAsync(http, state, 415, GatewayErrorCodes.UnsupportedMediaType, "Content-Type måste vara application/json.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.JsonRequired, RequestOutcome.Rejected);
             return default;
         }
 
         var (body, length, status) = await ReadJsonAsync(http.Request, ct);
         if (status != 0)
         {
-            await RejectAsync(http, state, status, status == 413 ? GatewayErrorCodes.RequestTooLarge : GatewayErrorCodes.InvalidRequest,
-                status == 413 ? "Förfrågan är för stor." : "Förfrågan är inte giltig JSON.", RequestOutcome.Rejected);
+            await RejectAsync(http, state, status == 413 ? GatewayError.RequestTooLarge : GatewayError.InvalidJson, RequestOutcome.Rejected);
             return default;
         }
 
         if (body is null)
         {
             // Valid JSON, but not an object.
-            await RejectAsync(http, state, 400, GatewayErrorCodes.InvalidRequest, MissingModelMessage, RequestOutcome.Rejected);
+            await RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
             return default;
         }
 

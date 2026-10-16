@@ -141,20 +141,20 @@ public sealed class ProviderStabilityService(GatewayDbContext db)
     {
         var size = bucket is null ? StatsBucket.Hour
             : EnumQuery.TryParse<StatsBucket>(bucket, out var parsed) ? parsed
-            : throw new ApiFaultException(400, "Indelningen måste vara hour eller day.");
+            : throw new ApiFaultException(400, "The bucket must be hour or day.");
         var end = to?.ToUniversalTime() ?? now;
         var start = BucketStart(from?.ToUniversalTime() ?? end - (size == StatsBucket.Hour ? TimeSpan.FromDays(1) : TimeSpan.FromDays(30)), size);
         var maxDays = size == StatsBucket.Hour ? MaxHourBucketDays : MaxDayBucketDays;
         if (start >= end)
         {
-            throw new ApiFaultException(400, "Tidsintervallets slut måste ligga efter dess början.");
+            throw new ApiFaultException(400, "The end of the time range must be after its start.");
         }
 
         if (end - start > TimeSpan.FromDays(maxDays) + TimeSpan.FromHours(size == StatsBucket.Hour ? 1 : 25))
         {
             throw new ApiFaultException(400, size == StatsBucket.Hour
-                ? $"Timvis indelning tillåter högst {MaxHourBucketDays} dygn. Välj day för längre perioder."
-                : $"Välj ett tidsintervall på högst {MaxDayBucketDays} dygn.");
+                ? $"Hourly buckets allow at most {MaxHourBucketDays} days. Choose day for longer periods."
+                : $"Choose a time range of at most {MaxDayBucketDays} days.");
         }
 
         var totals = await PeriodAsync(start, end, end, ct);

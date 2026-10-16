@@ -332,7 +332,7 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         conflict["code"]!.GetValue<string>().ShouldBe("routing_rules_scoped");
         conflict["choices"]!.AsArray().Select(c => c!.GetValue<string>()).ShouldBe(["delete", "deactivate"]);
         conflict["rules"]!.AsArray().Select(r => r!["name"]!.GetValue<string>()).Order().ShouldBe(["Off", "On"]);
-        conflict["detail"]!.GetValue<string>().ShouldContain("2 routingregel");
+        conflict["detail"]!.GetValue<string>().ShouldContain("2 routing rule");
 
         // Nothing changed while the question is open.
         using var teams = await client.GetAsync($"/api/teams?departmentId={org.Department}", Ct);
@@ -395,7 +395,7 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         using var enable = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body("Keep me", [model.Name], "headers['x-a'] == '1'", scope: "Team", scopeId: org.Team, priority: 3, enabled: true), Ct);
         (await AdminFixture.ReadAsync(enable, HttpStatusCode.BadRequest))["errors"]!["scopeIds"].ShouldNotBeNull();
         using var toggle = await client.PutAsJsonAsync($"/api/routing-rules/{id}/enabled", new { isEnabled = true }, Ct);
-        (await AdminFixture.ReadAsync(toggle, HttpStatusCode.BadRequest))["detail"]!.GetValue<string>().ShouldContain("kan inte aktiveras");
+        (await AdminFixture.ReadAsync(toggle, HttpStatusCode.BadRequest))["detail"]!.GetValue<string>().ShouldContain("cannot be activated");
 
         // ...but can still be edited while it waits.
         using var edit = await client.PutAsJsonAsync($"/api/routing-rules/{id}", Body("Keep me", [model.Name], "headers['x-a'] == '2'", scope: "Team", priority: 3, enabled: false), Ct);

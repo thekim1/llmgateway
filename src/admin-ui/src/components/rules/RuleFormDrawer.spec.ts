@@ -153,11 +153,11 @@ describe('RuleFormDrawer', () => {
     const { wrapper } = mountForm()
     await flushPromises()
     await fillBasics(wrapper)
-    create.mockRejectedValue(new ApiError(400, 'POST', { errors: { 'Targets[0].weight': ['Värdet är ogiltigt.'], condition: ['Okänd variabel (tecken 1)'] } }))
+    create.mockRejectedValue(new ApiError(400, 'POST', { errors: { 'Targets[0].weight': ['The value is invalid.'], condition: ['Unknown variable (character 1)'] } }))
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(wrapper.text()).toContain('Värdet är ogiltigt.')
-    expect(wrapper.text()).toContain('Okänd variabel (tecken 1)')
+    expect(wrapper.text()).toContain('The value is invalid.')
+    expect(wrapper.text()).toContain('Unknown variable (character 1)')
     expect(wrapper.emitted('saved')).toBeUndefined()
   })
 
@@ -165,10 +165,10 @@ describe('RuleFormDrawer', () => {
     const { wrapper } = mountForm()
     await flushPromises()
     await fillBasics(wrapper)
-    create.mockRejectedValue(new ApiError(409, 'POST', { detail: 'Det finns redan en regel med samma namn i detta omfång.' }))
+    create.mockRejectedValue(new ApiError(409, 'POST', { detail: 'There is already a rule with the same name in this scope.' }))
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(wrapper.find('[role="alert"]').text()).toContain('samma namn')
+    expect(wrapper.find('[role="alert"]').text()).toContain('same name')
   })
 
   it('edits an existing rule and keeps its place in the order', async () => {

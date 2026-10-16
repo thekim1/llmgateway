@@ -8,10 +8,7 @@ using Ume.LlmGateway.Infrastructure.Providers;
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
 /// <summary>The parsed upload, or the error to answer with.</summary>
-public sealed record AudioForm(JsonObject? Fields, AudioUpload? Audio, int Status = 0, string? Code = null, string? Message = null)
-{
-    public bool Failed => Status != 0;
-}
+public sealed record AudioForm(JsonObject? Fields, AudioUpload? Audio, GatewayError? Error = null);
 
 /// <summary>
 /// Reads the <c>multipart/form-data</c> body of <c>/v1/audio/transcriptions</c> and <c>/v1/audio/translations</c>
@@ -33,7 +30,7 @@ public static class AudioFormReader
             || !type.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase)
             || HeaderUtilities.RemoveQuotes(type.Boundary).Value is not { Length: > 0 and <= 200 } boundary)
         {
-            return Error(415, GatewayErrorCodes.UnsupportedMediaType, "Content-Type måste vara multipart/form-data med ljudfilen i fältet 'file'.");
+            return Error(GatewayError.MultipartRequired("file", "audio file"));
         }
 
         if (request.ContentLength > maxBytes)
@@ -54,14 +51,14 @@ public static class AudioFormReader
                 if (++count > MaxFields || !ContentDispositionHeaderValue.TryParse(section.ContentDisposition, out var disposition)
                     || !disposition.DispositionType.Equals("form-data", StringComparison.OrdinalIgnoreCase) || HeaderUtilities.RemoveQuotes(disposition.Name).Value is not { Length: > 0 } name)
                 {
-                    return Fail(400, GatewayErrorCodes.InvalidRequest, "Formuläret är inte giltigt multipart/form-data.");
+                    return Fail(GatewayError.InvalidForm);
                 }
 
                 if (disposition.IsFileDisposition())
                 {
                     if (name != "file" || file is not null)
                     {
-                        return Fail(400, GatewayErrorCodes.InvalidRequest, "Skicka exakt en ljudfil, i fältet 'file'.");
+                        return Fail(GatewayError.OneAudioFile);
                     }
 
                     fileName = Path.GetFileName(HeaderUtilities.RemoveQuotes(disposition.FileNameStar.HasValue ? disposition.FileNameStar : disposition.FileName).Value);
@@ -73,7 +70,7 @@ public static class AudioFormReader
                 var value = await ReadFieldAsync(section.Body, ct);
                 if (value is null)
                 {
-                    return Fail(400, GatewayErrorCodes.InvalidRequest, $"Fältet '{(name.Length > 50 ? name[..50] : name)}' är för stort.");
+                    return Fail(GatewayError.FieldTooLarge(name));
                 }
 
                 Add(fields, name, value);
@@ -88,21 +85,21 @@ public static class AudioFormReader
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or BadHttpRequestException)
         {
-            return Fail(400, GatewayErrorCodes.InvalidRequest, "Formuläret är inte giltigt multipart/form-data.");
+            return Fail(GatewayError.InvalidForm);
         }
 
         if (file is null || fileLength == 0)
         {
-            return Fail(400, GatewayErrorCodes.InvalidRequest, "Ljudfilen saknas. Skicka den i fältet 'file' (t.ex. mp3, wav, m4a, ogg, webm, flac).");
+            return Fail(GatewayError.AudioFileMissing);
         }
 
         return new AudioForm(fields, new AudioUpload(file, fileLength, string.IsNullOrWhiteSpace(fileName) ? "audio" : fileName, fileType));
 
         // Every early exit hands the pooled file buffer back.
-        AudioForm Fail(int status, string code, string message)
+        AudioForm Fail(GatewayError error)
         {
             Return(file);
-            return Error(status, code, message);
+            return Error(error);
         }
     }
 
@@ -196,9 +193,9 @@ public static class AudioFormReader
     }
 
     private static AudioForm TooLarge(long maxBytes) =>
-        Error(413, GatewayErrorCodes.RequestTooLarge, $"Ljudfilen är för stor (högst {maxBytes / (1024 * 1024)} MB). Dela upp inspelningen eller komprimera den, t.ex. till mp3.");
+        Error(GatewayError.AudioTooLarge(maxBytes));
 
-    private static AudioForm Error(int status, string code, string message) => new(null, null, status, code, message);
+    private static AudioForm Error(GatewayError error) => new(null, null, error);
 
     internal sealed class FileTooLargeException : Exception;
 }

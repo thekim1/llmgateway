@@ -1,5 +1,5 @@
 import { nextTick, reactive, ref } from 'vue'
-import { mapFieldErrors, problemLang, problemMessage } from '@/utils/problem'
+import { mapFieldErrors, problemMessage } from '@/utils/problem'
 
 /**
  * Submit-time validation for forms. `fields` maps a field name to the DOM id of its control so the
@@ -8,12 +8,10 @@ import { mapFieldErrors, problemLang, problemMessage } from '@/utils/problem'
 export function useFormErrors<K extends string>(fieldIds: Record<K, string>) {
   const errors = reactive({}) as Partial<Record<K, string>>
   const formError = ref<string | null>(null)
-  const formErrorLang = ref<'sv' | undefined>(undefined)
 
   function clear(): void {
     for (const key of Object.keys(errors)) delete errors[key as K]
     formError.value = null
-    formErrorLang.value = undefined
   }
 
   function focusFirstInvalid(): void {
@@ -39,11 +37,8 @@ export function useFormErrors<K extends string>(fieldIds: Record<K, string>) {
     const mapped = mapFieldErrors(error, Object.keys(fieldIds))
     for (const [key, message] of Object.entries(mapped)) errors[key as K] = message
     if (Object.keys(mapped).length > 0) focusFirstInvalid()
-    else {
-      formError.value = problemMessage(error)
-      formErrorLang.value = problemLang(error)
-    }
+    else formError.value = problemMessage(error)
   }
 
-  return { errors, formError, formErrorLang, clear, validate, applyServerError }
+  return { errors, formError, clear, validate, applyServerError }
 }

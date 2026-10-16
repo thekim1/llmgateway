@@ -6,7 +6,7 @@ import { useFormErrors } from '@/composables/useFormErrors'
 import { useProvidersStore } from '@/stores/providers'
 import { useUiStore } from '@/stores/ui'
 import { AUTH_MODE_LABEL, CAPABILITY_LABEL, PROVIDER_TYPE_LABEL, RESIDENCY, plural } from '@/utils/labels'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { problemMessage } from '@/utils/problem'
 import CheckField from '../ui/CheckField.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import FieldGroup from '../ui/FieldGroup.vue'
@@ -25,7 +25,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'delete
 
 const providers = useProvidersStore()
 const ui = useUiStore()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'prov-name',
   displayName: 'prov-display',
   type: 'prov-type',
@@ -195,7 +195,7 @@ async function remove(): Promise<void> {
       </span>
     </template>
     <form id="provider-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit()">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <TextField id="prov-name" v-model="name" label="Name" mono :error="errors.name" hint="Shown in routes and reports." />
       <TextField id="prov-display" v-model="displayName" label="Display name" hint="Optional." :error="errors.displayName" />
       <SelectField id="prov-type" v-model="type" label="Type" :options="typeOptions" :error="errors.type" />
@@ -246,7 +246,7 @@ async function remove(): Promise<void> {
       <p class="text-fg-2">
         {{ provider.isDrained ? 'This provider is drained. Routes skip it.' : 'This provider receives requests from the routes that use it.' }}
       </p>
-      <InlineError v-if="drainError" :message="problemMessage(drainError)" :lang="problemLang(drainError)" />
+      <InlineError v-if="drainError" :message="problemMessage(drainError)" />
       <div>
         <UiButton v-if="provider.isDrained" icon="play_arrow" :loading="drainBusy" @click="setDrained(false)">Resume traffic</UiButton>
         <UiButton v-else icon="pause" @click="confirmDrain = true">Drain provider</UiButton>

@@ -142,7 +142,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
 
         modelBuilder.Entity<Budget>(e =>
         {
-            e.Property(x => x.LimitSek).HasPrecision(18, 2);
+            e.Property(x => x.LimitUsd).HasPrecision(18, 2);
             e.Property(x => x.Scope).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Period).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => new { x.Scope, x.ScopeId });
@@ -221,8 +221,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
         modelBuilder.Entity<AlertEvent>(e =>
         {
             e.Property(x => x.Scope).HasConversion<string>().HasMaxLength(20);
-            e.Property(x => x.SpentSek).HasPrecision(18, 2);
-            e.Property(x => x.LimitSek).HasPrecision(18, 2);
+            e.Property(x => x.SpentUsd).HasPrecision(18, 2);
+            e.Property(x => x.LimitUsd).HasPrecision(18, 2);
             e.HasIndex(x => new { x.BudgetId, x.PeriodStart, x.ThresholdPercent }).IsUnique();
         });
 

@@ -137,7 +137,7 @@ public sealed class AudioTests(GatewayFixture fixture)
         using var response = await fixture.SendAudioAsync(key, "speech/whisper", GatewayFixture.Wav(1));
 
         var error = await ErrorAsync(response, 400, "attachment_not_allowed");
-        error["message"]!.GetValue<string>().ShouldContain("ljudfiler");
+        error["message"]!.GetValue<string>().ShouldContain("audio files");
     }
 
     [Fact]

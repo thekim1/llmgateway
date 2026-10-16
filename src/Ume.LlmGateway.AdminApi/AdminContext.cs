@@ -13,14 +13,16 @@ public sealed class AdminContext
 {
     private readonly IInvalidationBus _bus;
     private readonly TimeProvider _time;
+    private readonly IHttpContextAccessor _http;
     private readonly ILogger _security;
     private List<AuditLogEntry> _saving = [];
 
-    public AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time, ILoggerFactory loggers)
+    public AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time, ILoggerFactory loggers, IHttpContextAccessor http)
     {
         Db = db;
         _bus = bus;
         _time = time;
+        _http = http;
         _security = SecurityEvents.CreateLogger(loggers);
 
         // Every audit entry, however it was added (including config import), becomes an admin.change security
@@ -40,53 +42,70 @@ public sealed class AdminContext
 
     public GatewayDbContext Db { get; }
     public DateTimeOffset Now => _time.GetUtcNow();
-    public static bool IsAdmin(ClaimsPrincipal user) => user.IsInRole("gateway-admin");
-    public static string[] Codes(ClaimsPrincipal user) => [.. user.FindAll("departmentCodes").Select(c => c.Value)];
 
-    public IQueryable<Department> Departments(ClaimsPrincipal user) =>
-        IsAdmin(user) ? Db.Departments : Db.Departments.Where(d => Codes(user).Contains(d.CostCenterCode));
-    public IQueryable<Team> Teams(ClaimsPrincipal user) =>
-        Db.Teams.Include(t => t.Department).Where(t => Departments(user).Any(d => d.Id == t.DepartmentId));
-    public IQueryable<VirtualKey> Keys(ClaimsPrincipal user) =>
-        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => Teams(user).Any(t => t.Id == k.TeamId));
-    public IQueryable<UsageRecord> Usage(ClaimsPrincipal user) =>
-        Db.UsageRecords.Where(u => Departments(user).Any(d => d.Id == u.DepartmentId));
-    public IQueryable<UsageMonthlyTotal> UsageTotals(ClaimsPrincipal user) =>
-        Db.UsageMonthlyTotals.AsNoTracking().Where(t => Departments(user).Any(d => d.Id == t.DepartmentId));
+    /// <summary>The signed-in user of the current request. Every scoped query and audit entry below is for this user.</summary>
+    public ClaimsPrincipal User => _http.HttpContext?.User
+        ?? throw new InvalidOperationException("AdminContext is only available while handling an HTTP request.");
+
+    public bool IsAdmin => User.IsInRole(AdminRoles.GatewayAdmin);
+    private string[] DepartmentCodes => [.. User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value)];
+
+    /// <summary>The user's OIDC subject, or null when the identity has none (recorded as a key's creator).</summary>
+    public string? Subject => User.FindFirstValue(AdminClaims.Subject);
 
     /// <summary>Who made a change, as written to the audit log: the OIDC subject, else the name.</summary>
-    public static string Actor(ClaimsPrincipal user) => user.FindFirstValue("sub") ?? user.Identity?.Name ?? "unknown";
+    public string Actor => Subject ?? User.Identity?.Name ?? "unknown";
+
+    public IQueryable<Department> Departments()
+    {
+        if (IsAdmin)
+        {
+            return Db.Departments;
+        }
+
+        var codes = DepartmentCodes;
+        return Db.Departments.Where(d => codes.Contains(d.CostCenterCode));
+    }
+
+    public IQueryable<Team> Teams() =>
+        Db.Teams.Include(t => t.Department).Where(t => Departments().Any(d => d.Id == t.DepartmentId));
+    public IQueryable<VirtualKey> Keys() =>
+        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => Teams().Any(t => t.Id == k.TeamId));
+    public IQueryable<UsageRecord> Usage() =>
+        Db.UsageRecords.Where(u => Departments().Any(d => d.Id == u.DepartmentId));
+    public IQueryable<UsageMonthlyTotal> UsageTotals() =>
+        Db.UsageMonthlyTotals.AsNoTracking().Where(t => Departments().Any(d => d.Id == t.DepartmentId));
 
     /// <summary>
     /// The audit entry for a change. <paramref name="before"/> and <paramref name="after"/> are snapshot records (see AuditSnapshots.cs)
     /// that never hold secrets.
     /// </summary>
-    public AuditLogEntry Audit(ClaimsPrincipal user, string action, string entityType, object? id, object? before, object? after) => new()
+    public AuditLogEntry Audit(string action, string entityType, object? id, object? before, object? after) => new()
     {
-        Timestamp = Now, Actor = Actor(user), Action = action, EntityType = entityType, EntityId = id?.ToString(),
+        Timestamp = Now, Actor = Actor, Action = action, EntityType = entityType, EntityId = id?.ToString(),
         Details = JsonSerializer.Serialize(new AuditDetails(before, after), AuditJson.Options),
     };
 
     /// <summary>Writes an audit entry without publishing a cache invalidation (for read-only actions such as revealing a key).</summary>
-    public async Task AuditAsync(ClaimsPrincipal user, string action, string entityType, object id, object? details, CancellationToken ct)
+    public async Task AuditAsync(string action, string entityType, object id, object? details, CancellationToken ct)
     {
-        StageAudit(user, action, entityType, id, null, details);
+        StageAudit(action, entityType, id, null, details);
         await Db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Adds an audit entry to the current unit of work without saving; the next <see cref="SaveAsync(ClaimsPrincipal, string, string, object, object?, object?, InvalidationKind, CancellationToken)"/> commits it together with the change.</summary>
-    public void StageAudit(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after) =>
-        Db.AuditLog.Add(Audit(user, action, entityType, id, before, after));
+    /// <summary>Adds an audit entry to the current unit of work without saving; the next <see cref="SaveAsync(string, string, object, object?, object?, InvalidationKind, CancellationToken)"/> commits it together with the change.</summary>
+    public void StageAudit(string action, string entityType, object id, object? before, object? after) =>
+        Db.AuditLog.Add(Audit(action, entityType, id, before, after));
 
     /// <summary>Saves the change and its audit entry in one transaction, then tells the gateways to reload.</summary>
-    public Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct) =>
-        SaveAsync(user, action, entityType, id, before, after, [kind], ct);
+    public Task SaveAsync(string action, string entityType, object id, object? before, object? after, InvalidationKind kind, CancellationToken ct) =>
+        SaveAsync(action, entityType, id, before, after, [kind], ct);
 
     /// <summary>As above, for a change that affects more than one gateway cache (e.g. a rotated key changes keys and budgets).</summary>
-    public async Task SaveAsync(ClaimsPrincipal user, string action, string entityType, object id, object? before, object? after,
+    public async Task SaveAsync(string action, string entityType, object id, object? before, object? after,
         IReadOnlyCollection<InvalidationKind> kinds, CancellationToken ct)
     {
-        StageAudit(user, action, entityType, id, before, after);
+        StageAudit(action, entityType, id, before, after);
         await Db.SaveChangesAsync(ct);
         await PublishAsync(kinds, ct);
     }
@@ -100,6 +119,21 @@ public sealed class AdminContext
             await _bus.PublishAsync(kind, ct);
         }
     }
+}
+
+/// <summary>Admin console roles, from the identity provider's role claim (see docs/identity-and-roles.md).</summary>
+public static class AdminRoles
+{
+    public const string GatewayAdmin = "gateway-admin";
+    public const string DepartmentAdmin = "department-admin";
+    public const string Viewer = "viewer";
+}
+
+/// <summary>Claims the admin API reads from the signed-in user.</summary>
+public static class AdminClaims
+{
+    public const string Subject = "sub";
+    public const string DepartmentCodes = "departmentCodes";
 }
 
 public sealed class AdminValidationFilter : IEndpointFilter
@@ -123,7 +157,7 @@ public sealed class AdminValidationFilter : IEndpointFilter
             foreach (var member in result.MemberNames.DefaultIfEmpty("request"))
             {
                 var field = prefix + JsonNamingPolicy.CamelCase.ConvertName(member);
-                errors[field] = [result.ErrorMessage ?? "Värdet är ogiltigt."];
+                errors[field] = [result.ErrorMessage ?? "The value is invalid."];
             }
         }
         foreach (var property in argument.GetType().GetProperties())

@@ -31,9 +31,9 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
 
         async Task<Guid> BudgetAsync(string scope, Guid scopeId, string period)
         {
-            using var response = await client.PostAsJsonAsync("/api/budgets", new { scope, scopeId, limitSek = 10, period, alertThresholds = new[] { 100 }, isActive = true }, Ct);
+            using var response = await client.PostAsJsonAsync("/api/budgets", new { scope, scopeId, limitUsd = 10, period, alertThresholds = new[] { 100 }, isActive = true }, Ct);
             var budget = await AdminFixture.ReadAsync(response, HttpStatusCode.Created);
-            budget["spentSek"]!.GetValue<decimal>().ShouldBe(3.25m); // the single-budget query agrees with the batched list
+            budget["spentUsd"]!.GetValue<decimal>().ShouldBe(3.25m); // the single-budget query agrees with the batched list
             return budget["id"]!.GetValue<Guid>();
         }
         var keyBudget = await BudgetAsync("VirtualKey", oldKey, "Monthly");
@@ -43,7 +43,7 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
         using var list = await client.GetAsync("/api/budgets", Ct);
         var own = (await AdminFixture.ReadAsync(list)).AsArray().Where(b => b!["id"]!.GetValue<Guid>() is var id && (id == keyBudget || id == teamBudget || id == departmentBudget)).ToList();
         own.Count.ShouldBe(3);
-        own.ShouldAllBe(b => b!["spentSek"]!.GetValue<decimal>() == 3.25m);
+        own.ShouldAllBe(b => b!["spentUsd"]!.GetValue<decimal>() == 3.25m);
         own.ShouldAllBe(b => b!["percentUsed"]!.GetValue<decimal>() == 32.5m);
         own.Single(b => b!["id"]!.GetValue<Guid>() == keyBudget)!["scopeName"]!.GetValue<string>().ShouldBe("Key");
         own.Single(b => b!["id"]!.GetValue<Guid>() == departmentBudget)!["scopeName"]!.GetValue<string>().ShouldStartWith("Department ");
@@ -174,8 +174,8 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
         missing.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
         var problem = await AdminFixture.ReadAsync(missing, HttpStatusCode.NotFound);
         problem["status"]!.GetValue<int>().ShouldBe(404);
-        problem["title"]!.GetValue<string>().ShouldBe("Åtgärden kunde inte utföras");
-        problem["detail"]!.GetValue<string>().ShouldBe("Nyckeln finns inte.");
+        problem["title"]!.GetValue<string>().ShouldBe("The action could not be completed");
+        problem["detail"]!.GetValue<string>().ShouldBe("The key does not exist.");
         // The exception handler clears the response; the headers are applied again.
         missing.Headers.GetValues("X-Frame-Options").Single().ShouldBe("DENY");
         missing.Headers.CacheControl!.NoStore.ShouldBeTrue();
@@ -183,10 +183,10 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
 
         var org = await fixture.OrganisationAsync(client);
         using var duplicate = await client.PostAsJsonAsync("/api/departments", new { name = "Duplicate", costCenterCode = org.Code }, Ct);
-        (await AdminFixture.ReadAsync(duplicate, HttpStatusCode.Conflict))["detail"]!.GetValue<string>().ShouldBe("Ändringen krockar med befintliga uppgifter.");
+        (await AdminFixture.ReadAsync(duplicate, HttpStatusCode.Conflict))["detail"]!.GetValue<string>().ShouldBe("The change conflicts with existing data.");
 
         using var badGrouping = await client.GetAsync("/api/usage/summary?groupBy=week", Ct);
-        (await AdminFixture.ReadAsync(badGrouping, HttpStatusCode.BadRequest))["detail"]!.GetValue<string>().ShouldBe("Grupperingen är ogiltig.");
+        (await AdminFixture.ReadAsync(badGrouping, HttpStatusCode.BadRequest))["detail"]!.GetValue<string>().ShouldBe("The grouping is invalid.");
         using var upperCaseGrouping = await client.GetAsync("/api/usage/summary?groupBy=Team", Ct);
         upperCaseGrouping.StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -195,7 +195,7 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
             name = "Faulty " + Guid.NewGuid(), scope = "Global", targets = new[] { new { model = "no-such-model-" + Guid.NewGuid(), weight = 1 } },
         }, Ct);
         var validation = await AdminFixture.ReadAsync(invalidRule, HttpStatusCode.BadRequest);
-        validation["title"]!.GetValue<string>().ShouldBe("Kontrollera de markerade fälten.");
+        validation["title"]!.GetValue<string>().ShouldBe("Check the highlighted fields.");
         validation["errors"]!["targets"].ShouldNotBeNull();
     }
 
@@ -233,7 +233,7 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
         db.UsageRecords.Add(new UsageRecord
         {
             RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = at, VirtualKeyId = key, TeamId = org.Team, DepartmentId = org.Department,
-            Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", CostSek = cost, Outcome = RequestOutcome.Success, StatusCode = 200,
+            Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", CostUsd = cost, CostSek = cost, Outcome = RequestOutcome.Success, StatusCode = 200,
         });
         await db.SaveChangesAsync(Ct);
     }

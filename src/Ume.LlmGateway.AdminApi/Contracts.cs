@@ -111,11 +111,11 @@ public sealed record ExchangeRateDto(string Currency, decimal SekPerUnit, DateTi
 // ---- budgets ---------------------------------------------------------------------------------------------
 
 public sealed record BudgetDto(
-    Guid Id, BudgetScope Scope, Guid ScopeId, string ScopeName, decimal LimitSek, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds,
-    bool IsActive, DateTimeOffset PeriodStart, DateTimeOffset PeriodEnd, decimal SpentSek, decimal PercentUsed);
+    Guid Id, BudgetScope Scope, Guid ScopeId, string ScopeName, decimal LimitUsd, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds,
+    bool IsActive, DateTimeOffset PeriodStart, DateTimeOffset PeriodEnd, decimal SpentUsd, decimal PercentUsed);
 
 public sealed record AlertDto(
-    Guid Id, Guid BudgetId, BudgetScope Scope, string ScopeName, int ThresholdPercent, decimal SpentSek, decimal LimitSek,
+    Guid Id, Guid BudgetId, BudgetScope Scope, string ScopeName, int ThresholdPercent, decimal SpentUsd, decimal LimitUsd,
     DateTimeOffset PeriodStart, DateTimeOffset Timestamp, bool Acknowledged);
 
 // ---- routing rules ---------------------------------------------------------------------------------------

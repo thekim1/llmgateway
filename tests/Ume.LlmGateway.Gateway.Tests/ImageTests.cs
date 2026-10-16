@@ -119,7 +119,7 @@ public sealed class ImageTests(GatewayFixture fixture)
         var key = await fixture.CreateKeyAsync(k => k.AttachmentPolicy = AttachmentPolicy.None);
         using var edit = await fixture.SendImageEditAsync(key, "imgpic/image", [GatewayFixture.Png()]);
         var error = await ErrorAsync(edit, 400, "attachment_not_allowed");
-        error["message"]!.GetValue<string>().ShouldContain("bilder");
+        error["message"]!.GetValue<string>().ShouldContain("images");
 
         using var generate = await GenerateAsync(key, "imgpic/image", "en katt");
         generate.StatusCode.ShouldBe(HttpStatusCode.OK);

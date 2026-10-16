@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Routing;
@@ -36,24 +35,31 @@ public readonly record struct Owner(OwnerKind Kind, Guid Id)
 }
 
 /// <summary>
-/// Resolves owners to their names. With a user, only owners in the user's departments are found (budgets and alerts
-/// are visible to department admins); without one, every owner is (routing rules are gateway-admin only).
-/// One query per owner kind, however many owners are asked for.
+/// Resolves owners to their names. <see cref="NamesAsync"/> finds only owners in the signed-in user's departments (budgets
+/// and alerts are visible to department admins); <see cref="AllNamesAsync"/> finds every owner (routing rules are
+/// gateway-admin only). One query per owner kind, however many owners are asked for.
 /// </summary>
 public sealed class OwnerScopeResolver(AdminContext ctx)
 {
-    public async Task<string?> NameAsync(Owner owner, ClaimsPrincipal? user, CancellationToken ct) =>
-        (await NamesAsync([owner], user, ct)).GetValueOrDefault(owner);
+    /// <summary>The owner's name, or null when it does not exist or is outside the user's departments.</summary>
+    public async Task<string?> NameAsync(Owner owner, CancellationToken ct) =>
+        (await NamesAsync([owner], ct)).GetValueOrDefault(owner);
 
-    public async Task<bool> ExistsAsync(Owner owner, CancellationToken ct) => await NameAsync(owner, null, ct) is not null;
+    public async Task<bool> ExistsAsync(Owner owner, CancellationToken ct) => (await AllNamesAsync([owner], ct)).ContainsKey(owner);
 
-    public async Task<Dictionary<Owner, string>> NamesAsync(IEnumerable<Owner> owners, ClaimsPrincipal? user, CancellationToken ct)
+    /// <summary>Names of the owners in the signed-in user's departments.</summary>
+    public Task<Dictionary<Owner, string>> NamesAsync(IEnumerable<Owner> owners, CancellationToken ct) => LookUpAsync(owners, userScoped: true, ct);
+
+    /// <summary>Names of the owners, whoever's departments they are in.</summary>
+    public Task<Dictionary<Owner, string>> AllNamesAsync(IEnumerable<Owner> owners, CancellationToken ct) => LookUpAsync(owners, userScoped: false, ct);
+
+    private async Task<Dictionary<Owner, string>> LookUpAsync(IEnumerable<Owner> owners, bool userScoped, CancellationToken ct)
     {
         var byKind = owners.Distinct().ToLookup(o => o.Kind, o => o.Id);
         var names = new Dictionary<Owner, string>();
         if (byKind[OwnerKind.Department].ToArray() is { Length: > 0 } departments)
         {
-            var source = user is null ? ctx.Db.Departments : ctx.Departments(user);
+            var source = userScoped ? ctx.Departments() : ctx.Db.Departments;
             foreach (var d in await source.AsNoTracking().Where(d => departments.Contains(d.Id)).Select(d => new { d.Id, d.Name }).ToListAsync(ct))
             {
                 names[new Owner(OwnerKind.Department, d.Id)] = d.Name;
@@ -62,7 +68,7 @@ public sealed class OwnerScopeResolver(AdminContext ctx)
 
         if (byKind[OwnerKind.Team].ToArray() is { Length: > 0 } teams)
         {
-            var source = user is null ? ctx.Db.Teams : ctx.Teams(user);
+            var source = userScoped ? ctx.Teams() : ctx.Db.Teams;
             foreach (var t in await source.AsNoTracking().Where(t => teams.Contains(t.Id)).Select(t => new { t.Id, t.Name }).ToListAsync(ct))
             {
                 names[new Owner(OwnerKind.Team, t.Id)] = t.Name;
@@ -71,7 +77,7 @@ public sealed class OwnerScopeResolver(AdminContext ctx)
 
         if (byKind[OwnerKind.VirtualKey].ToArray() is { Length: > 0 } keys)
         {
-            var source = user is null ? ctx.Db.VirtualKeys : ctx.Keys(user);
+            var source = userScoped ? ctx.Keys() : ctx.Db.VirtualKeys;
             foreach (var k in await source.AsNoTracking().Where(k => keys.Contains(k.Id)).Select(k => new { k.Id, k.Name }).ToListAsync(ct))
             {
                 names[new Owner(OwnerKind.VirtualKey, k.Id)] = k.Name;
@@ -81,12 +87,12 @@ public sealed class OwnerScopeResolver(AdminContext ctx)
         return names;
     }
 
-    /// <summary>The owner's label in messages ("Teamet finns inte").</summary>
+    /// <summary>The owner's label in messages ("The team does not exist").</summary>
     public static string Label(OwnerKind kind) => kind switch
     {
-        OwnerKind.VirtualKey => "Nyckeln",
-        OwnerKind.Team => "Teamet",
-        OwnerKind.Department => "Förvaltningen",
+        OwnerKind.VirtualKey => "The key",
+        OwnerKind.Team => "The team",
+        OwnerKind.Department => "The department",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown owner kind."),
     };
 }

@@ -25,7 +25,7 @@ async function put(page: Page, path: string, body: unknown) {
   return page.request.fetch(path, { method: 'PUT', data: body, headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': decodeURIComponent(csrf) } })
 }
 
-type Budget = { id: string; scope: string; scopeId: string; limitSek: number; period: string; alertThresholds: number[]; isActive: boolean; spentSek: number }
+type Budget = { id: string; scope: string; scopeId: string; limitUsd: number; period: string; alertThresholds: number[]; isActive: boolean; spentUsd: number }
 
 test.describe.configure({ mode: 'serial' })
 
@@ -46,7 +46,7 @@ test('website screenshots', async ({ page }) => {
   const created = keys.map(k => k.id)
   try {
     // A budget for the web chat that will end up nearly used, so an alert is open.
-    const budgetResponse = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: keys[1].id, limitSek: 1_000_000, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
+    const budgetResponse = await mutate(page, '/api/budgets', { scope: 'VirtualKey', scopeId: keys[1].id, limitUsd: 1_000_000, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
     expect(budgetResponse.status()).toBe(201)
     const budget: Budget = await budgetResponse.json()
     const catalogue = await (await page.request.get('/api/catalog')).json()
@@ -60,11 +60,11 @@ test('website screenshots', async ({ page }) => {
     let spent = 0
     await expect.poll(async () => {
       const budgets: Budget[] = await (await page.request.get('/api/budgets?scope=VirtualKey')).json()
-      spent = budgets.find(b => b.id === budget.id)?.spentSek ?? 0
+      spent = budgets.find(b => b.id === budget.id)?.spentUsd ?? 0
       return spent
     }, { timeout: 30_000 }).toBeGreaterThan(0)
     const limit = Math.max(0.01, Math.round(spent / 0.85 * 100) / 100)
-    expect((await put(page, `/api/budgets/${budget.id}`, { ...budget, limitSek: limit })).status()).toBe(200)
+    expect((await put(page, `/api/budgets/${budget.id}`, { ...budget, limitUsd: limit })).status()).toBe(200)
     for (let i = 0; i < 4; i++) await chat(i * 2 + 1)
 
     for (const theme of themes) {

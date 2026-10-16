@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 
@@ -15,20 +14,20 @@ public sealed record PiiIncidentQuery(
 /// </summary>
 public sealed class PiiIncidentService(AdminContext ctx)
 {
-    public async Task<PiiIncidentReportDto> ListAsync(PiiIncidentQuery query, ClaimsPrincipal user, CancellationToken ct)
+    public async Task<PiiIncidentReportDto> ListAsync(PiiIncidentQuery query, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(query);
         var (skip, take) = ReportEndpoints.Pagination(query.Page, query.PageSize);
         var (start, end) = ReportEndpoints.Range(query.From, query.To, ctx.Now);
         PiiCategory? category = query.Category is null ? null
             : EnumQuery.TryParse<PiiCategory>(query.Category, out var parsedCategory) ? parsedCategory
-            : throw new ApiFaultException(400, "PII-kategorin är ogiltig.");
+            : throw new ApiFaultException(400, "The PII category is invalid.");
         PiiPolicy? action = query.Action is null ? null
             : EnumQuery.TryParse<PiiPolicy>(query.Action, out var parsedAction) && parsedAction != PiiPolicy.Off ? parsedAction
-            : throw new ApiFaultException(400, "PII-åtgärden är ogiltig.");
+            : throw new ApiFaultException(400, "The PII action is invalid.");
 
         // Served by the partial index on Timestamp where PiiCategories is set.
-        var incidents = ctx.Usage(user).AsNoTracking().Where(u => u.PiiCategories != null && u.Timestamp >= start && u.Timestamp < end);
+        var incidents = ctx.Usage().AsNoTracking().Where(u => u.PiiCategories != null && u.Timestamp >= start && u.Timestamp < end);
         if (query.KeyId is { } key) { incidents = incidents.Where(u => u.VirtualKeyId == key); }
         if (query.TeamId is { } team) { incidents = incidents.Where(u => u.TeamId == team); }
         if (query.DepartmentId is { } department) { incidents = incidents.Where(u => u.DepartmentId == department); }

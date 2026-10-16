@@ -241,12 +241,12 @@ public sealed class RealtimeTests(GatewayFixture fixture)
     public async Task A_session_is_closed_when_its_budget_runs_out()
     {
         var key = await fixture.CreateKeyAsync();
-        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 10m);
+        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 1m);
         var alias = await fixture.CreateRouteAsync("live/realtime");
         using var socket = await fixture.ConnectRealtimeAsync(key, alias);
         await ReceiveAsync(socket);
 
-        // A million input tokens cost 4 USD (40 SEK), far beyond the 10 SEK budget: the next check ends the session.
+        // A million input tokens cost 4 USD, far beyond the 1 USD budget: the next check ends the session.
         await SendAsync(socket, new JsonObject { ["type"] = "response.create", ["response"] = new JsonObject { ["metadata"] = new JsonObject { ["input_tokens"] = 1_000_000 } } });
         (await ReceiveAsync(socket))["type"]!.GetValue<string>().ShouldBe("response.done");
         var error = await ReceiveAsync(socket, TimeSpan.FromSeconds(15));
@@ -256,7 +256,7 @@ public sealed class RealtimeTests(GatewayFixture fixture)
         var usage = await fixture.UsageForKeyAsync(key.Id);
         usage.Outcome.ShouldBe(RequestOutcome.BudgetExceeded);
         usage.StatusCode.ShouldBe(402);
-        usage.CostSek.ShouldBeGreaterThan(40m);
+        usage.CostUsd.ShouldBeGreaterThan(4m);
     }
 
     [Fact]

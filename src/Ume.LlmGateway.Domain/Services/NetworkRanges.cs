@@ -23,7 +23,7 @@ public static class NetworkRanges
         var value = text?.Trim();
         if (string.IsNullOrEmpty(value) || value.Length > 64)
         {
-            error = "Ange en IP-adress eller ett nät i CIDR-form, till exempel 10.20.0.0/16.";
+            error = "Enter an IP address or a network in CIDR notation, for example 10.20.0.0/16.";
             return false;
         }
 
@@ -32,7 +32,7 @@ public static class NetworkRanges
         {
             if (!IPAddress.TryParse(value, out var single) || !IsPlainAddress(value, single))
             {
-                error = $"'{value}' är inte en giltig IP-adress.";
+                error = $"'{value}' is not a valid IP address.";
                 return false;
             }
 
@@ -46,13 +46,13 @@ public static class NetworkRanges
             || !int.TryParse(value.AsSpan(slash + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var prefix)
             || prefix > (address.AddressFamily == AddressFamily.InterNetwork ? 32 : 128))
         {
-            error = $"'{value}' är inte ett giltigt nät i CIDR-form.";
+            error = $"'{value}' is not a valid network in CIDR notation.";
             return false;
         }
 
         if (address.IsIPv4MappedToIPv6)
         {
-            error = $"Skriv '{value}' som ett IPv4-nät, till exempel {address.MapToIPv4()}/{Math.Max(0, prefix - 96)}.";
+            error = $"Write '{value}' as an IPv4 network, for example {address.MapToIPv4()}/{Math.Max(0, prefix - 96)}.";
             return false;
         }
 
@@ -61,7 +61,7 @@ public static class NetworkRanges
         if (!IPNetwork.TryParse(meant, out network) || !network.BaseAddress.Equals(address))
         {
             network = default;
-            error = $"'{value}' är inte en nätadress. Menar du {meant}?";
+            error = $"'{value}' is not a network address. Did you mean {meant}?";
             return false;
         }
 
@@ -107,7 +107,7 @@ public static class NetworkRanges
             }
         }
 
-        return canonical.Count > MaxEntries ? $"Högst {MaxEntries} adresser eller nät." : null;
+        return canonical.Count > MaxEntries ? $"At most {MaxEntries} addresses or networks." : null;
     }
 
     /// <summary>A /32 or /128 network is written as the bare address.</summary>

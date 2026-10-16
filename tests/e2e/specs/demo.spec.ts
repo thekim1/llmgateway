@@ -34,7 +34,7 @@ test('final synthetic demo: fallback, PII on-prem, budget block, live writer and
     const requestId = rerouted.headers()['x-request-id']
     await expect.poll(async () => (await page.request.get(`/api/usage/requests/${requestId}`)).status()).toBe(200)
     const budget = await mutate(page, '/api/budgets', {
-      scope: 'VirtualKey', scopeId: key.key.id, limitSek: 0, period: 'Monthly', alertThresholds: [80, 100], isActive: true,
+      scope: 'VirtualKey', scopeId: key.key.id, limitUsd: 0, period: 'Monthly', alertThresholds: [80, 100], isActive: true,
     })
     expect(budget.status()).toBe(201)
     expect((await call('ume/chat-standard', 'Synthetic budget check')).status()).toBe(402)

@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -28,11 +27,11 @@ public sealed record KeyRequest(
     {
         if (AllowedModels?.Any(m => string.IsNullOrWhiteSpace(m) || m.Length > 200) == true)
         {
-            yield return new ValidationResult("Modellnamn måste vara 1–200 tecken.", [nameof(AllowedModels)]);
+            yield return new ValidationResult("Model names must be 1–200 characters.", [nameof(AllowedModels)]);
         }
         if (AllowedProviders?.Any(p => string.IsNullOrWhiteSpace(p) || p.Length > 100) == true)
         {
-            yield return new ValidationResult("Leverantörsnamn måste vara 1–100 tecken.", [nameof(AllowedProviders)]);
+            yield return new ValidationResult("Provider names must be 1–100 characters.", [nameof(AllowedProviders)]);
         }
         if (AllowedIpRanges is not null && NetworkRanges.Normalize(AllowedIpRanges, out _) is { } rangeError)
         {
@@ -40,7 +39,7 @@ public sealed record KeyRequest(
         }
         if (AllowedResidencies?.Any(r => !Enum.IsDefined(r)) == true)
         {
-            yield return new ValidationResult("Dataplatsen är ogiltig.", [nameof(AllowedResidencies)]);
+            yield return new ValidationResult("The data residency is invalid.", [nameof(AllowedResidencies)]);
         }
     }
 }
@@ -54,76 +53,76 @@ public static class KeyEndpoints
     public static void MapKeys(this RouteGroupBuilder api)
     {
         var keys = api.MapGroup("/keys").RequireAuthorization("manage").WithTags("Keys");
-        keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, AdminContext ctx, CancellationToken ct) =>
         {
-            var query = ctx.Keys(user);
+            var query = ctx.Keys();
             if (teamId is { } team) { query = query.Where(k => k.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(k => k.Team!.DepartmentId == department); }
             var items = await query.OrderBy(k => k.Name).ToListAsync(ct);
             return TypedResults.Ok(items.Where(k => status is null || k.GetStatus(ctx.Now) == status).Select(k => KeyDto.Of(k, ctx.Now)).ToList());
         }).WithName("ListKeys").WithSummary("Keys in the user's departments; never their secrets");
-        keys.MapGet("/{id:guid}", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(KeyDto.Of(await FindAsync(id, ctx, user, ct), ctx.Now)))
+        keys.MapGet("/{id:guid}", async (Guid id, AdminContext ctx, CancellationToken ct) =>
+            TypedResults.Ok(KeyDto.Of(await FindAsync(id, ctx, ct), ctx.Now)))
             .WithName("GetKey");
-        keys.MapPost("", async (KeyRequest input, AdminContext ctx, ClaimsPrincipal user, VirtualKeyHasher hasher, CredentialProtector protector, CancellationToken ct) =>
+        keys.MapPost("", async (KeyRequest input, AdminContext ctx, VirtualKeyHasher hasher, CredentialProtector protector, CancellationToken ct) =>
         {
-            var team = await ctx.Teams(user).SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw new ApiFaultException(404, "Teamet finns inte.");
+            var team = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
             var generated = hasher.Generate();
             var key = new VirtualKey
             {
                 Team = team, TeamId = team.Id, Name = input.Name.Trim(), Prefix = generated.Prefix,
-                KeyHash = generated.Hash, EncryptedSecret = protector.Protect(generated.PlainText), CreatedAt = ctx.Now, CreatedBy = user.FindFirstValue("sub"),
+                KeyHash = generated.Hash, EncryptedSecret = protector.Protect(generated.PlainText), CreatedAt = ctx.Now, CreatedBy = ctx.Subject,
             };
             Apply(key, input);
             ctx.Db.VirtualKeys.Add(key);
-            await ctx.SaveAsync(user, AuditActions.Create, AuditEntities.VirtualKey, key.Id, null, KeyAudit.Of(key), InvalidationKind.Keys, ct);
+            await ctx.SaveAsync(AuditActions.Create, AuditEntities.VirtualKey, key.Id, null, KeyAudit.Of(key), InvalidationKind.Keys, ct);
             return TypedResults.Created($"/api/keys/{key.Id}", new KeyCreatedDto(KeyDto.Of(key, ctx.Now), generated.PlainText));
         }).WithName("CreateKey").WithSummary("Creates a key; the response holds its secret, shown this once");
-        keys.MapPut("/{id:guid}", async (Guid id, KeyRequest input, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        keys.MapPut("/{id:guid}", async (Guid id, KeyRequest input, AdminContext ctx, CancellationToken ct) =>
         {
-            var key = await FindAsync(id, ctx, user, ct);
+            var key = await FindAsync(id, ctx, ct);
             var before = KeyAudit.Of(key);
             Apply(key, input);
-            await ctx.SaveAsync(user, AuditActions.Update, AuditEntities.VirtualKey, id, before, KeyAudit.Of(key), InvalidationKind.Keys, ct);
+            await ctx.SaveAsync(AuditActions.Update, AuditEntities.VirtualKey, id, before, KeyAudit.Of(key), InvalidationKind.Keys, ct);
             return TypedResults.Ok(KeyDto.Of(key, ctx.Now));
         }).WithName("UpdateKey");
-        keys.MapPost("/{id:guid}/rotate", async (Guid id, RotateRequest input, AdminContext ctx, ClaimsPrincipal user, VirtualKeyHasher hasher, CredentialProtector protector, CancellationToken ct) =>
+        keys.MapPost("/{id:guid}/rotate", async (Guid id, RotateRequest input, AdminContext ctx, VirtualKeyHasher hasher, CredentialProtector protector, CancellationToken ct) =>
         {
-            var old = await FindAsync(id, ctx, user, ct);
-            if (!old.IsUsable(ctx.Now) || old.RotatedToKeyId is not null) { throw new ApiFaultException(409, "Endast aktiva, ännu inte roterade nycklar kan roteras."); }
+            var old = await FindAsync(id, ctx, ct);
+            if (!old.IsUsable(ctx.Now) || old.RotatedToKeyId is not null) { throw new ApiFaultException(409, "Only active keys that have not been rotated yet can be rotated."); }
             var before = KeyAudit.Of(old);
             var generated = hasher.Generate();
-            var replacement = KeyRotation.Rotate(old, generated, input.Mode, ctx.Now, user.FindFirstValue("sub"));
+            var replacement = KeyRotation.Rotate(old, generated, input.Mode, ctx.Now, ctx.Subject);
             replacement.Team = old.Team;
             replacement.EncryptedSecret = protector.Protect(generated.PlainText);
             ctx.Db.VirtualKeys.Add(replacement);
             // Keys: the old key's status changed. Config: key budgets now cover the replacement too.
-            await ctx.SaveAsync(user, AuditActions.Rotate, AuditEntities.VirtualKey, id, before, new KeyRotationAudit(KeyAudit.Of(old), KeyAudit.Of(replacement)),
+            await ctx.SaveAsync(AuditActions.Rotate, AuditEntities.VirtualKey, id, before, new KeyRotationAudit(KeyAudit.Of(old), KeyAudit.Of(replacement)),
                 [InvalidationKind.Keys, InvalidationKind.Config], ct);
             return TypedResults.Ok(new KeyRotatedDto(KeyDto.Of(replacement, ctx.Now), generated.PlainText, KeyDto.Of(old, ctx.Now)));
         }).WithName("RotateKey").WithSummary("Replaces a key; the response holds the new secret, shown this once");
         // Only gateway-admin. The secret is masked in the UI by default; every reveal or copy is audited.
-        keys.MapPost("/{id:guid}/reveal", async (Guid id, RevealRequest input, AdminContext ctx, ClaimsPrincipal user, CredentialProtector protector, CancellationToken ct) =>
+        keys.MapPost("/{id:guid}/reveal", async (Guid id, RevealRequest input, AdminContext ctx, CredentialProtector protector, CancellationToken ct) =>
         {
-            var key = await FindAsync(id, ctx, user, ct);
-            if (key.RevokedAt is not null) { throw new ApiFaultException(409, "Nyckeln är återkallad."); }
+            var key = await FindAsync(id, ctx, ct);
+            if (key.RevokedAt is not null) { throw new ApiFaultException(409, "The key is revoked."); }
             var secret = protector.Unprotect(key.EncryptedSecret)
-                ?? throw new ApiFaultException(409, "Nyckeln skapades innan lagring av nyckeltext infördes och kan inte visas. Rotera nyckeln för att få en som kan visas.");
-            await ctx.AuditAsync(user, input.Purpose == RevealPurpose.Copy ? AuditActions.Copy : AuditActions.Reveal, AuditEntities.VirtualKey, id, new KeyAccessAudit(key.Name, key.Prefix), ct);
+                ?? throw new ApiFaultException(409, "The key was created before key secrets were stored and cannot be shown. Rotate the key to get one that can be shown.");
+            await ctx.AuditAsync(input.Purpose == RevealPurpose.Copy ? AuditActions.Copy : AuditActions.Reveal, AuditEntities.VirtualKey, id, new KeyAccessAudit(key.Name, key.Prefix), ct);
             return TypedResults.Ok(new KeySecretDto(secret));
         }).RequireAuthorization("admin").WithName("RevealKey").WithSummary("Returns a key's secret (audited)");
-        keys.MapPost("/{id:guid}/revoke", async (Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        keys.MapPost("/{id:guid}/revoke", async (Guid id, AdminContext ctx, CancellationToken ct) =>
         {
-            var key = await FindAsync(id, ctx, user, ct);
+            var key = await FindAsync(id, ctx, ct);
             var before = KeyAudit.Of(key);
             KeyRotation.Revoke(key, ctx.Now);
-            await ctx.SaveAsync(user, AuditActions.Revoke, AuditEntities.VirtualKey, id, before, KeyAudit.Of(key), InvalidationKind.Keys, ct);
+            await ctx.SaveAsync(AuditActions.Revoke, AuditEntities.VirtualKey, id, before, KeyAudit.Of(key), InvalidationKind.Keys, ct);
             return TypedResults.Ok(KeyDto.Of(key, ctx.Now));
         }).WithName("RevokeKey");
     }
 
-    private static async Task<VirtualKey> FindAsync(Guid id, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
-        await ctx.Keys(user).SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "Nyckeln finns inte.");
+    private static async Task<VirtualKey> FindAsync(Guid id, AdminContext ctx, CancellationToken ct) =>
+        await ctx.Keys().SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "The key does not exist.");
     private static void Apply(VirtualKey key, KeyRequest input)
     {
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();

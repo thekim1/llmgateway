@@ -29,7 +29,7 @@ const rulesProblem = {
     { id: 'r1', name: 'Premium via header', isEnabled: true },
     { id: 'r2', name: 'Budget guard', isEnabled: true },
   ],
-  detail: 'Teamet har 2 routingregel(er). Välj om reglerna ska tas bort eller inaktiveras.',
+  detail: 'The team is the only owner of 2 routing rule(s). Choose whether the rules are deleted or deactivated.',
 }
 
 const department = (teamCount: number): Department => ({ id: 'd1', name: 'Kommunstyrelsen', costCenterCode: 'KS', isActive: true, teamCount, createdAt: '2026-01-01T00:00:00Z' })
@@ -122,25 +122,25 @@ describe('deleting a team or department', () => {
 
   it('shows an ordinary conflict (the team still has keys) inside the first dialog, without the rules question', async () => {
     const wrapper = await mountView([department(1)], [team])
-    teamsRemove.mockRejectedValueOnce(new ApiError(409, 'DELETE', { detail: 'Teamet har nycklar och kan inte tas bort.' }))
+    teamsRemove.mockRejectedValueOnce(new ApiError(409, 'DELETE', { detail: 'The team has keys and cannot be deleted.' }))
     await teamDelete(wrapper).trigger('click')
     await button(wrapper, 'Delete team').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[role="alert"]').text()).toContain('Teamet har nycklar')
+    expect(wrapper.find('[role="alert"]').text()).toContain('The team has keys')
     expect(wrapper.text()).toContain('Delete team?')
     expect(wrapper.text()).not.toContain('routing rules belong')
   })
 
   it('keeps the question open with the server’s message if the second delete fails', async () => {
     const wrapper = await mountView([department(1)], [team])
-    teamsRemove.mockRejectedValueOnce(new ApiError(409, 'DELETE', rulesProblem)).mockRejectedValueOnce(new ApiError(409, 'DELETE', { detail: 'Teamet har nycklar och kan inte tas bort.' }))
+    teamsRemove.mockRejectedValueOnce(new ApiError(409, 'DELETE', rulesProblem)).mockRejectedValueOnce(new ApiError(409, 'DELETE', { detail: 'The team has keys and cannot be deleted.' }))
     await teamDelete(wrapper).trigger('click')
     await button(wrapper, 'Delete team').trigger('click')
     await flushPromises()
     await button(wrapper, 'Delete team, deactivate 2 rules').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('2 routing rules belong to this team')
-    expect(wrapper.text()).toContain('Teamet har nycklar')
+    expect(wrapper.text()).toContain('The team has keys')
   })
 
   it('asks the same question when a department with routing rules is deleted', async () => {

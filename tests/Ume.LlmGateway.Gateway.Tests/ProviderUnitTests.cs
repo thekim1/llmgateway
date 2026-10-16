@@ -56,7 +56,7 @@ public sealed class ProviderUnitTests
     }
 
     [Theory]
-    [InlineData("""{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}""", "ljud")]
+    [InlineData("""{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}""", "audio")]
     [InlineData("""{"type":"video_url","video_url":{"url":"https://x/a.mp4"}}""", "video")]
     [InlineData("""{"type":"file","file":{"file_id":"file-abc"}}""", "file_id")]
     [InlineData("""{"type":"file","file":{"filename":"a.docx","file_data":"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEs="}}""", "wordprocessingml")]

@@ -50,7 +50,7 @@ builder.Services.AddHealthChecks().AddCheck<ExchangeRateHealthCheck>(ExchangeRat
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
     doc.Info.Title = "Umeå kommun LLM Gateway";
-    doc.Info.Description = "OpenAI- och Anthropic-kompatibelt API. Autentisera med en virtuell nyckel: `Authorization: Bearer ume-sk-…`.";
+    doc.Info.Description = "OpenAI- and Anthropic-compatible API. Authenticate with a virtual key: `Authorization: Bearer ume-sk-…`.";
     return Task.CompletedTask;
 }));
 
@@ -103,46 +103,46 @@ app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
 var v1 = app.MapGroup("/v1").WithTags("LLM");
 
 v1.MapPost("/chat/completions", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ChatCompletions))
-    .WithSummary("Chat completions (OpenAI-kompatibel, stöder stream)")
+    .WithSummary("Chat completions (OpenAI-compatible, supports stream)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/embeddings", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.Embeddings))
-    .WithSummary("Embeddings (OpenAI-kompatibel)")
+    .WithSummary("Embeddings (OpenAI-compatible)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/responses", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.Responses))
-    .WithSummary("Responses API (OpenAI-kompatibel, endast leverantörer som stöder den)")
+    .WithSummary("Responses API (OpenAI-compatible; only providers that support it)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/messages", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AnthropicMessages))
-    .WithSummary("Anthropic Messages API (endast Anthropic-leverantörer)")
+    .WithSummary("Anthropic Messages API (Anthropic providers only)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/audio/transcriptions", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranscriptions))
-    .WithSummary("Tal till text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
+    .WithSummary("Speech to text (OpenAI-compatible, multipart/form-data with the 'file' field)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/audio/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranslations))
-    .WithSummary("Tal till engelsk text (OpenAI-kompatibel, multipart/form-data med fältet 'file')")
+    .WithSummary("Speech to English text (OpenAI-compatible, multipart/form-data with the 'file' field)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/images/generations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageGenerations))
-    .WithSummary("Bildgenerering från text (OpenAI-kompatibel, JSON)")
+    .WithSummary("Image generation from text (OpenAI-compatible, JSON)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 v1.MapPost("/images/edits", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageEdits))
-    .WithSummary("Bildredigering (OpenAI-kompatibel, multipart/form-data med fälten 'image' och eventuellt 'mask')")
+    .WithSummary("Image editing (OpenAI-compatible, multipart/form-data with the 'image' and optional 'mask' fields)")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 // Live audio: WebSocket (OpenAI Realtime protocol). HTTP/2 extended CONNECT is presented as GET as well.
 v1.MapGet("/realtime", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.Realtime))
-    .WithSummary("Realtidsljud över WebSocket: live-transkribering och realtidssamtal (OpenAI Realtime-kompatibel)");
+    .WithSummary("Live audio over WebSocket: live transcription and realtime conversation (OpenAI Realtime-compatible)");
 
 v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.RealtimeTranslations))
-    .WithSummary("Live-tolkning över WebSocket (OpenAI Realtime translations-kompatibel)");
+    .WithSummary("Live interpretation over WebSocket (OpenAI Realtime translations-compatible)");
 
 v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
-    .WithSummary("Modeller och alias som nyckeln får använda")
+    .WithSummary("Models and aliases the key may use")
     .Produces<System.Text.Json.Nodes.JsonObject>(200);
 
 await app.RunAsync();

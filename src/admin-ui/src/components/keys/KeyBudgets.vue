@@ -4,7 +4,7 @@ import { api } from '@/api'
 import { BUDGET_PERIODS, type Budget, type BudgetPeriod } from '@/api/types'
 import { PERIOD_LABEL } from '@/utils/labels'
 import { problemMessage } from '@/utils/problem'
-import { formatPercent, formatSek } from '@/utils/format'
+import { formatPercent, formatUsdCost } from '@/utils/format'
 import { parseDecimal } from '@/utils/validation'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiMeter from '@/components/ui/UiMeter.vue'
@@ -43,14 +43,14 @@ async function load(): Promise<void> {
 async function add(): Promise<void> {
   const value = parseDecimal(limit.value)
   if (value === null || Number.isNaN(value) || value <= 0) {
-    limitError.value = 'Enter a limit above 0 kr, for example 500.'
+    limitError.value = 'Enter a limit in USD above 0, for example 50.'
     return
   }
   limitError.value = null
   busy.value = true
   error.value = null
   try {
-    await api.budgets.create({ scope: 'VirtualKey', scopeId: props.keyId, limitSek: value, period: period.value, alertThresholds: [50, 80, 100], isActive: true })
+    await api.budgets.create({ scope: 'VirtualKey', scopeId: props.keyId, limitUsd: value, period: period.value, alertThresholds: [50, 80, 100], isActive: true })
     limit.value = ''
     await load()
   } catch (e) {
@@ -84,7 +84,7 @@ watch(() => props.keyId, load, { immediate: true })
       <li v-for="b in sorted" :key="b.id" class="flex flex-col gap-1">
         <div class="flex items-center justify-between gap-2 text-small">
           <span class="font-medium">{{ PERIOD_LABEL[b.period] }}<span v-if="!b.isActive" class="text-fg-3"> · paused</span></span>
-          <span class="tabular">{{ formatSek(b.spentSek) }} <span class="text-fg-3">/ {{ formatSek(b.limitSek) }}</span></span>
+          <span class="tabular">{{ formatUsdCost(b.spentUsd) }} <span class="text-fg-3">/ {{ formatUsdCost(b.limitUsd) }}</span></span>
         </div>
         <div class="flex items-center gap-2">
           <UiMeter :value="b.percentUsed" :label="`${PERIOD_LABEL[b.period]} budget used`" :ticks="b.alertThresholds" thin class="flex-1" />
@@ -95,7 +95,7 @@ watch(() => props.keyId, load, { immediate: true })
     </ul>
     <form v-if="editable && freePeriods.length > 0" class="mt-4 flex flex-wrap items-end gap-2" novalidate @submit.prevent="add">
       <SelectField v-model="period" label="Period" :options="periodOptions" class="w-36" />
-      <TextField v-model="limit" label="Limit (kr)" inputmode="decimal" :error="limitError" class="w-36" />
+      <TextField v-model="limit" label="Limit (USD)" inputmode="decimal" :error="limitError" class="w-36" />
       <UiButton type="submit" size="sm" icon="add" :loading="busy">Add budget</UiButton>
     </form>
     <p v-if="error" class="mt-2 text-small text-danger" role="alert">{{ error }}</p>

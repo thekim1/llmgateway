@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Security.Claims;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -53,11 +52,11 @@ public static class ReportEndpoints
     public static void MapReports(this RouteGroupBuilder api)
     {
         var reports = api.MapGroup("").RequireAuthorization("read").WithTags("Reports");
-        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, CancellationToken ct) =>
         {
             var (skip, take) = Pagination(page, pageSize);
             var (start, end) = Range(from, to, ctx.Now);
-            var query = ctx.Usage(user).Where(u => u.Timestamp >= start && u.Timestamp < end);
+            var query = ctx.Usage().Where(u => u.Timestamp >= start && u.Timestamp < end);
             if (keyId is { } key) { query = query.Where(u => u.VirtualKeyId == key); }
             if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
@@ -66,24 +65,24 @@ public static class ReportEndpoints
             var rows = await WithNames(query.OrderByDescending(u => u.Timestamp).ThenByDescending(u => u.Id).Skip(skip).Take(take), ctx.Db).ToListAsync(ct);
             return TypedResults.Ok(new PageDto<UsageRequestDto>([.. rows.Select(UsageDto)], total));
         }).WithName("ListUsageRequests").WithSummary("Requests in the user's departments, newest first");
-        reports.MapGet("/usage/requests/{requestId}", async (string requestId, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/requests/{requestId}", async (string requestId, AdminContext ctx, CancellationToken ct) =>
         {
-            if (requestId.Length > 64) { throw new ApiFaultException(400, "Anrops-ID är för långt."); }
-            var row = await WithNames(ctx.Usage(user).Where(u => u.RequestId == requestId), ctx.Db).FirstOrDefaultAsync(ct) ?? throw new ApiFaultException(404, "Anropet finns inte.");
+            if (requestId.Length > 64) { throw new ApiFaultException(400, "The request id is too long."); }
+            var row = await WithNames(ctx.Usage().Where(u => u.RequestId == requestId), ctx.Db).FirstOrDefaultAsync(ct) ?? throw new ApiFaultException(404, "The request does not exist.");
             return TypedResults.Ok(UsageDto(row));
         }).WithName("GetUsageRequest");
-        reports.MapGet("/usage/summary", async (DateTimeOffset? from, DateTimeOffset? to, string? groupBy, Guid? departmentId, Guid? teamId, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/summary", async (DateTimeOffset? from, DateTimeOffset? to, string? groupBy, Guid? departmentId, Guid? teamId, AdminContext ctx, CancellationToken ct) =>
         {
             var grouping = groupBy is null ? UsageGrouping.Department
                 : EnumQuery.TryParse<UsageGrouping>(groupBy, out var parsed) ? parsed
-                : throw new ApiFaultException(400, "Grupperingen är ogiltig.");
+                : throw new ApiFaultException(400, "The grouping is invalid.");
             var (start, end) = Range(from, to, ctx.Now);
             var retained = await Retained(ctx, start, end, ct);
             List<UsageSummaryRow> rows;
             if (grouping == UsageGrouping.Day)
             {
                 // By day from records; a month that only has totals is one row labelled yyyy-MM.
-                var query = ctx.Usage(user).Where(u => u.Timestamp >= retained.RecordsFrom && u.Timestamp < end);
+                var query = ctx.Usage().Where(u => u.Timestamp >= retained.RecordsFrom && u.Timestamp < end);
                 if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
                 if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
 #pragma warning disable CA1305 // translated to SQL (a text cast in the database), no .NET culture is involved
@@ -93,7 +92,7 @@ public static class ReportEndpoints
                     g.Sum(u => u.CostSek), g.LongCount(u => u.Outcome != RequestOutcome.Success), g.Sum(u => (long)u.FallbackCount))).ToListAsync(ct);
                 if (retained.TotalsUntil is { } until)
                 {
-                    var totals = ctx.UsageTotals(user).Where(t => t.MonthStart >= retained.FirstMonth && t.MonthStart < until);
+                    var totals = ctx.UsageTotals().Where(t => t.MonthStart >= retained.FirstMonth && t.MonthStart < until);
                     if (teamId is { } t1) { totals = totals.Where(t => t.TeamId == t1); }
                     if (departmentId is { } d1) { totals = totals.Where(t => t.DepartmentId == d1); }
                     var months = await totals.GroupBy(t => t.MonthStart).Select(g => new
@@ -110,7 +109,7 @@ public static class ReportEndpoints
             }
             else
             {
-                var facts = Facts(ctx, user, retained, end);
+                var facts = Facts(ctx, retained, end);
                 if (teamId is { } team) { facts = facts.Where(f => f.TeamId == team); }
                 if (departmentId is { } department) { facts = facts.Where(f => f.DepartmentId == department); }
                 var names = FactsWithNames(facts, ctx.Db);
@@ -131,16 +130,16 @@ public static class ReportEndpoints
             return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
                 rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows, retained.TotalsUntil is null ? null : retained.RecordsFrom));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
-        reports.MapGet("/usage/metrics", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, Guid? departmentId, Guid? teamId, Guid? keyId, string? model, string? provider, RequestOutcome? outcome, GatewayEndpoint? endpoint, UsageMetricsService metrics, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await metrics.GetAsync(new UsageMetricsQuery(from, to, bucket, departmentId, teamId, keyId, model, provider, outcome, endpoint), user, ct)))
+        reports.MapGet("/usage/metrics", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, Guid? departmentId, Guid? teamId, Guid? keyId, string? model, string? provider, RequestOutcome? outcome, GatewayEndpoint? endpoint, UsageMetricsService metrics, CancellationToken ct) =>
+            TypedResults.Ok(await metrics.GetAsync(new UsageMetricsQuery(from, to, bucket, departmentId, teamId, keyId, model, provider, outcome, endpoint), ct)))
             .WithName("GetUsageMetrics").WithSummary("Dashboard figures per hour or day: requests by outcome, cost in USD, tokens, cache hits, latency, gateway overhead, time to first token and throughput");
-        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, ClaimsPrincipal user, CancellationToken ct) =>
-            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), user, ct)))
+        reports.MapGet("/usage/pii-incidents", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? category, string? action, int? page, int? pageSize, PiiIncidentService pii, CancellationToken ct) =>
+            TypedResults.Ok(await pii.ListAsync(new PiiIncidentQuery(from, to, keyId, teamId, departmentId, category, action, page, pageSize), ct)))
             .WithName("ListPiiIncidents").WithSummary("Requests in which PII was detected, newest first, with counts per category and action");
-        reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, ClaimsPrincipal user, CancellationToken ct) =>
+        reports.MapGet("/usage/export.csv", async (DateTimeOffset? from, DateTimeOffset? to, AdminContext ctx, CancellationToken ct) =>
         {
             var (start, end) = Range(from, to, ctx.Now);
-            var query = FactsWithNames(Facts(ctx, user, await Retained(ctx, start, end, ct), end), ctx.Db);
+            var query = FactsWithNames(Facts(ctx, await Retained(ctx, start, end, ct), end), ctx.Db);
             var rows = await query.GroupBy(u => new { u.CostCenterCode, u.DepartmentName, u.TeamName, u.KeyName })
                 .Select(g => new { g.Key.CostCenterCode, g.Key.DepartmentName, g.Key.TeamName, g.Key.KeyName,
                     Requests = g.Sum(u => u.Fact.Requests), Tokens = g.Sum(u => u.Fact.InputTokens + u.Fact.OutputTokens), Cost = g.Sum(u => u.Fact.CostSek) }).ToListAsync(ct);
@@ -164,7 +163,7 @@ public static class ReportEndpoints
         api.MapGet("/catalog", async (AdminContext ctx, ProviderCatalogService catalog, IOptions<GatewayLinkOptions> gateway, CancellationToken ct) =>
         {
             var now = ctx.Now;
-            var rate = (await ctx.Db.CurrentRateAsync(now, ct))?.SekPerUnit ?? throw new ApiFaultException(503, "Växelkurs saknas.");
+            var rate = (await ctx.Db.CurrentRateAsync(now, ct))?.SekPerUnit ?? throw new ApiFaultException(503, "No exchange rate is set.");
             var models = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices)
                 .Where(m => m.IsEnabled && m.ProviderAccount!.IsEnabled && !m.ProviderAccount.IsDrained).ToListAsync(ct);
             var byId = models.ToDictionary(m => m.Id);
@@ -213,9 +212,9 @@ public static class ReportEndpoints
     }
 
     /// <summary>Records and, before the oldest kept record, monthly totals, in the user's departments (see <see cref="RetainedRange"/>).</summary>
-    internal static IQueryable<UsageFact> Facts(AdminContext ctx, ClaimsPrincipal user, RetainedRange range, DateTimeOffset end)
+    internal static IQueryable<UsageFact> Facts(AdminContext ctx, RetainedRange range, DateTimeOffset end)
     {
-        var records = ctx.Usage(user).AsNoTracking().Where(u => u.Timestamp >= range.RecordsFrom && u.Timestamp < end).Select(u => new UsageFact
+        var records = ctx.Usage().AsNoTracking().Where(u => u.Timestamp >= range.RecordsFrom && u.Timestamp < end).Select(u => new UsageFact
         {
             DepartmentId = u.DepartmentId, TeamId = u.TeamId, VirtualKeyId = u.VirtualKeyId, RequestedModel = u.RequestedModel, ProviderName = u.ProviderName,
             Requests = 1, InputTokens = u.InputTokens, OutputTokens = u.OutputTokens, CostSek = u.CostSek,
@@ -226,7 +225,7 @@ public static class ReportEndpoints
             return records;
         }
 
-        return records.Concat(ctx.UsageTotals(user).Where(t => t.MonthStart >= range.FirstMonth && t.MonthStart < until).Select(t => new UsageFact
+        return records.Concat(ctx.UsageTotals().Where(t => t.MonthStart >= range.FirstMonth && t.MonthStart < until).Select(t => new UsageFact
         {
             DepartmentId = t.DepartmentId, TeamId = t.TeamId, VirtualKeyId = t.VirtualKeyId, RequestedModel = t.RequestedModel, ProviderName = t.ProviderName,
             Requests = t.Requests, InputTokens = t.InputTokens, OutputTokens = t.OutputTokens, CostSek = t.CostSek,
@@ -263,14 +262,14 @@ public static class ReportEndpoints
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)
     {
         var number = page ?? 1; var size = pageSize ?? 50;
-        if (number is < 1 or > 100000 || size is < 1 or > 200) { throw new ApiFaultException(400, "Sidnummer eller sidstorlek är ogiltig."); }
+        if (number is < 1 or > 100000 || size is < 1 or > 200) { throw new ApiFaultException(400, "The page number or page size is invalid."); }
         return ((number - 1) * size, size);
     }
     internal static (DateTimeOffset From, DateTimeOffset To) Range(DateTimeOffset? from, DateTimeOffset? to, DateTimeOffset now)
     {
         var start = from?.ToUniversalTime() ?? now.AddDays(-30);
         var end = to?.ToUniversalTime() ?? now;
-        if (start >= end || end - start > TimeSpan.FromDays(366)) { throw new ApiFaultException(400, "Välj ett tidsintervall på högst ett år."); }
+        if (start >= end || end - start > TimeSpan.FromDays(366)) { throw new ApiFaultException(400, "Choose a time range of at most one year."); }
         return (start, end);
     }
 

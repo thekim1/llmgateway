@@ -27,7 +27,7 @@ const ids = {
   permissions: 'data-key-permissions',
   expiresAt: 'data-key-expires',
 } as const
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors(ids)
+const { errors, formError, clear, validate, applyServerError } = useFormErrors(ids)
 
 const values = reactive({ name: '', description: '', permissions: [] as DataPermission[], expiresAt: '' })
 const busy = ref(false)
@@ -100,7 +100,7 @@ async function submit(): Promise<void> {
     @update:open="emit('update:open', $event)"
   >
     <form id="data-key-form" class="flex flex-col gap-8" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
 
       <FieldGroup legend="Basics">
         <TextField :id="ids.name" v-model="values.name" label="Name" autocomplete="off" :error="errors.name" hint="Names the integration in the Data API’s access log (as key:name)." />

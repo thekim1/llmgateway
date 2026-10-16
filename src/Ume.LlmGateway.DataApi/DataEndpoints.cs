@@ -150,9 +150,17 @@ public static class DataEndpoints
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
                 .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd }).ToListAsync(ct)));
-        catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
-            await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
-                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitSek, b.IsActive }).ToListAsync(ct)));
+        catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, TimeProvider time, CancellationToken ct) =>
+        {
+            // Limits are in USD. LimitSek is the same limit at the current rate (null without one), kept for existing reports.
+            var rate = (await db.CurrentRateAsync(time.GetUtcNow(), ct))?.SekPerUnit;
+            var budgets = await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
+                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, b.IsActive }).ToListAsync(ct);
+            return DataResults.List(http, budgets.Select(b => new
+            {
+                b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, LimitSek = rate is { } r ? decimal.Round(b.LimitUsd * r, 2) : (decimal?)null, b.IsActive,
+            }).ToList());
+        });
         catalog.MapGet("/exchange-rates", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ExchangeRates.AsNoTracking().OrderBy(r => r.EffectiveFrom)
                 .Select(r => new { r.Currency, r.SekPerUnit, r.EffectiveFrom }).ToListAsync(ct)));

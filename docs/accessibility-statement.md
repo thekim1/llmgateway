@@ -18,7 +18,7 @@ text; tangentbord, skipplänk och fokus (fokus till detaljrubrik, tillbaka till 
 till första ogiltiga fält; rubriknivåer hoppar inte; alla kontroller har namn); forced-colors
 och reduced-motion. Därtill komponent-axe och kontrasttester för tokenpar, samt verkliga
 Keycloak-inloggningar, behörighetsroller och nyckeldialoger i webbresorna.
-Språk: engelska (svenska serverfel och svenska namn visas med lang="sv").
+Språk: engelska, även serverns felmeddelanden (svenska namn visas med lang="sv").
 **Ingen skärmläsare (NVDA, VoiceOver) har körts mot det nya gränssnittet**; inget i
 detta dokument ska läsas som att en sådan kontroll är gjord.
 Kontrasttester för tokenpar bevisar inte kontrast för varje möjlig överlagring och

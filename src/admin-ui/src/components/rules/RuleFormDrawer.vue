@@ -39,7 +39,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'saved'
 const rules = useRoutingRulesStore()
 const ui = useUiStore()
 const models = useModelOptions()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'rule-name',
   scopeIds: 'rule-owner',
   condition: 'rule-condition',
@@ -193,7 +193,7 @@ async function submit(): Promise<void> {
 <template>
   <UiDrawer wide :open="open" :title="rule ? 'Edit rule' : 'New rule'" @update:open="emit('update:open', $event)">
     <form id="rule-form" class="flex flex-col gap-6" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <SelectField
         v-if="!rule && templateOptions.length > 0"
         id="rule-template"

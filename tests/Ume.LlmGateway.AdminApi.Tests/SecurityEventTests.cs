@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Ume.LlmGateway.Infrastructure.Persistence;
@@ -16,11 +17,12 @@ public sealed class SecurityEventTests(AdminFixture fixture)
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
         using var loggers = new CapturingLoggerFactory();
-        var ctx = new AdminContext(db, scope.ServiceProvider.GetRequiredService<IInvalidationBus>(), TimeProvider.System, loggers);
         var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "admin-123")], "Test"));
+        var http = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user } };
+        var ctx = new AdminContext(db, scope.ServiceProvider.GetRequiredService<IInvalidationBus>(), TimeProvider.System, loggers, http);
         var id = Guid.NewGuid();
 
-        ctx.StageAudit(user, "revoke", "VirtualKey", id, new { secret = "before-value" }, null);
+        ctx.StageAudit("revoke", "VirtualKey", id, new { secret = "before-value" }, null);
         loggers.Messages.ShouldBeEmpty();
 
         await ctx.Db.SaveChangesAsync(TestContext.Current.CancellationToken);

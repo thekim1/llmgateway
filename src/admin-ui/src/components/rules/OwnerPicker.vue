@@ -15,7 +15,6 @@ const props = defineProps<{
   options: OwnerOption[]
   modelValue: string[]
   error?: string | null
-  errorLang?: string
   hint?: string
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: string[]): void }>()
@@ -66,7 +65,7 @@ function toggle(value: string, on: boolean): void {
       <li v-if="visible.length === 0 && removed.length === 0" class="px-2 py-1.5 text-fg-3">{{ query ? 'Nothing matches the filter.' : 'Nothing to choose from yet.' }}</li>
     </ul>
     <span :id="`${id}-count`" class="text-small text-fg-3">{{ modelValue.length }} selected</span>
-    <span v-if="error" :id="`${id}-err`" :lang="errorLang" class="flex items-start gap-1 text-small text-danger"><AppIcon name="error" :size="16" filled class="mt-px" />{{ error }}</span>
+    <span v-if="error" :id="`${id}-err`" class="flex items-start gap-1 text-small text-danger"><AppIcon name="error" :size="16" filled class="mt-px" />{{ error }}</span>
     <span v-if="hint" :id="`${id}-hint`" class="text-small text-fg-3">{{ hint }}</span>
   </fieldset>
 </template>

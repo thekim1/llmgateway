@@ -6,8 +6,8 @@ import type { Department, Team } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
-import { formatSek } from '@/utils/format'
-import { problemLang, problemMessage } from '@/utils/problem'
+import { formatUsdCost } from '@/utils/format'
+import { problemMessage } from '@/utils/problem'
 import AppIcon from '../ui/AppIcon.vue'
 import CheckField from '../ui/CheckField.vue'
 import InlineError from '../ui/InlineError.vue'
@@ -28,7 +28,7 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'saved'
 const teams = useTeamsStore()
 const ui = useUiStore()
 const router = useRouter()
-const { errors, formError, formErrorLang, clear, validate, applyServerError } = useFormErrors({
+const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   departmentId: 'team-dept',
   name: 'team-name',
   description: 'team-desc',
@@ -98,7 +98,7 @@ async function submit(): Promise<void> {
     if (budget.value.trim() !== '') {
       const limit = Number(budget.value.replace(',', '.'))
       try {
-        await api.budgets.create({ scope: 'Team', scopeId: team.id, limitSek: limit, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
+        await api.budgets.create({ scope: 'Team', scopeId: team.id, limitUsd: limit, period: 'Monthly', alertThresholds: [50, 80, 100], isActive: true })
         budgetLimit.value = limit
       } catch (e) {
         budgetError.value = e
@@ -121,7 +121,7 @@ function go(name: 'keys' | 'budgets'): void {
 <template>
   <UiDrawer :open="open" :title="title" @update:open="emit('update:open', $event)">
     <form v-if="step === 'form'" id="team-form" class="flex flex-col gap-5" novalidate @submit.prevent="submit">
-      <InlineError v-if="formError" :message="formError" :lang="formErrorLang" />
+      <InlineError v-if="formError" :message="formError" />
       <SelectField
         v-if="!team"
         id="team-dept"
@@ -137,7 +137,7 @@ function go(name: 'keys' | 'budgets'): void {
         v-if="!team"
         id="team-budget"
         v-model="budget"
-        label="Monthly budget (kr)"
+        label="Monthly budget (USD)"
         inputmode="decimal"
         hint="Optional. You get alerts at 50, 80 and 100 percent. You can change it later under Budgets."
         :error="errors.budget"
@@ -146,13 +146,12 @@ function go(name: 'keys' | 'budgets'): void {
     </form>
     <div v-else class="flex flex-col gap-5">
       <p class="flex items-start gap-2"><AppIcon name="check_circle" filled class="mt-px text-ok" /><span><span lang="sv" class="font-medium">{{ created?.name }}</span> was added to <span lang="sv">{{ created?.departmentName }}</span>.</span></p>
-      <p v-if="budgetLimit !== null" class="text-fg-2">Monthly budget set to {{ formatSek(budgetLimit) }}.</p>
+      <p v-if="budgetLimit !== null" class="text-fg-2">Monthly budget set to {{ formatUsdCost(budgetLimit) }}.</p>
       <InlineError
         v-if="budgetError"
         tone="warn"
         title="The team exists, but its budget was not saved"
         :message="problemMessage(budgetError)"
-        :lang="problemLang(budgetError)"
       >
         <p>Set it under Budgets &amp; alerts.</p>
       </InlineError>
