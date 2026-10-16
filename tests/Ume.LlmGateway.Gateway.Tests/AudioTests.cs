@@ -117,7 +117,8 @@ public sealed class AudioTests(GatewayFixture fixture)
     public async Task Pii_policy_redacts_the_prompt_field()
     {
         var key = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.Redact);
-        var marker = Guid.NewGuid().ToString("N");
+        // Letters only: a run of digits in a hex id can look like a phone number and be redacted along with the personnummer.
+        var marker = new string([.. Guid.NewGuid().ToString("N").Select(c => (char)('g' + Convert.ToInt32(c.ToString(), 16)))]);
         using var response = await fixture.SendAudioAsync(key, "speech/whisper", GatewayFixture.Wav(1),
             fields: new Dictionary<string, string> { ["prompt"] = $"{marker} Samtal med 19121212-1212" });
 
