@@ -33,6 +33,18 @@ public sealed class GatewayTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task Every_endpoint_in_the_table_has_a_documented_route()
+    {
+        using var response = await fixture.Client.GetAsync("/openapi/v1.json", TestContext.Current.CancellationToken);
+        var paths = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["paths"]!.AsObject();
+        foreach (var info in GatewayEndpoints.All)
+        {
+            var operations = paths[info.ClientPath].ShouldNotBeNull(info.ClientPath).AsObject();
+            operations.ContainsKey(info.IsRealtime || info.Endpoint == GatewayEndpoint.Models ? "get" : "post").ShouldBeTrue(info.ClientPath);
+        }
+    }
+
+    [Fact]
     public async Task Grace_key_still_works()
     {
         var key = await fixture.CreateKeyAsync(k => k.GraceUntil = DateTimeOffset.UtcNow.AddHours(24));

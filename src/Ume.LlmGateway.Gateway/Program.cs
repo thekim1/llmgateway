@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
-using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure;
 using Ume.LlmGateway.Infrastructure.Security;
@@ -100,50 +99,7 @@ app.MapOpenApi();
 app.MapScalarApiReference(o => o.WithTitle("Umeå kommun LLM Gateway"));
 app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
 
-var v1 = app.MapGroup("/v1").WithTags("LLM");
-
-v1.MapPost("/chat/completions", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ChatCompletions))
-    .WithSummary("Chat completions (OpenAI-compatible, supports stream)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/embeddings", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.Embeddings))
-    .WithSummary("Embeddings (OpenAI-compatible)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/responses", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.Responses))
-    .WithSummary("Responses API (OpenAI-compatible; only providers that support it)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/messages", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AnthropicMessages))
-    .WithSummary("Anthropic Messages API (Anthropic providers only)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/audio/transcriptions", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranscriptions))
-    .WithSummary("Speech to text (OpenAI-compatible, multipart/form-data with the 'file' field)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/audio/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.AudioTranslations))
-    .WithSummary("Speech to English text (OpenAI-compatible, multipart/form-data with the 'file' field)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/images/generations", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageGenerations))
-    .WithSummary("Image generation from text (OpenAI-compatible, JSON)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-v1.MapPost("/images/edits", (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, GatewayEndpoint.ImageEdits))
-    .WithSummary("Image editing (OpenAI-compatible, multipart/form-data with the 'image' and optional 'mask' fields)")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
-
-// Live audio: WebSocket (OpenAI Realtime protocol). HTTP/2 extended CONNECT is presented as GET as well.
-v1.MapGet("/realtime", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.Realtime))
-    .WithSummary("Live audio over WebSocket: live transcription and realtime conversation (OpenAI Realtime-compatible)");
-
-v1.MapGet("/realtime/translations", (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, GatewayEndpoint.RealtimeTranslations))
-    .WithSummary("Live interpretation over WebSocket (OpenAI Realtime translations-compatible)");
-
-v1.MapGet("/models", (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
-    .WithSummary("Models and aliases the key may use")
-    .Produces<System.Text.Json.Nodes.JsonObject>(200);
+app.MapGatewayEndpoints();
 
 await app.RunAsync();
 
