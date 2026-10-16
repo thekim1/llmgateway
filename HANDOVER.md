@@ -60,6 +60,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
     `ConfigTransferService`, `OwnerScopeResolver`). `AdminContext` carries the signed-in user (`ctx.Keys()`, `ctx.Teams()`, `ctx.Actor`, `ctx.SaveAsync(...)`):
     never pass a `ClaimsPrincipal` around. Throw `ApiFaultException` (English message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
   - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
+  - A new gateway endpoint is one entry in `GatewayEndpoints` (Domain) plus its OpenAPI summary in `GatewayRoutes`; uploads go through
+    `MultipartFormReader` with their own `MultipartRules`; provider adapters read complete answers with `ReadCompleteAsync`.
   - Budgets, spend counters and reservations are in USD; SEK appears only as display amounts (usage records' `CostSek`, the `-sek` headers).
   - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
   - Options are validated on start (DataAnnotations/`IValidatableObject`); add a range or `[Required]` with each new setting.

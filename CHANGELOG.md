@@ -14,8 +14,13 @@ UI no longer marks server messages as Swedish). Error codes are unchanged. In th
 `GatewayError` (status, code, message) from a single catalogue in `GatewayErrors.cs`.
 
 **Admin API internals.** `AdminContext` carries the signed-in user of the request, so department scoping and audit
-entries no longer depend on every endpoint passing the user along; role and claim names are constants (`AdminRoles`,
-`AdminClaims`).
+entries no longer depend on every endpoint passing the user along; role, claim and policy names are constants
+(`AdminRoles`, `AdminClaims`, `AdminPolicies`), and the authentication setup is `AddAdminAuthentication`.
+
+**Gateway internals.** The `/v1` routes are mapped from the endpoint table (`GatewayRoutes`); audio and image uploads share
+one multipart reader (`MultipartFormReader`; a cancelled audio upload now returns its pooled buffer); provider adapters read
+complete answers through one `ReadCompleteAsync` and no longer dispose their timeouts by hand. Provider benchmarks are
+unchanged (same allocations; chat JSON 3.1 µs, embeddings 448 µs, 300-chunk stream 223 µs).
 
 **Updates without downtime (opt-in).** Every service now fails `/health/ready` as soon as it is told to stop and, for the
 new setting `Shutdown__DrainSeconds` (default 0), keeps answering with `Connection: close` before it closes its listener,
