@@ -52,7 +52,7 @@ public static class KeyEndpoints
 {
     public static void MapKeys(this RouteGroupBuilder api)
     {
-        var keys = api.MapGroup("/keys").RequireAuthorization("manage").WithTags("Keys");
+        var keys = api.MapGroup("/keys").RequireAuthorization(AdminPolicies.Manage).WithTags("Keys");
         keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, AdminContext ctx, CancellationToken ct) =>
         {
             var query = ctx.Keys();
@@ -110,7 +110,7 @@ public static class KeyEndpoints
                 ?? throw new ApiFaultException(409, "The key was created before key secrets were stored and cannot be shown. Rotate the key to get one that can be shown.");
             await ctx.AuditAsync(input.Purpose == RevealPurpose.Copy ? AuditActions.Copy : AuditActions.Reveal, AuditEntities.VirtualKey, id, new KeyAccessAudit(key.Name, key.Prefix), ct);
             return TypedResults.Ok(new KeySecretDto(secret));
-        }).RequireAuthorization("admin").WithName("RevealKey").WithSummary("Returns a key's secret (audited)");
+        }).RequireAuthorization(AdminPolicies.Admin).WithName("RevealKey").WithSummary("Returns a key's secret (audited)");
         keys.MapPost("/{id:guid}/revoke", async (Guid id, AdminContext ctx, CancellationToken ct) =>
         {
             var key = await FindAsync(id, ctx, ct);

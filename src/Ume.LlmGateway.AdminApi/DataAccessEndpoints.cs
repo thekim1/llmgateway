@@ -6,7 +6,7 @@ public static class DataAccessEndpoints
 {
     public static void MapDataAccess(this RouteGroupBuilder api)
     {
-        var access = api.MapGroup("/data-access").RequireAuthorization("admin").WithTags("Data access");
+        var access = api.MapGroup("/data-access").RequireAuthorization(AdminPolicies.Admin).WithTags("Data access");
         access.MapGet("", (DataAccessService service) => TypedResults.Ok(service.Settings()))
             .WithName("GetDataAccess").WithSummary("The Data API's public address and the permissions a key can hold");
         var keys = access.MapGroup("/keys");

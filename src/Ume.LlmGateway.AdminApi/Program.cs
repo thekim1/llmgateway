@@ -1,6 +1,4 @@
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -46,7 +44,7 @@ builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
     .RemoveStandardResilienceHandler();
 builder.Services.AddRateLimiter(o =>
 {
-    o.AddPolicy("admin", http => RateLimitPartition.GetFixedWindowLimiter(
+    o.AddPolicy(AdminPolicies.PerUserRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.User.FindFirst(AdminClaims.Subject)?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
@@ -56,84 +54,7 @@ builder.Services.AddRateLimiter(o =>
         }));
     o.RejectWithProblem("Too many requests. Wait a minute.");
 });
-builder.Services.AddAntiforgery(o =>
-{
-    o.HeaderName = "X-XSRF-TOKEN";
-    o.Cookie.Name = "__Host-ume-csrf";
-    o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-    o.Cookie.SameSite = SameSiteMode.Lax;
-    o.Cookie.Path = "/";
-});
-builder.Services.AddAuthentication(o =>
-{
-    o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-}).AddCookie(o =>
-{
-    o.Cookie.Name = "__Host-ume-admin";
-    o.Cookie.HttpOnly = true;
-    o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-    o.Cookie.SameSite = SameSiteMode.Lax;
-    o.Cookie.Path = "/";
-    o.ExpireTimeSpan = TimeSpan.FromHours(8);
-    o.SlidingExpiration = false;
-    o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
-    o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
-}).AddOpenIdConnect(o =>
-{
-    o.ResponseType = "code";
-    o.UsePkce = true;
-    o.SaveTokens = false;
-    o.MapInboundClaims = false;
-    o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-    o.TokenValidationParameters.NameClaimType = "name";
-    o.TokenValidationParameters.RoleClaimType = "roles";
-    o.Scope.Add("email");
-    o.Events.OnTokenValidated = ctx =>
-    {
-        AdminAuthentication.ApplyClaimMapping(ctx.Principal, ctx.HttpContext.RequestServices.GetRequiredService<IOptions<OidcOptions>>().Value);
-        return Task.CompletedTask;
-    };
-    // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the
-    // identity provider would be followed by fetch and fail on CORS. Only /bff/login starts a real sign-in.
-    o.Events.OnRedirectToIdentityProvider = ctx =>
-    {
-        if (ctx.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-        {
-            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            ctx.HandleResponse();
-        }
-        return Task.CompletedTask;
-    };
-    o.Events.OnRedirectToIdentityProviderForSignOut = async ctx =>
-    {
-        ctx.ProtocolMessage.ClientId = ctx.Options.ClientId;
-        ctx.ProtocolMessage.State = ctx.Options.StateDataFormat.Protect(ctx.Properties);
-        if (string.IsNullOrEmpty(ctx.ProtocolMessage.IssuerAddress))
-        {
-            throw new InvalidOperationException("OIDC end-session endpoint is missing.");
-        }
-        await ctx.Response.WriteAsJsonAsync(new { redirectUrl = ctx.ProtocolMessage.CreateLogoutRequestUrl() });
-        ctx.HandleResponse();
-    };
-});
-builder.Services.AddAuthorization(o =>
-{
-    o.AddPolicy("admin", p => p.RequireRole(AdminRoles.GatewayAdmin));
-    o.AddPolicy("manage", p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin));
-    o.AddPolicy("read", p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
-});
-// Read from the validated options when the handler is first used, not while services are registered.
-builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme).Configure<IOptions<OidcOptions>>((o, oidc) =>
-{
-    o.Authority = oidc.Value.Authority;
-    o.ClientId = oidc.Value.ClientId;
-    o.ClientSecret = oidc.Value.ClientSecret;
-    foreach (var scope in oidc.Value.ExtraScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
-    {
-        o.Scope.Add(scope);
-    }
-});
+builder.AddAdminAuthentication();
 var app = builder.Build();
 app.UseUmeWebDefaults();
 app.UseUmeSecurityHeaders(o =>
@@ -149,7 +70,7 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminAntiforgeryMiddleware>();
 app.MapDefaultEndpoints();
 app.MapAdminAuthentication();
-var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("admin").AddEndpointFilter<AdminValidationFilter>()
+var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting(AdminPolicies.PerUserRateLimit).AddEndpointFilter<AdminValidationFilter>()
     .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
 api.MapOrganisation();
 api.MapKeys();
@@ -159,8 +80,8 @@ api.MapRoutingRules();
 api.MapReports();
 api.MapOperations();
 api.MapDataAccess();
-app.MapOpenApi().RequireAuthorization("admin");
-app.MapScalarApiReference().RequireAuthorization("admin");
+app.MapOpenApi().RequireAuthorization(AdminPolicies.Admin);
+app.MapScalarApiReference().RequireAuthorization(AdminPolicies.Admin);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");

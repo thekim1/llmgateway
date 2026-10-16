@@ -102,9 +102,9 @@ public static class ConfigurationEndpoints
 {
     public static void MapConfiguration(this RouteGroupBuilder api)
     {
-        api = api.MapGroup("").RequireAuthorization("read");
+        api = api.MapGroup("").RequireAuthorization(AdminPolicies.Read);
 
-        var providers = api.MapGroup("/providers").RequireAuthorization("admin").WithTags("Providers");
+        var providers = api.MapGroup("/providers").RequireAuthorization(AdminPolicies.Admin).WithTags("Providers");
         providers.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.ProvidersAsync(ct)))
             .WithName("ListProviders").WithSummary("Providers with their deployment count");
         providers.MapPost("", async (ProviderRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
@@ -129,7 +129,7 @@ public static class ConfigurationEndpoints
             return TypedResults.NoContent();
         }).WithName("DeleteProvider").WithSummary("Deletes a provider without models");
 
-        var models = api.MapGroup("/models").RequireAuthorization("admin").WithTags("Models");
+        var models = api.MapGroup("/models").RequireAuthorization(AdminPolicies.Admin).WithTags("Models");
         models.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.ModelsAsync(ct)))
             .WithName("ListModels").WithSummary("Model deployments with their current price");
         models.MapPost("", async (ModelRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
@@ -151,7 +151,7 @@ public static class ConfigurationEndpoints
             TypedResults.Created($"/api/models/{id}/prices", await catalog.AddPriceAsync(id, input, ct)))
             .WithName("AddModelPrice").WithSummary("Adds a price; earlier prices are kept for past usage");
 
-        var routes = api.MapGroup("/routes").RequireAuthorization("admin").WithTags("Routes");
+        var routes = api.MapGroup("/routes").RequireAuthorization(AdminPolicies.Admin).WithTags("Routes");
         routes.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.RoutesAsync(ct)))
             .WithName("ListRoutes");
         routes.MapPost("", async (RouteRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
@@ -173,7 +173,7 @@ public static class ConfigurationEndpoints
             .WithName("GetExchangeRate").WithSummary("SEK per USD now (empty when none has been entered)");
         api.MapPut("/settings/exchange-rate", async (ExchangeRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
             TypedResults.Ok(await catalog.SetRateAsync(input.SekPerUnit, ct)))
-            .RequireAuthorization("admin").WithName("SetExchangeRate");
+            .RequireAuthorization(AdminPolicies.Admin).WithName("SetExchangeRate");
     }
 
     private static void MapBudgets(RouteGroupBuilder api)
@@ -186,15 +186,15 @@ public static class ConfigurationEndpoints
         {
             var budget = await service.CreateAsync(input, ct);
             return TypedResults.Created($"/api/budgets/{budget.Id}", budget);
-        }).RequireAuthorization("manage").WithName("CreateBudget");
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("CreateBudget");
         budgets.MapPut("/budgets/{id:guid}", async (Guid id, BudgetRequest input, BudgetAdminService service, CancellationToken ct) =>
             TypedResults.Ok(await service.UpdateAsync(id, input, ct)))
-            .RequireAuthorization("manage").WithName("UpdateBudget");
+            .RequireAuthorization(AdminPolicies.Manage).WithName("UpdateBudget");
         budgets.MapDelete("/budgets/{id:guid}", async (Guid id, BudgetAdminService service, CancellationToken ct) =>
         {
             await service.DeleteAsync(id, ct);
             return TypedResults.NoContent();
-        }).RequireAuthorization("manage").WithName("DeleteBudget");
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("DeleteBudget");
         budgets.MapGet("/alerts", async (bool? acknowledged, BudgetAdminService service, CancellationToken ct) =>
             TypedResults.Ok(await service.AlertsAsync(acknowledged, ct)))
             .WithName("ListAlerts").WithSummary("Budget alerts the user may see, newest first");
@@ -202,6 +202,6 @@ public static class ConfigurationEndpoints
         {
             await service.AcknowledgeAsync(id, ct);
             return TypedResults.NoContent();
-        }).RequireAuthorization("manage").WithName("AcknowledgeAlert");
+        }).RequireAuthorization(AdminPolicies.Manage).WithName("AcknowledgeAlert");
     }
 }

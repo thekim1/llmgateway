@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.Options;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -32,15 +33,15 @@ public static class AdminAuthentication
                 }
             }
         }
-        CopyClaims(identity, options.RoleClaim, "roles");
+        CopyClaims(identity, options.RoleClaim, AdminClaims.Roles);
         CopyClaims(identity, options.DepartmentClaim, AdminClaims.DepartmentCodes);
         var groups = identity.FindAll(options.GroupClaim).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (role, mapped) in options.RoleGroups)
         {
-            if (!identity.HasClaim("roles", role) &&
+            if (!identity.HasClaim(AdminClaims.Roles, role) &&
                 mapped.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(groups.Contains))
             {
-                identity.AddClaim(new Claim("roles", role));
+                identity.AddClaim(new Claim(AdminClaims.Roles, role));
             }
         }
     }
@@ -55,6 +56,93 @@ public static class AdminAuthentication
         {
             identity.AddClaim(new Claim(to, claim.Value));
         }
+    }
+
+    /// <summary>
+    /// Cookie session (BFF) with OpenID Connect sign-in, antiforgery for the SPA and the authorization policies. The OIDC
+    /// authority and client are read from <see cref="OidcOptions"/> when the handler is first used.
+    /// </summary>
+    public static void AddAdminAuthentication(this WebApplicationBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddAntiforgery(o =>
+        {
+            o.HeaderName = "X-XSRF-TOKEN";
+            o.Cookie.Name = "__Host-ume-csrf";
+            o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            o.Cookie.SameSite = SameSiteMode.Lax;
+            o.Cookie.Path = "/";
+        });
+        builder.Services.AddAuthentication(o =>
+        {
+            o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+        }).AddCookie(o =>
+        {
+            o.Cookie.Name = "__Host-ume-admin";
+            o.Cookie.HttpOnly = true;
+            o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            o.Cookie.SameSite = SameSiteMode.Lax;
+            o.Cookie.Path = "/";
+            o.ExpireTimeSpan = TimeSpan.FromHours(8);
+            o.SlidingExpiration = false;
+            o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
+            o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+        }).AddOpenIdConnect(o =>
+        {
+            o.ResponseType = "code";
+            o.UsePkce = true;
+            o.SaveTokens = false;
+            o.MapInboundClaims = false;
+            o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+            o.TokenValidationParameters.NameClaimType = "name";
+            o.TokenValidationParameters.RoleClaimType = AdminClaims.Roles;
+            o.Scope.Add("email");
+            o.Events.OnTokenValidated = ctx =>
+            {
+                AdminAuthentication.ApplyClaimMapping(ctx.Principal, ctx.HttpContext.RequestServices.GetRequiredService<IOptions<OidcOptions>>().Value);
+                return Task.CompletedTask;
+            };
+            // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the
+            // identity provider would be followed by fetch and fail on CORS. Only /bff/login starts a real sign-in.
+            o.Events.OnRedirectToIdentityProvider = ctx =>
+            {
+                if (ctx.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    ctx.HandleResponse();
+                }
+                return Task.CompletedTask;
+            };
+            o.Events.OnRedirectToIdentityProviderForSignOut = async ctx =>
+            {
+                ctx.ProtocolMessage.ClientId = ctx.Options.ClientId;
+                ctx.ProtocolMessage.State = ctx.Options.StateDataFormat.Protect(ctx.Properties);
+                if (string.IsNullOrEmpty(ctx.ProtocolMessage.IssuerAddress))
+                {
+                    throw new InvalidOperationException("OIDC end-session endpoint is missing.");
+                }
+                await ctx.Response.WriteAsJsonAsync(new { redirectUrl = ctx.ProtocolMessage.CreateLogoutRequestUrl() });
+                ctx.HandleResponse();
+            };
+        });
+        builder.Services.AddAuthorization(o =>
+        {
+            o.AddPolicy(AdminPolicies.Admin, p => p.RequireRole(AdminRoles.GatewayAdmin));
+            o.AddPolicy(AdminPolicies.Manage, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin));
+            o.AddPolicy(AdminPolicies.Read, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
+        });
+        // Read from the validated options when the handler is first used, not while services are registered.
+        builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme).Configure<IOptions<OidcOptions>>((o, oidc) =>
+        {
+            o.Authority = oidc.Value.Authority;
+            o.ClientId = oidc.Value.ClientId;
+            o.ClientSecret = oidc.Value.ClientSecret;
+            foreach (var scope in oidc.Value.ExtraScopes.Where(scope => !string.IsNullOrWhiteSpace(scope)))
+            {
+                o.Scope.Add(scope);
+            }
+        });
     }
 
     public static void MapAdminAuthentication(this WebApplication app)
@@ -83,7 +171,7 @@ public static class AdminAuthentication
                 environment = environment.EnvironmentName,
                 name = http.User.Identity?.Name,
                 email = http.User.FindFirstValue("email"),
-                roles = http.User.FindAll("roles").Select(c => c.Value).ToArray(),
+                roles = http.User.FindAll(AdminClaims.Roles).Select(c => c.Value).ToArray(),
                 departmentCodes = http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value).ToArray(),
                 sessionExpiresAt = auth.Properties?.ExpiresUtc,
             });
@@ -98,6 +186,38 @@ public static class AdminAuthentication
             return Results.Ok(new { sessionExpiresAt = expires });
         }).RequireAuthorization();
     }
+}
+
+/// <summary>Admin console roles, from the identity provider's role claim (see docs/identity-and-roles.md).</summary>
+public static class AdminRoles
+{
+    public const string GatewayAdmin = "gateway-admin";
+    public const string DepartmentAdmin = "department-admin";
+    public const string Viewer = "viewer";
+}
+
+/// <summary>Claims the admin API reads from the signed-in user, after <see cref="AdminAuthentication.ApplyClaimMapping"/>.</summary>
+public static class AdminClaims
+{
+    public const string Subject = "sub";
+    public const string Roles = "roles";
+    public const string DepartmentCodes = "departmentCodes";
+}
+
+/// <summary>Authorization and rate-limiting policy names.</summary>
+public static class AdminPolicies
+{
+    /// <summary>Gateway admins only.</summary>
+    public const string Admin = "admin";
+
+    /// <summary>Gateway and department admins (department admins within their departments).</summary>
+    public const string Manage = "manage";
+
+    /// <summary>Every admin console role, viewers included.</summary>
+    public const string Read = "read";
+
+    /// <summary>The per-user fixed-window rate limit on <c>/api</c> (<see cref="AdminOptions.RequestsPerMinute"/>).</summary>
+    public const string PerUserRateLimit = "per-user";
 }
 
 public sealed class AdminAntiforgeryMiddleware(RequestDelegate next)
