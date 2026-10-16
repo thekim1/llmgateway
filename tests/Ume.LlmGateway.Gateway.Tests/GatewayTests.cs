@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -182,6 +183,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
     public async Task Request_rate_limit_blocks_second_request()
     {
         var key = await fixture.CreateKeyAsync(k => k.RequestsPerMinute = 1);
+        await TestClock.InOneRateLimitMinuteAsync();
         using var first = await fixture.SendAsync(key);
         first.StatusCode.ShouldBe(HttpStatusCode.OK);
         using var response = await fixture.SendAsync(key);
@@ -213,8 +215,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         }
         if (policy == PiiPolicy.Redact)
         {
-            var requests = fixture.Upstream.LogEntries.Where(e => e.RequestMessage?.Body?.Contains("[PERSONNUMMER]", StringComparison.Ordinal) == true).ToArray();
-            requests.ShouldNotBeEmpty();
+            var requests = await fixture.UpstreamRequestsAsync(e => e.RequestMessage?.Body?.Contains("[PERSONNUMMER]", StringComparison.Ordinal) == true);
             requests.ShouldAllBe(e => !e.RequestMessage!.Body!.Contains("19121212-1212", StringComparison.Ordinal));
         }
     }
@@ -278,7 +279,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         var key = await fixture.CreateKeyAsync();
         using var pdf = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", PdfPart));
         pdf.StatusCode.ShouldBe(HttpStatusCode.OK);
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Body != null && e.RequestMessage.Body.Contains("\"type\":\"document\"", StringComparison.Ordinal)
+        await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Body != null && e.RequestMessage.Body.Contains("\"type\":\"document\"", StringComparison.Ordinal)
             && e.RequestMessage.Body.Contains("beslut.pdf", StringComparison.Ordinal));
 
         using var audio = await fixture.SendRawAsync(key, "/v1/chat/completions", ChatWith("anthropic/ok", """{"type":"input_audio","input_audio":{"data":"YWJj","format":"wav"}}"""));
@@ -379,6 +380,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
     {
         // Each mocked call reports 120 tokens (100 in + 20 out); the limit of 100 is crossed by the first one.
         var key = await fixture.CreateKeyAsync(k => k.TokensPerMinute = 100);
+        await TestClock.InOneRateLimitMinuteAsync();
         using var first = await fixture.SendAsync(key);
         first.StatusCode.ShouldBe(HttpStatusCode.OK);
         await fixture.UsageAsync(first);

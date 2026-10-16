@@ -107,6 +107,26 @@ pushing, enable the pre-commit hook once per clone: `git config core.hooksPath .
 Debug builds of the admin API (Visual Studio, F5) also run the lint and show problems as a build warning
 (skipped when `node_modules` is missing or `CI=true`).
 
+### Tests that do not flake
+
+Each backend test project shares one fixture (Postgres, the gateway or admin API host, the mock provider) across all
+its test classes, and xUnit runs the classes in parallel. A test that passes alone can therefore fail in CI, where two
+CPUs make every race wider. The rules that keep them stable:
+
+- **Make your own data.** Create the key, team or route the test needs, and find your requests by a unique marker
+  (a `Guid` in the prompt), never by "the latest" or "the only" row. Do not assert on global state another class may
+  change (settings, exchange rates, global routing rules); if a test must change it, restore it in `finally`.
+- **Wait for asynchronous effects, do not sleep.** The mock provider logs a request only after answering it: read it
+  with `fixture.UpstreamRequestsAsync` / `UpstreamBodyAsync`, never `Upstream.LogEntries`. Usage records:
+  `fixture.UsageAsync` (flushes the writer). Changes that reach the gateway over Redis (revocation, rotation, budgets):
+  retry the request until it has the expected status, as `WaitForStatusAsync` does.
+- **Stay inside one time window.** Rate limits count per calendar minute and budget periods start at midnight in
+  Stockholm. Call `TestClock.InOneRateLimitMinuteAsync()` before a test that needs several requests in the same minute
+  (the fixtures already keep every test away from midnight). Use a `FakeTimeProvider` where the code takes one.
+
+To hunt for flakes, run the workflow *Flake hunt* (Actions tab): it runs the backend tests on a CI runner several times
+and lists every test that failed. It also runs once a week.
+
 ## Browser tests
 
 Browser tests (`tests\e2e`, Playwright) need a running stack. Use the separate test database so your

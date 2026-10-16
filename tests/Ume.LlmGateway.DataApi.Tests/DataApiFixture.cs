@@ -120,6 +120,7 @@ public sealed class DataApiFixture : IAsyncLifetime
     /// <summary>Stores a new Data API key and returns it with its plaintext.</summary>
     public async Task<(DataApiKey Key, string Secret)> CreateKeyAsync(string[] permissions, Action<DataApiKey>? configure = null)
     {
+        await TestClock.InOneBudgetDayAsync(); // aggregates count per day in Stockholm
         var generated = Domain.Services.DataApiKeyHasher.Generate();
         var key = new DataApiKey { Name = "integration-" + Guid.NewGuid().ToString("N")[..8], Prefix = generated.Prefix, KeyHash = generated.Hash, Permissions = [.. permissions], CreatedAt = DateTimeOffset.UtcNow };
         configure?.Invoke(key);

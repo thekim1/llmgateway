@@ -106,6 +106,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     public async Task<(Guid Id, string Secret)> KeyAsync(HttpClient admin, int? requestsPerMinute = null)
     {
+        await TestClock.InOneBudgetDayAsync(); // every test starts with a key; none runs across a budget period change
         using var departments = await admin.GetAsync("/api/departments");
         var department = (await ReadAsync(departments)).AsArray()[0]!["id"]!.GetValue<Guid>();
         using var teamResponse = await admin.PostAsJsonAsync("/api/teams", new { departmentId = department, name = Guid.NewGuid().ToString("N") });

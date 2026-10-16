@@ -16,6 +16,7 @@ using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.TestKit;
+using WireMock.Logging;
 using WireMock.Matchers;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -57,6 +58,8 @@ public sealed class GatewayFixture : IAsyncLifetime
             builder.UseSetting("Gateway:MaxImageRequestBodyBytes", (256 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("Gateway:Realtime:BudgetCheckSeconds", "1");
             builder.UseSetting("Gateway:Realtime:MaxSessionsPerKey", "2");
+            // Tests flush refused-key counts themselves; a timed flush between a test's requests would split its row in two.
+            builder.UseSetting("Gateway:Security:AuthFailureFlushSeconds", "3600");
             builder.ConfigureLogging(logging =>
             {
                 logging.SetMinimumLevel(LogLevel.Trace);
@@ -384,6 +387,7 @@ public sealed class GatewayFixture : IAsyncLifetime
 
     public async Task<TestKey> CreateKeyAsync(Action<VirtualKey>? configure = null)
     {
+        await TestClock.InOneBudgetDayAsync(); // every test starts with a key; none runs across a budget period change
         using var scope = Services.CreateScope();
         var generated = scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>().Generate();
         var team = new Team { Name = Guid.NewGuid().ToString(), DepartmentId = DepartmentId, CreatedAt = DateTimeOffset.UtcNow };
@@ -448,6 +452,42 @@ public sealed class GatewayFixture : IAsyncLifetime
         }
         return await Client.SendAsync(request);
     }
+
+    /// <summary>
+    /// The requests the mock provider received that match, once there are at least <paramref name="atLeast"/>. WireMock logs
+    /// a request only after it has answered it, so a test that already has the gateway's response can look before the entry
+    /// exists; read the log through this, never through <c>Upstream.LogEntries</c> directly.
+    /// </summary>
+    public async Task<ILogEntry[]> UpstreamRequestsAsync(Func<ILogEntry, bool> match, int atLeast = 1)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            var found = Upstream.LogEntries.Where(match).ToArray();
+            if (found.Length >= atLeast)
+            {
+                return found;
+            }
+
+            if (cts.IsCancellationRequested)
+            {
+                throw new ShouldAssertException($"The mock provider received {found.Length} matching request(s) within 10 s, expected at least {atLeast}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20), CancellationToken.None);
+        }
+    }
+
+    /// <summary>The body of the one request sent to <paramref name="provider"/> (path <c>/provider/...</c>) that contains <paramref name="marker"/>.</summary>
+    public async Task<string> UpstreamBodyAsync(string provider, string marker, Encoding? encoding = null)
+    {
+        var bodies = (await UpstreamRequestsAsync(e => e.RequestMessage!.Path.StartsWith($"/{provider}/", StringComparison.Ordinal)
+            && Body(e, encoding).Contains(marker, StringComparison.Ordinal))).Select(e => Body(e, encoding));
+        return bodies.ShouldHaveSingleItem();
+    }
+
+    private static string Body(ILogEntry entry, Encoding? encoding) =>
+        entry.RequestMessage!.BodyAsBytes is { } bytes ? (encoding ?? Encoding.UTF8).GetString(bytes) : entry.RequestMessage.Body ?? string.Empty;
 
     public async Task<UsageRecord> UsageAsync(HttpResponseMessage response)
     {
