@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.IntegrationTests;
 
@@ -41,8 +42,8 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         using var rotate = await admin.PostAsJsonAsync($"/api/keys/{key.Id}/rotate", new { mode = "Grace24Hours" }, Cancellation);
         var rotated = await IntegrationFixture.ReadAsync(rotate);
         using var replacement = fixture.GatewayClient(rotated["secret"]!.GetValue<string>());
-        using var blocked = await CallAsync(replacement);
-        blocked.StatusCode.ShouldBe(HttpStatusCode.PaymentRequired);
+        // The gateway learns of the rotation over Redis, like the budget above: the replacement is blocked once it has.
+        await WaitForStatusAsync(replacement, HttpStatusCode.PaymentRequired);
     }
 
     [Fact]
@@ -63,6 +64,7 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
     {
         using var admin = await fixture.AdminAsync();
         var key = await fixture.KeyAsync(admin, requestsPerMinute: 1);
+        await TestClock.InOneRateLimitMinuteAsync();
         using var firstClient = fixture.GatewayClient(key.Secret);
         using var secondClient = fixture.GatewayClient(key.Secret);
         using var first = await CallAsync(firstClient);

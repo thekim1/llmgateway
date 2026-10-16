@@ -52,8 +52,8 @@ public sealed class RequestLogSettingsTests(AdminFixture fixture)
 
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-        var audit = await db.AuditLog.Where(a => a.EntityType == AuditEntities.Settings).OrderByDescending(a => a.Id).FirstAsync(Ct);
-        audit.Details.ShouldNotBeNull();
-        audit.Details.ShouldContain("LogAllRequests");
+        // Retention and network tests write settings entries in parallel, so the newest one need not be ours.
+        var audits = await db.AuditLog.Where(a => a.EntityType == AuditEntities.Settings).OrderByDescending(a => a.Id).Take(50).ToListAsync(Ct);
+        audits.ShouldContain(a => a.Details != null && a.Details.Contains("LogAllRequests", StringComparison.OrdinalIgnoreCase));
     }
 }

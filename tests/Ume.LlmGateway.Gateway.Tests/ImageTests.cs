@@ -10,9 +10,8 @@ public sealed class ImageTests(GatewayFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private string[] UpstreamBodies(string provider) =>
-        [.. fixture.Upstream.LogEntries.Where(e => e.RequestMessage!.Path.StartsWith($"/{provider}/", StringComparison.Ordinal))
-            .Select(e => e.RequestMessage!.BodyAsBytes is { } bytes ? Encoding.Latin1.GetString(bytes) : e.RequestMessage.Body ?? string.Empty)];
+    // Latin-1 keeps the binary picture parts of multipart bodies byte for byte.
+    private Task<string> UpstreamBodyAsync(string provider, string marker) => fixture.UpstreamBodyAsync(provider, marker, Encoding.Latin1);
 
     private Task<HttpResponseMessage> GenerateAsync(TestKey? key, string model, string prompt, string extra = "") =>
         fixture.SendRawAsync(key, "/v1/images/generations", $$"""{"model":"{{model}}","prompt":"{{prompt}}"{{extra}}}""");
@@ -30,10 +29,10 @@ public sealed class ImageTests(GatewayFixture fixture)
         response.Headers.GetValues("x-ume-model").Single().ShouldBe("imgpic/image");
 
         // The model is rewritten to the upstream name; the other fields go through unchanged.
-        var sent = UpstreamBodies("imgpic").Single(b => b.Contains(marker, StringComparison.Ordinal));
+        var sent = (await UpstreamBodyAsync("imgpic", marker));
         sent.ShouldContain("imgpic-image");
         sent.ShouldContain("1024x1024");
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Path == "/imgpic/v1/images/generations");
+        await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Path == "/imgpic/v1/images/generations");
 
         var usage = await fixture.UsageAsync(response);
         usage.Endpoint.ShouldBe(GatewayEndpoint.ImageGenerations);
@@ -64,14 +63,14 @@ public sealed class ImageTests(GatewayFixture fixture)
             fields: new Dictionary<string, string> { ["size"] = "1024x1024", ["user"] = marker }, imageField: "image[]");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var sent = UpstreamBodies("imgpic").Single(b => b.Contains(marker, StringComparison.Ordinal));
+        var sent = (await UpstreamBodyAsync("imgpic", marker));
         sent.ShouldContain("imgpic-image");
         sent.ShouldContain("name=size");
         sent.Split("name=\"image[]\"").Length.ShouldBe(3); // two pictures
         sent.ShouldContain("name=mask");
         sent.ShouldContain("filename=bild1.png");
         sent.ShouldContain("PNG");
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Path == "/imgpic/v1/images/edits");
+        await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Path == "/imgpic/v1/images/edits");
 
         var usage = await fixture.UsageAsync(response);
         usage.Endpoint.ShouldBe(GatewayEndpoint.ImageEdits);
@@ -88,8 +87,8 @@ public sealed class ImageTests(GatewayFixture fixture)
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1");
-        UpstreamBodies("imgfail").Single(b => b.Contains(marker, StringComparison.Ordinal)).ShouldContain("PNG");
-        UpstreamBodies("imgpic").Single(b => b.Contains(marker, StringComparison.Ordinal)).ShouldContain("PNG");
+        (await UpstreamBodyAsync("imgfail", marker)).ShouldContain("PNG");
+        (await UpstreamBodyAsync("imgpic", marker)).ShouldContain("PNG");
     }
 
     [Fact]
@@ -109,7 +108,7 @@ public sealed class ImageTests(GatewayFixture fixture)
         using var response = await GenerateAsync(key, "imgpic/image", $"{marker} porträtt av 19121212-1212");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var sent = UpstreamBodies("imgpic").Single(b => b.Contains(marker, StringComparison.Ordinal));
+        var sent = (await UpstreamBodyAsync("imgpic", marker));
         sent.ShouldNotContain("19121212-1212");
         sent.ShouldContain("[PERSONNUMMER]");
     }

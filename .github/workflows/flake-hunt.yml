@@ -1,0 +1,52 @@
+name: Flake hunt
+# Runs the backend tests several times on a CI runner (two CPUs, where races show up) and lists every test that failed,
+# so a flaky test is found and fixed before it fails someone's pull request (docs/local-development.md, "Tests that do
+# not flake"). Weekly, and on demand from the Actions tab.
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: How many times to run the tests
+        default: '5'
+permissions:
+  contents: read
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX: mirror.gcr.io/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - name: Build
+        run: dotnet build UmeLlmGateway.slnx -c Release --nologo
+      - name: Run the tests repeatedly
+        env:
+          RUNS: ${{ inputs.runs || '5' }}
+        run: |
+          : > failures.txt
+          for i in $(seq "$RUNS"); do
+            dotnet test --solution UmeLlmGateway.slnx -c Release --no-build 2>&1 \
+              | sed -E 's/\x1b\[[0-9;]*m//g' | tee "run-$i.log" | grep -E '^failed Ume\.' | sed "s/^/run $i: /" >> failures.txt || true
+          done
+          {
+            echo "## Flake hunt: $RUNS runs"
+            if [ -s failures.txt ]; then
+              echo "| Runs failed | Test |"; echo "|---:|---|"
+              sed -E 's/^run [0-9]+: failed //; s/ \([0-9.]+m?s\)$//' failures.txt | sort | uniq -c | sort -rn | awk '{n=$1; $1=""; print "| " n " |" $0 " |"}'
+            else
+              echo "No test failed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat failures.txt
+          [ ! -s failures.txt ]
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: flake-hunt-logs
+          path: run-*.log

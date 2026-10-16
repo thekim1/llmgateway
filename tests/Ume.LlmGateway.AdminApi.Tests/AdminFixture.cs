@@ -55,6 +55,7 @@ public sealed class AdminFixture : IAsyncLifetime
 
     public async Task<HttpClient> ClientAsync(string? role = "gateway-admin", string? code = null)
     {
+        await TestClock.InOneBudgetDayAsync(); // reports and budgets count from midnight in Stockholm
         var client = _factory.CreateHttpsClient();
         if (role is not null)
         {

@@ -331,7 +331,8 @@ public sealed class HotPathTests(GatewayFixture fixture)
         time.Advance(TimeSpan.FromSeconds(31));
         (await catalog.GetAsync(Ct)).ShouldBeSameAs(first); // stale, refresh started in the background
         var refreshed = first;
-        for (var i = 0; i < 200 && ReferenceEquals(refreshed, first); i++)
+        // A deadline, not a count: the refresh is a database query, slow on a busy two-CPU CI runner.
+        for (var deadline = DateTime.UtcNow.AddSeconds(10); ReferenceEquals(refreshed, first) && DateTime.UtcNow < deadline;)
         {
             await Task.Delay(10, Ct);
             refreshed = await catalog.GetAsync(Ct);
@@ -361,7 +362,7 @@ public sealed class HotPathTests(GatewayFixture fixture)
         time.Advance(TimeSpan.FromSeconds(31));
         (await keys.FindAsync(key.Secret, Ct))!.IsEnabled.ShouldBeTrue(); // stale, refreshing in the background
         var enabled = true;
-        for (var i = 0; i < 200 && enabled; i++)
+        for (var deadline = DateTime.UtcNow.AddSeconds(10); enabled && DateTime.UtcNow < deadline;)
         {
             await Task.Delay(10, Ct);
             enabled = (await keys.FindAsync(key.Secret, Ct))!.IsEnabled;

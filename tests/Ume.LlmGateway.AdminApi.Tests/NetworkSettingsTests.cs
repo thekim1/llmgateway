@@ -43,9 +43,10 @@ public sealed class NetworkSettingsTests(AdminFixture fixture)
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            var audit = await db.AuditLog.Where(a => a.EntityType == AuditEntities.Settings).OrderByDescending(a => a.Id).FirstAsync(TestContext.Current.CancellationToken);
-            audit.Details.ShouldNotBeNull();
-            audit.Details.ShouldContain("2001:db8::1");
+            // Retention and request-logging tests write settings entries in parallel, so the newest one need not be ours.
+            var audits = await db.AuditLog.Where(a => a.EntityType == AuditEntities.Settings).OrderByDescending(a => a.Id).Take(50)
+                .ToListAsync(TestContext.Current.CancellationToken);
+            audits.ShouldContain(a => a.Details != null && a.Details.Contains("2001:db8::1", StringComparison.OrdinalIgnoreCase));
         }
 
         using var clear = await client.PutAsJsonAsync("/api/settings/network", new { trustedProxies = Array.Empty<string>() }, TestContext.Current.CancellationToken);

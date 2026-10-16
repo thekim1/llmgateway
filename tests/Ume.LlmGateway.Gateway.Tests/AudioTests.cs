@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 
@@ -9,10 +8,6 @@ namespace Ume.LlmGateway.Gateway.Tests;
 public sealed class AudioTests(GatewayFixture fixture)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private string[] UpstreamBodies(string provider) =>
-        [.. fixture.Upstream.LogEntries.Where(e => e.RequestMessage!.Path.StartsWith($"/{provider}/", StringComparison.Ordinal))
-            .Select(e => e.RequestMessage!.BodyAsBytes is { } bytes ? Encoding.UTF8.GetString(bytes) : e.RequestMessage.Body ?? string.Empty)];
 
     [Fact]
     public async Task Transcription_is_forwarded_as_multipart_and_billed_per_reported_minute()
@@ -28,13 +23,13 @@ public sealed class AudioTests(GatewayFixture fixture)
         response.Headers.GetValues("x-ume-model").Single().ShouldBe("speech/whisper");
 
         // The model is rewritten to the upstream name; the other fields and the file go through unchanged.
-        var sent = UpstreamBodies("speech").Single(b => b.Contains(marker, StringComparison.Ordinal));
+        var sent = (await fixture.UpstreamBodyAsync("speech", marker));
         sent.ShouldContain("speech-whisper");
         sent.ShouldContain("name=language");
         sent.ShouldContain("name=\"timestamp_granularities[]\"");
         sent.ShouldContain("filename=samtal.wav");
         sent.ShouldContain("RIFF");
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Path == "/speech/v1/audio/transcriptions");
+        await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Path == "/speech/v1/audio/transcriptions");
 
         var usage = await fixture.UsageAsync(response);
         usage.Endpoint.ShouldBe(GatewayEndpoint.AudioTranscriptions);
@@ -100,7 +95,7 @@ public sealed class AudioTests(GatewayFixture fixture)
         using var response = await fixture.SendAudioAsync(key, "speech/whisper", GatewayFixture.Wav(1), endpoint: "/v1/audio/translations");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        fixture.Upstream.LogEntries.ShouldContain(e => e.RequestMessage!.Path == "/speech/v1/audio/translations");
+        await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Path == "/speech/v1/audio/translations");
         (await fixture.UsageAsync(response)).Endpoint.ShouldBe(GatewayEndpoint.AudioTranslations);
     }
 
@@ -114,8 +109,8 @@ public sealed class AudioTests(GatewayFixture fixture)
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1");
-        UpstreamBodies("speechfail").Single(b => b.Contains(marker, StringComparison.Ordinal)).ShouldContain("RIFF");
-        UpstreamBodies("speech").Single(b => b.Contains(marker, StringComparison.Ordinal)).ShouldContain("RIFF");
+        (await fixture.UpstreamBodyAsync("speechfail", marker)).ShouldContain("RIFF");
+        (await fixture.UpstreamBodyAsync("speech", marker)).ShouldContain("RIFF");
     }
 
     [Fact]
@@ -128,7 +123,7 @@ public sealed class AudioTests(GatewayFixture fixture)
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         response.Headers.GetValues("x-ume-pii").Single().ShouldBe("redacted");
-        var sent = UpstreamBodies("speech").Single(b => b.Contains(marker, StringComparison.Ordinal));
+        var sent = (await fixture.UpstreamBodyAsync("speech", marker));
         sent.ShouldNotContain("19121212-1212");
         sent.ShouldContain("[PERSONNUMMER]");
     }

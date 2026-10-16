@@ -42,6 +42,10 @@ jobs:
         with:
           node-version: 24
       - name: Build and test backend
+        env:
+          # Testcontainers pulls Postgres, Redis and its Ryuk image from Docker Hub, whose anonymous pull limit is shared by
+          # every job on the runner's address and has failed whole test runs; Google's mirror of Docker Hub is not subject to it.
+          TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX: mirror.gcr.io/
         run: |
           dotnet build UmeLlmGateway.slnx -c Release --nologo
           dotnet test --solution UmeLlmGateway.slnx -c Release --no-build
