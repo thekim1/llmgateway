@@ -368,13 +368,7 @@ public sealed partial class GatewayRequestHandler(
     {
         if (info.IsAudio)
         {
-            var maxAudioBytes = options.CurrentValue.MaxAudioRequestBodyBytes;
-            if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeLimit)
-            {
-                sizeLimit.MaxRequestBodySize = maxAudioBytes;
-            }
-
-            var form = await AudioFormReader.ReadAsync(http.Request, maxAudioBytes, ct);
+            var form = await AudioFormReader.ReadAsync(http.Request, AllowBodyOf(http, options.CurrentValue.MaxAudioRequestBodyBytes), ct);
             if (form.Error is { } audioError)
             {
                 await RejectAsync(http, state, audioError, RequestOutcome.Rejected);
@@ -386,13 +380,7 @@ public sealed partial class GatewayRequestHandler(
 
         if (info.IsImageUpload)
         {
-            var maxImageBytes = options.CurrentValue.MaxImageRequestBodyBytes;
-            if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeLimit)
-            {
-                sizeLimit.MaxRequestBodySize = maxImageBytes;
-            }
-
-            var form = await ImageFormReader.ReadAsync(http.Request, maxImageBytes, ct);
+            var form = await ImageFormReader.ReadAsync(http.Request, AllowBodyOf(http, options.CurrentValue.MaxImageRequestBodyBytes), ct);
             if (form.Error is { } imageError)
             {
                 await RejectAsync(http, state, imageError, RequestOutcome.Rejected);
@@ -425,6 +413,17 @@ public sealed partial class GatewayRequestHandler(
         }
 
         return (body, length, null, null);
+    }
+
+    /// <summary>Raises the server's request body limit to an upload endpoint's own, and returns it.</summary>
+    private static long AllowBodyOf(HttpContext http, long maxBytes)
+    {
+        if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } sizeLimit)
+        {
+            sizeLimit.MaxRequestBodySize = maxBytes;
+        }
+
+        return maxBytes;
     }
 
     /// <summary>Reads the body into one pooled buffer and parses it. A non-zero status (413, 400) means it is refused.</summary>
