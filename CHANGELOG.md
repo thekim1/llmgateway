@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-10-18
+
 **Budgets in USD.** Budget limits, spend counters and reservations are now in USD, the currency provider prices are in,
 so what a budget allows no longer moves with the exchange rate. The migration `BudgetsInUsd` converts existing limits at
 the current rate (stored alerts at the rate when they were raised). The admin UI shows budgets and alerts in USD; the
