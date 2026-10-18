@@ -23,7 +23,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: migrations
-          image: ume-llm-gateway/migrations:0.5.0
+          image: ume-llm-gateway/migrations:latest
           env:
             - {name: DOTNET_ENVIRONMENT, value: Production}
             - {name: Security__SecretsDirectory, value: /run/app-secrets}

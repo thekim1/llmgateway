@@ -12,8 +12,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Authors>Umeå kommun</Authors>
     <Product>Ume LLM Gateway</Product>
-    <Version>0.6.0</Version>
-    <ContainerImageTag>$(Version)</ContainerImageTag>
+    <!-- Local placeholder only; release.yml overrides -p:Version=X.Y.Z from the pushed git tag. -->
+    <Version>0.0.0-local</Version>
+    <ContainerImageTag>latest</ContainerImageTag>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
   <!--

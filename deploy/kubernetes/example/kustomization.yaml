@@ -16,10 +16,10 @@ components:
 images:
   # The released images. A release bundle already pins the base to them by digest, so these lines only matter when you
   # deploy from the repository, or set newName to your own registry (pin by digest: digest: sha256:...).
-  - {name: ume-llm-gateway/gateway, newName: ghcr.io/thekim1/llmgateway/gateway, newTag: "0.5.0"}
-  - {name: ume-llm-gateway/adminapi, newName: ghcr.io/thekim1/llmgateway/adminapi, newTag: "0.5.0"}
-  - {name: ume-llm-gateway/migrations, newName: ghcr.io/thekim1/llmgateway/migrations, newTag: "0.5.0"}
-  - {name: ume-llm-gateway/dataapi, newName: ghcr.io/thekim1/llmgateway/dataapi, newTag: "0.5.0"}
+  - {name: ume-llm-gateway/gateway, newName: ghcr.io/thekim1/llmgateway/gateway, newTag: "latest"}
+  - {name: ume-llm-gateway/adminapi, newName: ghcr.io/thekim1/llmgateway/adminapi, newTag: "latest"}
+  - {name: ume-llm-gateway/migrations, newName: ghcr.io/thekim1/llmgateway/migrations, newTag: "latest"}
+  - {name: ume-llm-gateway/dataapi, newName: ghcr.io/thekim1/llmgateway/dataapi, newTag: "latest"}
 configMapGenerator:
   - name: ume-adminapi-config
     behavior: merge

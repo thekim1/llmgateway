@@ -35,7 +35,7 @@ spec:
             matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: adminapi}
       containers:
         - name: adminapi
-          image: ume-llm-gateway/adminapi:0.5.0
+          image: ume-llm-gateway/adminapi:latest
           ports: [{name: https, containerPort: 8443}]
           envFrom:
             - configMapRef: {name: ume-adminapi-config}

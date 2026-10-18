@@ -15,14 +15,14 @@ jobs:
         run: |
           sh deploy/build-portainer-stack.sh
           git diff --exit-code -- deploy/compose.portainer.yaml || { echo "Run deploy/build-portainer-stack.sh and commit compose.portainer.yaml"; exit 1; }
-      - name: Local image defaults match the version
+      - name: Local image defaults are untagged dev images
         run: |
-          # ${X_IMAGE:-ume-llm-gateway/<service>:<version>} is the locally built image; a release bundle pins the pushed one.
-          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)"
-          stale="$(grep -Hn 'ume-llm-gateway/[a-z]*:' deploy/compose.prod.yaml deploy/compose.portainer.template.yaml deploy/compose.portainer.yaml | grep -v ":$version}" || true)"
-          stale="$stale$(grep -rHn 'image: ume-llm-gateway/' deploy/kubernetes | grep -v ":$version$" || true)"
-          stale="$stale$(grep -Hn 'newTag:' deploy/kubernetes/example/kustomization.yaml | grep -v "newTag: \"$version\"" || true)"
-          [ -z "$stale" ] || { echo "Image defaults are not $version (Directory.Build.props):"; echo "$stale"; exit 1; }
+          # ${X_IMAGE:-ume-llm-gateway/<service>:latest} is the locally built image; a release bundle pins the pushed one
+          # (release.yml derives the real version from the pushed git tag, not from a committed version).
+          stale="$(grep -Hn 'ume-llm-gateway/[a-z]*:' deploy/compose.prod.yaml deploy/compose.portainer.template.yaml deploy/compose.portainer.yaml | grep -v ':latest}' || true)"
+          stale="$stale$(grep -rHn 'image: ume-llm-gateway/' deploy/kubernetes | grep -v ':latest$' || true)"
+          stale="$stale$(grep -Hn 'newTag:' deploy/kubernetes/example/kustomization.yaml | grep -v 'newTag: \"latest\"' || true)"
+          [ -z "$stale" ] || { echo "Local image defaults must stay pinned to :latest:"; echo "$stale"; exit 1; }
       - name: Kubernetes manifests are up to date and render
         run: |
           sh deploy/kubernetes/sync-config.sh
