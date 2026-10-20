@@ -62,6 +62,7 @@ import type {
   UsageSummaryQuery,
   UsageMetrics,
   UsageMetricsQuery,
+  VersionInfo,
   VirtualKey,
 } from './types'
 
@@ -176,6 +177,7 @@ export const api = {
     updateRetention: (usageRetentionDays: number, auditRetentionDays: number | null) =>
       http.put<RetentionSettings>('/api/settings/retention', { usageRetentionDays, auditRetentionDays }),
     runRetention: () => http.post<RetentionSettings>('/api/settings/retention/run'),
+    version: () => http.get<VersionInfo>('/api/settings/version'),
   },
   usage: {
     summary: (query: UsageSummaryQuery) => http.get<UsageSummary>('/api/usage/summary', { ...query }),

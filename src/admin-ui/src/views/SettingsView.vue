@@ -13,6 +13,7 @@ import UiCard from '@/components/ui/UiCard.vue'
 import RequestLogCard from '@/components/settings/RequestLogCard.vue'
 import RetentionCard from '@/components/settings/RetentionCard.vue'
 import TrustedProxiesCard from '@/components/settings/TrustedProxiesCard.vue'
+import VersionCard from '@/components/settings/VersionCard.vue'
 
 const budgets = useBudgetsStore()
 const ui = useUiStore()
@@ -75,6 +76,10 @@ onMounted(load)
 
   <div class="mt-6">
     <RequestLogCard />
+  </div>
+
+  <div class="mt-6">
+    <VersionCard />
   </div>
 
   <ConfirmDialog

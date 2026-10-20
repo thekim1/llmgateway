@@ -35,6 +35,9 @@ tar -xzf ume-llm-gateway-X.Y.Z.tar.gz && cd ume-llm-gateway-X.Y.Z
 docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 ```
 
+*Settings > Version* in the admin UI shows the running version and says when a newer release is out (the admin API checks
+GitHub; set `Admin__CheckForReleases=false` without internet access). Upgrades: [Upgrade guide](docs/upgrade-guide.md).
+
 ## Build and test
 
 Stop the running AppHost before backend or AppHost builds:

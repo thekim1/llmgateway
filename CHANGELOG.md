@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.2 - 2026-10-20
+
+**Version and new releases in Settings.** *Settings > Version* shows the running version and the newest GitHub release with a
+link to its release notes; when a newer one exists, **Settings** in the menu gets a **New** badge. The admin API checks
+`api.github.com` at most every 6 hours (`GET /api/settings/version`); turn it off with `Admin__CheckForReleases=false` where
+the admin API has no internet access.
+
 ## 0.6.0 - 2026-10-18
 
 **Budgets in USD.** Budget limits, spend counters and reservations are now in USD, the currency provider prices are in,

@@ -8,6 +8,7 @@ import type {
   ConfigImportResult,
   OpsHealth,
   Paged,
+  VersionInfo,
 } from '@/api/types'
 import { useLoadable } from './loadable'
 
@@ -17,6 +18,9 @@ export const useOpsStore = defineStore('ops', () => {
 
   const loadHealth = () => health.run(() => api.ops.health())
   const loadAudit = (query: AuditQuery) => audit.run(() => api.audit.list(query))
+  // The admin API asks GitHub at most every 6 hours, so loading this on every app start is cheap.
+  const version = useLoadable<VersionInfo | null>(null)
+  const loadVersion = () => version.run(() => api.settings.version())
 
   async function setCircuit(providerId: string, state: CircuitState): Promise<void> {
     await api.ops.setCircuit(providerId, state)
@@ -36,6 +40,10 @@ export const useOpsStore = defineStore('ops', () => {
     auditError: audit.error,
     loadHealth,
     loadAudit,
+    version: version.data,
+    versionLoading: version.loading,
+    versionError: version.error,
+    loadVersion,
     setCircuit,
     invalidateKeyCache,
     exportConfig,

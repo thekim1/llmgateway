@@ -37,6 +37,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>(
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddSingleton<AzureRetailPrices>();
 builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
+builder.Services.AddSingleton<ReleaseCheck>();
+builder.Services.AddHttpClient(ReleaseCheck.HttpClientName);
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 // One attempt within discovery's own 20 s timeout: an admin testing a connection should not sit through retries.
 builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)

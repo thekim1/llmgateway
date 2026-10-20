@@ -38,6 +38,8 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `deploy/kubernetes`. A single-instance `compose.prod.yaml` installation needs no change.
 - The first rolling update to this version still stops instances of 0.5.0, which do not drain; a few POSTs can fail at the
   moment each old instance stops.
+- The admin API now asks `api.github.com` for the newest release (shown in *Settings > Version*), at most every 6 hours. Without
+  outbound HTTPS it logs a warning and the card says it could not reach GitHub; set `Admin__CheckForReleases=false` to stop it.
 
 ## 0.5.0: request logging
 

@@ -33,6 +33,9 @@ A malformed request (unreadable body) → 400; an unexpected failure → 500 wit
 - API rate limit: 120 requests/minute per authenticated subject (`Admin:RequestsPerMinute`, 1–10000).
   Exceeded → 429 ProblemDetails with `Retry-After`.
 - Suggested Azure AI Foundry prices come from the Azure retail price list of `Admin:AzurePriceRegion` (default `swedencentral`).
+- The newest release is read from GitHub (`https://api.github.com/repos/<Admin:ReleaseRepository>/releases/latest`, default
+  `thekim1/llmgateway`, no key; the admin API needs outbound HTTPS to `api.github.com`). Set `Admin:CheckForReleases=false`
+  (`Admin__CheckForReleases`) where it has no internet access; the running version is still shown.
 
 Roles (OIDC `roles` claim):
 | Role | Can |
@@ -194,6 +197,11 @@ and invalidate the gateway catalogue.
   canonicalised; `/0` networks are refused). `observed` is the connection the admin API saw for this request, to help find
   the proxy's address. Saving is audited (`Settings`) and publishes a configuration change, so the gateways apply it within
   seconds. See *Client addresses and trusted proxies* in [the runbook](runbook.md).
+- `GET /api/settings/version` *(gateway-admin)* → `{ version, developmentBuild, checkEnabled, latest: { version, name, url,
+  publishedAt } | null, updateAvailable, checkedAt, checkFailed }`. `version` is the running admin API's (`0.0.0-local` for a local
+  build: `developmentBuild`, never `updateAvailable`). `latest` is the newest published GitHub release (drafts and pre-releases
+  excluded), checked at most every 6 hours (after a failure, again within 30 minutes; `checkFailed` then keeps any earlier result);
+  null when the check is off or no release exists. `url` is always a `github.com` link. Browsers never call GitHub.
 - `GET /api/settings/request-log` *(gateway-admin)* → `{ active, until, updatedAt }` · `PUT /api/settings/request-log`
   `{ logAllRequests, noTimeLimit }` *(gateway-admin)*. Whether the gateways log successful requests too (normally only refused,
   failed and cancelled ones; every request is a usage record either way). Switched on, it lasts 24 hours unless `noTimeLimit` is

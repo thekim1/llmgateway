@@ -199,6 +199,8 @@ public static class SettingsEndpoints
     public static void MapSettings(this RouteGroupBuilder api)
     {
         var settings = api.MapGroup("/settings").RequireAuthorization(AdminPolicies.Admin).WithTags("Settings");
+        settings.MapGet("/version", (ReleaseCheck releases, CancellationToken ct) => releases.GetAsync(ct))
+            .WithName("GetVersion").WithSummary("The running version and the newest release on GitHub (checked at most every 6 hours)");
         settings.MapGet("/network", (GatewaySettingsService service, HttpContext http, CancellationToken ct) => service.GetNetworkAsync(http, ct))
             .WithName("GetNetworkSettings").WithSummary("Trusted reverse proxies, and the connection the admin API saw for this request");
         settings.MapPut("/network", (NetworkSettingsRequest input, GatewaySettingsService service, HttpContext http, CancellationToken ct) =>

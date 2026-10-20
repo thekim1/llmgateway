@@ -40,6 +40,7 @@ public sealed class AdminFixture : IAsyncLifetime
             builder.UseSetting("Security:KeyPepper", TestSecrets.RandomHex());
             builder.UseSetting("Oidc:Authority", "https://identity.invalid");
             builder.UseSetting("Admin:RequestsPerMinute", "10000");
+            builder.UseSetting("Admin:CheckForReleases", "false"); // tests never call GitHub
             builder.ConfigureTestServices(services =>
             {
                 services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, o =>

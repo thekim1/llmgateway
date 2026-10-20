@@ -68,3 +68,11 @@ earlier or later, change its owners and delete it. **Test a request** runs a sam
 shows which rule applies and why. When you delete a team or department in **Organisation** that has routing rules, the UI asks
 whether to delete the rules or deactivate them until a new team or department is assigned; deactivated rules show up under
 **Needs owner**. Usage shows which rule routed a request.
+
+## Version and new releases
+
+**Settings > Version** (gateway-admin) shows the version the admin API runs and the newest release on GitHub, with a link to
+its release notes. When a newer release exists the card says so and **Settings** in the side menu gets a **New** badge (a dot
+when the menu is collapsed). Local builds show *Development build* and are never reported as out of date. The admin API asks
+GitHub at most every 6 hours; with `Admin:CheckForReleases=false` (no internet access) only the running version is shown.
+The data comes from `GET /api/settings/version` ([docs/admin-api.md](admin-api.md)).

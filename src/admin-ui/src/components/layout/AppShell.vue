@@ -33,6 +33,7 @@ function badgeCount(item: NavItem): number {
   if (item.badge === 'circuits') return badCircuits.value
   return 0
 }
+const updateAvailable = computed(() => ops.version?.updateAvailable === true)
 
 const themes = [
   { value: 'light' as const, label: 'Light' },
@@ -61,7 +62,10 @@ function onKey(event: KeyboardEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   if (auth.hasAnyRole(['department-admin'])) void budgets.loadAlerts()
-  if (auth.isGatewayAdmin) void ops.loadHealth()
+  if (auth.isGatewayAdmin) {
+    void ops.loadHealth()
+    void ops.loadVersion()
+  }
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
@@ -115,6 +119,12 @@ async function signOut(): Promise<void> {
             >
               {{ badgeCount(item) }}<span class="sr-only"> need attention</span>
             </span>
+            <template v-if="item.badge === 'update' && updateAvailable">
+              <span class="hidden h-badge items-center rounded-chip bg-accent-soft px-1.5 text-caption font-semibold text-accent-ink lg:flex">
+                New<span class="sr-only"> version available</span>
+              </span>
+              <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent lg:hidden" aria-hidden="true" />
+            </template>
           </RouterLink>
         </section>
       </nav>

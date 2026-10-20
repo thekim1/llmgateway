@@ -251,3 +251,17 @@ Locally the gateway sees `127.0.0.1` or `::1`; in WSL/Docker it may be a bridge 
   in the admin UI, deleting a team that has keys and saving a duplicate budget show English messages.
 - [ ] **Department admin scope:** signed in as a department admin, *Keys*, *Budgets & alerts* and *Usage* show only your own
   departments' data, and changes appear in the audit log under your name.
+
+## Version and new releases (uncommitted)
+
+- [ ] **Released image:** on an install of an older release (e.g. 0.6.0 while 0.6.1 is out), *Settings > Version* shows *Running
+  0.6.0*, *Update available*, *Version 0.6.1 is available* and a *Release notes* link that opens the GitHub release in a new tab;
+  **Settings** in the side menu has a **New** badge (a dot with the menu collapsed).
+- [ ] **Up to date:** on the latest release the card shows *Up to date* and the menu has no badge.
+- [ ] **Local build:** under Aspire the card shows *0.0.0-local* with *Development build*, and no badge.
+- [ ] **Switched off:** with `Admin__CheckForReleases=false` the card shows the version and *Not checked*; the admin API log has no
+  GitHub warning.
+- [ ] **No internet:** with outbound HTTPS blocked, the card shows *Could not reach GitHub*, the rest of Settings works and the
+  admin API logs one warning (not one per page load).
+- [ ] **Department admin:** a department admin gets 403 from `/api/settings/version` and sees no badge.
+

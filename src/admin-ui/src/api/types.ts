@@ -477,6 +477,30 @@ export interface NetworkSettings {
 }
 
 /** Whether the gateways log every request (normally only refused, failed and cancelled ones). */
+/** The newest published release on GitHub (drafts and pre-releases excluded). */
+export interface LatestRelease {
+  version: string
+  name: string
+  /** The release page on github.com. */
+  url: string
+  publishedAt: IsoDateTime | null
+}
+
+export interface VersionInfo {
+  /** The running admin API's version, for example 0.6.1 (0.0.0-local for a local build). */
+  version: string
+  /** Built locally, not from a release tag: never reported as out of date. */
+  developmentBuild: boolean
+  /** False when Admin:CheckForReleases is off. */
+  checkEnabled: boolean
+  /** Null before the first successful check, when the check is off, or when there are no releases. */
+  latest: LatestRelease | null
+  updateAvailable: boolean
+  checkedAt: IsoDateTime | null
+  /** The last check failed; latest is then what an earlier check found, if anything. */
+  checkFailed: boolean
+}
+
 export interface RequestLogSettings {
   /** Logging every request is on right now. */
   active: boolean

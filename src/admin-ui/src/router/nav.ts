@@ -5,7 +5,7 @@ export interface NavItem {
   label: string
   icon: string
   roles?: Role[]
-  badge?: 'alerts' | 'circuits'
+  badge?: 'alerts' | 'circuits' | 'update'
 }
 
 export interface NavGroup {
@@ -53,7 +53,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { name: 'budgets', label: 'Budgets & alerts', icon: 'savings', roles: ADMIN_ROLES, badge: 'alerts' },
       { name: 'audit', label: 'Audit log', icon: 'history', roles: GATEWAY_ADMIN },
-      { name: 'settings', label: 'Settings', icon: 'settings', roles: GATEWAY_ADMIN },
+      { name: 'settings', label: 'Settings', icon: 'settings', roles: GATEWAY_ADMIN, badge: 'update' },
     ],
   },
 ]
