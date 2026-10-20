@@ -4,6 +4,10 @@
 //   STREAM   true | false
 //   VUS      concurrent clients        DURATION  e.g. 30s
 //   OUT      results file name         KEY       Ume virtual key (TARGET=ume)
+//   ENEO_KEY, ENEO_ASSISTANT   eneo service API key and its assistant (lib.sh with ENEO_AUTH=apikey): messages are sent
+//            the way an external application sends them. Without them: as the signed-in default user, like eneo's web app.
+//   NO_REUSE true: a new connection per message. eneo's gunicorn workers each accept a burst of new connections, so
+//            with kept-alive connections a few workers can end up with every client while the rest stay idle.
 //
 // Every response is checked: status 200 and the fake LLM's answer in the body, so a platform that fails fast (or
 // returns an error inside an SSE stream) cannot look faster than it is.
@@ -32,6 +36,7 @@ export const options = {
   },
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
   discardResponseBodies: false,
+  noConnectionReuse: __ENV.NO_REUSE === 'true',
 };
 
 export function setup() {
@@ -43,7 +48,12 @@ export function setup() {
     return { headers: TARGET === 'ume' ? { Authorization: `Bearer ${__ENV.KEY}` } : {} };
   }
 
-  // eneo: one password login (OAuth2 password flow), then the user's personal assistant.
+  // eneo through a service API key: no login, the key's assistant.
+  if (__ENV.ENEO_KEY) {
+    return { headers: { 'X-API-Key': __ENV.ENEO_KEY }, assistantId: __ENV.ENEO_ASSISTANT };
+  }
+
+  // eneo as a signed-in user: one password login (OAuth2 password flow), then the user's personal assistant.
   const login = http.post(`${BASE}/users/login/token/`, { username: 'compare@example.com', password: 'ComparePassword123!' });
   if (login.status !== 200) {
     fail(`eneo login failed: ${login.status} ${login.body}`);

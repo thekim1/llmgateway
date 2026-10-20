@@ -277,7 +277,21 @@ and budgets, routes and records usage metadata. eneo is a chat application: ever
 its space, creates a conversation, stores the question and answer, and counts tokens. The numbers show what each
 costs on top of the LLM call, not which product is better.
 
-Measured 2026-10-09 (30 s per scenario, 0 failed checks in every scenario; each response verified to contain the fake
+**What an eneo message is.** One `POST /api/v1/conversations/` that starts a new conversation with an assistant
+without knowledge, attachments or tools, using the fake LLM as its model; the same Swedish question as the gateway gets,
+streamed or not. eneo can be called in two ways, and they cost different amounts:
+
+- **As a signed-in user** (`Authorization: Bearer` JWT, the user's personal assistant): what eneo's web app does. All
+  eneo runs up to and including 2026-10-20 morning used this.
+- **With a service API key** (`X-API-Key: sk_…`, scoped to an assistant in a shared space): what an external
+  application does, and the counterpart of a gateway virtual key. Each message then also checks the key's guardrails and
+  scope, its rate limit in Redis and writes an *API key used* audit event (through eneo's background worker). This is
+  the fair comparison; see *Re-run 2026-10-20: eneo through a service API key* below.
+
+Exact set-up of both (assistant, key settings, what is stored):
+[benchmarks/compare/README.md](../benchmarks/compare/README.md#the-eneo-message).
+
+Measured 2026-10-09 with eneo called as a signed-in user (for eneo through a service API key, the like-for-like comparison, see *Re-run 2026-10-20* below; 30 s per scenario, 0 failed checks in every scenario; each response verified to contain the fake
 LLM's answer). Overhead is the median minus the fake LLM's own median at the same load.
 
 | Chat message, non-streaming | Ume gateway | eneo v2.2.1 |
@@ -376,6 +390,96 @@ Same script, same machine, gateway only (`PLATFORMS=ume ./scale.sh`); the eneo f
   Redis use under one thread together) it served 20 944 msg/s with the gateway at 5.1 of 6 threads. The 4-vCPU peak did not
   move (17 997), so there the gateway is the limit.
 - Redis: 18 commands per message and about half of one thread at the peak, so it is not close to its single-thread limit yet.
+
+#### Re-run 2026-10-20: eneo through a service API key
+
+The runs above sent eneo messages as a signed-in user (JWT, personal assistant), the way eneo's web app does. An
+external application uses a service API key instead, which is the counterpart of a gateway virtual key, so this run
+compares the two on that footing. Set-up (`ENEO_AUTH=apikey`): a shared space with one assistant, a service key
+(`sk_`, ownership `service`, write permission, scoped to that assistant, 90-day expiry, rate limit raised so it is
+checked but never reached); eneo's background worker runs on the same cores, as in its production compose, and its CPU
+is counted. Same 4 vCPUs for both platforms (eneo: 4 gunicorn workers + the worker), fake LLM 2 threads, k6 4 threads,
+Postgres + Redis 4 threads, 30 s per point, gateway image built from the current code. eneo as a signed-in user was
+re-run in the same session for comparison. Details of both eneo paths:
+[benchmarks/compare/README.md](../benchmarks/compare/README.md#the-eneo-message).
+
+| Streaming, 4 vCPUs | 1 client | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|
+| Gateway, msg/s | 593 | 4 014 | 6 539 | 9 840 | 13 357 | **16 180** |
+| Gateway, median | 1.7 ms | 2.0 ms | 2.4 ms | 3.2 ms | 4.6 ms | 7.5 ms |
+| eneo API key, msg/s | 13 | **49** | 48 | 45 | 43 | 35 (0.8 % errors) |
+| eneo API key, median | 72 ms | 141 ms | 284 ms | 643 ms | 1.5 s | 2.5 s |
+| eneo signed-in user, msg/s | 14 | 53 | **55** | 47 | 46 | 41 |
+
+| Non-streaming, 4 vCPUs | 1 client | 8 | 16 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|
+| Gateway, msg/s | 749 | 5 121 | 8 821 | 13 147 | 17 641 | **21 758** |
+| Gateway, median | 1.3 ms | 1.5 ms | 1.7 ms | 2.3 ms | 3.3 ms | 5.1 ms |
+| eneo API key, msg/s | 17 | 58 | **58** | 48 | 51 | 30 (0.9 % errors) |
+| eneo API key, median | 58 ms | 107 ms | 254 ms | 718 ms | 1.3 s | 2.0 s |
+| eneo signed-in user, msg/s | 17 | 63 | **63** | 58 | 57 | 28 (1.8 % errors) |
+
+| Per message, streaming, 16 clients | Gateway | eneo API key | eneo signed-in user |
+|---|---:|---:|---:|
+| Application CPU | **0.47 ms** | 81.8 ms (of which worker 7.5 ms) | 71.6 ms |
+| Postgres + Redis CPU | **0.13 ms** | 12.1 ms | 9.2 ms |
+| Postgres statements | **0.7** (background, batched) | 78 | 74 |
+| Redis commands | 18 (incl. inside Lua scripts) | 31 | 0.2 |
+| Memory, application | 0.7 GB | 2.1 GB | 2.1 GB |
+
+- **The API key makes eneo about 10–14 % more expensive per message**: about 10 ms more CPU (7.5 ms of it in the worker
+  writing the *API key used* audit event, the rest in key resolution, guardrails and the rate limit), four more Postgres
+  statements and about 30 Redis commands (rate limit and the audit job queue). Peak throughput falls from 55 to 49
+  streaming and from 63 to 58 non-streaming messages/s.
+- **Like for like**, the gateway on the same four vCPUs peaks at 16 180 streaming and 21 758 non-streaming messages/s:
+  about 330× and 370× eneo's peak through an API key, at roughly 170× less application CPU per message (0.47 against
+  81.8 ms at 16 clients; at its peak the gateway uses 0.21 ms). At 128 clients the gateway is close to the fake LLM's
+  limit on two threads (see the 2026-10-15 notes), so its numbers there are a lower bound.
+- With one client both platforms' CPU per message includes idle background work spread over few messages; the 16-client
+  column is the marginal cost.
+
+**Scaling through the API key** (`PLATFORMS="ume eneo" ENEO_AUTH=apikey ./scale.sh`, streaming, 20 s per point,
+results in `benchmarks/compare/results/scale-2026-10-20-apikey/`). The presentation
+([reports/platform-comparison.html](reports/platform-comparison.html)) uses these numbers.
+
+| Concurrent clients (4 vCPUs) | 1 | 4 | 8 | 16 | 64 | 128 | 256 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Gateway, msg/s | 554 | 2 392 | 4 193 | 6 554 | 11 899 | 14 314 | **17 817** |
+| Gateway, median | 1.7 ms | 1.7 ms | 1.9 ms | 2.4 ms | 4.8 ms | 7.8 ms | 13.9 ms |
+| eneo API key, msg/s | 14 | 50 | **51** | 46 | 45 | 17 (1.7 % errors) | 8 (53 % errors) |
+| eneo API key, median | 76 ms | 76 ms | 143 ms | 315 ms | 1.4 s | 2.3 s | 31 s |
+
+| vCPUs (peak, fresh stack each) | 1 | 2 | 4 | 6 |
+|---|---:|---:|---:|---:|
+| Gateway, peak msg/s | 4 543 | 10 577 | 16 509 | 18 072 |
+| Gateway, CPU per message | 0.20 ms | 0.18 ms | 0.20 ms | 0.27 ms |
+| eneo API key, peak msg/s | 13 | 27 | 45 | 65 |
+| eneo API key, speed-up (efficiency) | 1.0× | 2.06× (103 %) | 3.41× (85 %) | 4.91× (82 %) |
+| eneo API key, CPU per message (incl. worker) | 78.7 ms | 76.2 ms | 81.1 ms | 90.6 ms |
+
+- eneo's 4-vCPU peak differs between the load sweep (51), the resources sweep (45) and the dedicated run above (49):
+  single 20–30 s samples of eneo vary by about ±10 %. Each figure is used in its own context.
+- At its peak the gateway does 0.1 Postgres statements per message (about ten usage records per `COPY`); eneo 78.
+
+Other eneo checks the same day (details in `benchmarks/compare/results/`):
+
+- **Reproducibility.** A second run of the 1/2/4/6-vCPU scaling as a signed-in user gave peaks within ±7 % of the
+  2026-10-09 run (16.6 / 31.6 / 54.1 / 79.9 msg/s), the same CPU per message and the same 74 statements per message.
+- **Limits.** At its peak eneo is limited by its own CPU (0.96 of 1, 1.9 of 2, 3.7 of 4, 5.6 of 6 vCPUs busy); its
+  Postgres used 0.1–0.6 cores and memory was not limiting. `LOGLEVEL=WARNING`, `OTEL_SDK_DISABLED=true` and
+  `DB_POOL_PRE_PING=false` changed throughput by at most 2–6 %: no configuration setting removes the ~70 ms of Python
+  work per message.
+- **10 000 users.** With 10 000 users in the tenant (each with a personal space, assistant and one conversation, created
+  through eneo's API by `eneo/seed_users.py`) the 4-vCPU results did not change (peak 54.6 → 58.0 msg/s, same CPU and
+  statements per message): eneo's lookups are by indexed keys of the requesting user and space.
+- **Uneven worker load.** gunicorn's workers share one listening socket and each uvicorn worker accepts a whole burst of
+  new connections at once, so clients that keep their connection open can end up on a few workers. With 1–6 workers
+  this did not change the peaks (checked with a new connection per message, `NO_REUSE=true`), but with 12 workers in
+  one container two workers did all the work (14 msg/s instead of 70–85). eneo has no setting for this; in production
+  its backend is reached over kept-alive connections (Traefik, the frontend's server-side rendering), so scaling eneo
+  is better done with several containers of a few workers each than one container with many.
+- **Whole machine.** With all 16 hardware threads shared (16 workers) eneo peaked at 132 msg/s as a signed-in user;
+  the gateway reached 22 094 msg/s with 6 pinned threads, limited by the load generator and fake LLM on the same machine.
 
 ### Data protection and resilience (not performance)
 

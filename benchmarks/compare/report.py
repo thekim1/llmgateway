@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 NAMES = {"fake": "Fake LLM directly (floor)", "ume": "Ume LLM gateway", "eneo": "eneo v2.2.1"}
-APP = {"ume": ["ume-gateway"], "eneo": ["eneo-backend"], "fake": []}
+APP = {"ume": ["ume-gateway"], "eneo": ["eneo-backend", "eneo-worker"], "fake": []}
 DATA = {"ume": ["ume-db", "ume-redis"], "eneo": ["eneo-db", "eneo-redis"], "fake": []}
 
 

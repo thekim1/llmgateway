@@ -97,7 +97,7 @@ services:
     depends_on:
       eneo-db: { condition: service_healthy }
       eneo-redis: { condition: service_started }
-    environment:
+    environment: &eneo-env
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_HOST: eneo-db
@@ -134,9 +134,27 @@ services:
       FAKE_LLM_API_KEY: ${ENEO_LLM_API_KEY:-fake-key}
     volumes:
       - ./eneo/seed.py:/bench/seed.py:ro
+      - ./eneo/seed_api_key.py:/bench/seed_api_key.py:ro
     # init_db.py migrates and creates the tenant/user, seed.py adds the fake model, run.sh starts gunicorn as in production.
     command: ["sh", "-c", "python init_db.py && python /bench/seed.py && exec ./run.sh"]
     ports: ["127.0.0.1:18000:8000"]
+    healthcheck: # listening = migrated and seeded (not /api/healthz: that fails until the worker reports in)
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8000), 2)"]
+      interval: 2s
+      retries: 120
+
+  # eneo's background worker, as in its production docker-compose.yml. It writes the audit events the backend queues in
+  # Redis, such as "API key used" for every API-key request. It shares the backend's cores: the gateway writes its usage
+  # records inside its own process, on the same four cores.
+  eneo-worker:
+    profiles: [eneo]
+    image: eneo-backend:v2.2.1
+    <<: *app-cpus
+    depends_on:
+      eneo-backend: { condition: service_healthy }
+    environment:
+      <<: *eneo-env
+      RUN_AS_WORKER: "true"
 
   # ---------- load generator ----------
   k6:

@@ -13,6 +13,12 @@ workers) and the gateway (Release container built from the working tree on 2026-
 cores, with 2 cores for their Postgres + Redis. The load generator runs on its own cores. The host is an AMD Ryzen 7
 9800X3D running Docker Desktop on WSL2. Raw results are in `benchmarks/compare/results/2026-10-13/`.
 
+eneo was called as a signed-in user (JWT, personal assistant), the way its web app calls it. An external application
+uses a service API key, which costs eneo about 10–14 % more per message (key checks, rate limit and an audit event per
+request); see [performance.md, Re-run 2026-10-20](performance.md#re-run-2026-10-20-eneo-through-a-service-api-key). The
+latency findings below are not re-measured that way, but the extra cost is CPU work of the same kind, so under load
+eneo's numbers would be somewhat worse, not better.
+
 ## Summary
 
 - **With a realistic LLM, the gateway adds nothing a user can notice.** At 1–256 concurrent streams, its median TTFT

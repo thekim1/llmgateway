@@ -315,9 +315,9 @@ function benchPage() {
   </section>
 
   <section class="stack-20" aria-labelledby="cmp-h">
-    <div class="stack-6 measure"><h2 id="cmp-h" class="h-m">Next to eneo, on the same fake LLM</h2><p class="muted">Same four pinned cores for each platform. These are different kinds of product: eneo is a chat application that stores every conversation; the gateway is a stateless proxy. The numbers show what each adds on top of the model call, not which is better.</p></div>
+    <div class="stack-6 measure"><h2 id="cmp-h" class="h-m">Next to eneo, on the same fake LLM</h2><p class="muted">Same four pinned cores for each platform. Both are called the way an external application calls them: the gateway with a virtual key, eneo with a service API key. These are different kinds of product: eneo is a chat application that stores every conversation; the gateway is a stateless proxy. The numbers show what each adds on top of the model call, not which is better.</p></div>
     <div class="card panel stack-24">${C.COMPARE.map(c => `<div class="stack-10"><span class="b">${c.label}</span>${c.rows.map(([n, v, l], j) => `<div class="hbar"><span class="muted">${n}</span><div class="track"><div class="fill${j ? ' other' : ''}" style="width:${Math.max(0.6, v / c.max * 100).toFixed(2)}%"></div></div><span class="b num">${l}</span></div>`).join('')}</div>`).join('')}
-      <span class="fine">Lower is better. Measured 9 Oct 2026, 30 s per scenario, 0 failed checks.</span></div>
+      <span class="fine">Lower is better. Measured 20 Oct 2026, streaming, 30 s per point, 0 failed checks. Peak on the same four cores: 16 180 messages/s for the gateway, 49 for eneo.</span></div>
   </section>
 
   <section class="stack-20" aria-labelledby="reports-h">

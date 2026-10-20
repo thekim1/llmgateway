@@ -200,11 +200,11 @@ export const COST_ROWS = [
   { step: 'Usage record', when: 'Background', rt: '0', how: 'Batched, about ten records per Postgres COPY statement' },
 ]
 
-/** docs/performance.md, Comparison with eneo (2026-10-09). */
+/** docs/performance.md, Re-run 2026-10-20: eneo through a service API key (streaming, 4 vCPUs each). */
 export const COMPARE = [
-  { label: 'Added latency, 1 client (median)', max: 51.5, rows: [['Ume gateway', 1.1, '1.1 ms'], ['eneo v2.2.1', 51.5, '51.5 ms']] },
-  { label: 'CPU per message, 16 clients', max: 56.5, rows: [['Ume gateway', 0.37, '0.37 ms'], ['eneo v2.2.1', 56.5, '56.5 ms']] },
-  { label: 'Postgres statements per message', max: 72, rows: [['Ume gateway', 1.5, '1–2, batched'], ['eneo v2.2.1', 72, '72']] },
+  { label: 'Time per streamed answer, 1 client (median)', max: 72.1, rows: [['Ume gateway', 1.7, '1.7 ms'], ['eneo v2.2.1', 72.1, '72.1 ms']] },
+  { label: 'CPU per message, 16 clients', max: 81.8, rows: [['Ume gateway', 0.47, '0.47 ms'], ['eneo v2.2.1', 81.8, '81.8 ms']] },
+  { label: 'Postgres statements per message', max: 78, rows: [['Ume gateway', 0.7, '0.7, batched'], ['eneo v2.2.1', 78, '78']] },
 ]
 
 export const BENCH_CODE = `# All BenchmarkDotNet benchmarks (~20 min)

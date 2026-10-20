@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 NAMES = {"fake": "Fake LLM (floor)", "ume": "Ume gateway", "eneo": "eneo v2.2.1"}
-APP = {"ume": "ume-gateway", "eneo": "eneo-backend"}
+APP = {"ume": ["ume-gateway"], "eneo": ["eneo-backend", "eneo-worker"]}  # the worker writes eneo's audit events
 
 
 def read_runs(folder: Path):
@@ -19,8 +19,8 @@ def read_runs(folder: Path):
         cpu = path.with_name(path.stem + ".cpu.json")
         run["cpu"] = json.loads(cpu.read_text()) if cpu.exists() else {}
         run.update(kind=m[1], platform=m[2], x=int(m[3]), clients=int(m[4]) if m[1] == "cores" else int(m[3]))
-        app = run["cpu"].get(APP.get(m[2], ""), {})
-        run["cpu_ms_per_req"] = app.get("cpu_ns", 0) / 1e6 / run["requests"] if run["requests"] and app else None
+        app_ns = sum(run["cpu"].get(s, {}).get("cpu_ns", 0) for s in APP.get(m[2], []))
+        run["cpu_ms_per_req"] = app_ns / 1e6 / run["requests"] if run["requests"] and app_ns else None
         runs.append(run)
     return runs
 

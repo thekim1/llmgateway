@@ -40,13 +40,14 @@ redis_calls() {
 services_for() {
   case "$1" in
     ume) echo "ume-gateway ume-db ume-redis fake-llm" ;;
-    eneo) echo "eneo-backend eneo-db eneo-redis fake-llm" ;;
+    eneo) echo "eneo-backend eneo-worker eneo-db eneo-redis fake-llm" ;;
     fake) echo "fake-llm" ;;
   esac
 }
 
 k6() { # target stream vus duration out
-  "${COMPOSE[@]}" --profile tools run --rm -e TARGET="$1" -e STREAM="$2" -e VUS="$3" -e DURATION="$4" -e OUT="$5" -e KEY="${KEY:-}" \
+  "${COMPOSE[@]}" --profile tools run --rm -e TARGET="$1" -e STREAM="$2" -e VUS="$3" -e DURATION="$4" -e OUT="$5" -e KEY="${KEY:-}" -e NO_REUSE="${NO_REUSE:-false}" \
+    -e ENEO_ASSISTANT="${ENEO_ASSISTANT:-}" -e ENEO_KEY="${ENEO_KEY:-}" \
     k6 run -q /scripts/chat.js 2>&1 | grep -vE '^\s*$|level=warn' || true
 }
 
@@ -79,6 +80,13 @@ start_platform() {
       "${COMPOSE[@]}" exec -T eneo-db psql -U postgres -d eneo -qc "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null
       # Migrations and seeding run before gunicorn binds the port, so any HTTP answer means ready.
       wait_http http://127.0.0.1:18000/api/v1/ '^[2-5][0-9][0-9]$'
+      "${COMPOSE[@]}" --profile eneo up -d --wait eneo-worker >/dev/null
+      # ENEO_AUTH=apikey: messages go through a service API key, like an external application (see README.md).
+      ENEO_ASSISTANT="" ENEO_KEY=""
+      if [[ ${ENEO_AUTH:-user} == apikey ]]; then
+        read -r ENEO_ASSISTANT ENEO_KEY < <("${COMPOSE[@]}" exec -T eneo-backend python /bench/seed_api_key.py | tail -1)
+        [[ "$ENEO_KEY" == sk_* ]] || { echo "Creating the eneo service API key failed" >&2; exit 1; }
+      fi
       ;;
   esac
 }

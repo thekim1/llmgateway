@@ -1,0 +1,350 @@
+- generic [active] [ref=e1]:
+  - navigation "Sections" [ref=e2]:
+    - link "Ume LLM Gateway compared with eneo" [ref=e3] [cursor=pointer]:
+      - /url: "#cover"
+    - link "Four numbers that sum it up" [ref=e4] [cursor=pointer]:
+      - /url: "#headline"
+    - link "Delay the platform adds to each answer" [ref=e5] [cursor=pointer]:
+      - /url: "#single"
+    - link "eneo peaks at 51 messages per second; the gateway keeps climbing to 17 800" [ref=e6] [cursor=pointer]:
+      - /url: "#users"
+    - link "With 256 users the gateway still answers in 14 ms; eneo needs 31 seconds" [ref=e7] [cursor=pointer]:
+      - /url: "#waiting"
+    - link "eneo scales well, but from so far behind that it never catches up" [ref=e8] [cursor=pointer]:
+      - /url: "#hardware"
+    - link "Less hardware and far less database work per message" [ref=e9] [cursor=pointer]:
+      - /url: "#cost"
+    - link "The gateway slows down gracefully; eneo starts failing" [ref=e10] [cursor=pointer]:
+      - /url: "#overload"
+    - link "The gateway stops personal data before it reaches the AI model; eneo passes it on" [ref=e11] [cursor=pointer]:
+      - /url: "#privacy"
+    - link "What protects users who send data to the wrong place" [ref=e12] [cursor=pointer]:
+      - /url: "#controls"
+    - link "eneo can run on top of the gateway and get these safeguards without changes" [ref=e13] [cursor=pointer]:
+      - /url: "#together"
+    - link "Different kinds of product, measured on the same task" [ref=e14] [cursor=pointer]:
+      - /url: "#fair"
+  - generic [ref=e16]:
+    - generic [ref=e17]: Umeå kommun · AI platform · October 2026
+    - heading "Ume LLM Gateway compared with eneo" [level=1] [ref=e18]
+    - paragraph [ref=e19]: "Both platforms ran on the same hardware against the same simulated AI model, which answers instantly, and were called the way an external application calls them: each with its own API key. Everything measured is the platforms' own work."
+    - paragraph [ref=e20]:
+      - text: On the same hardware the gateway handles about
+      - strong [ref=e21]: 350 times as many messages
+      - text: ", adds"
+      - strong [ref=e22]: 45 times less delay
+      - text: to each one and keeps working when overloaded. It also
+      - strong [ref=e23]: checks every message for personal data
+      - text: and
+      - strong [ref=e24]: switches to another AI provider
+      - text: when one fails; eneo does neither.
+    - generic [ref=e25]:
+      - generic [ref=e26]: Ume LLM Gateway
+      - generic [ref=e28]: eneo v2.2.1
+      - generic [ref=e30]: Use ↓ / space to step through · ↑ to go back
+  - generic [ref=e32]:
+    - generic [ref=e33]: The short version
+    - heading "Four numbers that sum it up" [level=2] [ref=e34]
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]: 350×
+        - generic [ref=e38]: more messages per second
+        - generic [ref=e39]: 17 817 vs 51 per second, both on 4 vCPUs
+      - generic [ref=e40]:
+        - generic [ref=e41]: 45×
+        - generic [ref=e42]: less delay added per message
+        - generic [ref=e43]: 1.7 ms vs 76 ms, one user
+      - generic [ref=e44]:
+        - generic [ref=e45]: 400×
+        - generic [ref=e46]: less computing per message
+        - generic [ref=e47]: 0.20 ms vs 81 ms CPU time
+      - generic [ref=e48]:
+        - generic [ref=e49]: 0 %
+        - generic [ref=e50]: errors with 256 users at once
+        - generic [ref=e51]: "eneo: 53 % of requests failed"
+  - generic [ref=e53]:
+    - generic [ref=e54]: One user
+    - heading "Delay the platform adds to each answer" [level=2] [ref=e55]
+    - paragraph [ref=e56]: Measured with a single user. Both are small next to the AI model's own answer time, which is usually one to ten seconds. The difference shows up as soon as many people use the service at once and in how much hardware it needs.
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]: Ume gateway
+        - generic [ref=e61]: 1.7 ms
+      - generic [ref=e64]:
+        - generic [ref=e65]: eneo
+        - generic [ref=e66]: 75.8 ms
+  - generic [ref=e70]:
+    - generic [ref=e71]: More users, same hardware
+    - heading "eneo peaks at 51 messages per second; the gateway keeps climbing to 17 800" [level=2] [ref=e72]
+    - paragraph [ref=e73]: "Messages handled per second as more users send at the same time, both on 4 vCPUs. Note the scale: each step up is ten times more. Past eight users, eneo gets slower in total instead of levelling off."
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e76]: Ume gateway
+        - generic [ref=e78]: eneo
+      - img "Messages per second against simultaneous users" [ref=e80]:
+        - generic [ref=e81]:
+          - generic [ref=e82]: "1"
+          - generic [ref=e83]: "10"
+          - generic [ref=e84]: "100"
+          - generic [ref=e85]: 1k
+          - generic [ref=e86]: 10k
+          - generic [ref=e87]: 100k
+          - generic [ref=e88]: "1"
+          - generic [ref=e89]: "2"
+          - generic [ref=e90]: "4"
+          - generic [ref=e91]: "8"
+          - generic [ref=e92]: "16"
+          - generic [ref=e93]: "32"
+          - generic [ref=e94]: "64"
+          - generic [ref=e95]: "128"
+          - generic [ref=e96]: "256"
+        - generic [ref=e97]: Users sending at the same time
+        - generic [ref=e98]: Messages per second
+        - generic [ref=e109]: Ume 17 817/s
+        - generic [ref=e120]: eneo 8/s
+        - generic [ref=e121]: "eneo peak: 51/s"
+        - generic [ref=e122]: 53 % of requests failed
+  - generic [ref=e125]:
+    - generic [ref=e126]: Waiting time
+    - heading "With 256 users the gateway still answers in 14 ms; eneo needs 31 seconds" [level=2] [ref=e127]
+    - paragraph [ref=e128]: Typical (median) time for the platform to deliver a whole answer, again on a ten-times scale. The dotted line marks one second.
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - generic [ref=e131]: Ume gateway
+        - generic [ref=e133]: eneo
+      - img "Median time per answer against simultaneous users" [ref=e135]:
+        - generic [ref=e136]:
+          - generic [ref=e137]: 1 ms
+          - generic [ref=e138]: 10 ms
+          - generic [ref=e139]: 100 ms
+          - generic [ref=e140]: 1 s
+          - generic [ref=e141]: 10 s
+          - generic [ref=e142]: 100 s
+          - generic [ref=e143]: "1"
+          - generic [ref=e144]: "2"
+          - generic [ref=e145]: "4"
+          - generic [ref=e146]: "8"
+          - generic [ref=e147]: "16"
+          - generic [ref=e148]: "32"
+          - generic [ref=e149]: "64"
+          - generic [ref=e150]: "128"
+          - generic [ref=e151]: "256"
+        - generic [ref=e152]: Users sending at the same time
+        - generic [ref=e153]: Typical time per answer
+        - generic [ref=e154]: one second
+        - generic [ref=e165]: Ume 14 ms
+        - generic [ref=e176]: eneo 31 s
+  - generic [ref=e179]:
+    - generic [ref=e180]: Adding hardware
+    - heading "eneo scales well, but from so far behind that it never catches up" [level=2] [ref=e181]
+    - paragraph [ref=e182]: Measured with 1 to 6 vCPUs. eneo gains almost proportionally from each extra vCPU (4.9 times faster on 6), but each vCPU only gives it about 11–14 messages per second. The dashed line continues that trend as if eneo scaled perfectly forever, which is better than it does in practice.
+    - generic [ref=e183]:
+      - generic [ref=e184]:
+        - generic [ref=e185]: Ume gateway, measured
+        - generic [ref=e187]: eneo, measured
+        - generic [ref=e189]: eneo with perfect scaling (projection)
+      - img "Messages per second against vCPUs, with eneo projected" [ref=e191]:
+        - generic [ref=e192]:
+          - generic [ref=e193]: "10"
+          - generic [ref=e194]: "100"
+          - generic [ref=e195]: 1k
+          - generic [ref=e196]: 10k
+          - generic [ref=e197]: 100k
+          - generic [ref=e198]: "1"
+          - generic [ref=e199]: "2"
+          - generic [ref=e200]: "4"
+          - generic [ref=e201]: "8"
+          - generic [ref=e202]: "16"
+          - generic [ref=e203]: "32"
+          - generic [ref=e204]: "64"
+          - generic [ref=e205]: "128"
+          - generic [ref=e206]: "256"
+          - generic [ref=e207]: "512"
+          - generic [ref=e208]: "1024"
+          - generic [ref=e209]: "2048"
+        - generic [ref=e210]: vCPUs (processor threads)
+        - generic [ref=e211]: Messages per second
+        - generic [ref=e212]: "Ume gateway on 4 vCPUs: 16 509/s"
+        - generic [ref=e225]: eneo would catch up at ≈ 1500 vCPUs
+        - generic [ref=e226]: and only if it scaled perfectly
+    - generic [ref=e228]:
+      - generic [ref=e229]:
+        - generic [ref=e230]: ≈ 1500
+        - generic [ref=e231]: vCPUs eneo would need
+        - generic [ref=e232]: to match the gateway on 4 vCPUs, even with perfect scaling
+      - generic [ref=e233]:
+        - generic [ref=e234]: 340×
+        - generic [ref=e235]: more work per vCPU
+        - generic [ref=e236]: 4 543 vs 13 messages/s on a single vCPU
+  - generic [ref=e238]:
+    - generic [ref=e239]: Cost per message
+    - heading "Less hardware and far less database work per message" [level=2] [ref=e240]
+    - paragraph [ref=e241]: CPU time and database statements needed for one message at full load on 4 vCPUs (for eneo including its background worker, which writes an audit entry for every API-key request; the gateway writes its usage records in batches of about ten). Less of both means smaller servers, a smaller database and lower running costs for the same number of users.
+    - generic [ref=e242]:
+      - generic [ref=e243]:
+        - generic [ref=e244]: CPU time per message
+        - generic [ref=e245]:
+          - generic [ref=e246]: Ume gateway
+          - generic [ref=e247]:
+            - generic [ref=e249]: 0.20 ms
+            - generic [ref=e250]: 400× less
+        - generic [ref=e251]:
+          - generic [ref=e252]: eneo
+          - generic [ref=e253]: 81.1 ms
+      - generic [ref=e256]:
+        - generic [ref=e257]: Database statements per message
+        - generic [ref=e258]:
+          - generic [ref=e259]: Ume gateway
+          - generic [ref=e260]:
+            - generic [ref=e262]: "0.1"
+            - generic [ref=e263]: 780× fewer
+        - generic [ref=e264]:
+          - generic [ref=e265]: eneo
+          - generic [ref=e266]: "78"
+  - generic [ref=e270]:
+    - generic [ref=e271]: When too many users arrive
+    - heading "The gateway slows down gracefully; eneo starts failing" [level=2] [ref=e272]
+    - generic [ref=e273]:
+      - generic [ref=e274]:
+        - heading "Ume gateway, 256 users" [level=3] [ref=e275]
+        - generic [ref=e276]:
+          - term [ref=e277]: Typical wait
+          - definition [ref=e278]: 14 ms
+          - term [ref=e279]: Failed requests
+          - definition [ref=e280]: 0 %
+        - generic [ref=e281]: Every request answered
+        - paragraph [ref=e285]: When it is busy, requests wait a little longer in line. Nothing is lost.
+      - generic [ref=e286]:
+        - heading "eneo, 256 users" [level=3] [ref=e287]
+        - generic [ref=e288]:
+          - term [ref=e289]: Typical wait
+          - definition [ref=e290]: 31 s
+          - term [ref=e291]: Failed requests
+          - definition [ref=e292]: 53 %
+        - generic [ref=e293]: Errors after 30 s waits
+        - paragraph [ref=e297]: Each request needs several database connections at once. Under load they run out, and requests fail with an error after waiting 30 seconds.
+  - generic [ref=e299]:
+    - generic [ref=e300]: Personal data
+    - heading "The gateway stops personal data before it reaches the AI model; eneo passes it on" [level=2] [ref=e301]
+    - paragraph [ref=e302]: We sent the same message to both, with a personal identity number (Skatteverket's public test number), an e-mail address and a phone number. This is exactly what the AI model received.
+    - generic [ref=e303]:
+      - generic [ref=e304]:
+        - generic [ref=e305]:
+          - text: eneo v2.2.1
+          - generic [ref=e306]: sent unchanged, and saved in its chat history
+        - generic [ref=e307]:
+          - text: Kan du hjälpa mig med ett ärende för
+          - mark [ref=e308]: 19121212-1212
+          - text: ", epost"
+          - mark [ref=e309]: anna.andersson@example.com
+          - text: ", tel"
+          - mark [ref=e310]: 070-123 45 67
+          - text: "?"
+      - generic [ref=e311]:
+        - generic [ref=e312]:
+          - text: Ume gateway
+          - generic [ref=e313]: "policy “redact”: the values are replaced before sending; nothing of the message is stored"
+        - generic [ref=e314]:
+          - text: Kan du hjälpa mig med ett ärende för
+          - mark [ref=e315]: "[PERSONNUMMER]"
+          - text: ", epost"
+          - mark [ref=e316]: "[E-POST]"
+          - text: ", tel"
+          - mark [ref=e317]: "[TELEFON]"
+          - text: "?"
+    - generic [ref=e318]:
+      - generic [ref=e319]:
+        - generic [ref=e320]: Redact
+        - generic [ref=e321]: Replace the values, as above, and send the rest.
+      - generic [ref=e322]:
+        - generic [ref=e323]: Block
+        - generic [ref=e324]: Refuse the message and tell the user why.
+      - generic [ref=e325]:
+        - generic [ref=e326]: Keep on-premises
+        - generic [ref=e327]: Send it only to an AI model in our own data centre.
+      - generic [ref=e328]:
+        - generic [ref=e329]: Log only
+        - generic [ref=e330]: Send it, but record which kinds of data were found.
+    - paragraph [ref=e331]: The policy is chosen per key. Detection looks for identity and co-ordination numbers (with checksum), e-mail addresses, phone numbers and bank account numbers (IBAN); it does not recognise names or free-text health information.
+  - generic [ref=e333]:
+    - generic [ref=e334]: Safeguards side by side
+    - heading "What protects users who send data to the wrong place" [level=2] [ref=e335]
+    - table [ref=e337]:
+      - rowgroup [ref=e338]:
+        - row [ref=e339]:
+          - columnheader "Safeguard" [ref=e340]
+          - columnheader "Ume gateway" [ref=e341]
+          - columnheader "eneo v2.2.1" [ref=e342]
+      - rowgroup [ref=e343]:
+        - row [ref=e344]:
+          - cell "Checks each message for personal data" [ref=e345]
+          - cell "✓ Yes identity and co-ordination numbers, e-mail, phone, IBAN" [ref=e346]:
+            - generic [ref=e347]: ✓ Yes
+            - text: identity and co-ordination numbers, e-mail, phone, IBAN
+          - cell "✕ No the content is not inspected tested" [ref=e348]:
+            - generic [ref=e349]: ✕ No
+            - text: the content is not inspected tested
+        - row [ref=e350]:
+          - cell "Acts on what it finds" [ref=e351]
+          - cell "✓ Yes block, redact or keep on-premises, per key" [ref=e352]:
+            - generic [ref=e353]: ✓ Yes
+            - text: block, redact or keep on-premises, per key
+          - cell "✕ No" [ref=e354]
+        - row [ref=e356]:
+          - cell "Limits which AI models a user can reach" [ref=e357]
+          - 'cell "✓ Yes per key: allowed models, providers and data location (own data centre, EU, external)" [ref=e358]':
+            - generic [ref=e359]: ✓ Yes
+            - text: "per key: allowed models, providers and data location (own data centre, EU, external)"
+          - 'cell "◐ Partly per space: an administrator sets a security level and only models with at least that level can be chosen" [ref=e360]':
+            - generic [ref=e361]: ◐ Partly
+            - text: "per space: an administrator sets a security level and only models with at least that level can be chosen"
+        - row [ref=e362]:
+          - cell "Switches provider when one fails" [ref=e363]
+          - cell "✓ Yes tries the next provider in a set order, never outside the allowed data locations; failing providers are tried last" [ref=e364]:
+            - generic [ref=e365]: ✓ Yes
+            - text: tries the next provider in a set order, never outside the allowed data locations; failing providers are tried last
+          - cell "✕ No the user gets “AI service is temporarily unavailable” tested" [ref=e366]:
+            - generic [ref=e367]: ✕ No
+            - text: the user gets “AI service is temporarily unavailable” tested
+        - row [ref=e368]:
+          - cell "Stores what users write" [ref=e369]
+          - 'cell "✓ Never only usage data: tokens, cost, kinds of personal data found" [ref=e370]':
+            - generic [ref=e371]: ✓ Never
+            - text: "only usage data: tokens, cost, kinds of personal data found"
+          - cell "◐ Always every question and answer is kept as chat history (by design)" [ref=e372]:
+            - generic [ref=e373]: ◐ Always
+            - text: every question and answer is kept as chat history (by design)
+    - paragraph [ref=e374]: eneo's security levels decide which models a space may use, set in advance by an administrator. They cannot react to what a user actually types into a space.
+  - generic [ref=e376]:
+    - generic [ref=e377]: Not either or
+    - heading "eneo can run on top of the gateway and get these safeguards without changes" [level=2] [ref=e378]
+    - paragraph [ref=e379]: eneo talks to AI models through a standard interface, which the gateway provides. We pointed eneo at the gateway and tested it.
+    - generic [ref=e380]:
+      - generic [ref=e381]:
+        - heading "Personal data" [level=3] [ref=e382]
+        - generic [ref=e383]: Redacted before the AI model
+        - paragraph [ref=e387]: The same message sent through eneo reached the model as “[PERSONNUMMER], [E-POST], [TELEFON]”.
+      - generic [ref=e388]:
+        - heading "Provider failure" [level=3] [ref=e389]
+        - generic [ref=e390]: Answered by the backup provider
+        - paragraph [ref=e394]: With the main AI provider unreachable, eneo's user still got an answer; the gateway switched automatically.
+    - paragraph [ref=e395]: eneo still saves the original message in its own chat history. The gateway protects what is sent to the AI model, not eneo's database.
+  - generic [ref=e397]:
+    - generic [ref=e398]: Reading the results fairly
+    - heading "Different kinds of product, measured on the same task" [level=2] [ref=e399]
+    - generic [ref=e400]:
+      - generic [ref=e401]:
+        - heading "What eneo does extra" [level=3] [ref=e402]
+        - paragraph [ref=e403]: "eneo is a full chat application: it stores every conversation, resolves assistants, spaces and permissions, and counts tokens for each message. The gateway passes requests on to the AI model and records usage, which is its whole job. Both checked an API key, a rate limit and recorded the use of the key for every message."
+      - generic [ref=e404]:
+        - heading "What it means in practice" [level=3] [ref=e405]
+        - paragraph [ref=e406]: For one user the difference is hidden behind the AI model's own answer time. For many users it decides how much hardware is needed and whether the service stays up at peak load.
+      - generic [ref=e407]:
+        - heading "The gateway's own limit" [level=3] [ref=e408]
+        - paragraph [ref=e409]: One gateway instance on 4 vCPUs handled about 18 000 messages per second. With more vCPUs the test machine itself (the simulated AI model and the load generator) became the limit. That is far above expected load, and more instances can be added.
+      - generic [ref=e410]:
+        - heading "How it was measured" [level=3] [ref=e411]
+        - paragraph [ref=e412]:
+          - text: "Same machine (8-core AMD Ryzen 7 9800X3D), same simulated AI model, each platform given the same processor cores; eneo v2.2.1 built from its official release, with its background worker running as in its own production set-up. Both were called like an external application: the gateway with a virtual key, eneo with a service API key scoped to one assistant (a new conversation per message, streamed). Measured 20 October 2026; each figure is 20 seconds of steady load, and every answer was checked. Scripts:"
+          - code [ref=e413]: benchmarks/compare
+          - text: .
