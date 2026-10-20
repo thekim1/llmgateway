@@ -48,6 +48,12 @@ you enter yourself; it is stored in the Portainer stack's environment, so restri
   (two hostnames, HTTPS upstreams) and firewall the ports to the proxy.
 - PKI-issued certificates are not supported by this variant; use `compose.prod.yaml` with
   `init-deployment.sh` for that.
+- **Following the newest release.** Each release also tags its images `:latest` (pre-releases do not), so the image
+  variables can be `ghcr.io/<owner>/<repo>/gateway:latest` (and `adminapi`, `migrations`, `dataapi`) instead of a version.
+  To upgrade, read the [upgrade guide](upgrade-guide.md) for the new version, then **Update the stack** with **Re-pull image
+  and redeploy** switched on; *Settings > Version* in the admin UI says when a new release is out. Without the re-pull,
+  Portainer keeps the `:latest` it pulled before. To roll back or hold a version, set the variables to that version's tag.
+  Keep all four on the same tag: the migrations image must match the services.
 - `compose.portainer.yaml` is generated: edit `compose.portainer.template.yaml`,
   `portainer/bootstrap.sh` or the postgres/redis config files, then run `deploy/build-portainer-stack.sh`
   (CI fails if the generated file is stale).

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.6.3 - 2026-10-20
+
+**`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer
+stack can follow the newest release without editing image variables; see *Portainer* in the runbook.
+
 ## 0.6.2 - 2026-10-20
 
 **Version and new releases in Settings.** *Settings > Version* shows the running version and the newest GitHub release with a
