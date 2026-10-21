@@ -65,8 +65,8 @@ YAML
 kubectl -n "$ns" wait --for=condition=Ready pod/rolling-load --timeout=300s
 # Each leg writes its output and exit code; the pod keeps running so they can be read afterwards.
 kubectl -n "$ns" exec rolling-load -- sh -c '
-  (python /load/rolling-load.py gateway 8443 /v1/chat/completions 401 16 /tmp/stop POST > /tmp/post.txt 2>&1; echo $? > /tmp/post.rc) </dev/null >/dev/null 2>&1 &
-  (python /load/rolling-load.py gateway 8443 /v1/models 401 8 /tmp/stop > /tmp/get.txt 2>&1; echo $? > /tmp/get.rc) </dev/null >/dev/null 2>&1 &
+  (python /load/rolling-load.py gateway 8443 /v1/chat/completions 401,429 16 /tmp/stop POST > /tmp/post.txt 2>&1; echo $? > /tmp/post.rc) </dev/null >/dev/null 2>&1 &
+  (python /load/rolling-load.py gateway 8443 /v1/models 401,429 8 /tmp/stop > /tmp/get.txt 2>&1; echo $? > /tmp/get.rc) </dev/null >/dev/null 2>&1 &
   (python /load/rolling-load.py adminapi 8443 / 200 4 /tmp/stop > /tmp/admin.txt 2>&1; echo $? > /tmp/admin.rc) </dev/null >/dev/null 2>&1 &
   sleep 1'
 sleep 8
