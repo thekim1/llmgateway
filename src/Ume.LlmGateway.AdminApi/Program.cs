@@ -65,6 +65,7 @@ app.UseUmeSecurityHeaders(o =>
     o.NoStorePrefixes.Add("/api");
     o.NoStorePrefixes.Add("/bff");
 });
+app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 app.UseProblemDetailsForEmptyErrors("The action could not be completed");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -83,7 +84,7 @@ api.MapReports();
 api.MapOperations();
 api.MapDataAccess();
 app.MapOpenApi().RequireAuthorization(AdminPolicies.Admin);
-app.MapScalarApiReference().RequireAuthorization(AdminPolicies.Admin);
+app.MapScalarApiReference(o => o.WithNonce().DisableDefaultFonts()).RequireAuthorization(AdminPolicies.Admin);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");

@@ -20,7 +20,7 @@ public sealed partial class GatewayRequestHandler
 
     private async Task<VirtualKey?> AuthenticateAsync(HttpContext http, GatewayEndpoint endpoint, DateTimeOffset now, CancellationToken ct)
     {
-        var docs = options.CurrentValue.DocsUrl;
+        var docs = options.CurrentValue.ErrorDocsUrl;
         var presented = KeyAuthenticator.ExtractKey(http.Request);
         var address = http.Connection.RemoteIpAddress;
         VirtualKey? key;
@@ -217,7 +217,7 @@ public sealed partial class GatewayRequestHandler
     /// <summary>Answers with <paramref name="error"/> and accounts the refused request.</summary>
     private async Task RejectAsync(HttpContext http, RequestState state, GatewayError error, RequestOutcome outcome)
     {
-        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.ErrorDocsUrl);
         await AccountAsync(state, null, default, error.StatusCode, outcome, error.Code, null);
     }
 
@@ -230,7 +230,7 @@ public sealed partial class GatewayRequestHandler
         state.Fallbacks = Math.Max(0, candidates - 1);
         http.Response.Headers[GatewayHeaders.Fallbacks] = state.Fallbacks.ToString(CultureInfo.InvariantCulture);
         var error = GatewayError.AllProvidersFailed(lastFailure?.StatusCode == 504, candidates, modelName, lastFailure?.Reason);
-        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.ErrorDocsUrl);
         await AccountAsync(state, state.Deployment, default, error.StatusCode, RequestOutcome.ProviderError, error.Code, null);
     }
 
@@ -255,7 +255,7 @@ public sealed partial class GatewayRequestHandler
             return false;
         }
 
-        await GatewayErrors.WriteAsync(http, state.Endpoint, GatewayError.InternalError, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, GatewayError.InternalError, options.CurrentValue.ErrorDocsUrl);
         return true;
     }
 

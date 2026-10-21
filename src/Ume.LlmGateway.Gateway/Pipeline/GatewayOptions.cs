@@ -51,8 +51,17 @@ public sealed class GatewayOptions
     [Range(typeof(decimal), "0.01", "1000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
     public decimal FallbackSekPerUsd { get; set; } = 10m;
 
-    /// <summary>Public documentation URL used in error responses.</summary>
+    /// <summary>Public documentation URL used in error responses (<c>doc_url</c>); empty leaves it out.</summary>
     public string DocsUrl { get; set; } = "/scalar";
+
+    /// <summary>
+    /// Whether the OpenAPI document (<c>/openapi/v1.json</c>) and the browsable reference (<c>/scalar</c>) are served. They
+    /// describe the public client API and need no key; turn off to give less away. Read at startup.
+    /// </summary>
+    public bool PublishApiReference { get; set; } = true;
+
+    /// <summary><see cref="DocsUrl"/>, unless it points at this gateway's own reference and that is not published.</summary>
+    public string ErrorDocsUrl => PublishApiReference || !DocsUrl.StartsWith('/') ? DocsUrl : "";
 
     /// <summary>Optional webhook that receives budget threshold alerts (metadata only).</summary>
     public Uri? AlertWebhookUrl { get; set; }

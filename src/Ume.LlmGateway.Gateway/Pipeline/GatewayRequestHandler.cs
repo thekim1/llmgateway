@@ -41,7 +41,9 @@ public sealed partial class GatewayRequestHandler(
     ILoggerFactory loggers,
     ILogger<GatewayRequestHandler> logger)
 {
-    private static readonly JsonDocumentOptions JsonOptions = new() { MaxDepth = 64 };
+    // A repeated property is refused (400): the parsed tree would otherwise fail later with a 500, and a provider reading the
+    // last value could see a different model or text than the one checked here.
+    internal static readonly JsonDocumentOptions JsonOptions = new() { MaxDepth = 64, AllowDuplicateProperties = false };
 
     /// <summary>Bodies this large are walked for images even when the key allows all files (see the token estimate).</summary>
     private const long AttachmentInspectBytes = 32 * 1024;
@@ -253,12 +255,10 @@ public sealed partial class GatewayRequestHandler(
                 case ProviderFailure failure:
                     // Client error (e.g. invalid parameter): retrying elsewhere would fail the same way.
                     SetRoutingHeaders(http, deployment, i);
+                    // Only the provider's message, type, code and param are passed on (ProviderErrors).
                     http.Response.StatusCode = failure.StatusCode;
-                    http.Response.ContentType = failure.ContentType ?? "application/json";
-                    if (failure.Body is not null)
-                    {
-                        await http.Response.WriteAsync(failure.Body, ct);
-                    }
+                    http.Response.ContentType = "application/json; charset=utf-8";
+                    await http.Response.WriteAsync(ProviderErrors.ClientBody(state.Endpoint, failure.Body, state.RequestId), ct);
 
                     await AccountAsync(state, deployment, default, failure.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
                     return;

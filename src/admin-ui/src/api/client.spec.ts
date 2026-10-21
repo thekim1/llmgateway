@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, buildUrl, request, postLogout } from './client'
+import { ApiError, buildUrl, configureClient, request, postLogout } from './client'
 
 afterEach(() => { vi.unstubAllGlobals(); document.cookie = 'XSRF-TOKEN=; Max-Age=0; path=/' })
 describe('metadata-only BFF client', () => {
@@ -28,6 +28,17 @@ describe('metadata-only BFF client', () => {
     document.cookie = 'XSRF-TOKEN=token; path=/'
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"detail":"Invalid name","errors":{"name":["Required"]}}', { status: 400, headers: { 'Content-Type': 'application/problem+json' } })))
     await expect(request('POST', '/api/keys', { body: { name: '' } })).rejects.toMatchObject({ status: 400, fieldErrors: { name: ['Required'] } })
+  })
+  it('reports a saved change the gateways apply later', async () => {
+    document.cookie = 'XSRF-TOKEN=token; path=/'
+    const onChangeDelayed = vi.fn()
+    configureClient({ onChangeDelayed })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { headers: { 'Content-Type': 'application/json', 'Ume-Change-Propagation': 'delayed' } }))
+      .mockResolvedValueOnce(new Response('{}', { headers: { 'Content-Type': 'application/json' } })))
+    await request('POST', '/api/keys/1/revoke')
+    await request('POST', '/api/keys/2/revoke')
+    expect(onChangeDelayed).toHaveBeenCalledTimes(1)
   })
   it('does not disguise a failed logout as success', async () => {
     document.cookie = 'XSRF-TOKEN=token; path=/'

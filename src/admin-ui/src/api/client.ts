@@ -2,6 +2,8 @@ import type { ProblemDetails } from './types'
 
 export const XSRF_COOKIE = 'XSRF-TOKEN'
 export const XSRF_HEADER = 'X-XSRF-TOKEN'
+/** Set by the admin API when a change is saved but the gateways could not be told at once (Redis unavailable). */
+export const PROPAGATION_HEADER = 'Ume-Change-Propagation'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 export type QueryValue = string | number | boolean | null | undefined
@@ -38,6 +40,8 @@ export interface ClientHooks {
   onUnauthorized?: () => void
   /** Called on 403. */
   onForbidden?: (method: HttpMethod, path: string) => void
+  /** Called when a change was saved but reaches the gateways only when their cache expires. */
+  onChangeDelayed?: () => void
 }
 
 let hooks: ClientHooks = {}
@@ -142,6 +146,7 @@ export async function request<T>(method: HttpMethod, path: string, options: Requ
     throw new ApiError(response.status, method, problem)
   }
 
+  if (response.headers.get(PROPAGATION_HEADER) === 'delayed') hooks.onChangeDelayed?.()
   return payload as T
 }
 

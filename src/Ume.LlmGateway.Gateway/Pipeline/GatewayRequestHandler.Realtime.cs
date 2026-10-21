@@ -174,7 +174,7 @@ public sealed partial class GatewayRequestHandler
                 if (!failure.CanFallBack)
                 {
                     SetRoutingHeaders(http, target, i);
-                    await GatewayErrors.WriteAsync(http, endpoint, GatewayError.SessionRejectedByProvider(failure.StatusCode), options.CurrentValue.DocsUrl);
+                    await GatewayErrors.WriteAsync(http, endpoint, GatewayError.SessionRejectedByProvider(failure.StatusCode), options.CurrentValue.ErrorDocsUrl);
                     await AccountAsync(state, target, default, failure.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
                     return;
                 }

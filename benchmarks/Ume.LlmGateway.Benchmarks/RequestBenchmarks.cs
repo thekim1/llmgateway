@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using BenchmarkDotNet.Attributes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Gateway.Pipeline;
 
 namespace Ume.LlmGateway.Benchmarks;
 
@@ -25,7 +26,7 @@ public class RequestBenchmarks
     }
 
     [Benchmark(Description = "Parse body")]
-    public JsonNode? Parse() => JsonNode.Parse(_bytes, documentOptions: new JsonDocumentOptions { MaxDepth = 64 });
+    public JsonNode? Parse() => JsonNode.Parse(_bytes, documentOptions: GatewayRequestHandler.JsonOptions);
 
     [Benchmark(Description = "Clone + rewrite + serialise (one attempt)")]
     public byte[] PrepareAttempt()

@@ -117,6 +117,14 @@ public sealed class GatewayTests(GatewayFixture fixture)
         response.Headers.GetValues("x-ume-provider").Single().ShouldBe("eu");
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
         (await fixture.UsageAsync(response)).Outcome.ShouldBe(RequestOutcome.ProviderError);
+
+        // The provider's message is passed on; the rest of its error body is not.
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var error = JsonNode.Parse(body)!["error"]!;
+        error["message"]!.GetValue<string>().ShouldBe("Upstream rejected request");
+        error["type"]!.GetValue<string>().ShouldBe("invalid_request_error");
+        body.ShouldNotContain("internal-deployment-7");
+        body.ShouldNotContain("org-internal-42");
     }
 
     [Fact]
@@ -476,6 +484,30 @@ public sealed class GatewayTests(GatewayFixture fixture)
             persisted.ShouldNotContain(sensitive);
         }
         fixture.Logs.Text.ShouldContain("Request");
+    }
+
+    [Fact]
+    public async Task Repeated_properties_are_refused_and_recorded()
+    {
+        // A provider would read the last "model" (or text) while the gateway checked another; before .NET 10's option this was a 500.
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendRawAsync(key, "/v1/chat/completions",
+            """{"model":"eu/ok","model":"external/ok","messages":[{"role":"user","content":"Hej"}]}""");
+
+        await AssertErrorAsync(response, 400, "invalid_request");
+        var usage = await fixture.UsageAsync(response);
+        usage.Outcome.ShouldBe(RequestOutcome.Rejected);
+        usage.StatusCode.ShouldBe(400);
+    }
+
+    [Fact]
+    public async Task Model_names_are_logged_without_control_characters()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendAsync(key, model: "no-such-model\nwarn: Ume.LlmGateway.Security[1001]\u001b[2J");
+
+        ((int)response.StatusCode).ShouldBe(404);
+        (await fixture.UsageAsync(response)).RequestedModel.ShouldBe("no-such-model?warn: Ume.LlmGateway.Security[1001]?[2J");
     }
 
     private static async Task AssertErrorAsync(HttpResponseMessage response, int status, string code)

@@ -1,3 +1,5 @@
+using Ume.LlmGateway.Infrastructure.Security;
+
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
 /// <summary>Response headers the gateway adds (documented in docs/admin-api.md and the README).</summary>
@@ -43,9 +45,10 @@ public static class ModelNames
     /// <summary>Length of <c>UsageRecord.RequestedModel</c> and of names quoted in error messages.</summary>
     public const int MaxLength = 200;
 
+    /// <summary>The name as logged and stored: at most <see cref="MaxLength"/> characters, control characters replaced.</summary>
     public static string Truncate(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        return name.Length > MaxLength ? name[..MaxLength] : name;
+        return SecurityEvents.Printable(name.Length > MaxLength ? name[..MaxLength] : name);
     }
 }
