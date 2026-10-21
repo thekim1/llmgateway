@@ -57,6 +57,14 @@ by no service until it is granted on purpose.
 `init-deployment.sh --renew-ca` replaces an older CA; the Portainer bootstrap does it on its own. The setup now tells you
 to move `ca.key` off the host.
 
+**Provider tools and storage need the key's permission.** Two new key settings, both off for every key: *Allow provider
+tools* (web search, file search, code interpreter, MCP, web fetch and other tools the provider runs itself; otherwise only
+function tools, else `400 tool_not_allowed`) and *Allow provider storage* (`store: true`, Responses `background` and
+`conversation`; otherwise `400 storage_not_allowed`, and Responses API requests are sent with `store: false`). Live audio
+refuses `mcp` tools the same way. Both are in the key form and detail, the admin API (`allowProviderTools`,
+`allowProviderStorage`), the audit log and the Data API key inventory, and are copied on rotation; refusals are
+`gateway.request.refused` events. Migration `ProviderFeaturePolicy`.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

@@ -79,20 +79,22 @@ Roles (OIDC `roles` claim):
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
-allowedIpRanges: string[] }`
+allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean }`
 (`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
 100; empty = any address; omitted on update = unchanged; returned in canonical form, a network with host bits set such as
 `10.20.1.5/16` is refused with 400; copied to the replacement key on rotation. Behind a reverse proxy it needs the proxy in
 [trusted proxies](#settings). Any key manager may set it.)
 (empty `allowedModels` / `allowedResidencies` = all allowed)
 (`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
+(`allowProviderTools` / `allowProviderStorage` omitted = `false` on create, unchanged on update; copied on rotation; see
+[provider tools and storage](#gateway-data-plane--for-the-developer-portal-snippets))
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -331,8 +333,9 @@ and invalidate the gateway catalogue.
   `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
   client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
-  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`
-  (also for a body that is not valid JSON or repeats a property, such as two `model` fields),
+  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
+  `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two
+  `model` fields),
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).
 - Model names: a model is addressed by its public name (the plain name while one provider has it) or `<provider>/<model>`
@@ -374,7 +377,8 @@ WebSocket endpoints speaking the OpenAI Realtime protocol (JSON events, audio as
 - During the session the gateway sends OpenAI-style `error` events `{ type: "error", error: { type, code, message,
   event_id } }` (`event_id` is the client event refused): `model_not_allowed` (an input transcription model that is
   not a `Transcription` alias/model of the session's provider, or whose provider is unavailable or outside the key's
-  provider and residency allow-lists), `pii_blocked`, `invalid_request` (binary frame, or a session or conversation event
+  provider and residency allow-lists), `pii_blocked`, `tool_not_allowed` (an `mcp` tool in `session.update` or
+  `response.create` on a key without provider tools), `invalid_request` (binary frame, or a session or conversation event
   that is not valid JSON or repeats a property; it is not passed on),
   `request_too_large` (event over `MaxMessageBytes`; the session is closed with 1009). It ends the session with an
   error event and a close frame on `budget_exceeded` (close 1008; the message names the exhausted budget like the HTTP 402), `session_time_limit` (1000),
@@ -403,5 +407,19 @@ documents, audio and video; `None` refuses all four. A refused request gets 400 
 with outcome `Rejected`. The PII policy scans text only, never file contents, so a key that must not send personal
 data to a provider should use `None`. It cannot stop a client that extracts a file's text itself and sends it as an
 ordinary message (common in chat front-ends); the PII policy is what covers that text.
+
+**Provider tools and storage.** Checked after the attachment policy, on Chat Completions, Responses and Anthropic Messages.
+Both key settings are off by default:
+
+- `allowProviderTools`: tools the provider runs itself send the conversation to third parties or the internet. Without it
+  only client tools are accepted: `function` and `custom` (OpenAI), and Anthropic tools without a type, `custom`, and the
+  client-executed `bash_*`, `text_editor_*`, `computer_*` and `memory_*`. Anything else in `tools` (`web_search`,
+  `file_search`, `code_interpreter`, `mcp`, `image_generation`, Anthropic `web_search_*`, `web_fetch_*`, `code_execution_*`,
+  …), Chat Completions `web_search_options`, and Anthropic `mcp_servers` or `container` get 400 `tool_not_allowed`.
+- `allowProviderStorage`: `store: true`, Responses `background: true` and Responses `conversation` keep the conversation at
+  the provider; without it they get 400 `storage_not_allowed`, and a Responses request without `store` is sent with
+  `store: false` (the Responses API stores by default). `previous_response_id` then only finds responses the provider kept.
+
+Both refusals are recorded with outcome `Rejected` and logged as `gateway.request.refused`.
 
 **Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced per minute (429 `rate_limited`; token usage is counted after each response).

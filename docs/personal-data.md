@@ -32,3 +32,18 @@ personal data was found, newest first: when, which key, team and department, end
 the gateway did (detected and sent on, redacted, blocked, sent on-prem). Filter by period, department, team, key, category
 and action; tiles show the number of requests per category and per action for the period. Each row links to the request on
 the *Usage* page. Department admins and viewers see their own departments. A key with policy Off never has incidents.
+
+## Provider tools and storage
+
+A provider and its region (the residency a key allows) are not the only places a request can send data. Tools the
+provider runs itself (web search, file search, code interpreter, MCP servers, web fetch) pass the conversation to other
+services or the open internet, and `store`, background responses and conversations keep it at the provider. Each key has
+two settings for this, both off by default (Keys > edit key > Access > *Provider features*):
+
+| Setting | Off (default) | On |
+|---|---|---|
+| **Allow provider tools** | Only tools the client runs (functions) are accepted; others get 400 `tool_not_allowed`. | Provider tools are sent on. |
+| **Allow provider storage** | `store: true`, background responses and conversations get 400 `storage_not_allowed`; Responses API requests are sent with `store: false`. | Requests are sent as they are. |
+
+Turn them on only for keys whose users may send their data to those services. Details:
+[admin-api.md](admin-api.md#gateway-data-plane--for-the-developer-portal-snippets).

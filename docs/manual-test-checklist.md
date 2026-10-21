@@ -29,6 +29,19 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 - [ ] **Data Protection key rotation:** the gateway log has no Data Protection errors after the upgrade; a provider
   credential entered in the admin UI after the upgrade works through the gateway.
 
+## Provider tools and storage (branch `security/request-policy`)
+
+- [ ] **Existing keys are strict after the upgrade:** with a key from before the upgrade, a Chat Completions request with
+  `"tools":[{"type":"web_search"}]` gets `400 tool_not_allowed`; a function tool still works.
+- [ ] **Responses storage:** a Responses API request without `store` works; at OpenAI (or in the provider's request log) it
+  arrives with `store: false`. `"store": true` gets `400 storage_not_allowed`.
+- [ ] **Turning it on:** in the admin UI edit the key, tick *Allow provider tools* and *Allow provider storage*, save: the
+  key detail shows *Allowed* for both, the audit entry has both fields, and the requests above go through.
+- [ ] **Rotation:** rotate that key: the new key keeps both settings.
+- [ ] **Anthropic:** with a strict key, `/v1/messages` with a `web_search_20250305` tool gets `400 tool_not_allowed`; a
+  plain tool (`name` + `input_schema`) works.
+- [ ] **SIEM:** the refusals appear as `gateway.request.refused` with `ErrorCode` `tool_not_allowed` / `storage_not_allowed`.
+
 ## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
 
 - [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base
