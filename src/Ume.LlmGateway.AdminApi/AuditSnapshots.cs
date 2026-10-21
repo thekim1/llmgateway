@@ -74,12 +74,12 @@ public sealed record KeyAudit(
     Guid Id, Guid TeamId, string Name, string? Description, string Prefix, bool IsEnabled, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    IReadOnlyList<string> AllowedIpRanges)
+    IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        [.. k.AllowedIpRanges]);
+        [.. k.AllowedIpRanges], k.AllowProviderTools, k.AllowProviderStorage);
 }
 
 public sealed record RetentionSettingsAudit(int UsageRetentionDays, int? AuditRetentionDays)

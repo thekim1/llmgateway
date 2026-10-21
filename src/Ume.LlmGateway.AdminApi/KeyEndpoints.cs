@@ -21,7 +21,9 @@ public sealed record KeyRequest(
     bool IsEnabled = true,
     [property: MaxLength(100)] List<string>? AllowedProviders = null,
     [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null,
-    [property: MaxLength(NetworkRanges.MaxEntries)] List<string>? AllowedIpRanges = null) : AdminRequest, IValidatableObject
+    [property: MaxLength(NetworkRanges.MaxEntries)] List<string>? AllowedIpRanges = null,
+    bool? AllowProviderTools = null,
+    bool? AllowProviderStorage = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -128,6 +130,8 @@ public static class KeyEndpoints
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();
         key.AllowedModels = [.. input.AllowedModels]; key.AllowedResidencies = [.. input.AllowedResidencies]; if (input.AllowedProviders is not null) { key.AllowedProviders = [.. input.AllowedProviders.Select(p => p.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)]; } key.PiiPolicy = input.PiiPolicy;
         if (input.AttachmentPolicy is { } attachments) { key.AttachmentPolicy = attachments; }
+        if (input.AllowProviderTools is { } tools) { key.AllowProviderTools = tools; }
+        if (input.AllowProviderStorage is { } storage) { key.AllowProviderStorage = storage; }
         if (input.AllowedIpRanges is not null) { NetworkRanges.Normalize(input.AllowedIpRanges, out var ranges); key.AllowedIpRanges = ranges; }
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
     }

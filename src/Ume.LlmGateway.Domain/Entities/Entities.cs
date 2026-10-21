@@ -81,6 +81,19 @@ public sealed class VirtualKey
 
     public PiiPolicy PiiPolicy { get; set; } = PiiPolicy.Off;
     public AttachmentPolicy AttachmentPolicy { get; set; } = AttachmentPolicy.Allowed;
+
+    /// <summary>
+    /// Whether requests may use tools the provider runs itself (web search, file search, code interpreter, MCP, web fetch),
+    /// which send content to third parties or the internet. Off: only tools the client runs (<see cref="Services.ProviderFeaturePolicy"/>).
+    /// </summary>
+    public bool AllowProviderTools { get; set; }
+
+    /// <summary>
+    /// Whether requests may ask the provider to keep the conversation (<c>store</c>, background responses, conversations).
+    /// Off: refused, and Responses API requests are sent with <c>store: false</c>.
+    /// </summary>
+    public bool AllowProviderStorage { get; set; }
+
     public int? RequestsPerMinute { get; set; }
     public int? TokensPerMinute { get; set; }
 

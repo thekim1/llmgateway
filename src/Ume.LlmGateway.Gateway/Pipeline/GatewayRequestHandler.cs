@@ -104,6 +104,13 @@ public sealed partial class GatewayRequestHandler(
             return;
         }
 
+        // 2c. Provider tools and storage (per key): fields that send the conversation beyond the provider's region or keep it there.
+        if (ProviderFeaturePolicy.Apply(body, endpoint, key.AllowProviderTools, key.AllowProviderStorage) is { } feature)
+        {
+            await RejectAsync(http, state, GatewayError.ProviderFeatureNotAllowed(feature), RequestOutcome.Rejected);
+            return;
+        }
+
         // 3. Resolve model alias and check the key's allow-list and endpoint compatibility.
         var snapshot = await catalog.GetAsync(ct);
         var resolution = router.ResolveModel(snapshot, key, endpoint, model);

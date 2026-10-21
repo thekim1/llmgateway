@@ -29,13 +29,13 @@ public sealed record KeyDto(
     KeyStatus Status, bool IsEnabled, DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges)
+    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges);
+        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>

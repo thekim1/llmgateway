@@ -155,6 +155,30 @@ describe('KeyFormDrawer provider then model selection', () => {
     await flushPromises()
     expect(update.mock.calls[0]![1]).toMatchObject({ attachmentPolicy: 'ImagesOnly' })
   })
+
+  it('leaves provider tools and storage off for a new key and keeps them on edit', async () => {
+    create.mockResolvedValue({ key: {}, secret: 's' })
+    const wrapper = mountForm()
+    await flushPromises()
+    await wrapper.find('select').setValue('t1')
+    await wrapper.find('input[autocomplete=off]').setValue('Plain key')
+    expect(wrapper.text()).toContain('Allow provider tools')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(create.mock.calls[0]![0]).toMatchObject({ allowProviderTools: false, allowProviderStorage: false })
+
+    update.mockResolvedValue({})
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', attachmentPolicy: 'Allowed', requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
+      allowProviderTools: true, allowProviderStorage: false,
+    } as unknown as VirtualKey
+    const edit = mountForm(existing)
+    await flushPromises()
+    await edit.find('form').trigger('submit')
+    await flushPromises()
+    expect(update.mock.calls[0]![1]).toMatchObject({ allowProviderTools: true, allowProviderStorage: false })
+  })
 })
 
 describe('KeyFormDrawer client addresses', () => {

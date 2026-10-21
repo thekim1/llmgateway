@@ -213,7 +213,7 @@ public sealed partial class GatewayRequestHandler
             // An input transcription model the client picks must be one the key may use, on this provider, and eligible.
             var transcription = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null), null, key.AllowedProviders);
             var sessionPolicy = policy = new RealtimeEventPolicy(deployment, name => SameProviderTranscription(snapshot, key, account, transcription, name),
-                key.PiiPolicy, account.Residency == DataResidency.OnPrem);
+                key.PiiPolicy, account.Residency == DataResidency.OnPrem, key.AllowProviderTools);
             var sessionMeter = meter = new RealtimeMeter();
             var sessionPrice = price = deployment.PriceAt(now);
             var started = time.GetTimestamp();

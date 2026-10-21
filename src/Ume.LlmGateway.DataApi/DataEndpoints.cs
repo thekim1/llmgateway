@@ -29,7 +29,8 @@ public sealed record KeyInventoryItem(
     Guid Id, string Prefix, string Name, Guid TeamId, Guid? DepartmentId, KeyStatus Status, DateTimeOffset CreatedAt, string? CreatedBy,
     DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, DateTimeOffset? LastUsedAt,
     PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, IReadOnlyList<string> AllowedModels, IReadOnlyList<string> AllowedProviders,
-    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges);
+    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges,
+    bool AllowProviderTools, bool AllowProviderStorage);
 
 public sealed record AggregateItem(
     DateOnly Period, Guid? DepartmentId, string? CostCenterCode, string? DepartmentName, Guid? ModelId, string? ModelName, Guid? ProviderId,
@@ -123,12 +124,13 @@ public static class DataEndpoints
             {
                 k.Id, k.Prefix, k.Name, k.TeamId, DepartmentId = (Guid?)k.Team!.DepartmentId, k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt,
                 k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy, k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders,
-                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges,
+                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage,
             }).ToListAsync(ct);
             return DataResults.List(http, keys.Select(k => new KeyInventoryItem(k.Id, k.Prefix, k.Name, k.TeamId, k.DepartmentId,
                 new VirtualKey { Name = k.Name, Prefix = k.Prefix, KeyHash = string.Empty, IsEnabled = k.IsEnabled, ExpiresAt = k.ExpiresAt, RevokedAt = k.RevokedAt, GraceUntil = k.GraceUntil }.GetStatus(now),
                 k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy,
-                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges)).ToList());
+                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges,
+                k.AllowProviderTools, k.AllowProviderStorage)).ToList());
         }).WithSummary("Every key with its status and policies (never the secret or its hash)");
 
         var catalog = v1.MapGroup("/catalog").WithTags("Catalog").RequireAuthorization(DataPermissions.CatalogRead);

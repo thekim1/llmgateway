@@ -182,6 +182,10 @@ export interface VirtualKey {
   canReveal?: boolean
   /** Client addresses (single IPs or CIDR networks) the key may be used from. Empty = any address. */
   allowedIpRanges?: string[]
+  /** Tools the provider runs itself (web search, MCP, ...). False: only function tools. */
+  allowProviderTools?: boolean
+  /** Conversations kept at the provider (store, background, conversations). False: refused, Responses get store: false. */
+  allowProviderStorage?: boolean
 }
 
 export interface KeyFilter {
@@ -206,6 +210,9 @@ export interface CreateKeyRequest {
   tokensPerMinute?: number | null
   /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
   allowedIpRanges?: string[]
+  /** Omitted = false on create, unchanged on update. */
+  allowProviderTools?: boolean
+  allowProviderStorage?: boolean
 }
 
 export interface CreateKeyResponse {
@@ -227,6 +234,8 @@ export interface UpdateKeyRequest {
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
   allowedIpRanges?: string[]
+  allowProviderTools?: boolean
+  allowProviderStorage?: boolean
   isEnabled: boolean
 }
 
