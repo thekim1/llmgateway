@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
@@ -113,12 +114,4 @@ public sealed class SecurityEventOptions
     /// <summary>Distinct (reason, endpoint, key, address) buckets kept per interval; more are folded into one overflow bucket.</summary>
     [Range(10, 100_000)]
     public int MaxAuthFailureBuckets { get; set; } = 1000;
-}
-
-public enum SourceAddressMode
-{
-    /// <summary>IPv4 /24 or IPv6 /48.</summary>
-    Truncated = 0,
-    Full = 1,
-    None = 2,
 }

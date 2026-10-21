@@ -13,6 +13,7 @@ using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
@@ -121,7 +122,7 @@ public sealed class ClientAddressTests(GatewayFixture fixture)
     public void Resolve_walks_forwarded_for_from_the_nearest_hop(string remote, string forwardedFor, string expected)
     {
         IPNetwork[] trusted = [IPNetwork.Parse("192.0.2.250/31")];
-        ClientAddressMiddleware.Resolve(IPAddress.Parse(remote), forwardedFor, trusted)!.ToString().ShouldBe(expected);
+        ClientAddresses.Resolve(IPAddress.Parse(remote), forwardedFor, trusted)!.ToString().ShouldBe(expected);
     }
 
     [Fact]
@@ -129,14 +130,14 @@ public sealed class ClientAddressTests(GatewayFixture fixture)
     {
         IPNetwork[] trusted = [IPNetwork.Parse("192.0.2.250/32")];
         var lines = new StringValues(["203.0.113.9", "198.51.100.1"]);
-        ClientAddressMiddleware.Resolve(IPAddress.Parse(Proxy), lines, trusted)!.ToString().ShouldBe("198.51.100.1");
+        ClientAddresses.Resolve(IPAddress.Parse(Proxy), lines, trusted)!.ToString().ShouldBe("198.51.100.1");
     }
 
     [Fact]
     public void Resolve_leaves_the_address_alone_without_trusted_proxies()
     {
         var remote = IPAddress.Parse(Proxy);
-        ClientAddressMiddleware.Resolve(remote, "203.0.113.9", []).ShouldBeSameAs(remote);
+        ClientAddresses.Resolve(remote, "203.0.113.9", []).ShouldBeSameAs(remote);
     }
 
     private WebApplicationFactory<Program> DeriveWithPeerHeader() =>
