@@ -11,6 +11,18 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: security hardening
+
+- **Rolling update: yes.** No schema change.
+- **Everyone is signed out once.** Admin sessions move to Redis (`ume:admin-session:*`, covered by the existing `~ume:*`
+  ACL; only `get`, `set`, `del`, which it already allows). Old cookies are not accepted after the upgrade; users sign in
+  again. During a rolling update a user can be signed out by an old instance once more.
+- **New settings (defaults are fine):** `Admin:MaxSessionHours` (12) and `Gateway:AuthFailuresPerMinute` (60).
+- **Provider address edits** need the credential again when the host, scheme or port changes. Scripts that move a provider
+  with `PUT /api/providers/{id}` or a configuration import must send `credential` (or `credentialEnvironment`).
+- **PII policy:** keys with *Block* or *Redact* may now refuse or change requests that passed before (personal data in the
+  `user` field, a message `name`, an Anthropic text document, or written with full-width digits or invisible characters).
+
 ## Unreleased: updates without downtime, budgets in USD
 
 - **Rolling update: no** (renames budget columns 0.5.0 reads). Stop the gateway, admin API and Data API, migrate, start the

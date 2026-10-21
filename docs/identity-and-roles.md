@@ -54,9 +54,11 @@ Every change is written to the audit log with the user's `sub` claim (or name) a
 
 ### Sessions
 
-A sign-in lasts 8 hours (a secure, HttpOnly cookie; no sliding expiry). The UI offers to extend it before it runs out.
-Roles and department codes are read once, at sign-in: after changing a user's roles or groups in the identity provider,
-they must sign out and in again.
+A sign-in lasts 8 hours (a secure, HttpOnly cookie; no sliding expiry). The UI offers to extend it before it runs out,
+but a session never lasts more than `Admin:MaxSessionHours` (12) from sign-in: then the user signs in at the identity
+provider again. Roles and department codes are read at sign-in, so a role change in the identity provider applies at the
+latest after that limit, or at once when the user signs out and in again. Sessions are stored on the server (Redis): signing
+out ends the session, also for a copied cookie.
 
 ## What the admin API needs from the provider
 

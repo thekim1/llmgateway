@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+Security hardening from an internal security assessment (findings H1–M4).
+
+**Provider credentials stay with their address.** Changing a provider's base URL to another scheme, host or port now
+requires entering the credential again (`400`, field `credential`); the stored credential is never sent to a new address.
+Another path on the same host keeps it. The same applies to configuration import. Before, an edit of the address alone
+sent the stored API key to whatever host was entered.
+
+**Runtime image 10.0.13.** The service images are built on `aspnet:10.0.13-noble-chiseled-extra` (two critical and five
+high ASP.NET Core CVEs in 10.0.12). CI now scans the pinned base image and fails on fixable HIGH/CRITICAL findings.
+
+**PII guard reads more of the request.** Anthropic plain-text and custom-content documents (`document` blocks with a `source`
+of type `text` or `content`) are scanned like messages; before, a personnummer in such a document passed a key with policy
+*Block*. The request's `user` field and a message's `name` are scanned too (tool and function names are not). Text is
+compared in a canonical form, so full-width and other non-ASCII digits, no-break spaces, zero-width and other invisible
+characters and Unicode dashes no longer hide a personnummer; a redacted value is written in that form.
+
+**Admin sessions end when you sign out.** Sessions are kept on the server (Redis, encrypted), the cookie only names one:
+signing out ends the session for every copy of the cookie. A session lasts at most `Admin:MaxSessionHours` (12) from
+sign-in, however often it is extended; after that the user signs in at the identity provider again, which also picks up
+role changes. `GET /bff/user` and `POST /bff/session/extend` return `sessionLimitAt`; extending at the limit answers `409`.
+Everyone is signed out once by the upgrade.
+
+**Floods of made-up keys are throttled.** After `Gateway:AuthFailuresPerMinute` (60) failed authentications in a minute
+from one client address (IPv6 per /64), the gateway stops looking keys up for that address until the minute ends: keys
+it already has cached keep working, others get `429 rate_limited` with `Retry-After`. `0` turns it off.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

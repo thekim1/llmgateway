@@ -3,6 +3,26 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
+
+- [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base
+  URL: it saves and still works. Change the host instead without entering the credential: the form says *Enter the
+  credential again…* and nothing is saved. Enter the credential with the new host: it saves.
+- [ ] **Sign-out ends the session:** sign in, copy the `__Host-ume-admin` cookie (browser dev tools), sign out, then send a
+  request with the copied cookie (for example `curl -b '__Host-ume-admin=…' https://<admin>/api/departments`): `401`.
+- [ ] **Session limit:** with `Admin__MaxSessionHours=1`, sign in and wait for the expiry warning: it says sessions have a
+  maximum length and offers no *Stay signed in*; after the hour the UI asks you to sign in. Remove the setting afterwards.
+- [ ] **Everyone signed out once after the upgrade:** after deploying, existing admin sessions must sign in again (expected).
+- [ ] **Redis ACL:** after the upgrade the admin API log has no `NOPERM` errors on sign-in (`ume:admin-session:*`).
+- [ ] **PII in an Anthropic document:** with a *Block* key, send `/v1/messages` to a Claude deployment with a `document` block
+  whose `source` is `{"type":"text","media_type":"text/plain","data":"… 19121212-1212 …"}`: `400 pii_blocked`.
+- [ ] **PII look-alikes:** with a *Block* key, a personnummer written with full-width digits (`１９１２１２１２-１２１２`) or pasted
+  with a no-break space is blocked; ordinary Swedish text without personal data still goes through.
+- [ ] **Invalid-key throttle:** from one machine send 70 requests with a made-up key in a minute: the first 60 get `401`, the
+  rest `429` with `Retry-After`. Meanwhile a real key used from the same machine just before keeps working. Behind the
+  reverse proxy, check that another client is not affected (trusted proxies set).
+- [ ] **Image scan in CI:** the *Verify POC* workflow's *Scan the service base image* step passes.
+
 ## Website and Getting started (uncommitted)
 
 - [ ] **Website published:** after the push to `main`, the *Website* workflow succeeds and <https://thekim1.github.io/llmgateway/>

@@ -11,8 +11,12 @@ detection, set the key's policy (*Keys*, edit the key) to one of:
 | Block | The request is refused with `pii_blocked`. |
 | On-prem (`RerouteToOnPrem`) | The request may only go to on-prem models. |
 
-What is detected, in all text a client sends (chat messages as a string or as content parts, Responses input, Anthropic
-messages, the transcription `prompt`, realtime text events; not file contents):
+What is detected, in all text a client sends (chat messages as a string or as content parts, a message's `name`, the
+request's `user` field, Responses input, Anthropic messages including plain-text and custom-content documents, the
+transcription `prompt`, realtime text events; not file contents such as images, PDFs or base64 files). Text is compared
+in a canonical form: full-width and other non-ASCII digits count as digits, no-break spaces as spaces and Unicode dashes as
+`-`, and invisible characters (zero-width space, soft hyphen, word joiner) are ignored. A redacted value is sent on in that
+form.
 
 - **Personnummer and samordningsnummer** (day + 60) with a real calendar date, as `YYMMDD-NNNN`, `YYMMDD+NNNN`, `YYMMDD NNNN`,
   `YYYYMMDD-NNNN`, `YYYYMMDD NNNN` or `YYYYMMDDNNNN` (century 18, 19 or 20). These are caught even when the check digit is
