@@ -37,6 +37,12 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `deploy/init-deployment.sh --renew-ca` once (it needs no other options) and restart the stack; Portainer replaces the CA
   on its own at the next redeploy. Integrations that trusted the old `ca.pem` must get the new one. Afterwards move
   `deploy/certs/ca.key` off the host.
+- **Provider tools and storage are off for every key** (migration `ProviderFeaturePolicy` adds two columns, default
+  `false`; rolling update still works). Clients that use web search, file search, code interpreter, MCP or other provider
+  tools get `400 tool_not_allowed`, and `store: true`, `background` or `conversation` get `400 storage_not_allowed`, until
+  an admin turns on *Allow provider tools* / *Allow provider storage* on the key. Responses API requests are now sent with
+  `store: false`, so `previous_response_id` stops working for keys without provider storage. Check which applications
+  rely on these before upgrading.
 
 ## Unreleased: updates without downtime, budgets in USD
 
