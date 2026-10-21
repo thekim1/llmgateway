@@ -11,6 +11,13 @@ public sealed class AdminOptions
     [Range(1, 10_000)]
     public int RequestsPerMinute { get; set; } = 120;
 
+    /// <summary>
+    /// Hours a session may last from sign-in, however often it is extended. After that the user signs in at the identity
+    /// provider again (which also picks up role changes made there).
+    /// </summary>
+    [Range(1, 24)]
+    public int MaxSessionHours { get; set; } = 12;
+
     /// <summary>The Azure region (<c>armRegionName</c>) whose list prices are suggested for Azure AI Foundry deployments.</summary>
     [RegularExpression("^[a-z0-9]{2,40}$")]
     public string AzurePriceRegion { get; set; } = "swedencentral";
