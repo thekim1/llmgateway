@@ -73,6 +73,12 @@ cookie), the request's trace id and the user agent; the audit page shows them an
 `admin.data.read` (audit log, request list, PII incidents, Data API keys), with suggested SIEM alerts in
 `docs/security-events.md`.
 
+**Live audio sessions stopped by the gateway close with the right code.** When the budget ran out, the provider's answer to
+the gateway's close could reach the client first: the client got close code 1000 instead of 1008 and the session could be
+recorded as a normal close instead of `BudgetExceeded`. The gateway's own close and outcome now always win.
+
+**Website:** the icons on the "Control over AI" cards are outlined like the rest of the site, without a fill.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

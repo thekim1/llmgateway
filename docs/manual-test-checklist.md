@@ -3,6 +3,14 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Live audio close code and website icons (branch `fix/realtime-close-and-site-icons`)
+
+- [ ] **Budget stop on live audio:** with a key whose budget is almost used up, start a live audio session against the real
+  provider and use it until the budget runs out: the client gets the `budget_exceeded` error event and close code 1008,
+  and the request list shows the session as *Budget exceeded* (402).
+- [ ] **Website:** on the published GitHub Pages site, the three card icons under "Control over AI that you can explain to a
+  data protection officer" are outlined, with no fill, in light and dark mode.
+
 ## Security hardening: low findings (branch `security/low-hardening`)
 
 - [ ] **Redis down during a change:** stop Redis, revoke a key in the admin UI: it is revoked (no error), a notice says the
