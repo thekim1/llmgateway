@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -39,7 +38,7 @@ public sealed partial class AuthFailureRecorder(
     {
         var settings = options.CurrentValue.Security;
         var now = time.GetUtcNow();
-        var bucket = new Bucket(reason, endpoint, key?.Id, FormatAddress(address, settings.SourceAddress));
+        var bucket = new Bucket(reason, endpoint, key?.Id, ClientAddresses.Format(address, settings.SourceAddress));
         lock (_gate)
         {
             if (!_buckets.TryGetValue(bucket, out var row))
@@ -144,29 +143,6 @@ public sealed partial class AuthFailureRecorder(
     }
 
     private TimeSpan Interval() => TimeSpan.FromSeconds(options.CurrentValue.Security.AuthFailureFlushSeconds);
-
-    /// <summary>Applies <see cref="SourceAddressMode"/>: truncated keeps IPv4 /24 or IPv6 /48.</summary>
-    public static string? FormatAddress(IPAddress? address, SourceAddressMode mode)
-    {
-        if (address is null || mode == SourceAddressMode.None)
-        {
-            return null;
-        }
-
-        if (address.IsIPv4MappedToIPv6)
-        {
-            address = address.MapToIPv4();
-        }
-
-        if (mode == SourceAddressMode.Full)
-        {
-            return address.ToString();
-        }
-
-        var bytes = address.GetAddressBytes();
-        bytes.AsSpan(address.AddressFamily == AddressFamily.InterNetwork ? 3 : 6).Clear();
-        return new IPAddress(bytes).ToString();
-    }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to write {Count} authentication failure rows ({ExceptionType}); retrying on the next flush")]
     private static partial void LogWriteFailed(ILogger logger, string exceptionType, int count);

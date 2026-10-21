@@ -2,7 +2,7 @@ using System.Net;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Primitives;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.Benchmarks;
 
@@ -35,10 +35,10 @@ public class ClientAddressBenchmarks
     }
 
     [Benchmark(Baseline = true, Description = "Resolve: no trusted proxies")]
-    public IPAddress? ResolveWithoutProxies() => ClientAddressMiddleware.Resolve(_proxy, _forwardedFor, []);
+    public IPAddress? ResolveWithoutProxies() => ClientAddresses.Resolve(_proxy, _forwardedFor, []);
 
     [Benchmark(Description = "Resolve: through a trusted proxy (2 hops)")]
-    public IPAddress? ResolveThroughProxy() => ClientAddressMiddleware.Resolve(_proxy, _forwardedFor, _trusted);
+    public IPAddress? ResolveThroughProxy() => ClientAddresses.Resolve(_proxy, _forwardedFor, _trusted);
 
     [Benchmark(Description = "Key: no address restriction")]
     public bool UnrestrictedKey() => _unrestricted.IsAddressAllowed(_client);
