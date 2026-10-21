@@ -416,13 +416,39 @@ configs:
       hostssl gatewaydb ume_migrator,ume_gateway,ume_admin,ume_data all scram-sha-256
   app-roles:
     content: |
-      GRANT SELECT ON ALL TABLES IN SCHEMA public TO ume_gateway, ume_admin;
+      -- Applied by the migration service on every start. The service roles' table privileges are revoked and granted again in
+      -- one transaction, so each role holds exactly what this file lists (a privilege removed here is removed from existing
+      -- installations too) and running services see either the old or the new grants, never none. Tables are named one by
+      -- one: a new table is readable by no service until it is added here (DatabaseRoleTests checks the effective grants).
+      -- No curly braces: the migration service runs this file with EF Core's ExecuteSqlRaw, which reads them as placeholders.
+      BEGIN;
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ume_gateway, ume_admin;
+      REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ume_gateway, ume_admin;
       GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ume_gateway, ume_admin;
-      GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
+
+      -- The settings row exists before any service runs, so the admin role needs no INSERT on it (an insert could set
+      -- UsageRetainedFrom, which only the retention function may move).
+      INSERT INTO "GatewaySettings" ("Id", "TrustedProxies", "AuditRetentionDays") VALUES (1, ARRAY[]::text[], 365) ON CONFLICT ("Id") DO NOTHING;
+
+      -- Gateway (faces the clients): what it authenticates, routes and accounts with. Not the audit log or Data API keys. It reads
+      -- the Data Protection key ring but does not add keys (it only decrypts; the admin API creates and rotates them).
+      GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "UsageRecords", "UsageMonthlyTotals", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
+      GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures" TO ume_gateway;
       GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
+
+      -- Admin API: reads everything it shows (and the schema version for Operations); changes configuration, appends audit
+      -- entries, creates Data Protection keys. Settings column by column, without UsageRetainedFrom.
+      GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "UsageRecords", "UsageMonthlyTotals", "AuditLog", "AlertEvents", "AuthFailures", "DataProtectionKeys",
+        "__EFMigrationsHistory" TO ume_admin;
       GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-        "Budgets", "ExchangeRates", "DataApiKeys", "GatewaySettings" TO ume_admin;
+        "Budgets", "ExchangeRates", "DataApiKeys" TO ume_admin;
+      GRANT UPDATE ("TrustedProxies", "LogAllRequests", "LogAllRequestsUntil", "UpdatedAt", "UsageRetentionDays", "AuditRetentionDays",
+        "RetentionLastRunAt", "RetentionLastRunDeleted", "RetentionLastRunError") ON "GatewaySettings" TO ume_admin;
       GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
       GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
       -- Data retention: old rows are removed only through this function (owner's rights, minimum 90 days); the admin role
@@ -449,6 +475,7 @@ configs:
           GRANT UPDATE ("LastUsedAt") ON "DataApiKeys" TO ume_data;
         END IF;
       END $$$$;
+      COMMIT;
 
 networks:
   edge: {driver: bridge}
