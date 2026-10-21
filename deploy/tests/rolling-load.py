@@ -4,7 +4,10 @@ Used by the rolling-update tests (compose-rolling-e2e.sh, kubernetes-e2e.sh) to 
 request. POSTs use a new connection each (their early 401 makes nginx close the client connection, which says nothing
 about the gateway); GETs reuse keep-alive connections. Each request to the gateway leg still reuses the proxy's pool.
 
-  python3 rolling-load.py HOST PORT PATH EXPECTED_STATUS THREADS STOP_FILE [GET|POST] [CONNECT_ADDRESS]
+  python3 rolling-load.py HOST PORT PATH EXPECTED_STATUSES THREADS STOP_FILE [GET|POST] [CONNECT_ADDRESS]
+
+EXPECTED_STATUSES is one status or several separated by commas (401,429: the gateway refuses the missing key, or, once
+one address has sent Gateway:AuthFailuresPerMinute of them, throttles it; either way the gateway answered).
 """
 import collections
 import http.client
@@ -14,7 +17,8 @@ import sys
 import threading
 import time
 
-host, port, path, expect, threads, stop = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
+host, port, path, threads, stop = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[5]), sys.argv[6]
+expect = {int(status) for status in sys.argv[4].split(",")}
 method = sys.argv[7] if len(sys.argv) > 7 else "GET"
 address = sys.argv[8] if len(sys.argv) > 8 else host
 body = b'{"model":"x","messages":[{"role":"user","content":"hi"}]}'
@@ -29,7 +33,7 @@ lock = threading.Lock()
 def record(outcome):
     with lock:
         counts[outcome] += 1
-        if outcome != expect:
+        if outcome not in expect:
             unexpected.append((time.strftime("%H:%M:%S"), str(outcome)))
 
 
