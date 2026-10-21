@@ -9,7 +9,6 @@ code, .mono, pre { font-family: "Geist Mono", ui-monospace, monospace; }
 h1, h2, h3, p { margin: 0; }
 img { max-width: 100%; }
 .ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: "liga"; font-feature-settings: "liga"; display: inline-block; vertical-align: middle; }
-.ms.fill { font-variation-settings: "FILL" 1; }
 .ms.ok { color: var(--ok); }
 .ms.warn { color: var(--warn); }
 .ms.accent { color: var(--accent-ink); }
