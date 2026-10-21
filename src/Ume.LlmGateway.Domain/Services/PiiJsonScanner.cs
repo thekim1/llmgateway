@@ -29,7 +29,8 @@ public static class PiiJsonScanner
     private static readonly HashSet<string> SkippedProperties = new(StringComparer.Ordinal)
     {
         "model", "role", "type", "id", "tool_call_id", "call_id", "name", "url", "image_url", "data",
-        "encoding_format", "response_format", "tool_choice", "stop", "user", "service_tier",
+        // "user" is not here: it is free text the provider receives. "name" is skipped except on messages (see Walk).
+        "encoding_format", "response_format", "tool_choice", "stop", "service_tier",
         "reasoning_effort", "previous_response_id", "media_type", "format", "detail", "file_id",
         // Base64 file payloads: matching them costs CPU per megabyte, and redacting a chance match would corrupt the file.
         "file_data", "file_url", "video_url",
@@ -61,6 +62,24 @@ public static class PiiJsonScanner
         };
     }
 
+    /// <summary>
+    /// An Anthropic content-block <c>source</c>. Images and PDFs (<c>base64</c>, <c>url</c>, <c>file</c>) are files the guard
+    /// cannot read; a plain-text document (<c>type: text</c>, the text in <c>data</c>) or a custom-content document
+    /// (<c>type: content</c>) is text and is scanned like any message.
+    /// </summary>
+    private static void WalkSource(JsonObject source, Dictionary<PiiCategory, int> counts, bool redact)
+    {
+        switch ((source["type"] as JsonValue)?.TryGetValue<string>(out var type) == true ? type : null)
+        {
+            case "text":
+                Walk(source["data"], "text", counts, redact);
+                break;
+            case "content":
+                Walk(source["content"], "content", counts, redact);
+                break;
+        }
+    }
+
     private static void Walk(JsonNode? node, string? propertyName, Dictionary<PiiCategory, int> counts, bool redact)
     {
         switch (node)
@@ -69,12 +88,19 @@ public static class PiiJsonScanner
                 // Redaction replaces values while walking, so it needs a snapshot of the properties; detection does not.
                 foreach (var (key, child) in redact ? obj.ToList() : (IEnumerable<KeyValuePair<string, JsonNode?>>)obj)
                 {
-                    if (SkippedProperties.Contains(key) && child is not JsonObject and not JsonArray)
+                    // A message's "name" (the participant) is free text; a tool's or function's name is not.
+                    if (SkippedProperties.Contains(key) && child is not JsonObject and not JsonArray && !(key == "name" && obj.ContainsKey("role")))
                     {
                         continue;
                     }
 
-                    if (key is "image_url" or "data" or "source" && child is JsonObject)
+                    if (key == "source" && child is JsonObject source)
+                    {
+                        WalkSource(source, counts, redact);
+                        continue;
+                    }
+
+                    if (key is "image_url" or "data" && child is JsonObject)
                     {
                         continue; // image payloads
                     }
@@ -92,7 +118,9 @@ public static class PiiJsonScanner
 
                 break;
 
-            case JsonValue value when value.TryGetValue<string>(out var text):
+            case JsonValue value when value.TryGetValue<string>(out var original):
+                // Look-alike digits and invisible characters are folded first; a redacted value is written in that form.
+                var text = PiiDetector.Canonical(original);
                 var matches = PiiDetector.Detect(text);
                 if (matches.Count == 0)
                 {
