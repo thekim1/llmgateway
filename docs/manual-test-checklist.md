@@ -3,6 +3,18 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Security hardening: low findings (branch `security/low-hardening`)
+
+- [ ] **Redis down during a change:** stop Redis, revoke a key in the admin UI: it is revoked (no error), a notice says the
+  gateways apply it when their cache refreshes, and after Redis is back and 30 s have passed the key is refused.
+- [ ] **JSON logs:** `docker logs` of the gateway, admin API and Data API show one JSON object per line; the SIEM or log
+  shipper still picks up `Ume.LlmGateway.Security` events.
+- [ ] **API reference:** `https://<gateway>/scalar` and the Data API's `/scalar` render (browser console has no CSP
+  errors); with `Gateway__PublishApiReference=false` both `/scalar` and `/openapi/v1.json` answer `404`.
+- [ ] **Admin API reference:** as gateway-admin, `https://<admin>/scalar/` renders with no CSP errors in the browser console.
+- [ ] **Provider refusal:** send a request a provider refuses (for example `"temperature": 5`): the error has the provider's
+  message and the gateway's `request_id`, and nothing else from the provider.
+
 ## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
 
 - [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base

@@ -22,6 +22,14 @@ See [runbook](runbook.md) for the actual deployment procedure.
   with `PUT /api/providers/{id}` or a configuration import must send `credential` (or `credentialEnvironment`).
 - **PII policy:** keys with *Block* or *Redact* may now refuse or change requests that passed before (personal data in the
   `user` field, a message `name`, an Anthropic text document, or written with full-width digits or invisible characters).
+- **Console logs are JSON** outside development (all services). Log shippers and alerts that parse the plain-text format
+  (`warn: Category[id]` lines) must read JSON, or set `Logging__Console__FormatterName=simple`.
+- **Provider refusals are trimmed.** A provider's 4xx reaches the client with only `message`, `type`, `code` and `param`;
+  clients that read other fields of a provider's error body no longer get them.
+- **Repeated JSON properties** (`{"model":"a","model":"b"}`) get `400 invalid_request` instead of a `500`; on live audio
+  such an event, or one that is not valid JSON, gets an `error` event instead of being passed to the provider.
+- **API reference:** `/openapi/v1.json` and `/scalar` on the gateway and Data API stay public by default; turn them off with
+  `Gateway:PublishApiReference=false` / `DataApi:PublishApiReference=false`. `/scalar` now has its own CSP.
 
 ## Unreleased: updates without downtime, budgets in USD
 

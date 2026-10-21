@@ -7,6 +7,10 @@ name says (`Usd` or `Sek`; budgets and alerts are in USD, SEK amounts are for di
 A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "An internal error occurred."
 (the exception is only logged, by type). Every response, error responses included, carries `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+A change is saved before the gateways are told to reload. If they cannot be told (Redis unavailable), the request still
+succeeds, the admin API logs a warning, and the response carries `Ume-Change-Propagation: delayed`: the gateways apply the
+change when their cache expires (`Gateway:KeyCacheSeconds` / `Gateway:CatalogCacheSeconds`, 30 s by default). The admin UI
+shows this as a notice.
 
 ## Authentication (BFF)
 - `GET /bff/login?returnUrl=/path` → 302 to OIDC provider (Keycloak in dev, Entra ID/AD FS in prod).
@@ -323,10 +327,12 @@ and invalidate the gateway catalogue.
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
   `x-ume-cost-sek` and `x-ume-budget-remaining-sek` carry the same amounts in SEK at the current exchange rate; they are
   for display and will be removed with SEK.
-- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`) with codes
+- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
+  `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
   client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
-  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
+  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`
+  (also for a body that is not valid JSON or repeats a property, such as two `model` fields),
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).
 - Model names: a model is addressed by its public name (the plain name while one provider has it) or `<provider>/<model>`
@@ -337,12 +343,15 @@ and invalidate the gateway catalogue.
   never to another provider's model of the same name). The next one is tried after a transient failure (408, 409, 429, 5xx, timeout,
   connection error, invalid JSON) or a provider configuration failure (upstream 401/403/404, `https_required`,
   `credential_unavailable`, `endpoint_not_supported`). Only transient failures count toward the provider's circuit
-  breaker. Other client errors (e.g. 400) are returned as they are.
+  breaker. Other client errors (e.g. 400) are returned to the client, see below.
 - `GET /v1/models` lists only aliases and models the key may use and that some endpoint of their kind can reach, by the
   same rule as routing: model and provider enabled and not drained, a provider capability for that endpoint, and the
   key's provider and residency allow-lists.
 - Outgoing requests to providers carry `User-Agent: Ume-LlmGateway/<version>`.
-  A provider-side refusal is passed through with the provider's status; one the gateway raises itself is
+  A provider-side refusal is returned with the provider's status, but only its `message`, `type`, `code` and `param`, in
+  the client's error shape (OpenAI, or Anthropic on `/v1/messages`) with the gateway's `request_id`; the rest of the
+  provider's body (inner errors, deployment or organisation names) is dropped, and a body that is not JSON becomes
+  *The provider rejected the request.* (`provider_rejected`). One the gateway raises itself is
   `unsupported_content` (400): a Chat Completions request to a Claude model contains a part the Messages API cannot
   take (audio, video, an OpenAI `file_id`, or a file other than PDF or plain text). An audio upload with no `file`, or
   one that is not `multipart/form-data`, gets `invalid_request` (400) or `unsupported_media_type` (415); one over the
@@ -365,7 +374,8 @@ WebSocket endpoints speaking the OpenAI Realtime protocol (JSON events, audio as
 - During the session the gateway sends OpenAI-style `error` events `{ type: "error", error: { type, code, message,
   event_id } }` (`event_id` is the client event refused): `model_not_allowed` (an input transcription model that is
   not a `Transcription` alias/model of the session's provider, or whose provider is unavailable or outside the key's
-  provider and residency allow-lists), `pii_blocked`, `invalid_request` (binary frame),
+  provider and residency allow-lists), `pii_blocked`, `invalid_request` (binary frame, or a session or conversation event
+  that is not valid JSON or repeats a property; it is not passed on),
   `request_too_large` (event over `MaxMessageBytes`; the session is closed with 1009). It ends the session with an
   error event and a close frame on `budget_exceeded` (close 1008; the message names the exhausted budget like the HTTP 402), `session_time_limit` (1000),
   `gateway_shutting_down` (1001) and `provider_disconnected` (1001).

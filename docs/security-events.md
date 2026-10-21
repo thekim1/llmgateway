@@ -17,6 +17,10 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
   from one client address (IPv6 per /64), the gateway answers that address `429 rate_limited` without looking keys up
   until the minute ends; keys it has cached keep working, so other clients behind the same proxy are not cut off. Set
   trusted proxies (see [client addresses](client-addresses.md)) so the limit applies per client, not per proxy.
+- **Logs are JSON outside development.** The services write console logs with the JSON formatter unless
+  `Logging:Console:FormatterName` says otherwise, so a line break or terminal escape sequence in a client-supplied value
+  (a model name, a Data API path) cannot start a forged log line. Those values are also logged and stored with control
+  characters replaced by `?`. Set `Logging__Console__FormatterName=simple` for the old plain-text format.
 - **Unknown keys are cached.** A key the gateway does not know is remembered for `Gateway:KeyCacheSeconds` (30 s), so a
   client retrying with a deleted or mistyped key costs no database query (0.99 → 0.12 ms per refused request in the
   `audit` benchmark). Creating a key in the admin API clears the cache at once.
