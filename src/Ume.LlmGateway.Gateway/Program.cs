@@ -31,6 +31,7 @@ builder.Services.AddOptions<GatewayOptions>()
 builder.Services.PostConfigure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.None);
 
 builder.Services.AddSingleton<KeyAuthenticator>();
+builder.Services.AddSingleton<AuthFailureThrottle>();
 builder.Services.AddSingleton<GatewayCatalog>();
 builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
 builder.Services.AddSingleton<BudgetService>();

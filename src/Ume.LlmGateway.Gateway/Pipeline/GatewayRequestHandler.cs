@@ -22,6 +22,7 @@ namespace Ume.LlmGateway.Gateway.Pipeline;
 /// </summary>
 public sealed partial class GatewayRequestHandler(
     KeyAuthenticator keys,
+    AuthFailureThrottle authThrottle,
     GatewayCatalog catalog,
     IRouteResolver router,
     IRateLimiter rateLimiter,

@@ -106,6 +106,8 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
     // Limits and budgets
     public static GatewayError RateLimited(bool tokens, int retryAfterSeconds) => new(429, GatewayErrorCodes.RateLimited,
         $"The key has reached its limit of {(tokens ? "tokens" : "requests")} per minute. Try again in {retryAfterSeconds} s.");
+    public static GatewayError TooManyAuthFailures(int retryAfterSeconds) => new(429, GatewayErrorCodes.RateLimited,
+        $"Too many requests with a missing or invalid API key from this address. Try again in {retryAfterSeconds} s.");
     public static GatewayError TooManySessions(int max) => new(429, GatewayErrorCodes.RateLimited,
         $"The key already has {max} open realtime sessions. Close one and try again.");
 

@@ -22,9 +22,27 @@ public sealed partial class GatewayRequestHandler
     {
         var docs = options.CurrentValue.DocsUrl;
         var presented = KeyAuthenticator.ExtractKey(http.Request);
-        var key = await keys.FindAsync(presented, ct);
+        var address = http.Connection.RemoteIpAddress;
+        VirtualKey? key;
+        if (authThrottle.IsLimited(address, out var retryAfter))
+        {
+            // Too many failed authentications from this address: no database lookups for it until the window ends.
+            key = keys.FindCached(presented);
+            if (key is null)
+            {
+                http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
+                await GatewayErrors.WriteAsync(http, endpoint, GatewayError.TooManyAuthFailures(retryAfter), docs);
+                return null;
+            }
+        }
+        else
+        {
+            key = await keys.FindAsync(presented, ct);
+        }
+
         if (key is null)
         {
+            authThrottle.RecordFailure(address);
             authFailures.Record(string.IsNullOrEmpty(presented) ? AuthFailureReason.MissingKey : AuthFailureReason.InvalidKey,
                 endpoint, null, http.Connection.RemoteIpAddress);
             http.Response.Headers.WWWAuthenticate = "Bearer";
