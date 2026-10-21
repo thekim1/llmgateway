@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
@@ -24,6 +25,8 @@ public static class GatewayErrorCodes
     public const string RateLimited = "rate_limited";
     public const string PiiBlocked = "pii_blocked";
     public const string AttachmentNotAllowed = "attachment_not_allowed";
+    public const string ToolNotAllowed = "tool_not_allowed";
+    public const string StorageNotAllowed = "storage_not_allowed";
     public const string NoEligibleProvider = "no_eligible_provider";
     public const string BudgetExceeded = "budget_exceeded";
     public const string AllProvidersFailed = "all_providers_failed";
@@ -64,6 +67,15 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
 
     public static GatewayError AttachmentNotAllowed(AttachmentKinds refused, bool imagesOnly) => new(400, GatewayErrorCodes.AttachmentNotAllowed,
         $"The API key does not allow attached {AttachmentNames(refused)}{(imagesOnly ? " (only images are allowed)" : string.Empty)}. Send the request without files.");
+
+    /// <summary>A refused provider tool or storage field (<see cref="ProviderFeaturePolicy"/>); the name is the client's, shortened.</summary>
+    public static GatewayError ProviderFeatureNotAllowed(ProviderFeatureRefusal refusal) => refusal.Storage
+        ? new(400, GatewayErrorCodes.StorageNotAllowed,
+            $"The API key does not allow keeping the conversation at the provider ('{ModelNames.Truncate(refusal.Feature)}'). " +
+            "Send the request without it, or ask the key's administrator to allow provider storage.")
+        : new(400, GatewayErrorCodes.ToolNotAllowed,
+            $"The API key does not allow tools the provider runs itself ('{ModelNames.Truncate(refusal.Feature)}'): they send the " +
+            "conversation to other services. Use function tools, or ask the key's administrator to allow provider tools.");
 
     public static GatewayError PiiBlocked(string? categories) => new(400, GatewayErrorCodes.PiiBlocked,
         $"The request contains personal data ({categories}) and the key's policy does not allow it. Remove it and try again.");

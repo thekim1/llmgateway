@@ -217,6 +217,34 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Key_provider_features_default_to_off_and_are_kept_when_omitted()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        var ct = TestContext.Current.CancellationToken;
+        var basic = new { teamId = org.Team, name = "Tools", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(), piiPolicy = "Off" };
+
+        using var create = await client.PostAsJsonAsync("/api/keys", basic, ct);
+        var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
+        key["allowProviderTools"]!.GetValue<bool>().ShouldBeFalse();
+        key["allowProviderStorage"]!.GetValue<bool>().ShouldBeFalse();
+        var keyId = key["id"]!.GetValue<Guid>();
+
+        using var allow = await client.PutAsJsonAsync($"/api/keys/{keyId}", new
+        {
+            basic.name, basic.allowedModels, basic.allowedResidencies, basic.piiPolicy, allowProviderTools = true, allowProviderStorage = true,
+        }, ct);
+        (await AdminFixture.ReadAsync(allow))["allowProviderTools"]!.GetValue<bool>().ShouldBeTrue();
+        using var omit = await client.PutAsJsonAsync($"/api/keys/{keyId}", new { basic.name, basic.allowedModels, basic.allowedResidencies, basic.piiPolicy }, ct);
+        (await AdminFixture.ReadAsync(omit))["allowProviderStorage"]!.GetValue<bool>().ShouldBeTrue();
+
+        using var rotate = await client.PostAsJsonAsync($"/api/keys/{keyId}/rotate", new { mode = "RevokeImmediately" }, ct);
+        var rotated = (await AdminFixture.ReadAsync(rotate))["key"]!;
+        rotated["allowProviderTools"]!.GetValue<bool>().ShouldBeTrue();
+        rotated["allowProviderStorage"]!.GetValue<bool>().ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Key_limits_provider_allowlist_and_budgets_round_trip()
     {
         using var client = await fixture.ClientAsync();

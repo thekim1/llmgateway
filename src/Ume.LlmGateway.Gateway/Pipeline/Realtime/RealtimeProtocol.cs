@@ -263,14 +263,15 @@ public sealed class RealtimeMeter
 
 /// <summary>
 /// The gateway's rules for client events in a live session: model names are the gateway's (the client never names an
-/// upstream model), and text goes through the key's PII policy. The session's routing was decided at connect, so PII
-/// that may only go on-prem is refused rather than rerouted.
+/// upstream model), tools the provider runs itself (MCP) need the key's permission, and text goes through the key's PII
+/// policy. The session's routing was decided at connect, so PII that may only go on-prem is refused rather than rerouted.
 /// </summary>
 public sealed class RealtimeEventPolicy(
     ModelDeployment session,
     Func<string, ModelDeployment?> resolveTranscriptionModel,
     PiiPolicy piiPolicy,
-    bool onPrem)
+    bool onPrem,
+    bool allowProviderTools = false)
 {
     private readonly Dictionary<PiiCategory, int> _pii = [];
 
@@ -289,6 +290,12 @@ public sealed class RealtimeEventPolicy(
         if (kind == RealtimeClientEvent.SessionUpdate && evt["session"] is JsonObject config && RewriteModels(config) is { } refused)
         {
             return (refused, 0);
+        }
+
+        if (!allowProviderTools && kind is RealtimeClientEvent.SessionUpdate or RealtimeClientEvent.ResponseCreate &&
+            ProviderFeaturePolicy.ProviderTool((evt["session"] ?? evt["response"])?["tools"], anthropic: false) is { } tool)
+        {
+            return (GatewayError.ProviderFeatureNotAllowed(new ProviderFeatureRefusal(Storage: false, tool)), 0);
         }
 
         var audio = kind is RealtimeClientEvent.ConversationItemCreate or RealtimeClientEvent.ResponseCreate ? AudioBytes(evt) : 0;

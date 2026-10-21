@@ -944,6 +944,12 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AllowProviderStorage")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AllowProviderTools")
+                        .HasColumnType("boolean");
+
                     b.PrimitiveCollection<List<string>>("AllowedIpRanges")
                         .IsRequired()
                         .HasColumnType("text[]");

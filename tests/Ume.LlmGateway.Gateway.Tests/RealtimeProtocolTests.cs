@@ -98,6 +98,21 @@ public sealed class RealtimeProtocolTests
         policy.Apply(unknown, RealtimeClientEvent.SessionUpdate).Rejection!.Code.ShouldBe("model_not_allowed");
     }
 
+    [Fact]
+    public void Mcp_tools_in_a_live_session_need_the_keys_permission()
+    {
+        var session = new ModelDeployment { Name = "p/realtime", UpstreamModel = "gpt-realtime", Kind = ModelKind.Realtime };
+        const string mcp = """{"type":"session.update","session":{"tools":[{"type":"function","name":"f"},{"type":"mcp","server_url":"https://mcp.example"}]}}""";
+        const string function = """{"type":"response.create","response":{"tools":[{"type":"function","name":"f"}]}}""";
+
+        var strict = new RealtimeEventPolicy(session, _ => null, PiiPolicy.Off, onPrem: false);
+        strict.Apply((JsonObject)JsonNode.Parse(mcp)!, RealtimeClientEvent.SessionUpdate).Rejection!.Code.ShouldBe("tool_not_allowed");
+        strict.Apply((JsonObject)JsonNode.Parse(function)!, RealtimeClientEvent.ResponseCreate).Rejection.ShouldBeNull();
+
+        var allowed = new RealtimeEventPolicy(session, _ => null, PiiPolicy.Off, onPrem: false, allowProviderTools: true);
+        allowed.Apply((JsonObject)JsonNode.Parse(mcp)!, RealtimeClientEvent.SessionUpdate).Rejection.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("https://api.openai.com/v1", "", "wss://api.openai.com/v1/realtime?model=gpt-realtime")]
     [InlineData("https://res.openai.azure.com/openai/v1", "", "wss://res.openai.azure.com/openai/v1/realtime?model=gpt-realtime")]
