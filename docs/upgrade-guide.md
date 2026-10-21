@@ -30,6 +30,13 @@ See [runbook](runbook.md) for the actual deployment procedure.
   such an event, or one that is not valid JSON, gets an `error` event instead of being passed to the provider.
 - **API reference:** `/openapi/v1.json` and `/scalar` on the gateway and Data API stay public by default; turn them off with
   `Gateway:PublishApiReference=false` / `DataApi:PublishApiReference=false`. `/scalar` now has its own CSP.
+- **Narrower database grants,** applied by the migration service on start (no manual step). The gateway role can no longer
+  read `AuditLog` or `DataApiKeys` or add Data Protection keys; the admin role can no longer insert or delete the settings
+  row or change `UsageRetainedFrom`. During a rolling update the old gateway version needs nothing it loses.
+- **Internal CA:** new installations get an RFC 5280-conformant CA. On an existing Compose installation run
+  `deploy/init-deployment.sh --renew-ca` once (it needs no other options) and restart the stack; Portainer replaces the CA
+  on its own at the next redeploy. Integrations that trusted the old `ca.pem` must get the new one. Afterwards move
+  `deploy/certs/ca.key` off the host.
 
 ## Unreleased: updates without downtime, budgets in USD
 

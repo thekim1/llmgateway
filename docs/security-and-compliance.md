@@ -14,7 +14,7 @@ approve each downstream use case and deployment before real data is introduced.
 | PII | Configurable Off/Allow/Redact/Block/Reroute; category counts only | Detectors are heuristic, not anonymization or proof of absence of personal/secret data |
 | Admin | Secure HttpOnly BFF cookie with server-side session (ends on sign-out; at most 12 h from sign-in), PKCE, CSRF, scoped RBAC, admin rate limit, headers | MFA/passkeys/conditional access at IdP, claim ownership, account lifecycle |
 | Transport | Production HTTPS listeners/upstreams (no automatic redirects); Postgres VerifyFull; Redis TLS-only | Municipal PKI renewal, SANs, trust chains and approved upstream endpoints |
-| Database | Migrator DDL owner; separate restricted gateway/admin roles; audit insert-only for admin | No bootstrap credentials in apps; secured backups, DBA access auditing and storage encryption |
+| Database | Migrator DDL owner; separate gateway/admin roles granted table by table (gateway cannot read the audit log or Data API keys, or add Data Protection keys); audit insert-only for admin | No bootstrap credentials in apps; secured backups, DBA access auditing and storage encryption |
 | Redis | Default user disabled; password-hash ACL; `ume:*` keys/invalidation channel; forbidden CONFIG/KEYS/FLUSHALL | Redis is shared by the two APIs; rotate both clients together; monitor memory |
 | Containers | Digest-pinned chiseled-extra/infrastructure, nonroot, read-only, dropped capabilities, no-new-privileges | Image/dependency scanning, patch cadence, host hardening and signed release provenance |
 | Networks | Internal data network; no DB/cache publication; distinct API listeners, llm network | Compose networks do not replace a firewall, management VLAN or provider egress policy |

@@ -41,7 +41,8 @@ namespace can enforce the **restricted** Pod Security Standard. Requirements: Ku
    ```
 
    Leave out `--datastores` if you bring your own Postgres and Redis (see below). The script can run again after
-   `init-deployment.sh --renew-certs`; restart the deployments afterwards (`kubectl rollout restart`).
+   `init-deployment.sh --renew-certs`; restart the deployments afterwards (`kubectl rollout restart`). Keep
+   `deploy/certs/ca.key` offline between renewals; `create-secrets.sh` does not need it.
 
 3. **Make an overlay.** Copy `deploy/kubernetes/example` (for example to `deploy/kubernetes/prod`, or into your GitOps
    repository with the `../base` paths adjusted) and change:

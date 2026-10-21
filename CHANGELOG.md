@@ -46,6 +46,17 @@ text), and model names and Data API paths are logged with control characters rep
 (scripts only with a per-request nonce). `Gateway:PublishApiReference` and `DataApi:PublishApiReference` (default on) turn
 the public reference and OpenAPI document off.
 
+**Database roles hold only what they use.** `app-roles.sql` now revokes and grants again in one transaction on every
+migration-service start, naming each table: the gateway role cannot read the audit log or Data API key hashes or add Data
+Protection keys (the gateway no longer generates them; the admin API does), and the admin role can change the settings
+row only column by column, without `UsageRetainedFrom`. A test compares the effective grants, so a new table is readable
+by no service until it is granted on purpose.
+
+**Conformant internal CA.** The generated CA has `keyUsage` (certificate and CRL signing), and service certificates have
+`keyUsage` and `authorityKeyIdentifier`, so strict TLS clients (Python 3.13, newer Go and Java) accept the chain.
+`init-deployment.sh --renew-ca` replaces an older CA; the Portainer bootstrap does it on its own. The setup now tells you
+to move `ca.key` off the host.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

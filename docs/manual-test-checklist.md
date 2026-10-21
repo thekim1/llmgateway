@@ -15,6 +15,20 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 - [ ] **Provider refusal:** send a request a provider refuses (for example `"temperature": 5`): the error has the provider's
   message and the gateway's `request_id`, and nothing else from the provider.
 
+## Security hardening: CA and database roles (branch `security/deploy-hardening`)
+
+- [ ] **CA renewal (Compose):** on an existing installation run `deploy/init-deployment.sh --renew-ca`, restart the stack:
+  all services become healthy, and `openssl x509 -in deploy/certs/ca.pem -noout -ext keyUsage` shows *Certificate Sign,
+  CRL Sign*. A Python 3.13 client with `deploy/certs/ca.pem` as its CA file reaches `https://<gateway>:8443/health/ready`
+  without turning off strict verification.
+- [ ] **CA key offline:** move `deploy/certs/ca.key` away; the stack still starts; `--renew-certs` stops with *ca.key is
+  needed…* until it is back.
+- [ ] **Portainer:** redeploy an existing stack: the bootstrap log says *replacing the internal CA*, and all services start.
+- [ ] **Grants after upgrade:** the migrations container exits 0; providers with credentials still answer through the
+  gateway; the admin UI shows Audit, Data API access and Settings (retention, trusted proxies) and saves changes.
+- [ ] **Data Protection key rotation:** the gateway log has no Data Protection errors after the upgrade; a provider
+  credential entered in the admin UI after the upgrade works through the gateway.
+
 ## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
 
 - [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base
