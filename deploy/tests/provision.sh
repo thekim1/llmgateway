@@ -4,10 +4,11 @@ umask 077
 cd /workspace
 mkdir -p certs/postgres certs/redis certs/gateway certs/adminapi certs/migrations
 mkdir -p secrets/postgres secrets/redis secrets/gateway secrets/adminapi secrets/migrations
-openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 1 -subj /CN=ume-compose-test-ca >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 1 -subj /CN=ume-compose-test-ca \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
 for service in postgres redis gateway adminapi; do
   openssl req -newkey rsa:2048 -nodes -keyout "certs/$service/$service.key" -out leaf.csr -subj "/CN=$service" >/dev/null 2>&1
-  printf 'subjectAltName=DNS:%s,DNS:localhost\nextendedKeyUsage=serverAuth\n' "$service" > leaf.ext
+  printf 'subjectAltName=DNS:%s,DNS:localhost\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\nauthorityKeyIdentifier=keyid\n' "$service" > leaf.ext
   openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out "certs/$service/$service.crt" -days 1 -extfile leaf.ext >/dev/null 2>&1
   cp ca.pem "certs/$service/ca.pem"
 done
