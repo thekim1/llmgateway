@@ -72,7 +72,7 @@ export const api = {
   bff: {
     user: () => http.get<BffUser>('/bff/user'),
     logout: () => postLogout(),
-    extendSession: () => http.post<{ sessionExpiresAt: string }>('/bff/session/extend'),
+    extendSession: () => http.post<{ sessionExpiresAt: string; sessionLimitAt: string | null }>('/bff/session/extend'),
     loginUrl: (returnUrl: string) => buildUrl('/bff/login', { returnUrl }),
   },
   departments: {

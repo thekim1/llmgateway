@@ -104,6 +104,8 @@ export interface BffUser {
   roles: string[]
   departmentCodes: string[]
   sessionExpiresAt: IsoDateTime | null
+  /** The session's absolute end (Admin:MaxSessionHours after sign-in); extending never goes past it. */
+  sessionLimitAt?: IsoDateTime | null
 }
 
 // ---------- Organisation ----------

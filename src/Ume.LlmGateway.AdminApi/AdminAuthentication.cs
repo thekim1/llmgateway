@@ -84,8 +84,15 @@ public static class AdminAuthentication
             o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
             o.Cookie.SameSite = SameSiteMode.Lax;
             o.Cookie.Path = "/";
-            o.ExpireTimeSpan = TimeSpan.FromHours(8);
+            o.ExpireTimeSpan = AdminSessionLimit.Lifetime;
             o.SlidingExpiration = false;
+            o.Events.OnSigningIn = ctx =>
+            {
+                var services = ctx.HttpContext.RequestServices;
+                AdminSessionLimit.OnSigningIn(ctx, TimeSpan.FromHours(services.GetRequiredService<IOptions<AdminOptions>>().Value.MaxSessionHours),
+                    services.GetRequiredService<TimeProvider>().GetUtcNow());
+                return Task.CompletedTask;
+            };
             o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
         }).AddOpenIdConnect(o =>
@@ -132,6 +139,10 @@ public static class AdminAuthentication
             o.AddPolicy(AdminPolicies.Manage, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin));
             o.AddPolicy(AdminPolicies.Read, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
         });
+        // Sessions live on the server: the cookie only names one, and signing out deletes it (a copied cookie stops working).
+        builder.Services.AddSingleton<ITicketStore, AdminTicketStore>();
+        builder.Services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure<ITicketStore>((o, store) => o.SessionStore = store);
         // Read from the validated options when the handler is first used, not while services are registered.
         builder.Services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme).Configure<IOptions<OidcOptions>>((o, oidc) =>
         {
@@ -157,7 +168,7 @@ public static class AdminAuthentication
             }
             return Results.Challenge(new AuthenticationProperties { RedirectUri = destination }, [OpenIdConnectDefaults.AuthenticationScheme]);
         });
-        app.MapGet("/bff/user", async (HttpContext http, IAntiforgery antiforgery, IHostEnvironment environment) =>
+        app.MapGet("/bff/user", async (HttpContext http, IAntiforgery antiforgery, IHostEnvironment environment, IOptions<AdminOptions> admin) =>
         {
             var tokens = antiforgery.GetAndStoreTokens(http);
             http.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
@@ -174,16 +185,25 @@ public static class AdminAuthentication
                 roles = http.User.FindAll(AdminClaims.Roles).Select(c => c.Value).ToArray(),
                 departmentCodes = http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value).ToArray(),
                 sessionExpiresAt = auth.Properties?.ExpiresUtc,
+                sessionLimitAt = AdminSessionLimit.LimitOf(auth.Properties, TimeSpan.FromHours(admin.Value.MaxSessionHours)),
             });
         });
         app.MapPost("/bff/logout", () => Results.SignOut(new AuthenticationProperties { RedirectUri = "/" },
             [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme])).RequireAuthorization();
-        app.MapPost("/bff/session/extend", async (HttpContext http, TimeProvider time) =>
+        // Extends within the absolute limit; the session (and its sign-in time) stays the same, only its expiry moves.
+        app.MapPost("/bff/session/extend", async (HttpContext http, TimeProvider time, IOptions<AdminOptions> admin) =>
         {
-            var expires = time.GetUtcNow().AddHours(8);
-            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, http.User,
-                new AuthenticationProperties { ExpiresUtc = expires, IsPersistent = false });
-            return Results.Ok(new { sessionExpiresAt = expires });
+            var auth = await http.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var properties = auth.Properties ?? new AuthenticationProperties();
+            var maxSession = TimeSpan.FromHours(admin.Value.MaxSessionHours);
+            if (AdminSessionLimit.Extend(properties, maxSession, time.GetUtcNow()) is not { } expires)
+            {
+                return Results.Problem(statusCode: 409, title: "The session cannot be extended",
+                    detail: $"Sessions last at most {admin.Value.MaxSessionHours} hours. Save your work and sign in again.");
+            }
+
+            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, http.User, properties);
+            return Results.Ok(new { sessionExpiresAt = expires, sessionLimitAt = AdminSessionLimit.LimitOf(properties, maxSession) });
         }).RequireAuthorization();
     }
 }

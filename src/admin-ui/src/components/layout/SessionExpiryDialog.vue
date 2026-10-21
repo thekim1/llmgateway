@@ -16,6 +16,11 @@ const timer = setInterval(() => (now.value = Date.now()), 1000)
 onBeforeUnmount(() => clearInterval(timer))
 
 const expiresAt = computed(() => auth.sessionExpiresAt?.getTime() ?? null)
+// At the absolute limit (Admin:MaxSessionHours) the session cannot be extended; only signing in again helps.
+const atLimit = computed(() => {
+  const limit = auth.sessionLimitAt?.getTime()
+  return limit !== undefined && expiresAt.value !== null && expiresAt.value >= limit - 60_000
+})
 const remaining = computed(() => (expiresAt.value === null ? null : expiresAt.value - now.value))
 const open = computed(
   () => auth.isAuthenticated && remaining.value !== null && remaining.value <= WARN_MS && remaining.value > 0 && dismissedFor.value !== expiresAt.value,
@@ -44,7 +49,7 @@ async function stay(): Promise<void> {
   <UiDialog
     :open="open"
     title="Your session is about to expire"
-    description="Stay signed in to keep your unsaved work."
+    :description="atLimit ? 'Sessions have a maximum length. Save your work, then sign in again.' : 'Stay signed in to keep your unsaved work.'"
     icon="timer"
     tone="warn"
     @update:open="(v) => !v && (dismissedFor = expiresAt)"
@@ -52,7 +57,7 @@ async function stay(): Promise<void> {
     <p class="tabular text-title-2 text-fg">{{ label }}</p>
     <InlineError v-if="error" :message="error" />
     <div class="flex justify-end gap-3">
-      <UiButton variant="primary" :loading="busy" @click="stay">Stay signed in</UiButton>
+      <UiButton v-if="!atLimit" variant="primary" :loading="busy" @click="stay">Stay signed in</UiButton>
     </div>
   </UiDialog>
 </template>

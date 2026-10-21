@@ -32,12 +32,14 @@ export const useAuthStore = defineStore('auth', () => {
   const effective = computed(() => effectiveRoles(roles.value))
   const isDevelopment = computed(() => user.value?.environment === 'Development')
   const departmentCodes = computed(() => user.value?.departmentCodes ?? [])
-  const sessionExpiresAt = computed<Date | null>(() => {
-    const value = user.value?.sessionExpiresAt
+  const sessionExpiresAt = computed<Date | null>(() => toDate(user.value?.sessionExpiresAt))
+  const sessionLimitAt = computed<Date | null>(() => toDate(user.value?.sessionLimitAt))
+
+  function toDate(value: string | null | undefined): Date | null {
     if (!value) return null
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? null : date
-  })
+  }
 
   function hasRole(role: Role): boolean {
     return effective.value.has(role)
@@ -88,7 +90,7 @@ export const useAuthStore = defineStore('auth', () => {
   /** Explicit, CSRF-protected renewal preserves unsaved forms in this tab. */
   async function extendSession(): Promise<boolean> {
     const result = await api.bff.extendSession()
-    if (user.value) user.value = { ...user.value, sessionExpiresAt: result.sessionExpiresAt }
+    if (user.value) user.value = { ...user.value, sessionExpiresAt: result.sessionExpiresAt, sessionLimitAt: result.sessionLimitAt }
     return isAuthenticated.value
   }
 
@@ -113,6 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
     roles,
     departmentCodes,
     sessionExpiresAt,
+    sessionLimitAt,
     isDevelopment,
     isGatewayAdmin,
     canManage,
