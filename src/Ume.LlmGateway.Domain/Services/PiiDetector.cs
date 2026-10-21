@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -25,6 +26,63 @@ public static partial class PiiDetector
     [GeneratedRegex(@"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,3})?(?![A-Za-z0-9])", RegexOptions.CultureInvariant, 250)]
     private static partial Regex IbanRegex();
 
+    /// <summary>
+    /// The form of <paramref name="text"/> the patterns run on: Unicode compatibility forms folded (NFKC: full-width digits,
+    /// no-break spaces), other decimal digits (Arabic-Indic, Devanagari, ...) made ASCII, invisible format characters
+    /// (zero-width space, soft hyphen, word joiner) removed and dashes made '-'. Without it a personnummer in full-width
+    /// digits or with a zero-width space inside would pass unnoticed. Match positions and redaction refer to this form.
+    /// Text that needs none of it (ASCII, or ordinary Swedish prose) is returned as it is, without allocating.
+    /// </summary>
+    public static string Canonical(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        // Two vectorised scans decide; normalising (an ICU call) runs only when a character could fold into a digit, '@', '-'
+        // or a space. In Latin-1 only a few can (Swedish å, ä, ö never do); above it each candidate is classified.
+        var span = text.AsSpan();
+        var fold = span.ContainsAny(Latin1MayFold);
+        for (var next = span.IndexOfAnyExceptInRange('\0', '\u00FF'); !fold && next >= 0;)
+        {
+            fold = MayFold(span[next]);
+            var rest = span[(next + 1)..].IndexOfAnyExceptInRange('\0', '\u00FF');
+            next = rest < 0 ? -1 : next + 1 + rest;
+        }
+
+        if (!fold)
+        {
+            return text;
+        }
+
+        var folded = text.Normalize(NormalizationForm.FormKC);
+        var sb = new StringBuilder(folded.Length);
+        foreach (var c in folded)
+        {
+            switch (CharUnicodeInfo.GetUnicodeCategory(c))
+            {
+                case UnicodeCategory.Format:
+                    break;
+                case UnicodeCategory.DashPunctuation:
+                    sb.Append('-');
+                    break;
+                case UnicodeCategory.DecimalDigitNumber when c > '9':
+                    sb.Append((char)('0' + CharUnicodeInfo.GetDecimalDigitValue(c)));
+                    break;
+                default:
+                    sb.Append(c);
+                    break;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>No-break space, soft hyphen, superscript digits and vulgar fractions: the Latin-1 characters that fold.</summary>
+    private static readonly SearchValues<char> Latin1MayFold = SearchValues.Create("\u00A0\u00AD\u00B2\u00B3\u00B9\u00BC\u00BD\u00BE");
+
+    private static bool MayFold(char c) => c is >= '\uFF00' and <= '\uFFEF' || CharUnicodeInfo.GetUnicodeCategory(c) is
+        UnicodeCategory.Format or UnicodeCategory.DashPunctuation or UnicodeCategory.DecimalDigitNumber or UnicodeCategory.OtherNumber or
+        UnicodeCategory.SpaceSeparator or UnicodeCategory.Surrogate;
+
+    /// <summary>Matches in <paramref name="text"/> as given; pass <see cref="Canonical"/> text so look-alike characters are caught.</summary>
     public static IReadOnlyList<PiiMatch> Detect(string? text)
     {
         if (string.IsNullOrEmpty(text))
