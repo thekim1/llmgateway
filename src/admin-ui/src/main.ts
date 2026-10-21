@@ -13,8 +13,10 @@ app.use(createPinia())
 useUiStore().init()
 
 const auth = useAuthStore()
+const ui = useUiStore()
 configureClient({
   onUnauthorized: () => auth.setUnauthenticated(),
+  onChangeDelayed: () => ui.notify('Saved. The gateways apply it when their cache refreshes (30 seconds by default).'),
 })
 
 const router = createAppRouter()

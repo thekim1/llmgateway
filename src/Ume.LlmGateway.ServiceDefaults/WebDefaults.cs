@@ -206,6 +206,34 @@ public static class WebDefaults
         }
     }
 
+    /// <summary>
+    /// Sets the Content-Security-Policy of the browsable API reference under <paramref name="path"/> (Scalar): scripts only from
+    /// this host or carrying the nonce Scalar generates per request and keeps in <c>HttpContext.Items[nonceItemKey]</c>
+    /// (configure it with <c>WithNonce()</c>). It replaces the host's own policy on those pages.
+    /// </summary>
+    public static IApplicationBuilder UseApiReferencePolicy(this IApplicationBuilder app, PathString path, string nonceItemKey)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        return app.Use((http, next) =>
+        {
+            if (http.Request.Path.StartsWithSegments(path, StringComparison.OrdinalIgnoreCase))
+            {
+                http.Response.OnStarting(() =>
+                {
+                    http.Response.Headers.ContentSecurityPolicy = ApiReferencePolicy(http.Items[nonceItemKey] as string);
+                    return Task.CompletedTask;
+                });
+            }
+
+            return next(http);
+        });
+    }
+
+    /// <summary>The API reference's policy. Scalar sets styles inline, so only scripts are held to the nonce.</summary>
+    public static string ApiReferencePolicy(string? nonce) =>
+        $"default-src 'none'; script-src 'self'{(string.IsNullOrEmpty(nonce) ? "" : $" 'nonce-{nonce}'")}; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
     /// <summary>Gives error responses that have no body (401 and 403 from authorization, 404 from routing) a problem body.</summary>
     public static IApplicationBuilder UseProblemDetailsForEmptyErrors(this IApplicationBuilder app, string? title = null)
     {

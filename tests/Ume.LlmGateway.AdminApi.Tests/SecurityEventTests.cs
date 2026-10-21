@@ -34,6 +34,53 @@ public sealed class SecurityEventTests(AdminFixture fixture)
         loggers.Messages.Count.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData("gpt-4o", "gpt-4o")]
+    [InlineData("Umeå kommun – sammanfattning", "Umeå kommun – sammanfattning")]
+    [InlineData("/v1/usage\nwarn: forged", "/v1/usage?warn: forged")]
+    [InlineData("a\r\n\u001b[2Jb\u0085\u007f", "a???[2Jb??")]
+    public void Client_values_are_logged_without_control_characters(string value, string logged)
+    {
+        var printable = SecurityEvents.Printable(value);
+        printable.ShouldBe(logged);
+        if (value == logged)
+        {
+            printable.ShouldBeSameAs(value);
+        }
+    }
+
+    [Fact]
+    public async Task A_saved_change_is_not_reported_as_failed_when_the_gateways_cannot_be_told()
+    {
+        using var scope = fixture.Services.CreateScope();
+        using var loggers = new CapturingLoggerFactory();
+        var http = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "admin-123")], "Test")) } };
+        var bus = new FailingBus(failures: 1);
+        var ctx = new AdminContext(scope.ServiceProvider.GetRequiredService<GatewayDbContext>(), bus, TimeProvider.System, loggers, http);
+
+        // One failure: the retry succeeds and nothing is reported.
+        await ctx.PublishAsync([InvalidationKind.Keys], TestContext.Current.CancellationToken);
+        bus.Attempts.ShouldBe(2);
+        http.HttpContext.Response.Headers.ContainsKey(AdminContext.PropagationHeader).ShouldBeFalse();
+
+        // Down for good: the request still succeeds, says so in a header and logs a warning.
+        bus.Failures = int.MaxValue;
+        await ctx.PublishAsync([InvalidationKind.Keys, InvalidationKind.Config], TestContext.Current.CancellationToken);
+        http.HttpContext.Response.Headers[AdminContext.PropagationHeader].ToString().ShouldBe("delayed");
+        loggers.Messages.Count(m => m.StartsWith($"{typeof(AdminContext).FullName}|LogPublishFailed|", StringComparison.Ordinal)).ShouldBe(2);
+    }
+
+    private sealed class FailingBus(int failures) : IInvalidationBus
+    {
+        public int Failures { get; set; } = failures;
+        public int Attempts { get; private set; }
+
+        public Task PublishAsync(InvalidationKind kind, CancellationToken cancellationToken) =>
+            ++Attempts <= Failures ? Task.FromException(new InvalidOperationException("Redis unavailable")) : Task.CompletedTask;
+
+        public IDisposable Subscribe(Action<InvalidationKind> handler) => throw new NotSupportedException();
+    }
+
     private sealed class CapturingLoggerFactory : ILoggerFactory
     {
         public ConcurrentQueue<string> Messages { get; } = new();

@@ -43,14 +43,18 @@ builder.Services.AddRateLimiter(o =>
 var app = builder.Build();
 app.UseUmeWebDefaults();
 app.UseUmeSecurityHeaders(o => o.NoStorePrefixes.Add("/v1"));
+app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.Use((http, next) => DataApiAuthentication.LogReadsAsync(http, () => next(http)));
 app.MapDefaultEndpoints();
-app.MapOpenApi();
-app.MapScalarApiReference(o => o.WithTitle("LLM Gateway Data API"));
-app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+if (app.Configuration.GetValue($"{DataApiOptions.SectionName}:{nameof(DataApiOptions.PublishApiReference)}", true))
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(o => o.WithTitle("LLM Gateway Data API").WithNonce().DisableDefaultFonts());
+    app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+}
 app.MapGroup("/v1").RequireRateLimiting("client").MapDataEndpoints();
 
 await app.RunAsync();

@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Ume.LlmGateway.Domain;
 
@@ -16,6 +17,35 @@ public static partial class SecurityEvents
     {
         ArgumentNullException.ThrowIfNull(factory);
         return factory.CreateLogger(Category);
+    }
+
+    private static readonly SearchValues<char> ControlCharacters = SearchValues.Create(
+        [.. Enumerable.Range(0, 0x20).Select(c => (char)c), .. Enumerable.Range(0x7F, 0x21).Select(c => (char)c)]);
+
+    /// <summary>
+    /// <paramref name="value"/> with control characters (line breaks, escape sequences) replaced by '?', for client-supplied
+    /// values that are logged or stored: a newline could otherwise start a forged log line in a plain-text log. Returns the
+    /// same string, without allocating, when there is nothing to replace.
+    /// </summary>
+    public static string Printable(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var first = value.AsSpan().IndexOfAny(ControlCharacters);
+        if (first < 0)
+        {
+            return value;
+        }
+
+        return string.Create(value.Length, (value, first), static (span, state) =>
+        {
+            state.value.AsSpan().CopyTo(span);
+            var rest = span[state.first..];
+            for (var i = rest.IndexOfAny(ControlCharacters); i >= 0; i = rest.IndexOfAny(ControlCharacters))
+            {
+                rest[i] = '?';
+                rest = rest[(i + 1)..];
+            }
+        });
     }
 
     public static string ReasonName(AuthFailureReason reason) => reason switch

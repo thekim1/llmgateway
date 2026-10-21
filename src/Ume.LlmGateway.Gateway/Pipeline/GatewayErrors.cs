@@ -197,7 +197,7 @@ public static class GatewayErrors
                 ["code"] = code,
                 ["param"] = null,
                 ["request_id"] = requestId,
-                ["doc_url"] = $"{docsUrl.TrimEnd('/')}#{code}",
+                ["doc_url"] = string.IsNullOrEmpty(docsUrl) ? null : $"{docsUrl.TrimEnd('/')}#{code}",
             },
         };
     }

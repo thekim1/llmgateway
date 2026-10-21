@@ -79,6 +79,7 @@ app.UseUmeSecurityHeaders(o =>
     o.ContentSecurityPolicyPrefixes.Add("/v1");
     o.NoStorePrefixes.Add("/v1");
 });
+app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 
 app.MapDefaultEndpoints();
 app.MapGet(OperationsSignature.Path, async (HttpContext http, IOptions<GatewaySecurityOptions> security,
@@ -96,9 +97,12 @@ app.MapGet(OperationsSignature.Path, async (HttpContext http, IOptions<GatewaySe
         status.ConsecutiveFailures > 0 && report.Status == HealthStatus.Healthy ? "Degraded" : report.Status.ToString(),
         typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown", status));
 }).ExcludeFromDescription();
-app.MapOpenApi();
-app.MapScalarApiReference(o => o.WithTitle("Umeå kommun LLM Gateway"));
-app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+if (app.Configuration.GetValue($"{GatewayOptions.SectionName}:{nameof(GatewayOptions.PublishApiReference)}", true))
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(o => o.WithTitle("Umeå kommun LLM Gateway").WithNonce().DisableDefaultFonts());
+    app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+}
 
 app.MapGatewayEndpoints();
 

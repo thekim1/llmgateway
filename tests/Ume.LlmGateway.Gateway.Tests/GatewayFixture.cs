@@ -199,7 +199,7 @@ public sealed class GatewayFixture : IAsyncLifetime
         if (behavior.StartsWith("fail", StringComparison.Ordinal) || behavior == "bad400")
         {
             var status = behavior == "fail503" ? 503 : behavior == "fail429" ? 429 : 400;
-            response.WithStatusCode(status).WithBody("""{"error":{"type":"invalid_request_error","message":"Upstream rejected request"}}""");
+            response.WithStatusCode(status).WithBody("""{"error":{"type":"invalid_request_error","message":"Upstream rejected request","innererror":{"deployment":"internal-deployment-7"}},"organization":"org-internal-42"}""");
         }
         else
         {

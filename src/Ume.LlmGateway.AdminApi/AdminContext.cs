@@ -9,12 +9,18 @@ using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
 
-public sealed class AdminContext
+public sealed partial class AdminContext
 {
+    /// <summary>Set on a response whose change is saved but could not be announced; gateways pick it up when their cache expires.</summary>
+    public const string PropagationHeader = "Ume-Change-Propagation";
+
+    private static readonly TimeSpan PublishRetryDelay = TimeSpan.FromMilliseconds(250);
+
     private readonly IInvalidationBus _bus;
     private readonly TimeProvider _time;
     private readonly IHttpContextAccessor _http;
     private readonly ILogger _security;
+    private readonly ILogger _logger;
     private List<AuditLogEntry> _saving = [];
 
     public AdminContext(GatewayDbContext db, IInvalidationBus bus, TimeProvider time, ILoggerFactory loggers, IHttpContextAccessor http)
@@ -24,6 +30,7 @@ public sealed class AdminContext
         _time = time;
         _http = http;
         _security = SecurityEvents.CreateLogger(loggers);
+        _logger = loggers.CreateLogger<AdminContext>();
 
         // Every audit entry, however it was added (including config import), becomes an admin.change security
         // event once it is saved. Details are not logged: they stay in the audit log, where secrets are masked.
@@ -110,15 +117,49 @@ public sealed class AdminContext
         await PublishAsync(kinds, ct);
     }
 
-    /// <summary>Tells the gateways to reload; for changes saved elsewhere (a committed import) or caches without a database change.</summary>
+    /// <summary>
+    /// Tells the gateways to reload; for changes saved elsewhere (a committed import) or caches without a database change.
+    /// The change is already saved, so a bus that is down (Redis unavailable) does not fail the request: it is tried once more,
+    /// then logged, and the response carries <see cref="PropagationHeader"/>. Gateways reload when their cache expires
+    /// (<c>Gateway:KeyCacheSeconds</c>, <c>Gateway:CatalogCacheSeconds</c>).
+    /// </summary>
     public async Task PublishAsync(IReadOnlyCollection<InvalidationKind> kinds, CancellationToken ct)
     {
         // The gateways subscribe to one kind per message, so each kind is its own message.
         foreach (var kind in kinds.Distinct())
         {
-            await _bus.PublishAsync(kind, ct);
+            if (!await TryPublishAsync(kind, ct) && !await RetryPublishAsync(kind, ct))
+            {
+                LogPublishFailed(_logger, kind);
+                if (_http.HttpContext is { } http)
+                {
+                    http.Response.Headers[PropagationHeader] = "delayed";
+                }
+            }
         }
     }
+
+    private async Task<bool> RetryPublishAsync(InvalidationKind kind, CancellationToken ct)
+    {
+        await Task.Delay(PublishRetryDelay, _time, ct);
+        return await TryPublishAsync(kind, ct);
+    }
+
+    private async Task<bool> TryPublishAsync(InvalidationKind kind, CancellationToken ct)
+    {
+        try
+        {
+            await _bus.PublishAsync(kind, ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Saved change not announced to the gateways ({Kind}); they reload when their cache expires")]
+    private static partial void LogPublishFailed(ILogger logger, InvalidationKind kind);
 }
 
 public sealed class AdminValidationFilter : IEndpointFilter

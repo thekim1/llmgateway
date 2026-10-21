@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -22,6 +23,7 @@ public static class Extensions
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();
+        builder.UseJsonConsoleOutsideDevelopment();
         builder.AddDefaultHealthChecks();
         builder.Services.AddServiceDiscovery();
         builder.Services.ConfigureHttpClientDefaults(http =>
@@ -29,6 +31,22 @@ public static class Extensions
             http.AddStandardResilienceHandler();
             http.AddServiceDiscovery();
         });
+        return builder;
+    }
+
+    /// <summary>
+    /// Console logs are JSON outside development unless <c>Logging:Console:FormatterName</c> says otherwise. JSON escapes line
+    /// breaks and escape sequences, so a client-supplied value that reaches a log message cannot start a forged log line or
+    /// recolour a terminal; it is also what log shippers read best.
+    /// </summary>
+    public static TBuilder UseJsonConsoleOutsideDevelopment<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        if (!builder.Environment.IsDevelopment())
+        {
+            builder.Services.Configure<ConsoleLoggerOptions>(o => o.FormatterName ??= ConsoleFormatterNames.Json);
+        }
+
         return builder;
     }
 

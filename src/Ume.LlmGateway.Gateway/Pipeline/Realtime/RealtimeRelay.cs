@@ -151,11 +151,14 @@ public sealed partial class RealtimeRelay(
         JsonObject? evt;
         try
         {
-            evt = JsonNode.Parse(message.Span) as JsonObject;
+            evt = JsonNode.Parse(message.Span, documentOptions: GatewayRequestHandler.JsonOptions) as JsonObject;
         }
         catch (JsonException)
         {
-            evt = null;
+            // Not passed on: an event with a repeated property is valid to the provider, which may read another value than the
+            // policy checked.
+            await SendToClientAsync(RealtimeEvents.Error(GatewayError.InvalidJson, null), ct);
+            return;
         }
 
         if (evt is null)
