@@ -20,6 +20,11 @@ The script generates everything in *Nonsecret deployment inputs* and *Certificat
 layout* below (internal CA, certificates, secrets, `deploy/.env`) and prints the OIDC redirect
 URIs to register. It never overwrites existing secrets; `--renew-certs` re-issues service
 certificates (generated leaves last 825 days, the CA and Data Protection certificate 10 years).
+`deploy/certs/ca.key` signs them: move it off the host after setup and bring it back only for
+`--renew-certs` (anyone who can read it can issue certificates the services trust). `--renew-ca`
+replaces the internal CA and re-issues its certificates; run it once on installations set up before
+the CA got its `keyUsage` extension (strict clients such as Python 3.13 refuse such a CA), then
+restart the stack.
 For municipal PKI, replace the generated certificate files (same names) before starting.
 The sections below describe the same layout for operators who provision it by other means,
 and the Aspire-generated base plus `compose.hardening.yaml`.
@@ -37,8 +42,10 @@ release's images (by digest), so the image variables are optional there.
 A one-shot `bootstrap` container creates the internal CA, certificates, passwords, key pepper and
 Redis ACL in the `ume-certs` and `ume-secrets` volumes on first start; the services still read them
 as read-only files, never as environment variables. It is idempotent: secrets are never regenerated,
-service certificates are re-issued when they expire within 30 days or the hostnames change (restart the
-stack to renew; redeploying runs bootstrap again). `UME_OIDC_CLIENT_SECRET`, if used, is the one secret
+service certificates are re-issued when they expire within 30 days, the hostnames change or the CA changed
+(restart the stack to renew; redeploying runs bootstrap again). An internal CA without the `keyUsage` extension
+(created before it was added) is replaced automatically and all certificates are re-issued. The CA key stays in the
+`ume-certs` volume because bootstrap needs it; restrict who can read Docker volumes on the host. `UME_OIDC_CLIENT_SECRET`, if used, is the one secret
 you enter yourself; it is stored in the Portainer stack's environment, so restrict who can view it.
 
 - **Back up** `ume-secrets/.pepper` and `ume-certs/data-protection.pfx` (for example
@@ -320,7 +327,11 @@ GSS encryption is disabled because verified TLS/SCRAM is the chosen authenticati
 Data Protection uses a stable encryption certificate with private key, optionally a
 password from file. Keep it separately backed up and tightly controlled. Demo
 certificates are not production PKI. Database initialization creates three roles only
-on an empty volume; the migration job applies schema and exact table/column permissions.
+on an empty volume; the migration job applies schema and exact table/column permissions
+(`deploy/postgres/app-roles.sql`, revoked and granted again on every run): the gateway role reads only
+what it routes and accounts with (not the audit log or Data API keys) and cannot add Data Protection
+keys (the admin API creates and rotates them); the admin role cannot change `UsageRetainedFrom`, which
+only the retention function moves.
 Changing password files alone does **not** change existing database role passwords.
 
 Register `/signin-oidc` and `/signout-callback-oidc` for the admin public HTTPS origin,
