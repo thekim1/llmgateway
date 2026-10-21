@@ -28,6 +28,24 @@ Everyone is signed out once by the upgrade.
 from one client address (IPv6 per /64), the gateway stops looking keys up for that address until the minute ends: keys
 it already has cached keep working, others get `429 rate_limited` with `Retry-After`. `0` turns it off.
 
+**Repeated JSON properties are refused.** A request body such as `{"model":"a","model":"b"}` gets `400 invalid_request`
+(it was a `500` with no usage record). On live audio such an event is answered with an `error` event, not passed on.
+
+**Provider refusals are trimmed.** When a provider refuses a request (4xx), the client gets only its `message`, `type`,
+`code` and `param` in the client API's error shape with the gateway's `request_id`; inner errors, deployment and
+organisation names stay out.
+
+**A saved change is not reported as failed when Redis is down.** The admin API used to answer `500` after a change was
+saved if it could not tell the gateways; now it retries once, logs a warning and answers with
+`Ume-Change-Propagation: delayed`, and the admin UI says the gateways apply it when their cache refreshes.
+
+**JSON console logs.** Outside development the services log JSON (set `Logging__Console__FormatterName=simple` for plain
+text), and model names and Data API paths are logged with control characters replaced, so a client cannot forge log lines.
+
+**API reference CSP and switch.** `/scalar` on the gateway, Data API and admin API gets a strict Content-Security-Policy
+(scripts only with a per-request nonce). `Gateway:PublishApiReference` and `DataApi:PublishApiReference` (default on) turn
+the public reference and OpenAPI document off.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

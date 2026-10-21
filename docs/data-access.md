@@ -131,7 +131,8 @@ Push over OTLP is best-effort: if the collector is down, events can be lost. `Au
 `src/Ume.LlmGateway.DataApi` is a separate, optional service. An adopter can deploy it in another network zone, point
 it at a read replica (`ConnectionStrings:gatewaydb`), or not deploy it at all. Deployment and identity-provider setup
 are in the [runbook](runbook.md#data-api-optional); the contract is the OpenAPI document at `/openapi/v1.json`
-(public; it contains no data) with a browsable reference at `/scalar`.
+(public; it contains no data) with a browsable reference at `/scalar`. Set `DataApi:PublishApiReference=false` to serve
+neither.
 
 ### Access
 
