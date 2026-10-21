@@ -60,6 +60,13 @@ jobs:
           dotnet test --solution UmeLlmGateway.slnx -c Release --no-build
           dotnet list UmeLlmGateway.slnx package --vulnerable --include-transitive --format json > /tmp/ume-package-audit.json
           python -c "import json; d=json.load(open('/tmp/ume-package-audit.json')); p=[p for x in d.get('projects',[]) for f in x.get('frameworks',[]) for k in ('topLevelPackages','transitivePackages') for p in f.get(k,[]) if p.get('vulnerabilities')]; assert not p, 'Vulnerable .NET dependencies detected'"
+      - name: Scan the service base image
+        # The pinned runtime image (Directory.Build.targets) is shared by every service; fail on fixable HIGH/CRITICAL so a
+        # stale digest does not ship known runtime CVEs.
+        run: |
+          image="$(dotnet msbuild src/Ume.LlmGateway.Gateway -getProperty:ContainerBaseImage)"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.67.2 image --quiet --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
       - name: Verify UI
         working-directory: src/admin-ui
         run: |
