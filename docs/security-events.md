@@ -5,8 +5,9 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
 
 - **Security events for your SIEM.** The gateway and admin API log security events under the category
   `Ume.LlmGateway.Security` with stable event names: `gateway.auth.failed`, `gateway.pii.action`,
-  `gateway.request.refused` and `admin.change`. Set `OTEL_EXPORTER_OTLP_ENDPOINT` on both services and route that
-  category to your SIEM with an OpenTelemetry Collector.
+  `gateway.request.refused`, `admin.change`, `admin.signin`, `admin.signout`, `admin.session.extended`,
+  `admin.access.denied` and `admin.data.read` (the table is in [data-access.md](data-access.md)). Set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` on both services and route that category to your SIEM with an OpenTelemetry Collector.
   [`deploy/otel/collector-siem.example.yaml`](../deploy/otel/collector-siem.example.yaml) sends it to syslog (RFC 5424),
   with Splunk, Elastic and Sentinel alternatives.
 - **Refused keys are recorded.** Missing, unknown, revoked, expired and disabled keys are counted in the new
@@ -21,6 +22,16 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
   `Logging:Console:FormatterName` says otherwise, so a line break or terminal escape sequence in a client-supplied value
   (a model name, a Data API path) cannot start a forged log line. Those values are also logged and stored with control
   characters replaced by `?`. Set `Logging__Console__FormatterName=simple` for the old plain-text format.
+- **Admin activity is attributable.** Every audit entry records the user's name, roles and departments at the time, the
+  client address (behind the trusted proxies), a session id given at sign-in, the request's trace id and the browser.
+  Exports of the configuration or of usage are audit entries (`export`). Sign-in, sign-out, *Stay signed in*, refused
+  requests and reads of the audit log, request list, PII incidents and Data API keys are security events. Alerts worth
+  setting up in the SIEM:
+  - several `admin.access.denied` from one user (probing for rights), or any from a `viewer` on write paths;
+  - `admin.change` with action `export`, or `admin.data.read` of `/api/audit`, outside office hours;
+  - `admin.signin` from an address outside the municipal networks, or the same `Actor` from two addresses at once;
+  - `admin.session.extended` many times for one `SessionId` (a session kept alive unattended);
+  - an audit entry (Data API `security/audit` feed) whose `sessionId` never had an `admin.signin`.
 - **Unknown keys are cached.** A key the gateway does not know is remembered for `Gateway:KeyCacheSeconds` (30 s), so a
   client retrying with a deleted or mistyped key costs no database query (0.99 → 0.12 ms per refused request in the
   `audit` benchmark). Creating a key in the admin API clears the cache at once.

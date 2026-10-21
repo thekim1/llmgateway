@@ -296,7 +296,13 @@ and invalidate the gateway catalogue.
   Import is transactional, rejects plaintext credentials, preserves existing encrypted credentials when
   a reference is omitted, and never overwrites price history. Environment references must already exist
   in the Admin API process. Export never contains secret values or encrypted credentials.
-- `GET /api/audit?page=&pageSize=&entityType=` → `{ items: [{ id, timestamp, actor, action, entityType, entityId, details }], total }`
+- `GET /api/audit?page=&pageSize=&entityType=` → `{ items: [{ id, timestamp, actor, action, entityType, entityId, details, actorName,
+  actorRoles, actorDepartments, sourceAddress, sessionId, requestId, userAgent }], total }`. `actor` is the OIDC subject; the
+  other actor fields are recorded with each entry: name or e-mail, roles and department codes at the time, the client address
+  behind the trusted proxies (`Admin:AuditSourceAddress`: `Full` by default, `Truncated` or `None`), a random session id
+  given at sign-in (never the cookie), the request's trace id and the user agent (200 characters). Entries written before
+  have them empty. `GET /api/ops/config/export` and `GET /api/usage/export.csv` write an entry with action `export`
+  (entity `Config` or `Usage`, with counts or the period and row count).
   - `details` is JSON `{ before, after }` (camelCase, enums as names) with snapshots of the entity's own stored settings,
     never a secret: no derived or volatile values such as `deploymentCount`, `createdAt`, `currentPrice`, `providerName`,
     key `status` or `lastUsedAt`. For a rotation `after` is `{ previousKey, key }`, for a reveal/copy the key's name and
