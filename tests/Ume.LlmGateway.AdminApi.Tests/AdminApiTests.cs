@@ -398,6 +398,50 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Stored_provider_credential_is_not_kept_for_a_new_address()
+    {
+        using var client = await fixture.ClientAsync();
+        var name = "provider-" + Guid.NewGuid().ToString("N");
+        object Body(string baseUrl, string? credential) => credential is null
+            ? new { name, baseUrl, type = "OpenAICompatible", authMode = "Bearer", residency = "Eu", capabilities = new[] { "ChatCompletions" }, timeoutSeconds = 10, isEnabled = true }
+            : new { name, baseUrl, type = "OpenAICompatible", authMode = "Bearer", residency = "Eu", capabilities = new[] { "ChatCompletions" }, timeoutSeconds = 10, isEnabled = true, credential };
+        using var create = await client.PostAsJsonAsync("/api/providers", Body("https://provider.invalid/v1", "secret"), TestContext.Current.CancellationToken);
+        var id = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+
+        // Another path on the same host keeps the credential.
+        using var samePlace = await client.PutAsJsonAsync($"/api/providers/{id}", Body("https://PROVIDER.invalid/openai/v1", null), TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(samePlace))["hasCredential"]!.GetValue<bool>().ShouldBeTrue();
+
+        // Another host or port without the credential is refused, and nothing changes (a scheme change: see SameOrigin below).
+        foreach (var elsewhere in new[] { "https://attacker.invalid/v1", "https://provider.invalid:8443/v1", "https://provider.invalid.attacker.example/v1" })
+        {
+            using var moved = await client.PutAsJsonAsync($"/api/providers/{id}", Body(elsewhere, null), TestContext.Current.CancellationToken);
+            moved.StatusCode.ShouldBe(HttpStatusCode.BadRequest, elsewhere);
+            (await AdminFixture.ReadAsync(moved, HttpStatusCode.BadRequest))["errors"]!["credential"].ShouldNotBeNull();
+        }
+
+        using var get = await client.GetAsync("/api/providers", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(get)).AsArray().Single(p => p!["id"]!.GetValue<Guid>() == id)!["baseUrl"]!.GetValue<string>()
+            .ShouldBe("https://PROVIDER.invalid/openai/v1");
+
+        // Entering the credential again (or removing it) allows the move.
+        using var withCredential = await client.PutAsJsonAsync($"/api/providers/{id}", Body("https://other.invalid/v1", "new-secret"), TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(withCredential))["hasCredential"]!.GetValue<bool>().ShouldBeTrue();
+        using var cleared = await client.PutAsJsonAsync($"/api/providers/{id}", Body("https://third.invalid/v1", ""), TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(cleared))["hasCredential"]!.GetValue<bool>().ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("https://provider.invalid/v1", "https://PROVIDER.invalid/openai/v1?api-version=1", true)]
+    [InlineData("https://provider.invalid/v1", "https://provider.invalid:443/v2", true)] // default port written out
+    [InlineData("https://provider.invalid/v1", "http://provider.invalid/v1", false)]
+    [InlineData("https://provider.invalid/v1", "https://provider.invalid:8443/v1", false)]
+    [InlineData("https://provider.invalid/v1", "https://provider.invalid.example/v1", false)]
+    [InlineData("http://10.0.0.5:11434/v1", "http://10.0.0.6:11434/v1", false)]
+    public void Same_origin_compares_scheme_host_and_port(string current, string next, bool same) =>
+        ProviderCatalogService.SameOrigin(current, next).ShouldBe(same);
+
+    [Fact]
     public async Task Usage_reporting_and_lookup_are_department_scoped()
     {
         using var admin = await fixture.ClientAsync();

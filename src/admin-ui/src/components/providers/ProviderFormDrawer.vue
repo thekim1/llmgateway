@@ -121,6 +121,21 @@ function urlProblem(): string | false {
   }
 }
 
+function origin(url: string): string | null {
+  try {
+    return new URL(url.trim()).origin
+  } catch {
+    return null
+  }
+}
+
+// The server refuses to keep a stored credential when the address moves to another scheme, host or port.
+function credentialProblem(): string | false {
+  const p = props.provider
+  if (!p?.hasCredential || clearCredential.value || credential.value || origin(baseUrl.value) === origin(p.baseUrl)) return false
+  return "Enter the credential again when you change the provider's address. The stored credential is never sent to a new address."
+}
+
 function timeoutProblem(): string | false {
   const value = Number(timeoutSeconds.value)
   return timeoutSeconds.value.trim() !== '' && Number.isFinite(value) && value >= 1 && value <= 900 ? false : 'Enter a timeout between 1 and 900 seconds.'
@@ -131,6 +146,7 @@ async function submit(thenDiscover = false): Promise<void> {
   const ok = validate({
     name: !name.value.trim() && 'Give the provider a name.',
     baseUrl: urlProblem(),
+    credential: credentialProblem(),
     timeoutSeconds: timeoutProblem(),
   })
   if (!ok) return

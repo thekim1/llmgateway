@@ -24,11 +24,11 @@ const saved: Provider = {
   deploymentCount: 0,
 } as unknown as Provider
 
-function mountForm() {
+function mountForm(provider: Provider = saved) {
   const pinia = createPinia()
   setActivePinia(pinia)
   return mount(ProviderFormDrawer, {
-    props: { open: true, provider: saved },
+    props: { open: true, provider },
     global: {
       plugins: [pinia],
       stubs: {
@@ -83,5 +83,47 @@ describe('ProviderFormDrawer discovery', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="discover"]').attributes('data-open')).toBe('false')
+  })
+})
+
+describe('ProviderFormDrawer stored credential', () => {
+  const withCredential = { ...saved, hasCredential: true } as Provider
+  const submit = (wrapper: ReturnType<typeof mountForm>) => wrapper.find('form').trigger('submit')
+
+  beforeEach(() => {
+    update.mockReset()
+    update.mockResolvedValue(withCredential)
+  })
+
+  it('asks for the credential again when the address moves to another host', async () => {
+    const wrapper = mountForm(withCredential)
+    await wrapper.find('#prov-url').setValue('https://elsewhere.example/openai/v1')
+
+    await submit(wrapper)
+    await flushPromises()
+
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Enter the credential again')
+  })
+
+  it('keeps the stored credential for another path on the same host', async () => {
+    const wrapper = mountForm(withCredential)
+    await wrapper.find('#prov-url').setValue('https://example-swc.services.ai.azure.com/api/projects/p')
+
+    await submit(wrapper)
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith('p1', expect.not.objectContaining({ credential: expect.anything() }))
+  })
+
+  it('saves a new host together with a newly entered credential', async () => {
+    const wrapper = mountForm(withCredential)
+    await wrapper.find('#prov-url').setValue('https://elsewhere.example/openai/v1')
+    await wrapper.find('#prov-credential').setValue('new-secret')
+
+    await submit(wrapper)
+    await flushPromises()
+
+    expect(update).toHaveBeenCalledWith('p1', expect.objectContaining({ baseUrl: 'https://elsewhere.example/openai/v1', credential: 'new-secret' }))
   })
 })
