@@ -15,12 +15,15 @@ A malformed request (unreadable body) → 400; an unexpected failure → 500 wit
   The end-session request includes `client_id` and protected state for the local return to `/`.
   Register `/signout-callback-oidc` as an allowed post-logout redirect at the identity provider.
   Tokens are not saved; providers such as Keycloak may therefore require logout confirmation.
-- `POST /bff/session/extend` → `{ sessionExpiresAt }`, renews an authenticated session for eight
-  hours without losing unsaved forms. Requires the same CSRF headers as other mutations.
-- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], sessionExpiresAt }`
-  (always 200; `isAuthenticated=false` when not signed in).
+- `POST /bff/session/extend` → `{ sessionExpiresAt, sessionLimitAt }`, renews an authenticated session for eight
+  hours (but not past `sessionLimitAt`) without losing unsaved forms. At the limit it answers `409`: sign in again.
+  Requires the same CSRF headers as other mutations.
+- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], sessionExpiresAt, sessionLimitAt }`
+  (always 200; `isAuthenticated=false` when not signed in). `sessionLimitAt` is the absolute end of the session.
 - Session cookie: `__Host-ume-admin`, HttpOnly, Secure, SameSite=Lax (compatible with OIDC redirects).
-  No tokens reach the browser. Sessions last eight hours; the UI warns before expiry and can start a new login.
+  No tokens reach the browser. The cookie only holds a session id; the session itself is stored encrypted in Redis
+  (`ume:admin-session:*`), so signing out ends it for every copy of the cookie. A sign-in lasts eight hours, a session at
+  most `Admin:MaxSessionHours` (12, 1–24) from sign-in; the UI warns before expiry and can start a new login.
 - **CSRF**: every non-GET request must send header `X-XSRF-TOKEN` with the value of the readable cookie
   `XSRF-TOKEN` (set on `GET /bff/user`). Also send `X-Requested-With: XMLHttpRequest`.
 - Unauthenticated API calls → 401 (no redirect). Missing role → 403.
@@ -113,7 +116,9 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `Provider = { id, name, displayName, type, baseUrl, authMode, hasCredential, residency, capabilities: ProviderCapabilities[], isEnabled, isDrained, timeoutSeconds, createdAt, deploymentCount }`
   (credential is **write-only**, never returned)
 - `GET /api/providers` · `POST /api/providers` `{ name, displayName?, type, baseUrl, authMode, credential?, residency, capabilities, timeoutSeconds, isEnabled }`
-- `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove
+- `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove. A stored credential is only
+  kept while the base URL's scheme, host and port stay the same: moving the provider elsewhere without a new `credential`
+  (or `""`) answers `400` with a field error on `credential`.
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
 - `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`

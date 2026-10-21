@@ -3,6 +3,10 @@
 ## Discovering models
 
 Instead of typing models in by hand, open a provider (**Providers & models**) and choose
+**Changing a provider's address.** The credential is write-only and tied to the address it was entered for: when you
+change the base URL to another scheme, host or port, enter the credential again (or remove it). Another path on the same
+host keeps it.
+
 **Discover models**. The Admin API calls the provider with its stored credential, so a
 successful list also proves the connection and credential work. Pick the models to add and
 the gateway creates them with what the provider reports:

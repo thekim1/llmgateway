@@ -13,6 +13,10 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
   `AuthFailures` table. A row covers one reason, endpoint, key and client network for up to 10 seconds, so callers
   without a valid key cannot flood the database. The presented key is never stored. Refused keys on `GET /v1/models`
   are recorded with the endpoint `Models`.
+- **Floods of unknown keys are throttled.** After `Gateway:AuthFailuresPerMinute` (60) missing or unknown keys in a minute
+  from one client address (IPv6 per /64), the gateway answers that address `429 rate_limited` without looking keys up
+  until the minute ends; keys it has cached keep working, so other clients behind the same proxy are not cut off. Set
+  trusted proxies (see [client addresses](client-addresses.md)) so the limit applies per client, not per proxy.
 - **Unknown keys are cached.** A key the gateway does not know is remembered for `Gateway:KeyCacheSeconds` (30 s), so a
   client retrying with a deleted or mistyped key costs no database query (0.99 → 0.12 ms per refused request in the
   `audit` benchmark). Creating a key in the admin API clears the cache at once.
