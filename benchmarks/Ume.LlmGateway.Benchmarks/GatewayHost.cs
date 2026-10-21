@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -92,6 +93,8 @@ public sealed class GatewayHost : IAsyncDisposable
         using (var scope = Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            // The gateway creates no Data Protection keys (the admin API does), so the benchmark makes the one it encrypts with.
+            scope.ServiceProvider.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(90));
             var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();
             Key = await SeedAsync(db, scope.ServiceProvider.GetRequiredService<VirtualKeyHasher>(), name => $"http://{name}.upstream/v1", "bench", protector.Protect("upstream-secret"));
         }

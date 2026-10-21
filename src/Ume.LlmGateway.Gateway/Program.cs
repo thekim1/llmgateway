@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
@@ -18,6 +19,9 @@ builder.AddDeploymentSecrets();
 builder.AddServiceDefaults();
 builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
+// The gateway only decrypts (provider credentials). The admin API creates and rotates the Data Protection keys; the
+// gateway's database role may not add any (deploy/postgres/app-roles.sql).
+builder.Services.AddDataProtection().DisableAutomaticKeyGeneration();
 builder.AddGatewayStores();
 builder.Services.AddProviderAdapters();
 

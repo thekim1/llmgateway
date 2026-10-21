@@ -1,7 +1,10 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Infrastructure;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.TestKit;
 
@@ -15,7 +18,7 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private string Connection(string user) => fixture.Connection(user);
+    private string Connection(string? user) => fixture.Connection(user);
 
     [Fact]
     public async Task Admin_role_removes_old_rows_only_through_the_retention_function()
@@ -78,6 +81,106 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
         await ShouldBeDeniedAsync(data, """SELECT "TrustedProxies" FROM "GatewaySettings" """);
     }
 
+    [Fact]
+    public async Task Each_role_reads_and_writes_exactly_the_tables_it_needs()
+    {
+        // A new table must be added to app-roles.sql on purpose: until then no service can read it and this test fails.
+        string[] all = [.. await ListAsync(Connection(null), """
+            SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1
+            """)];
+        string[] notForGateway = ["AuditLog", "DataApiKeys", "__EFMigrationsHistory"];
+
+        (await PrivilegesAsync("ume_gateway", "SELECT")).ShouldBe([.. all.Except(notForGateway)], ignoreOrder: true);
+        (await PrivilegesAsync("ume_gateway", "INSERT")).ShouldBe(["AlertEvents", "AuthFailures", "UsageRecords"], ignoreOrder: true);
+        (await PrivilegesAsync("ume_gateway", "UPDATE")).ShouldBeEmpty();
+        (await PrivilegesAsync("ume_gateway", "DELETE")).ShouldBeEmpty();
+
+        (await PrivilegesAsync("ume_admin", "SELECT")).ShouldBe(all, ignoreOrder: true);
+        (await PrivilegesAsync("ume_admin", "INSERT")).ShouldBe([.. Configuration, "AuditLog", "DataProtectionKeys"], ignoreOrder: true);
+        (await PrivilegesAsync("ume_admin", "UPDATE")).ShouldBe(Configuration, ignoreOrder: true);
+        (await PrivilegesAsync("ume_admin", "DELETE")).ShouldBe(Configuration, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Gateway_cannot_read_the_audit_log_or_data_api_keys_or_add_data_protection_keys()
+    {
+        var gateway = Connection("ume_gateway");
+        await ShouldBeDeniedAsync(gateway, """SELECT count(*) FROM "AuditLog" """);
+        await ShouldBeDeniedAsync(gateway, """SELECT count(*) FROM "DataApiKeys" """);
+        await ShouldBeDeniedAsync(gateway, """INSERT INTO "DataProtectionKeys" ("FriendlyName", "Xml") VALUES ('k', '<key/>')""");
+        await ShouldBeDeniedAsync(gateway, """UPDATE "VirtualKeys" SET "IsEnabled" = true""");
+    }
+
+    [Fact]
+    public async Task Admin_role_cannot_move_the_retention_boundary()
+    {
+        var admin = Connection("ume_admin");
+        await ShouldBeDeniedAsync(admin, """UPDATE "GatewaySettings" SET "UsageRetainedFrom" = now() - interval '10 years'""");
+        await ShouldBeDeniedAsync(admin, """DELETE FROM "GatewaySettings" """);
+        await ShouldBeDeniedAsync(admin, """INSERT INTO "GatewaySettings" ("Id", "TrustedProxies") VALUES (2, '{}')""");
+        await ExecuteAsync(admin, """
+            UPDATE "GatewaySettings" SET "LogAllRequests" = false, "LogAllRequestsUntil" = NULL, "UpdatedAt" = now(),
+                "AuditRetentionDays" = 365, "RetentionLastRunAt" = now(), "RetentionLastRunDeleted" = 0, "RetentionLastRunError" = NULL
+            """);
+    }
+
+    [Fact]
+    public async Task Applying_the_roles_again_keeps_the_same_grants()
+    {
+        var before = await PrivilegesAsync("ume_gateway", "SELECT");
+        await fixture.ApplyRolesAsync();
+        (await PrivilegesAsync("ume_gateway", "SELECT")).ShouldBe(before, ignoreOrder: true);
+        (await ScalarAsync<long>(Connection("ume_gateway"), """SELECT count(*) FROM "GatewaySettings" """)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Gateway_decrypts_with_keys_the_admin_role_created()
+    {
+        await using var admin = DataProtection(Connection("ume_admin"), createKeys: true);
+        var ciphertext = admin.GetRequiredService<IDataProtectionProvider>().CreateProtector("role-test").Protect("provider-secret");
+
+        await using var gateway = DataProtection(Connection("ume_gateway"), createKeys: false);
+        gateway.GetRequiredService<IDataProtectionProvider>().CreateProtector("role-test").Unprotect(ciphertext).ShouldBe("provider-secret");
+    }
+
+    private static readonly string[] Configuration = ["Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts",
+        "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates"];
+
+    private static ServiceProvider DataProtection(string connectionString, bool createKeys)
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<GatewayDbContext>(o => o.UseNpgsql(connectionString));
+        var dp = services.AddDataProtection().SetApplicationName(InfrastructureExtensions.DataProtectionApplicationName)
+            .PersistKeysToDbContext<GatewayDbContext>();
+        if (!createKeys)
+        {
+            dp.DisableAutomaticKeyGeneration();
+        }
+
+        return services.BuildServiceProvider();
+    }
+
+    /// <summary>Tables on which <paramref name="role"/> holds <paramref name="privilege"/> for the whole table.</summary>
+    private async Task<List<string>> PrivilegesAsync(string role, string privilege) => await ListAsync(Connection(null), $"""
+        SELECT table_name FROM information_schema.table_privileges
+        WHERE table_schema = 'public' AND grantee = '{role}' AND privilege_type = '{privilege}'
+        """);
+
+    private static async Task<List<string>> ListAsync(string connectionString, string sql)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(Ct);
+        var values = new List<string>();
+        while (await reader.ReadAsync(Ct))
+        {
+            values.Add(reader.GetString(0));
+        }
+
+        return values;
+    }
+
     internal static async Task ExecuteAsync(string connectionString, string sql)
     {
         await using var connection = new NpgsqlConnection(connectionString);
@@ -126,7 +229,14 @@ public sealed class DatabaseRolesFixture : IAsyncLifetime
             GRANT USAGE ON SCHEMA public TO ume_gateway, ume_admin;
             """);
         await TestPostgres.MigrateAsync(Connection("ume_migrator"));
-        await DatabaseRoleTests.ExecuteAsync(Connection("ume_migrator"), await File.ReadAllTextAsync(RolesSqlPath()));
+        await ApplyRolesAsync();
+    }
+
+    /// <summary>Runs app-roles.sql as the migration service does (EF Core ExecuteSqlRaw, as the schema owner).</summary>
+    public async Task ApplyRolesAsync()
+    {
+        await using var db = new GatewayDbContext(new DbContextOptionsBuilder<GatewayDbContext>().UseNpgsql(Connection("ume_migrator")).Options);
+        await db.Database.ExecuteSqlRawAsync(await File.ReadAllTextAsync(RolesSqlPath()));
     }
 
     public async ValueTask DisposeAsync() => await _postgres.DisposeAsync();
