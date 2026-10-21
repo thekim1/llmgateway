@@ -162,7 +162,7 @@ public sealed class DataApiTests(DataApiFixture fixture)
         response.Headers.GetValues("X-Next-Cursor").Single().ShouldNotBe(start.ToString(System.Globalization.CultureInfo.InvariantCulture));
         response.Headers.GetValues("X-Has-More").Single().ShouldBe("false");
         var lines = (await response.Content.ReadAsStringAsync(Ct)).Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-        lines[0].ShouldBe("id,timestamp,actor,action,entityType,entityId,details,recordedAt");
+        lines[0].ShouldBe("id,timestamp,actor,action,entityType,entityId,details,recordedAt,actorName,actorRoles,actorDepartments,sourceAddress,sessionId,requestId,userAgent");
         lines.Length.ShouldBe(2);
         lines[1].ShouldContain(",\"'=HYPERLINK(\"\"x\"\")\",create,");
     }

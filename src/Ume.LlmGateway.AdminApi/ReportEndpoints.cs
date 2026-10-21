@@ -149,6 +149,7 @@ public static class ReportEndpoints
                 csv.AppendJoin(CsvDelimiter, [Csv(r.CostCenterCode), Csv(r.DepartmentName), Csv(r.TeamName), Csv(r.KeyName),
                     r.Requests.ToString(CultureInfo.InvariantCulture), r.Tokens.ToString(CultureInfo.InvariantCulture), Csv(r.Cost.ToString(CultureInfo.GetCultureInfo("sv-SE")))]).Append("\r\n");
             }
+            await ctx.AuditAsync(AuditActions.Export, AuditEntities.Usage, "usage.csv", new { from = start, to = end, rows = rows.Count }, ct);
             return TypedResults.File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray(), "text/csv; charset=utf-8", "anvandning.csv");
         }).WithName("ExportUsageCsv").WithSummary("Cost per cost centre, department, team and key (semicolon-separated, Swedish decimals)");
         api.MapGet("/audit", async (int? page, int? pageSize, string? entityType, AdminContext ctx, CancellationToken ct) =>
@@ -157,7 +158,8 @@ public static class ReportEndpoints
             var query = ctx.Db.AuditLog.AsNoTracking();
             if (!string.IsNullOrEmpty(entityType)) { query = query.Where(a => a.EntityType == entityType); }
             var items = await query.OrderByDescending(a => a.Id).Skip(skip).Take(take)
-                .Select(a => new AuditEntryDto(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details)).ToListAsync(ct);
+                .Select(a => new AuditEntryDto(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details,
+                    a.ActorName, a.ActorRoles, a.ActorDepartments, a.SourceAddress, a.SessionId, a.RequestId, a.UserAgent)).ToListAsync(ct);
             return TypedResults.Ok(new PageDto<AuditEntryDto>(items, await query.CountAsync(ct)));
         }).RequireAuthorization(AdminPolicies.Admin).WithTags("Reports").WithName("ListAudit");
         api.MapGet("/catalog", async (AdminContext ctx, ProviderCatalogService catalog, IOptions<GatewayLinkOptions> gateway, CancellationToken ct) =>

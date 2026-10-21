@@ -234,7 +234,8 @@ public sealed record PiiIncidentReportDto(
     DateTimeOffset From, DateTimeOffset To, IReadOnlyList<PiiIncidentDto> Items, int Total, long TotalIncidents,
     IReadOnlyList<PiiCategoryCountDto> Categories, IReadOnlyList<PiiActionCountDto> Actions);
 
-public sealed record AuditEntryDto(long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details);
+public sealed record AuditEntryDto(long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details,
+    string? ActorName, string? ActorRoles, string? ActorDepartments, string? SourceAddress, string? SessionId, string? RequestId, string? UserAgent);
 
 public sealed record CatalogDto(string GatewayBaseUrl, IReadOnlyList<CatalogModelDto> Models, IReadOnlyList<CatalogRouteDto> Routes);
 

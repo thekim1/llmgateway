@@ -27,6 +27,7 @@ public static class AuditActions
     public const string Run = "run";
     public const string Import = "import";
     public const string Invalidate = "invalidate";
+    public const string Export = "export";
 }
 
 /// <summary>Audit log <c>EntityType</c> values (also the <c>entityType</c> filter of <c>GET /api/audit</c>).</summary>
@@ -46,6 +47,7 @@ public static class AuditEntities
     public const string Settings = "Settings";
     public const string Config = "Config";
     public const string Keys = "Keys";
+    public const string Usage = "Usage";
 }
 
 /// <summary>The <c>Details</c> of an audit entry.</summary>

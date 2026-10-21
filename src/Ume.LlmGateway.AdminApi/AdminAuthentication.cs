@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -91,6 +92,15 @@ public static class AdminAuthentication
                 var services = ctx.HttpContext.RequestServices;
                 AdminSessionLimit.OnSigningIn(ctx, TimeSpan.FromHours(services.GetRequiredService<IOptions<AdminOptions>>().Value.MaxSessionHours),
                     services.GetRequiredService<TimeProvider>().GetUtcNow());
+                // A new sign-in (not an extension, which signs in again with the same principal) gets its session id.
+                if (ctx.Principal?.Identity is ClaimsIdentity identity && !identity.HasClaim(c => c.Type == AdminClaims.Session))
+                {
+                    identity.AddClaim(new Claim(AdminClaims.Session, AdminActor.NewSessionId()));
+                    var actor = AdminActor.Of(ctx.HttpContext, ctx.Principal);
+                    SecurityEvents.AdminSignIn(SecurityEvents.CreateLogger(services.GetRequiredService<ILoggerFactory>()), actor.Subject,
+                        actor.SourceAddress, actor.Roles, actor.Departments, actor.SessionId);
+                }
+
                 return Task.CompletedTask;
             };
             o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
@@ -188,10 +198,15 @@ public static class AdminAuthentication
                 sessionLimitAt = AdminSessionLimit.LimitOf(auth.Properties, TimeSpan.FromHours(admin.Value.MaxSessionHours)),
             });
         });
-        app.MapPost("/bff/logout", () => Results.SignOut(new AuthenticationProperties { RedirectUri = "/" },
-            [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme])).RequireAuthorization();
+        app.MapPost("/bff/logout", (HttpContext http, ILoggerFactory loggers) =>
+        {
+            var actor = AdminActor.Of(http);
+            SecurityEvents.AdminSignOut(SecurityEvents.CreateLogger(loggers), actor.Subject, actor.SourceAddress, actor.SessionId);
+            return Results.SignOut(new AuthenticationProperties { RedirectUri = "/" },
+                [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
+        }).RequireAuthorization();
         // Extends within the absolute limit; the session (and its sign-in time) stays the same, only its expiry moves.
-        app.MapPost("/bff/session/extend", async (HttpContext http, TimeProvider time, IOptions<AdminOptions> admin) =>
+        app.MapPost("/bff/session/extend", async (HttpContext http, TimeProvider time, IOptions<AdminOptions> admin, ILoggerFactory loggers) =>
         {
             var auth = await http.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             var properties = auth.Properties ?? new AuthenticationProperties();
@@ -203,6 +218,8 @@ public static class AdminAuthentication
             }
 
             await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, http.User, properties);
+            var actor = AdminActor.Of(http);
+            SecurityEvents.AdminSessionExtended(SecurityEvents.CreateLogger(loggers), actor.Subject, actor.SessionId, expires, actor.SourceAddress);
             return Results.Ok(new { sessionExpiresAt = expires, sessionLimitAt = AdminSessionLimit.LimitOf(properties, maxSession) });
         }).RequireAuthorization();
     }
@@ -222,6 +239,9 @@ public static class AdminClaims
     public const string Subject = "sub";
     public const string Roles = "roles";
     public const string DepartmentCodes = "departmentCodes";
+
+    /// <summary>A random id given at sign-in and kept while the session lasts (audit entries and security events).</summary>
+    public const string Session = "ume_session";
 }
 
 /// <summary>Authorization and rate-limiting policy names.</summary>

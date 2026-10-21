@@ -905,6 +905,14 @@ export interface AuditEntry {
   entityType: string
   entityId: string | null
   details: string | Record<string, unknown> | null
+  /** Who and from where, as recorded with the entry (older entries have none of these). */
+  actorName?: string | null
+  actorRoles?: string | null
+  actorDepartments?: string | null
+  sourceAddress?: string | null
+  sessionId?: string | null
+  requestId?: string | null
+  userAgent?: string | null
 }
 
 export interface AuditQuery {

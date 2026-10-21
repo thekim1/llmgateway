@@ -1,8 +1,6 @@
-using System.Collections.Concurrent;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -79,21 +77,5 @@ public sealed class SecurityEventTests(AdminFixture fixture)
             ++Attempts <= Failures ? Task.FromException(new InvalidOperationException("Redis unavailable")) : Task.CompletedTask;
 
         public IDisposable Subscribe(Action<InvalidationKind> handler) => throw new NotSupportedException();
-    }
-
-    private sealed class CapturingLoggerFactory : ILoggerFactory
-    {
-        public ConcurrentQueue<string> Messages { get; } = new();
-        public ILogger CreateLogger(string categoryName) => new Logger(categoryName, Messages);
-        public void AddProvider(ILoggerProvider provider) { }
-        public void Dispose() { }
-
-        private sealed class Logger(string category, ConcurrentQueue<string> messages) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-            public bool IsEnabled(LogLevel logLevel) => true;
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                messages.Enqueue($"{category}|{eventId.Name}|{formatter(state, exception)}");
-        }
     }
 }

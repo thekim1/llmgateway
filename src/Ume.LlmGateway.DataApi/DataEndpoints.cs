@@ -23,7 +23,8 @@ public sealed record AuthFailureItem(
     string? KeyPrefix, Guid? TeamId, Guid? DepartmentId, string? SourceAddress, int Count, DateTimeOffset RecordedAt) : IFeedItem;
 
 public sealed record AuditItem(
-    long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details, DateTimeOffset RecordedAt) : IFeedItem;
+    long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details, DateTimeOffset RecordedAt,
+    string? ActorName, string? ActorRoles, string? ActorDepartments, string? SourceAddress, string? SessionId, string? RequestId, string? UserAgent) : IFeedItem;
 
 public sealed record KeyInventoryItem(
     Guid Id, string Prefix, string Name, Guid TeamId, Guid? DepartmentId, KeyStatus Status, DateTimeOffset CreatedAt, string? CreatedBy,
@@ -111,7 +112,8 @@ public static class DataEndpoints
         {
             var (cursor, size) = Feeds.Window(after, limit, options.Value);
             var rows = await db.AuditLog.AsNoTracking().Where(a => a.Id > cursor).OrderBy(a => a.Id).Take(size + 1)
-                .Select(a => new AuditItem(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details, a.RecordedAt))
+                .Select(a => new AuditItem(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details, a.RecordedAt,
+                    a.ActorName, a.ActorRoles, a.ActorDepartments, a.SourceAddress, a.SessionId, a.RequestId, a.UserAgent))
                 .ToListAsync(ct);
             return DataResults.Feed(http, Feeds.Page(rows, cursor, size, Feeds.Cutoff(time, options.Value)));
         }).WithSummary("Admin audit log with masked before/after details (incremental feed)");
