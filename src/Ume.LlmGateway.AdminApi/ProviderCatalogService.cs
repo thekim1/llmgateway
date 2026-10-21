@@ -62,13 +62,29 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Provider, id, ProviderAudit.Of(p), null, InvalidationKind.Config, ct);
     }
 
-    /// <summary>Copies the request onto the provider. A <c>null</c> credential keeps the stored one; an empty one removes it.</summary>
+    public const string CredentialForNewAddressMessage =
+        "Enter the credential again when you change the provider's address. The stored credential is never sent to a new address.";
+
+    /// <summary>
+    /// Copies the request onto the provider. A <c>null</c> credential keeps the stored one; an empty one removes it. A stored
+    /// credential is only kept while the scheme, host and port stay the same, so editing the address cannot send it elsewhere.
+    /// </summary>
     public void Apply(ProviderAccount p, ProviderRequest input)
     {
+        if (p.EncryptedCredential is not null && input.Credential is null && !SameOrigin(p.BaseUrl, input.BaseUrl))
+        {
+            throw ApiFaultException.Validation(new Dictionary<string, string[]> { ["credential"] = [CredentialForNewAddressMessage] });
+        }
+
         p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
         p.Residency = input.Residency; p.Capabilities = input.Capabilities.Aggregate(ProviderCapabilities.None, (a, b) => a | b); p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
         if (input.Credential is not null) { p.EncryptedCredential = input.Credential.Length == 0 ? null : protector.Protect(input.Credential); }
     }
+
+    /// <summary>Same scheme, host and port (the parts that decide who receives the credential); the path may change.</summary>
+    internal static bool SameOrigin(string current, string next) =>
+        Uri.TryCreate(current, UriKind.Absolute, out var a) && Uri.TryCreate(next, UriKind.Absolute, out var b) &&
+        Uri.Compare(a, b, UriComponents.SchemeAndServer, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
 
     // ---- models and prices -------------------------------------------------------------------------------
 
