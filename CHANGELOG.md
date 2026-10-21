@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-Security hardening from an internal security assessment (findings H1–M4).
+## 0.6.4 - 2026-10-22
+
+Security hardening from an internal security assessment (findings H1–M4, L2, L4, L5, A3, A5, A6, LG1, LG2, LG4 and LG5),
+and a live audio fix. Rolling update: yes (two additive migrations). Read the 0.6.4 section of `docs/upgrade-guide.md`
+first: provider tools and storage are off for every key until an admin allows them, console logs are JSON, everyone is
+signed out once, and existing Compose installations should renew the internal CA.
 
 **Provider credentials stay with their address.** Changing a provider's base URL to another scheme, host or port now
 requires entering the credential again (`400`, field `credential`); the stored credential is never sent to a new address.

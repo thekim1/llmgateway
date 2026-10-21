@@ -210,9 +210,9 @@ replace the files (or re-run with the options) before they expire and restart th
 
 ## Releases (GitHub)
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`. The tag must equal `<Version>` in
-`Directory.Build.props` (bump it, and move the CHANGELOG's *Unreleased* notes under `## X.Y.Z - date`,
-which become the release notes). The workflow:
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`, which builds with `-p:Version=X.Y.Z` from the tag
+(`<Version>` in `Directory.Build.props` stays the local placeholder). Before tagging, move the CHANGELOG's *Unreleased*
+notes under `## X.Y.Z - date`, which become the release notes. The workflow:
 
 1. runs the full verify workflow (build, tests, UI, audits, SBOM, Compose validation);
 2. pushes `ghcr.io/<owner>/<repo>/gateway`, `adminapi` (with the admin UI), `migrations` and `dataapi`

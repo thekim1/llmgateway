@@ -11,9 +11,10 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: security hardening
+## 0.6.4: security hardening
 
-- **Rolling update: yes.** No schema change.
+- **Rolling update: yes.** Two additive migrations (`ProviderFeaturePolicy`, `AuditActorContext`); 0.6.3 runs against the
+  new schema while its instances are replaced.
 - **Everyone is signed out once.** Admin sessions move to Redis (`ume:admin-session:*`, covered by the existing `~ume:*`
   ACL; only `get`, `set`, `del`, which it already allows). Old cookies are not accepted after the upgrade; users sign in
   again. During a rolling update a user can be signed out by an old instance once more.
@@ -50,7 +51,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - **New admin security events:** `admin.signin`, `admin.signout`, `admin.session.extended`, `admin.access.denied`,
   `admin.data.read`; exports are `admin.change` with action `export`. Route them in the collector like `admin.change`.
 
-## Unreleased: updates without downtime, budgets in USD
+## 0.6.0: updates without downtime, budgets in USD
 
 - **Rolling update: no** (renames budget columns 0.5.0 reads). Stop the gateway, admin API and Data API, migrate, start the
   new version. Later releases can use the rolling update described below.
