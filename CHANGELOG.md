@@ -65,6 +65,14 @@ refuses `mcp` tools the same way. Both are in the key form and detail, the admin
 `allowProviderStorage`), the audit log and the Data API key inventory, and are copied on rotation; refusals are
 `gateway.request.refused` events. Migration `ProviderFeaturePolicy`.
 
+**Admin activity is attributable.** Audit entries now record the user's name, roles and departments at the time, the client
+address behind the trusted proxies (`Admin:AuditSourceAddress`, `Full` by default), a session id given at sign-in (never the
+cookie), the request's trace id and the user agent; the audit page shows them and the Data API audit feed passes them on
+(migration `AuditActorContext`). Configuration and usage exports are audit entries. New security events: `admin.signin`,
+`admin.signout`, `admin.session.extended`, `admin.access.denied` (at most once a minute per user, with a count) and
+`admin.data.read` (audit log, request list, PII incidents, Data API keys), with suggested SIEM alerts in
+`docs/security-events.md`.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

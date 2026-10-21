@@ -42,6 +42,19 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
   plain tool (`name` + `input_schema`) works.
 - [ ] **SIEM:** the refusals appear as `gateway.request.refused` with `ErrorCode` `tool_not_allowed` / `storage_not_allowed`.
 
+## Admin audit trail (branch `security/audit-trail`)
+
+- [ ] **Audit context:** change something in the admin UI, then open *Audit log* and expand the entry: your name, roles,
+  your own address (not the proxy's, once the proxy is a trusted proxy), a session id, request id and browser are shown.
+- [ ] **Exports:** export the configuration (*Operations*) and the usage CSV: both appear in the audit log as `export`.
+- [ ] **Sign-in and sign-out events:** sign in and out: the SIEM (or `docker logs` of the admin API) has `admin.signin`
+  and `admin.signout` with the same session id as your audit entries.
+- [ ] **Stay signed in:** use *Stay signed in* in the expiry dialog: `admin.session.extended` with that session id.
+- [ ] **Refused requests:** as a viewer, open `/api/providers` a few times: one `admin.access.denied`, and after a minute
+  one more with the count.
+- [ ] **Sensitive reads:** open the audit log and PII incidents: `admin.data.read` events with the filters used.
+- [ ] **Data API:** `GET /v1/security/audit` returns the new fields for new entries.
+
 ## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
 
 - [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base

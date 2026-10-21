@@ -43,6 +43,12 @@ See [runbook](runbook.md) for the actual deployment procedure.
   an admin turns on *Allow provider tools* / *Allow provider storage* on the key. Responses API requests are now sent with
   `store: false`, so `previous_response_id` stops working for keys without provider storage. Check which applications
   rely on these before upgrading.
+- **Audit entries record more** (migration `AuditActorContext` adds seven nullable columns to `AuditLog`; rolling update still
+  works). New setting `Admin:AuditSourceAddress` (`Full`; `Truncated` or `None` if your privacy assessment requires).
+  The admin API applies the gateway's trusted proxies to find the admin user's address. The Data API audit feed has the new
+  fields, and its CSV has seven new columns at the end: consumers that read columns by position must allow for them.
+- **New admin security events:** `admin.signin`, `admin.signout`, `admin.session.extended`, `admin.access.denied`,
+  `admin.data.read`; exports are `admin.change` with action `export`. Route them in the collector like `admin.change`.
 
 ## Unreleased: updates without downtime, budgets in USD
 

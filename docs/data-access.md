@@ -66,7 +66,12 @@ renamed or removed, within a major version.
 | 1001 | `gateway.auth.failed` | Gateway | Once per aggregation bucket (see below) | `Reason`, `Endpoint`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `SourceAddress`, `Count`, `FirstSeen`, `LastSeen` |
 | 1002 | `gateway.pii.action` | Gateway | A key's PII policy found personal data (blocked, redacted, rerouted on-prem or only detected) | `RequestId`, `Action`, `Categories`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
 | 1003 | `gateway.request.refused` | Gateway | A request was refused by policy: attachment not allowed, model or provider not allowed for the key, provider tool or provider storage not allowed (`tool_not_allowed`, `storage_not_allowed`) | `RequestId`, `ErrorCode`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`, `Endpoint` |
-| 2001 | `admin.change` | Admin API | Every audit log entry (key created, revoked, rotated or revealed; provider, budget, rule or config changed) | `Actor`, `Action`, `EntityType`, `EntityId` |
+| 2001 | `admin.change` | Admin API | Every audit log entry (key created, revoked, rotated or revealed; provider, budget, rule or config changed; configuration or usage exported, `Action` `export`) | `Actor`, `Action`, `EntityType`, `EntityId` |
+| 2002 | `admin.signin` | Admin API | A user signed in (not when a session is extended) | `Actor`, `SourceAddress`, `Roles`, `Departments`, `SessionId` |
+| 2003 | `admin.signout` | Admin API | A user signed out | `Actor`, `SourceAddress`, `SessionId` |
+| 2004 | `admin.session.extended` | Admin API | A user chose *Stay signed in* | `Actor`, `SessionId`, `ExpiresAt`, `SourceAddress` |
+| 2005 | `admin.access.denied` | Admin API | A signed-in user was refused (403); at most once a minute per user, `Count` refusals since the last event | `Actor`, `Method`, `Path`, `Count`, `SourceAddress`, `Roles` |
+| 2006 | `admin.data.read` | Admin API | A user read the audit log, request list, PII incidents or Data API keys | `Actor`, `Path`, `Query`, `SourceAddress` |
 | 3001 | `data.read` | Data API | Every authenticated read | `Client`, `Path`, `Status`, `Cursor` |
 | 3002 | `data.auth.failed` | Data API | A revoked or expired Data API key was used (at most once a minute per key) | `Reason`, `KeyId`, `KeyPrefix` |
 
@@ -152,7 +157,7 @@ neither.
 |---|---|---|
 | `usage.aggregate` | `GET /v1/usage/aggregate?from=&to=&granularity=day\|month` | Totals per period, department (with cost-centre code), model, provider, residency and endpoint: requests, successful requests, tokens, audio seconds, cost in SEK and USD. No key- or team-level rows; small departments folded (see phase 3). `from`/`to` are inclusive dates in `DataApi:TimeZone`. |
 | `usage.detail` | `GET /v1/usage/records` (feed) | One row per request with key, team and department ids, model, provider, tokens, audio seconds (speech to text), cost, latency, provider time (`upstreamMs`) and time to first token (`timeToFirstTokenMs`, streamed answers), outcome, routing rule. A live audio session (endpoint `Realtime` or `RealtimeTranslations`) is one row; its latency is the session length. PII categories only if `DataApi:Detail:IncludePiiCategories`. |
-| `security.read` | `GET /v1/security/auth-failures`, `/requests`, `/audit` (feeds); `GET /v1/security/keys` | Refused keys; requests with a PII action or a policy refusal (with PII categories); the admin audit log with its masked before/after details; every key's status, expiry, last use and policies. |
+| `security.read` | `GET /v1/security/auth-failures`, `/requests`, `/audit` (feeds); `GET /v1/security/keys` | Refused keys; requests with a PII action or a policy refusal (with PII categories); the admin audit log with its masked before/after details and who made each entry (`actorName`, `actorRoles`, `actorDepartments`, `sourceAddress`, `sessionId`, `requestId`, `userAgent`; empty for entries written before these were recorded); every key's status, expiry, last use and policies. |
 | `catalog.read` | `GET /v1/catalog/departments`, `teams`, `keys`, `providers`, `models`, `prices`, `budgets`, `exchange-rates` | Dimensions for joining. Keys are id, team, name and prefix only. Budgets carry `limitUsd`; their `limitSek` is the same limit at the current exchange rate (null without one), kept for existing reports until SEK is removed. |
 
 ### Data API keys
