@@ -11,6 +11,14 @@ public sealed class GatewayOptions
     [Range(0, 300)]
     public int KeyCacheSeconds { get; set; } = 30;
 
+    /// <summary>
+    /// Failed authentications (missing or unknown key) one client address may cause per minute before the gateway stops
+    /// looking keys up for it: until the minute ends only keys already in the cache are accepted from that address, and
+    /// the rest get 429. Protects the database from floods of made-up keys. IPv6 clients count per /64. 0 turns it off.
+    /// </summary>
+    [Range(0, 1_000_000)]
+    public int AuthFailuresPerMinute { get; set; } = 60;
+
     /// <summary>How long providers/models/routes/budgets are cached. Admin changes invalidate immediately via pub/sub.</summary>
     [Range(0, 300)]
     public int CatalogCacheSeconds { get; set; } = 30;
