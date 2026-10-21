@@ -51,6 +51,7 @@ public sealed partial class RealtimeRelay(
     private readonly SemaphoreSlim _upstreamSend = new(1, 1);
     private int _clientCloseSent;
     private int _upstreamCloseSent;
+    private RealtimeStop? _stop;
 
     /// <summary>
     /// Runs the session until either side closes or <paramref name="check"/> (called every
@@ -80,7 +81,8 @@ public sealed partial class RealtimeRelay(
         {
         }
 
-        return reason;
+        // A stop the gateway decided is why the session ended, even when a pump saw the resulting close first.
+        return Volatile.Read(ref _stop)?.Reason ?? reason;
     }
 
     private async Task<RealtimeEndReason> PumpClientAsync(CancellationToken ct)
@@ -198,8 +200,14 @@ public sealed partial class RealtimeRelay(
                 if (received.MessageType == WebSocketMessageType.Close)
                 {
                     var status = upstream.CloseStatus ?? WebSocketCloseStatus.NormalClosure;
-                    await CloseClientAsync(status, upstream.CloseStatusDescription);
-                    await CloseUpstreamAsync(status, null);
+                    // When this answers a close the gateway sent, whoever sent it closes the client with its own status (a
+                    // budget stop's 1008, not the 1000 the provider answers with).
+                    if (Volatile.Read(ref _upstreamCloseSent) == 0)
+                    {
+                        await CloseClientAsync(status, upstream.CloseStatusDescription);
+                        await CloseUpstreamAsync(status, null);
+                    }
+
                     return status is WebSocketCloseStatus.NormalClosure or WebSocketCloseStatus.EndpointUnavailable
                         ? RealtimeEndReason.Closed
                         : RealtimeEndReason.ProviderFailed;
@@ -299,6 +307,7 @@ public sealed partial class RealtimeRelay(
             return RealtimeEndReason.Closed;
         }
 
+        Volatile.Write(ref _stop, stop);
         await SendToClientAsync(RealtimeEvents.Error(stop.Error, null,
             stop.Reason == RealtimeEndReason.BudgetExceeded ? "insufficient_quota" : "invalid_request_error"), CancellationToken.None);
         await CloseBothAsync(stop.CloseStatus, stop.Error.Code);
