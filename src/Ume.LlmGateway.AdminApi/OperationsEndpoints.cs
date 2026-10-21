@@ -61,7 +61,14 @@ public static class OperationsEndpoints
             await ctx.SaveAsync(AuditActions.Invalidate, AuditEntities.Keys, "all", null, null, InvalidationKind.Keys, ct);
             return TypedResults.NoContent();
         }).WithName("InvalidateKeyCaches").WithSummary("Makes every gateway reload keys");
-        ops.MapGet("/config/export", async (ConfigTransferService transfer, CancellationToken ct) => TypedResults.Ok(await transfer.ExportAsync(ct)))
+        ops.MapGet("/config/export", async (ConfigTransferService transfer, AdminContext ctx, CancellationToken ct) =>
+        {
+            var document = await transfer.ExportAsync(ct);
+            // Who took a copy of the whole configuration is recorded like a change (admin.change event).
+            await ctx.AuditAsync(AuditActions.Export, AuditEntities.Config, "all",
+                new { providers = document.Providers.Length, models = document.Models.Length, routes = document.Routes.Length }, ct);
+            return TypedResults.Ok(document);
+        })
             .WithName("ExportConfiguration").WithSummary("Providers (without secrets), models, prices, routes and global routing rules");
         ops.MapPost("/config/import", async (ConfigDocument input, ConfigTransferService transfer, CancellationToken ct) =>
             TypedResults.Ok(await transfer.ImportAsync(input, ct)))

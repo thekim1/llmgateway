@@ -38,6 +38,8 @@ builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddSingleton<AzureRetailPrices>();
 builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
 builder.Services.AddSingleton<ReleaseCheck>();
+builder.Services.AddSingleton<AdminClientAddresses>();
+builder.Services.AddSingleton<AccessDeniedThrottle>();
 builder.Services.AddHttpClient(ReleaseCheck.HttpClientName);
 builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 // One attempt within discovery's own 20 s timeout: an admin testing a connection should not sit through retries.
@@ -67,6 +69,8 @@ app.UseUmeSecurityHeaders(o =>
 });
 app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 app.UseProblemDetailsForEmptyErrors("The action could not be completed");
+// Outside authentication and authorization, so it sees their 403s and the signed-in user afterwards.
+app.UseMiddleware<AdminActivityMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

@@ -32,9 +32,21 @@ public sealed partial class AdminContext
         _security = SecurityEvents.CreateLogger(loggers);
         _logger = loggers.CreateLogger<AdminContext>();
 
-        // Every audit entry, however it was added (including config import), becomes an admin.change security
-        // event once it is saved. Details are not logged: they stay in the audit log, where secrets are masked.
-        db.SavingChanges += (_, _) => _saving = [.. db.ChangeTracker.Entries<AuditLogEntry>().Where(e => e.State == EntityState.Added).Select(e => e.Entity)];
+        // Every audit entry, however it was added (including config import), says who made it, from where and in which
+        // session, and becomes an admin.change security event once it is saved. Details are not logged: they stay in the
+        // audit log, where secrets are masked.
+        db.SavingChanges += (_, _) =>
+        {
+            _saving = [.. db.ChangeTracker.Entries<AuditLogEntry>().Where(e => e.State == EntityState.Added).Select(e => e.Entity)];
+            if (_saving.Count > 0 && _http.HttpContext is { } http)
+            {
+                var actor = AdminActor.Of(http);
+                foreach (var entry in _saving.Where(e => e.RequestId is null))
+                {
+                    actor.Stamp(entry);
+                }
+            }
+        };
         db.SavedChanges += (_, _) =>
         {
             foreach (var entry in _saving)

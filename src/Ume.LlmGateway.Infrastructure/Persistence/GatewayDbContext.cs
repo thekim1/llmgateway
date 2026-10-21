@@ -214,6 +214,13 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Action).HasMaxLength(100);
             e.Property(x => x.EntityType).HasMaxLength(100);
             e.Property(x => x.EntityId).HasMaxLength(100);
+            e.Property(x => x.ActorName).HasMaxLength(200);
+            e.Property(x => x.ActorRoles).HasMaxLength(200);
+            e.Property(x => x.ActorDepartments).HasMaxLength(1000);
+            e.Property(x => x.SourceAddress).HasMaxLength(64);
+            e.Property(x => x.SessionId).HasMaxLength(64);
+            e.Property(x => x.RequestId).HasMaxLength(64);
+            e.Property(x => x.UserAgent).HasMaxLength(200);
             e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");
             e.HasIndex(x => x.Timestamp);
         });

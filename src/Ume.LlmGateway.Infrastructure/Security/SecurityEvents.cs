@@ -87,4 +87,24 @@ public static partial class SecurityEvents
     [LoggerMessage(2001, LogLevel.Information,
         "Admin {Actor}: {Action} {EntityType} {EntityId}", EventName = "admin.change")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);
+
+    [LoggerMessage(2002, LogLevel.Information,
+        "Admin {Actor} signed in from {SourceAddress} with roles {Roles}, departments {Departments}; session {SessionId}", EventName = "admin.signin")]
+    public static partial void AdminSignIn(ILogger logger, string actor, string? sourceAddress, string roles, string departments, string? sessionId);
+
+    [LoggerMessage(2003, LogLevel.Information,
+        "Admin {Actor} signed out from {SourceAddress}; session {SessionId}", EventName = "admin.signout")]
+    public static partial void AdminSignOut(ILogger logger, string actor, string? sourceAddress, string? sessionId);
+
+    [LoggerMessage(2004, LogLevel.Information,
+        "Admin {Actor} extended session {SessionId} until {ExpiresAt} from {SourceAddress}", EventName = "admin.session.extended")]
+    public static partial void AdminSessionExtended(ILogger logger, string actor, string? sessionId, DateTimeOffset expiresAt, string? sourceAddress);
+
+    [LoggerMessage(2005, LogLevel.Warning,
+        "Admin {Actor} was refused {Method} {Path} x{Count} from {SourceAddress} (roles {Roles})", EventName = "admin.access.denied")]
+    public static partial void AdminAccessDenied(ILogger logger, string actor, string method, string path, int count, string? sourceAddress, string roles);
+
+    [LoggerMessage(2006, LogLevel.Information,
+        "Admin {Actor} read {Path}{Query} from {SourceAddress}", EventName = "admin.data.read")]
+    public static partial void AdminDataRead(ILogger logger, string actor, string path, string query, string? sourceAddress);
 }

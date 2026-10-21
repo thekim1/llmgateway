@@ -62,7 +62,7 @@ public sealed record RequestLogSettingsRequest(bool LogAllRequests, bool NoTimeL
 public sealed record RequestLogSettingsDto(bool Active, DateTimeOffset? Until, DateTimeOffset? UpdatedAt);
 
 /// <summary>Gateway-wide settings (the single <see cref="GatewaySettings"/> row). Gateway admins only.</summary>
-public sealed class GatewaySettingsService(AdminContext ctx, RetentionService retention)
+public sealed class GatewaySettingsService(AdminContext ctx, RetentionService retention, AdminClientAddresses addresses)
 {
     /// <summary>How long logging every request stays on when switched on with a time limit.</summary>
     public static readonly TimeSpan RequestLogDuration = TimeSpan.FromHours(24);
@@ -175,6 +175,7 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
         {
             // Config: the gateways read trusted proxies with the catalogue.
             await ctx.SaveAsync(AuditActions.Update, AuditEntities.Settings, GatewaySettings.SingletonId, before, NetworkSettingsAudit.Of(settings), InvalidationKind.Config, ct);
+            addresses.Invalidate();
         }
         catch (DbUpdateException)
         {

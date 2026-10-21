@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -17,6 +18,12 @@ public sealed class AdminOptions
     /// </summary>
     [Range(1, 24)]
     public int MaxSessionHours { get; set; } = 12;
+
+    /// <summary>
+    /// How much of an admin user's address audit entries and admin security events keep: <c>Full</c> (default; an
+    /// investigation needs it), <c>Truncated</c> (IPv4 /24, IPv6 /48) or <c>None</c>.
+    /// </summary>
+    public SourceAddressMode AuditSourceAddress { get; set; } = SourceAddressMode.Full;
 
     /// <summary>The Azure region (<c>armRegionName</c>) whose list prices are suggested for Azure AI Foundry deployments.</summary>
     [RegularExpression("^[a-z0-9]{2,40}$")]

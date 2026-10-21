@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import type { AuditEntry } from '@/api/types'
 import { useOpsStore } from '@/stores/ops'
 import { formatDateTime } from '@/utils/format'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -9,7 +10,7 @@ import Pagination from '@/components/ui/Pagination.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 
 const PAGE_SIZE = 50
-const ENTITY_TYPES = ['Department', 'Team', 'VirtualKey', 'DataApiKey', 'Provider', 'Model', 'Route', 'RoutingRule', 'Budget', 'Config']
+const ENTITY_TYPES = ['Department', 'Team', 'VirtualKey', 'DataApiKey', 'Provider', 'Model', 'Route', 'RoutingRule', 'Budget', 'Settings', 'Config', 'Usage']
 const entityOptions = [{ value: '', label: 'All entities' }, ...ENTITY_TYPES.map((t) => ({ value: t, label: t }))]
 
 const columns: Column[] = [
@@ -41,6 +42,18 @@ function detailsText(details: unknown): string {
   return typeof details === 'string' ? details : JSON.stringify(details, null, 2)
 }
 
+/** Where and in which session the entry was made, for the details panel. */
+function context(entry: AuditEntry): { label: string; value: string }[] {
+  const rows: [string, string | null | undefined][] = [
+    ['Roles', [entry.actorRoles, entry.actorDepartments].filter(Boolean).join(' · ')],
+    ['Address', entry.sourceAddress],
+    ['Session', entry.sessionId],
+    ['Request', entry.requestId],
+    ['Browser', entry.userAgent],
+  ]
+  return rows.filter((r): r is [string, string] => !!r[1]).map(([label, value]) => ({ label, value }))
+}
+
 onMounted(load)
 </script>
 
@@ -62,15 +75,24 @@ onMounted(load)
       @clear="setEntity('')"
     >
       <template #cell-timestamp="{ row }"><span class="tabular">{{ formatDateTime(row.timestamp, true) }}</span></template>
-      <template #cell-actor="{ row }">{{ row.actor }}</template>
+      <template #cell-actor="{ row }">
+        <template v-if="row.actorName">{{ row.actorName }}<span class="block font-mono text-small text-fg-3">{{ row.actor }}</span></template>
+        <template v-else>{{ row.actor }}</template>
+      </template>
       <template #cell-action="{ row }">{{ row.action }}</template>
       <template #cell-entity="{ row }">
         {{ row.entityType }}<span v-if="row.entityId" class="font-mono text-small text-fg-3"> · {{ row.entityId }}</span>
       </template>
       <template #cell-details="{ row }">
-        <details v-if="row.details">
+        <details v-if="row.details || context(row).length">
           <summary class="cursor-pointer text-accent-ink">Show<span class="sr-only"> details for entry {{ row.id }}</span></summary>
-          <pre class="mt-2 whitespace-pre-wrap break-words font-mono text-small">{{ detailsText(row.details) }}</pre>
+          <dl v-if="context(row).length" class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-small">
+            <template v-for="item in context(row)" :key="item.label">
+              <dt class="text-fg-3">{{ item.label }}</dt>
+              <dd class="m-0 break-all font-mono">{{ item.value }}</dd>
+            </template>
+          </dl>
+          <pre v-if="row.details" class="mt-2 whitespace-pre-wrap break-words font-mono text-small">{{ detailsText(row.details) }}</pre>
         </details>
         <span v-else class="text-fg-3">—</span>
       </template>
