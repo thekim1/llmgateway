@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-Three improvements taken from a comparison with agentgateway ([docs/agentgateway-comparison.md](docs/agentgateway-comparison.md)).
+**No usage lost when the database is down.** When Postgres refuses a batch of usage records, the gateway keeps it in a
+usage journal in Redis and writes it when Postgres is back, instead of holding it in memory: the queue no longer fills,
+so requests are not held up and records are no longer dropped after 10 s. Another gateway instance takes over the batches
+of one that stopped. `Gateway:UsageJournal:Mode`: `Spill` (default; no work while Postgres is healthy), `Always` (every
+batch is journaled first, so a crash loses nothing) or `Off`; `MaxRecords` (1 000 000) caps it. The operations status adds
+`journaledBatches`. The Redis ACL needs `zrangebyscore` (read-only). Measured: no change in throughput (`audit`, 64 clients).
+
+**Token quotas.** A budget can count tokens instead of USD (*Budgets > New budget > Counts: Tokens*), optionally only for
+requests served by providers of one residency, such as *On-prem models only*: the way to share on-prem capacity, whose
+models cost nothing, between teams and keys. Same alerts, same 402 when used up, a fallback to another residency is not
+charged. Reserved in the same Redis call as cost budgets (no extra round trip). Admin API `unit`, `limitTokens`,
+`residency`, `spentTokens`; alerts and the webhook carry token amounts. Migration `TokenBudgets`.
+
+Improvements taken from a comparison with agentgateway ([docs/agentgateway-comparison.md](docs/agentgateway-comparison.md)).
 
 **Retry-After cooldown.** A provider answer with `Retry-After` or `retry-after-ms` (a 429 from Azure OpenAI or OpenAI)
 puts that model deployment on cooldown for that long, shared by all gateway instances through Redis: it goes last, like

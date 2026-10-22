@@ -147,26 +147,27 @@ public sealed class RedisRealtimeSessionRegistry(IConnectionMultiplexer redis, T
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
+    // ARGV: missing-as-zero, then per counter: amount, limit, TTL (s).
     // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.
     private const string ReserveScript = """
-        local amount = tonumber(ARGV[1])
         local values = redis.call('MGET', unpack(KEYS))
         local missing = {}
         for i = 1, #KEYS do
           if not values[i] then
-            if ARGV[2] == '1' then values[i] = 0 else missing[#missing + 1] = i - 1 end
+            if ARGV[1] == '1' then values[i] = 0 else missing[#missing + 1] = i - 1 end
           else
             values[i] = tonumber(values[i])
           end
         end
         if #missing > 0 then return {-2, missing} end
         for i = 1, #KEYS do
-          local limit = tonumber(ARGV[i * 2 + 1])
+          local amount = tonumber(ARGV[i * 3 - 1])
+          local limit = tonumber(ARGV[i * 3])
           if values[i] >= limit or amount > limit - values[i] then return {i - 1, values} end
         end
         for i = 1, #KEYS do
-          redis.call('INCRBY', KEYS[i], amount)
-          redis.call('EXPIRE', KEYS[i], ARGV[i * 2 + 2])
+          redis.call('INCRBY', KEYS[i], ARGV[i * 3 - 1])
+          redis.call('EXPIRE', KEYS[i], ARGV[i * 3 + 1])
         end
         return {-1, values}
         """;
@@ -185,20 +186,20 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
     public Task InitializeAsync(string key, long valueMicroUsd, TimeSpan timeToLive, CancellationToken cancellationToken) =>
         redis.GetDatabase().StringSetAsync(key, valueMicroUsd, timeToLive, When.NotExists);
 
-    public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroUsd, bool missingAsZero, CancellationToken cancellationToken)
+    public async Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> amounts, bool missingAsZero, CancellationToken cancellationToken)
     {
         if (counters.Count == 0)
         {
             return new SpendReservation(-1, [], []);
         }
 
-        var args = new RedisValue[2 + (counters.Count * 2)];
-        args[0] = amountMicroUsd;
-        args[1] = missingAsZero ? 1 : 0;
+        var args = new RedisValue[1 + (counters.Count * 3)];
+        args[0] = missingAsZero ? 1 : 0;
         for (var i = 0; i < counters.Count; i++)
         {
-            args[2 + (i * 2)] = counters[i].LimitMicroUsd;
-            args[3 + (i * 2)] = (long)Math.Max(60, counters[i].TimeToLive.TotalSeconds);
+            args[1 + (i * 3)] = amounts[i];
+            args[2 + (i * 3)] = counters[i].Limit;
+            args[3 + (i * 3)] = (long)Math.Max(60, counters[i].TimeToLive.TotalSeconds);
         }
 
         var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(ReserveScript, [.. counters.Select(c => (RedisKey)c.Key)], args))!;
@@ -209,11 +210,11 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
             : new SpendReservation(status, [.. items.Select(r => (long)r)], []);
     }
 
-    public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroUsd, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> deltas, CancellationToken cancellationToken)
     {
         // Issued together so they are pipelined: one round trip however many budgets apply.
         var db = redis.GetDatabase();
-        return await Task.WhenAll(counters.Select(c => db.StringIncrementAsync(c.Key, deltaMicroUsd)));
+        return await Task.WhenAll(counters.Select((c, i) => db.StringIncrementAsync(c.Key, deltas[i])));
     }
 }
 

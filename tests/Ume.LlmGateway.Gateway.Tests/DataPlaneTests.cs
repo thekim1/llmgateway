@@ -131,7 +131,8 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
         string[] keys =
         [
             RedisKeys.RateRequests(id, 1), RedisKeys.RateTokens(id, 1), RedisKeys.RealtimeSessions(id), RedisKeys.CircuitOpen(id),
-            RedisKeys.CircuitFailures(id), RedisKeys.Cooldown(id), RedisKeys.Spend(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
+            RedisKeys.CircuitFailures(id), RedisKeys.Cooldown(id), RedisKeys.InFlight(id), RedisKeys.UsageJournalIndex, RedisKeys.UsageJournalRecords,
+            RedisKeys.UsageJournalBatch("b"), RedisKeys.Spend(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
             SpendCounter.KeyFor(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
         ];
         keys.ShouldAllBe(k => k.StartsWith("ume:", StringComparison.Ordinal));

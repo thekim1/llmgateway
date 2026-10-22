@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Entities;
 
 namespace Ume.LlmGateway.Infrastructure.Stores;
 
@@ -46,11 +47,23 @@ public static class RateLimiterExtensions
     }
 }
 
-/// <summary>A spend counter for one budget scope and period window, in micro-USD (1 USD = 1 000 000).</summary>
-public sealed record SpendCounter(string Key, long LimitMicroUsd, TimeSpan TimeToLive)
+/// <summary>
+/// A spend counter for one budget and period window, with its limit: micro-USD (1 USD = 1 000 000) for cost budgets,
+/// tokens for token budgets.
+/// </summary>
+public sealed record SpendCounter(string Key, long Limit, TimeSpan TimeToLive)
 {
     public static string KeyFor(BudgetScope scope, Guid scopeId, BudgetPeriod period, DateTimeOffset periodStart) =>
         RedisKeys.Spend(scope, scopeId, period, periodStart);
+
+    /// <summary>The counter of a budget: cost budgets by owner and period, token budgets also by the residency they count.</summary>
+    public static string KeyFor(Budget budget, DateTimeOffset periodStart)
+    {
+        ArgumentNullException.ThrowIfNull(budget);
+        return budget.Unit == BudgetUnit.Tokens
+            ? RedisKeys.TokenSpend(budget.Scope, budget.ScopeId, budget.Period, periodStart, budget.Residency)
+            : RedisKeys.Spend(budget.Scope, budget.ScopeId, budget.Period, periodStart);
+    }
 }
 
 /// <summary>
@@ -76,14 +89,35 @@ public interface ISpendLedger
     Task InitializeAsync(string key, long valueMicroUsd, TimeSpan timeToLive, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Atomically, in one round trip, checks every counter is below its limit with room for the amount and adds it, and
-    /// returns each counter's value before the reservation. Unless <paramref name="missingAsZero"/> is set, nothing is
-    /// reserved when a counter is missing: the result lists the missing counters so the caller can seed them and try again.
+    /// Atomically, in one round trip, checks every counter is below its limit with room for its amount (one per counter:
+    /// micro-USD or tokens) and adds it, and returns each counter's value before the reservation. Unless
+    /// <paramref name="missingAsZero"/> is set, nothing is reserved when a counter is missing: the result lists the
+    /// missing counters so the caller can seed them and try again.
     /// </summary>
-    Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroUsd, bool missingAsZero, CancellationToken cancellationToken);
+    Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> amounts, bool missingAsZero, CancellationToken cancellationToken);
 
-    /// <summary>Adds (possibly negative) delta to all counters; returns the new values.</summary>
-    Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroUsd, CancellationToken cancellationToken);
+    /// <summary>Adds each (possibly negative) delta to its counter; returns the new values.</summary>
+    Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> deltas, CancellationToken cancellationToken);
+}
+
+public static class SpendLedgerExtensions
+{
+    /// <summary>The same amount reserved against every counter.</summary>
+    public static Task<SpendReservation> ReserveAsync(this ISpendLedger ledger, IReadOnlyList<SpendCounter> counters, long amount, bool missingAsZero,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(counters);
+        return ledger.ReserveAsync(counters, [.. Enumerable.Repeat(amount, counters.Count)], missingAsZero, cancellationToken);
+    }
+
+    /// <summary>The same delta added to every counter.</summary>
+    public static Task<IReadOnlyList<long>> AddAsync(this ISpendLedger ledger, IReadOnlyList<SpendCounter> counters, long delta, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(counters);
+        return ledger.AddAsync(counters, [.. Enumerable.Repeat(delta, counters.Count)], cancellationToken);
+    }
 }
 
 /// <summary>
@@ -423,7 +457,7 @@ public sealed class InMemorySpendLedger : ISpendLedger
         return Task.CompletedTask;
     }
 
-    public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroUsd, bool missingAsZero, CancellationToken cancellationToken)
+    public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> amounts, bool missingAsZero, CancellationToken cancellationToken)
     {
         lock (_lock)
         {
@@ -436,7 +470,7 @@ public sealed class InMemorySpendLedger : ISpendLedger
             var before = counters.Select(c => _values.GetValueOrDefault(c.Key)).ToArray();
             for (var i = 0; i < counters.Count; i++)
             {
-                if (before[i] >= counters[i].LimitMicroUsd || amountMicroUsd > counters[i].LimitMicroUsd - before[i])
+                if (before[i] >= counters[i].Limit || amounts[i] > counters[i].Limit - before[i])
                 {
                     return Task.FromResult(new SpendReservation(i, before, []));
                 }
@@ -444,18 +478,18 @@ public sealed class InMemorySpendLedger : ISpendLedger
 
             for (var i = 0; i < counters.Count; i++)
             {
-                _values[counters[i].Key] = before[i] + amountMicroUsd;
+                _values[counters[i].Key] = before[i] + amounts[i];
             }
 
             return Task.FromResult(new SpendReservation(-1, before, []));
         }
     }
 
-    public Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroUsd, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> deltas, CancellationToken cancellationToken)
     {
         lock (_lock)
         {
-            IReadOnlyList<long> result = [.. counters.Select(c => _values[c.Key] = _values.GetValueOrDefault(c.Key) + deltaMicroUsd)];
+            IReadOnlyList<long> result = [.. counters.Select((c, i) => _values[c.Key] = _values.GetValueOrDefault(c.Key) + deltas[i])];
             return Task.FromResult(result);
         }
     }

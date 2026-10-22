@@ -80,6 +80,8 @@ Ordered by value for our users against risk to the hot path.
 | 10 | Sliding-window rate limits and a per-key cap on requests in progress. | Implemented |
 | 11 | Request policies per team and key (output cap, system prompt, defaults, overrides). | Implemented |
 | 12 | `Utf8JsonWriter` for the Anthropic-translated stream. | Implemented |
+| 13 | Usage journal: no usage records lost or requests held up while Postgres is down (Redis, spill on failure). | Implemented |
+| 14 | Token quotas (budgets in tokens, optionally per residency), as agentgateway's token-unit budgets. | Implemented |
 | 8 | Golden-file tests for the OpenAI <-> Anthropic translation. | Planned |
 
 Not planned: MCP/A2A (out of scope; see *MCP and A2A* below for how it could fit), client SSO (out of scope), Bedrock/Vertex/Gemini (no users), a bundled price

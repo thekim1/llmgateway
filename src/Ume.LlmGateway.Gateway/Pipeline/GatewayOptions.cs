@@ -74,6 +74,10 @@ public sealed class GatewayOptions
     /// </summary>
     public bool GenAiMetrics { get; set; }
 
+    /// <summary>Where usage records wait while the database cannot take them (see <see cref="UsageJournalOptions"/>).</summary>
+    [ValidateObjectMembers]
+    public UsageJournalOptions UsageJournal { get; set; } = new();
+
     /// <summary>Retries of the last candidate after a passing failure (see <see cref="RetryOptions"/>).</summary>
     [ValidateObjectMembers]
     public RetryOptions Retry { get; set; } = new();
@@ -116,6 +120,36 @@ public sealed class RetryOptions
     /// <summary>Delay before the first retry; each further retry doubles it. ±50 % jitter.</summary>
     [Range(10, 10_000)]
     public int BaseDelayMs { get; set; } = 250;
+}
+
+/// <summary>When the usage writer journals batches of usage records (in Redis), so they are not lost.</summary>
+public enum UsageJournalMode
+{
+    /// <summary>Never: during a database outage the queue fills, requests wait and records are dropped after 10 s (as before).</summary>
+    Off = 0,
+
+    /// <summary>
+    /// Only when the database refuses a batch (default): while it is down batches go to the journal, so requests are not
+    /// held up and nothing is dropped; they are written when it is back. No extra work while the database is healthy; a
+    /// crash then loses at most the batch being written.
+    /// </summary>
+    Spill = 1,
+
+    /// <summary>Every batch, before it is written: a crash loses nothing, at the cost of one more Redis write per batch.</summary>
+    Always = 2,
+}
+
+public sealed class UsageJournalOptions
+{
+    public UsageJournalMode Mode { get; set; } = UsageJournalMode.Spill;
+
+    /// <summary>Most records the journal holds (about 1 KB each in Redis); beyond it the writer holds batches in memory as before.</summary>
+    [Range(1_000, 100_000_000)]
+    public long MaxRecords { get; set; } = 1_000_000;
+
+    /// <summary>A journaled batch whose instance has not touched it for this long is taken over by another instance.</summary>
+    [Range(30, 3600)]
+    public int AbandonedAfterSeconds { get; set; } = 120;
 }
 
 public sealed class RealtimeOptions

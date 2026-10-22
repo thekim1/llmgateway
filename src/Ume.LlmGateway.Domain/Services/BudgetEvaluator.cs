@@ -20,17 +20,20 @@ public static class BudgetEvaluator
     {
         ArgumentNullException.ThrowIfNull(states);
         var exceeded = states
-            .Where(s => s.Budget.IsActive && s.SpentUsd >= s.Budget.LimitUsd)
+            .Where(s => s.Budget.IsActive && s.SpentUsd >= s.Budget.Limit)
             .OrderBy(s => s.Budget.Scope == BudgetScope.VirtualKey ? 0 : s.Budget.Scope == BudgetScope.Team ? 1 : 2)
             .FirstOrDefault();
         return exceeded is null ? BudgetDecision.Allow : new BudgetDecision(false, exceeded);
     }
 
-    /// <summary>Returns the alert thresholds crossed when spend moved from <paramref name="before"/> to <paramref name="after"/>.</summary>
+    /// <summary>
+    /// Returns the alert thresholds crossed when use moved from <paramref name="before"/> to <paramref name="after"/>, in
+    /// the budget's unit (USD or tokens).
+    /// </summary>
     public static IReadOnlyList<int> CrossedThresholds(Budget budget, decimal before, decimal after)
     {
         ArgumentNullException.ThrowIfNull(budget);
-        if (budget.LimitUsd <= 0 || after <= before)
+        if (budget.Limit <= 0 || after <= before)
         {
             return [];
         }
@@ -41,7 +44,7 @@ public static class BudgetEvaluator
             .Order()
             .Where(t =>
             {
-                var level = budget.LimitUsd * t / 100m;
+                var level = budget.Limit * t / 100m;
                 return before < level && after >= level;
             })
             .ToList();

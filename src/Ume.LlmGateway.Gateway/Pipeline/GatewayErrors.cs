@@ -140,6 +140,13 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
             BudgetScope.Team => "The team's",
             _ => "The key's",
         };
+        if (budget.Unit == BudgetUnit.Tokens)
+        {
+            var where = budget.Residency is { } r ? $" on {r} models" : string.Empty;
+            return new(402, GatewayErrorCodes.BudgetExceeded,
+                $"{scope} token quota ({budget.LimitTokens.ToString("N0", CultureInfo.InvariantCulture)} tokens per {PeriodName(budget.Period)}{where}) is used up. {action}");
+        }
+
         var limit = budget.LimitUsd.ToString("0.##", CultureInfo.InvariantCulture);
         return new(402, GatewayErrorCodes.BudgetExceeded, $"{scope} budget (USD {limit} per {PeriodName(budget.Period)}) is used up. {action}");
     }

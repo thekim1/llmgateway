@@ -15,6 +15,7 @@ It is a demonstrator by Umeå kommun, **not a production approval, legal complia
 - **Request policies** per team and key: a cap on output tokens, a system prompt placed before the application's own,
   and parameter defaults or forced values.
 - **Budgets** per department, team and key, with alerts at your thresholds. Requests stop when a budget runs out.
+  Budgets count USD, or tokens: a token quota shares on-prem capacity (whose models cost nothing) between teams.
   Prices are configured in USD per model.
 - **Routing**: applications ask for an alias such as `ume/chat-standard`; routes and [routing rules](routing-rules.md)
   (conditions on headers, team, budget use and personal data, with weights, fallbacks and chaining) decide where it goes.

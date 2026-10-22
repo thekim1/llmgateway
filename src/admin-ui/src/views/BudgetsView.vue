@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { BUDGET_PERIODS, BUDGET_SCOPES, type Budget, type BudgetPeriod, type BudgetScope } from '@/api/types'
+import { BUDGET_PERIODS, BUDGET_SCOPES, DATA_RESIDENCIES, type Budget, type BudgetPeriod, type BudgetScope, type BudgetUnit, type DataResidency } from '@/api/types'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useDepartmentsStore } from '@/stores/departments'
 import { useKeysStore } from '@/stores/keys'
 import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
 import { useFormErrors } from '@/composables/useFormErrors'
-import { PERIOD_LABEL, SCOPE_LABEL } from '@/utils/labels'
+import { PERIOD_LABEL, RESIDENCY, SCOPE_LABEL } from '@/utils/labels'
+import { alertSpentOf, budgetKind, budgetSpentOf, isTokenQuota } from '@/utils/budgets'
 import { problemMessage } from '@/utils/problem'
-import { formatDate, formatPercent, formatUsdCost } from '@/utils/format'
+import { formatDate, formatPercent } from '@/utils/format'
 import { parseDecimal } from '@/utils/validation'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
@@ -46,6 +47,8 @@ const optionsError = ref<unknown>(null)
 const form = reactive({
   scope: 'Team' as BudgetScope,
   scopeId: '',
+  unit: 'Usd' as BudgetUnit,
+  residency: '' as '' | DataResidency,
   limit: '',
   period: 'Monthly' as BudgetPeriod,
   thresholds: '50, 80, 100',
@@ -65,6 +68,14 @@ const filterOptions = computed(() => [
 ])
 const scopeOptions = BUDGET_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))
 const periodOptions = BUDGET_PERIODS.map((p) => ({ value: p, label: PERIOD_LABEL[p] }))
+const unitOptions = [
+  { value: 'Usd' as BudgetUnit, label: 'Cost (USD)' },
+  { value: 'Tokens' as BudgetUnit, label: 'Tokens' },
+]
+const residencyOptions = [
+  { value: '', label: 'All models' },
+  ...DATA_RESIDENCIES.map((r) => ({ value: r, label: `${RESIDENCY[r].label} models only` })),
+]
 const ownerOptions = computed(() => {
   if (form.scope === 'Department') return departments.items.map((d) => ({ value: d.id, label: d.name }))
   if (form.scope === 'Team') return teams.items.map((t) => ({ value: t.id, label: `${t.name} · ${t.departmentName}` }))
@@ -76,7 +87,7 @@ const columns: Column[] = [
   { key: 'owner', label: 'Owner' },
   { key: 'period', label: 'Period' },
   { key: 'usage', label: 'Used', class: 'min-w-48' },
-  { key: 'amount', label: 'Spent / limit', align: 'right' },
+  { key: 'amount', label: 'Used / limit', align: 'right' },
   { key: 'resets', label: 'Resets', align: 'right' },
 ]
 
@@ -132,7 +143,9 @@ async function openForm(budget: Budget | null): Promise<void> {
   editing.value = budget
   form.scope = budget?.scope ?? 'Team'
   form.scopeId = budget?.scopeId ?? ''
-  form.limit = budget ? String(budget.limitUsd).replace('.', ',') : ''
+  form.unit = budget?.unit ?? 'Usd'
+  form.residency = budget?.residency ?? ''
+  form.limit = budget ? String(isTokenQuota(budget) ? (budget.limitTokens ?? 0) : budget.limitUsd).replace('.', ',') : ''
   form.period = budget?.period ?? 'Monthly'
   form.thresholds = budget ? budget.alertThresholds.join(', ') : '50, 80, 100'
   form.isActive = budget?.isActive ?? true
@@ -156,7 +169,9 @@ async function save(): Promise<void> {
   const thresholds = parseThresholds()
   const ok = validate({
     scopeId: !form.scopeId && `Choose the ${ownerLabel.value.toLowerCase()} this budget applies to.`,
-    limitUsd: (limit === null || Number.isNaN(limit) || limit <= 0) && 'Enter a limit in USD above 0, for example 500.',
+    limitUsd: form.unit === 'Tokens'
+      ? (limit === null || !Number.isInteger(limit) || limit <= 0) && 'Enter a whole number of tokens above 0, for example 50000000.'
+      : (limit === null || Number.isNaN(limit) || limit <= 0) && 'Enter a limit in USD above 0, for example 500.',
     alertThresholds: !thresholds && 'Enter alert levels as percentages from 1 to 100, separated by commas, for example 50, 80, 100.',
   })
   if (!ok || limit === null || !thresholds) {
@@ -164,7 +179,18 @@ async function save(): Promise<void> {
     return
   }
   saving.value = true
-  const request = { scope: form.scope, scopeId: form.scopeId, limitUsd: limit, period: form.period, alertThresholds: [...new Set(thresholds)].sort((a, b) => a - b), isActive: form.isActive }
+  const tokenQuota = form.unit === 'Tokens'
+  const request = {
+    scope: form.scope,
+    scopeId: form.scopeId,
+    unit: form.unit,
+    limitUsd: tokenQuota ? 0 : limit,
+    limitTokens: tokenQuota ? limit : 0,
+    residency: tokenQuota && form.residency ? form.residency : null,
+    period: form.period,
+    alertThresholds: [...new Set(thresholds)].sort((a, b) => a - b),
+    isActive: form.isActive,
+  }
   try {
     if (editing.value) await budgets.update(editing.value.id, request)
     else await budgets.create(request)
@@ -203,7 +229,7 @@ async function remove(): Promise<void> {
             <AppIcon name="warning" filled class="mt-0.5 text-warn" />
             <div class="min-w-0">
               <p class="font-medium text-fg"><span lang="sv">{{ alert.scopeName }}</span> passed {{ alert.thresholdPercent }}%</p>
-              <p class="text-small text-fg-2">{{ SCOPE_LABEL[alert.scope] }} budget · {{ formatUsdCost(alert.spentUsd) }} of {{ formatUsdCost(alert.limitUsd) }}</p>
+              <p class="text-small text-fg-2">{{ SCOPE_LABEL[alert.scope] }} {{ alert.spentTokens != null ? 'token quota' : 'budget' }} · {{ alertSpentOf(alert) }}</p>
             </div>
           </div>
           <UiButton :id="`ack-${alert.id}`" size="sm" :loading="ackBusy === alert.id" :aria-label="`Acknowledge alert for ${alert.scopeName}`" @click="acknowledge(alert.id)">Acknowledge</UiButton>
@@ -231,7 +257,7 @@ async function remove(): Promise<void> {
       >
         <template #cell-owner="{ row }">
           <span class="font-medium" lang="sv">{{ row.scopeName }}</span>
-          <span class="block text-caption text-fg-3">{{ SCOPE_LABEL[row.scope] }}<template v-if="!row.isActive"> · Inactive</template></span>
+          <span class="block text-caption text-fg-3">{{ SCOPE_LABEL[row.scope] }}<template v-if="isTokenQuota(row)"> · {{ budgetKind(row) }}</template><template v-if="!row.isActive"> · Inactive</template></span>
         </template>
         <template #cell-period="{ row }">{{ PERIOD_LABEL[row.period] }}</template>
         <template #cell-usage="{ row }">
@@ -240,7 +266,7 @@ async function remove(): Promise<void> {
             <span class="tabular w-12 text-right text-small font-medium">{{ formatPercent(row.percentUsed) }}</span>
           </span>
         </template>
-        <template #cell-amount="{ row }">{{ formatUsdCost(row.spentUsd) }} <span class="text-fg-3">/ {{ formatUsdCost(row.limitUsd) }}</span></template>
+        <template #cell-amount="{ row }">{{ budgetSpentOf(row).spent }} <span class="text-fg-3">/ {{ budgetSpentOf(row).limit }}</span></template>
         <template #cell-resets="{ row }">{{ formatDate(row.periodEnd) }}</template>
       </DataTable>
     </AsyncState>
@@ -256,7 +282,23 @@ async function remove(): Promise<void> {
       <SegmentedControl :model-value="form.scope" :options="scopeOptions" label="Applies to" mode="radio" @update:model-value="setScope" />
       <InlineError v-if="optionsError" :message="problemMessage(optionsError)" />
       <SelectField v-model="form.scopeId" :label="ownerLabel" :options="ownerOptions" placeholder="Choose…" :error="errors.scopeId" />
-      <TextField v-model="form.limit" label="Limit (USD)" inputmode="decimal" :error="errors.limitUsd" hint="Total spend allowed per period." />
+      <SegmentedControl v-model="form.unit" :options="unitOptions" label="Counts" mode="radio" />
+      <TextField
+        v-model="form.limit"
+        :label="form.unit === 'Tokens' ? 'Limit (tokens)' : 'Limit (USD)'"
+        :inputmode="form.unit === 'Tokens' ? 'numeric' : 'decimal'"
+        :error="errors.limitUsd"
+        :hint="form.unit === 'Tokens'
+          ? 'Input plus output tokens allowed per period. Use it for models that cost nothing, such as on-prem ones, to share their capacity.'
+          : 'Total spend allowed per period.'"
+      />
+      <SelectField
+        v-if="form.unit === 'Tokens'"
+        v-model="form.residency"
+        label="Counts requests to"
+        :options="residencyOptions"
+        hint="For example On-prem models only: requests served elsewhere do not use the quota."
+      />
       <SelectField v-model="form.period" label="Period" :options="periodOptions" />
       <TextField v-model="form.thresholds" label="Alert levels (%)" :error="errors.alertThresholds" hint="An alert opens when spend passes each level, for example 50, 80, 100." />
       <CheckField v-model="form.isActive" label="Active" description="Inactive budgets are kept but not enforced." />

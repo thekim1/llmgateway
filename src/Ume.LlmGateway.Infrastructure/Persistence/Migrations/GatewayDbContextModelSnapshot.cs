@@ -54,6 +54,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BudgetId")
                         .HasColumnType("uuid");
 
+                    b.Property<long?>("LimitTokens")
+                        .HasColumnType("bigint");
+
                     b.Property<decimal>("LimitUsd")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -68,6 +71,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("ScopeId")
                         .HasColumnType("uuid");
+
+                    b.Property<long?>("SpentTokens")
+                        .HasColumnType("bigint");
 
                     b.Property<decimal>("SpentUsd")
                         .HasPrecision(18, 2)
@@ -234,12 +240,19 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<long>("LimitTokens")
+                        .HasColumnType("bigint");
+
                     b.Property<decimal>("LimitUsd")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Period")
                         .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Residency")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
@@ -250,6 +263,13 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("ScopeId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Usd");
 
                     b.HasKey("Id");
 

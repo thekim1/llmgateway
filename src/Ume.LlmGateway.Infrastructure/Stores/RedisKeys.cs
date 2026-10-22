@@ -24,6 +24,18 @@ internal static class RedisKeys
 
     public static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(RateWindowSeconds);
 
+    /// <summary>
+    /// Usage batches the database could not take yet (sorted set of <c>{batchId}:{records}</c> → last heartbeat in ms). A
+    /// batch whose heartbeat stops (its gateway instance died) is taken over by another instance.
+    /// </summary>
+    public const string UsageJournalIndex = "ume:usage-journal";
+
+    /// <summary>Records currently held in the usage journal, for its cap.</summary>
+    public const string UsageJournalRecords = "ume:usage-journal:records";
+
+    /// <summary>One journaled usage batch (JSON).</summary>
+    public static string UsageJournalBatch(string batchId) => $"ume:usage-journal:batch:{batchId}";
+
     /// <summary>Requests of a key in flight (sorted set of lease id → expiry in ms), for its concurrency limit.</summary>
     public static string InFlight(Guid keyId) => $"ume:inflight:{keyId:N}";
 
@@ -51,4 +63,8 @@ internal static class RedisKeys
     /// </summary>
     public static string Spend(BudgetScope scope, Guid scopeId, BudgetPeriod period, DateTimeOffset periodStart) =>
         $"ume:spend-usd:{scope}:{scopeId:N}:{period}:{periodStart.ToUnixTimeSeconds()}";
+
+    /// <summary>Tokens used against a token budget in one period window, counting only <paramref name="residency"/> (null = all).</summary>
+    public static string TokenSpend(BudgetScope scope, Guid scopeId, BudgetPeriod period, DateTimeOffset periodStart, DataResidency? residency) =>
+        $"ume:spend-tok:{scope}:{scopeId:N}:{period}:{periodStart.ToUnixTimeSeconds()}:{residency?.ToString() ?? "All"}";
 }

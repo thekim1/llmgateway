@@ -13,24 +13,29 @@ public sealed class BudgetReservation
 {
     public static BudgetReservation None { get; } = new([], 0, null, null);
 
-    public BudgetReservation(IReadOnlyList<BudgetCheck> checks, long reservedMicroUsd, BudgetCheck? exceeded, decimal? remainingUsd)
+    public BudgetReservation(IReadOnlyList<BudgetCheck> checks, long reservedMicroUsd, BudgetCheck? exceeded, decimal? remainingUsd, long reservedTokens = 0)
     {
         Checks = checks;
         ReservedMicroUsd = reservedMicroUsd;
         Exceeded = exceeded;
         RemainingUsd = remainingUsd;
+        ReservedTokens = reservedTokens;
     }
 
     public IReadOnlyList<BudgetCheck> Checks { get; }
     public long ReservedMicroUsd { get; }
+
+    /// <summary>Tokens reserved against each token budget among <see cref="Checks"/>.</summary>
+    public long ReservedTokens { get; }
     public BudgetCheck? Exceeded { get; }
 
-    /// <summary>Smallest remaining amount in USD over all applicable budgets (before this request), or null if no budgets.</summary>
+    /// <summary>Smallest remaining amount in USD over the applicable USD budgets (before this request), or null if there are none.</summary>
     public decimal? RemainingUsd { get; }
 
     public bool Allowed => Exceeded is null;
 }
 
+/// <summary>A crossed alert threshold. <c>SpentUsd</c> is the budget's use in its unit: USD, or tokens for a token budget.</summary>
 public sealed record AlertCandidate(Budget Budget, PeriodWindow Window, int ThresholdPercent, decimal SpentUsd)
 {
     /// <summary>SEK per USD when the alert was raised, for the SEK amounts of the alert webhook (display only).</summary>
@@ -39,8 +44,11 @@ public sealed record AlertCandidate(Budget Budget, PeriodWindow Window, int Thre
 
 /// <summary>
 /// Hierarchical budget enforcement (key → team → förvaltning). Uses shared counters with
-/// reserve-then-reconcile so concurrent requests cannot all slip past a nearly exhausted budget. Limits, counters and
-/// amounts are in USD, the currency provider prices are in, so enforcement does not move with the exchange rate.
+/// reserve-then-reconcile so concurrent requests cannot all slip past a nearly exhausted budget. Cost budgets count USD,
+/// the currency provider prices are in, so enforcement does not move with the exchange rate (counters in micro-USD).
+/// Token budgets count input plus output tokens, optionally only of providers of one residency; they apply to a request
+/// when one of its candidate providers matches, and are charged only when the provider that served it does. Both kinds
+/// are reserved in the same ledger round trip.
 /// </summary>
 public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scopes, TimeProvider time)
 {
@@ -62,33 +70,74 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         ];
     }
 
-    /// <summary>
-    /// Reserves the estimate against every applicable budget in one ledger round trip. Counters missing from the
-    /// shared store (cold start, new period) are seeded from the usage table and the reservation is retried.
-    /// </summary>
-    public async Task<BudgetReservation> ReserveAsync(IReadOnlyList<Budget> budgets, decimal estimatedUsd, CancellationToken cancellationToken)
+    /// <summary>Whether any of <paramref name="budgets"/> counts tokens.</summary>
+    public static bool HasTokenQuota(IReadOnlyList<Budget> budgets)
     {
         ArgumentNullException.ThrowIfNull(budgets);
-        if (budgets.Count == 0)
+        for (var i = 0; i < budgets.Count; i++)
+        {
+            if (budgets[i].Unit == BudgetUnit.Tokens)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Reserves a cost estimate; token budgets are checked without reserving tokens.</summary>
+    public Task<BudgetReservation> ReserveAsync(IReadOnlyList<Budget> budgets, decimal estimatedUsd, CancellationToken cancellationToken) =>
+        ReserveAsync(budgets, estimatedUsd, 0, null, cancellationToken);
+
+    /// <summary>
+    /// Reserves the estimates against every applicable budget in one ledger round trip: <paramref name="estimatedUsd"/>
+    /// against cost budgets, <paramref name="estimatedTokens"/> against token budgets. A token budget limited to a
+    /// residency applies only when one of <paramref name="residencies"/> (the candidate providers') matches; null = all
+    /// apply. Counters missing from the shared store (cold start, new period) are seeded from the usage table and the
+    /// reservation is retried.
+    /// </summary>
+    public async Task<BudgetReservation> ReserveAsync(IReadOnlyList<Budget> budgets, decimal estimatedUsd, long estimatedTokens,
+        IReadOnlyCollection<DataResidency>? residencies, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(budgets);
+        var applicable = residencies is null || !HasTokenQuota(budgets) ? budgets
+            : [.. budgets.Where(b => b.Unit != BudgetUnit.Tokens || b.Residency is not { } r || residencies.Contains(r))];
+        if (applicable.Count == 0)
         {
             return BudgetReservation.None;
         }
 
-        var checks = BuildChecks(budgets);
-        SpendCounter[] counters = [.. checks.Select(c => c.Counter)];
-        var amount = Math.Max(0, ToMicro(estimatedUsd));
-        var result = await ledger.ReserveAsync(counters, amount, missingAsZero: false, cancellationToken);
+        var checks = BuildChecks(applicable);
+        var micro = Math.Max(0, ToMicro(estimatedUsd));
+        var tokens = Math.Max(0, estimatedTokens);
+        var counters = new SpendCounter[checks.Count];
+        var amounts = new long[checks.Count];
+        for (var i = 0; i < checks.Count; i++)
+        {
+            counters[i] = checks[i].Counter;
+            amounts[i] = checks[i].Budget.Unit == BudgetUnit.Tokens ? tokens : micro;
+        }
+
+        var result = await ledger.ReserveAsync(counters, amounts, missingAsZero: false, cancellationToken);
         if (result.Missing.Count > 0)
         {
             await SeedAsync([.. result.Missing.Select(i => checks[i])], cancellationToken);
             // A counter can only vanish again if it expired in between; count it from zero rather than loop.
-            result = await ledger.ReserveAsync(counters, amount, missingAsZero: true, cancellationToken);
+            result = await ledger.ReserveAsync(counters, amounts, missingAsZero: true, cancellationToken);
         }
 
-        var remaining = checks.Select((c, i) => (c.Counter.LimitMicroUsd - result.ValuesBefore[i]) / (decimal)MicroPerUsd).Min();
+        decimal? remaining = null;
+        for (var i = 0; i < checks.Count; i++)
+        {
+            if (checks[i].Budget.Unit != BudgetUnit.Tokens)
+            {
+                var left = Math.Max(0, (counters[i].Limit - result.ValuesBefore[i]) / (decimal)MicroPerUsd);
+                remaining = remaining is { } r && r <= left ? r : left;
+            }
+        }
         return result.ExhaustedIndex >= 0
-            ? new BudgetReservation(checks, 0, checks[result.ExhaustedIndex], Math.Max(0, remaining))
-            : new BudgetReservation(checks, amount, null, Math.Max(0, remaining));
+            ? new BudgetReservation(checks, 0, checks[result.ExhaustedIndex], remaining)
+            : new BudgetReservation(checks, micro, null, remaining, tokens);
     }
 
     /// <summary>
@@ -106,11 +155,20 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         var checks = BuildChecks(budgets);
         await SeedMissingCountersAsync(checks, cancellationToken);
         var values = await ledger.GetAsync([.. checks.Select(c => c.Counter.Key)], cancellationToken);
-        return checks.Select((c, i) => BudgetEvaluator.UtilisationPercent((values[i] ?? 0) / (decimal)MicroPerUsd, c.Budget.LimitUsd)).Max();
+        return checks.Select((c, i) => BudgetEvaluator.UtilisationPercent(InUnit(c.Budget, values[i] ?? 0), c.Budget.Limit)).Max();
     }
 
-    /// <summary>Replaces the reservation with the actual cost. Returns alert thresholds crossed by this request.</summary>
-    public async Task<IReadOnlyList<AlertCandidate>> CommitAsync(BudgetReservation reservation, decimal actualUsd, CancellationToken cancellationToken)
+    /// <summary>Replaces the reservation with the actual cost; token budgets get no tokens. Returns alert thresholds crossed.</summary>
+    public Task<IReadOnlyList<AlertCandidate>> CommitAsync(BudgetReservation reservation, decimal actualUsd, CancellationToken cancellationToken) =>
+        CommitAsync(reservation, actualUsd, 0, null, cancellationToken);
+
+    /// <summary>
+    /// Replaces the reservation with what the request used: <paramref name="actualUsd"/> on cost budgets, and
+    /// <paramref name="actualTokens"/> on each token budget that counts <paramref name="servedBy"/> (the residency of the
+    /// provider that served it; a request no provider served is charged no tokens). Returns alert thresholds crossed.
+    /// </summary>
+    public async Task<IReadOnlyList<AlertCandidate>> CommitAsync(BudgetReservation reservation, decimal actualUsd, long actualTokens,
+        DataResidency? servedBy, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(reservation);
         if (reservation.Checks.Count == 0 || !reservation.Allowed)
@@ -118,22 +176,39 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
             return [];
         }
 
-        var actual = ToMicro(actualUsd);
-        var after = await ledger.AddAsync([.. reservation.Checks.Select(c => c.Counter)], actual - reservation.ReservedMicroUsd, cancellationToken);
+        var actualMicro = ToMicro(actualUsd);
+        var checks = reservation.Checks;
+        var counters = new SpendCounter[checks.Count];
+        var used = new long[checks.Count];
+        var deltas = new long[checks.Count];
+        for (var i = 0; i < checks.Count; i++)
+        {
+            var budget = checks[i].Budget;
+            var tokens = budget.Unit == BudgetUnit.Tokens;
+            counters[i] = checks[i].Counter;
+            used[i] = !tokens ? actualMicro
+                : servedBy is { } served && (budget.Residency is null || budget.Residency == served) ? Math.Max(0, actualTokens) : 0;
+            deltas[i] = used[i] - (tokens ? reservation.ReservedTokens : reservation.ReservedMicroUsd);
+        }
+
+        var after = await ledger.AddAsync(counters, deltas, cancellationToken);
         var alerts = new List<AlertCandidate>();
         for (var i = 0; i < reservation.Checks.Count; i++)
         {
             var check = reservation.Checks[i];
-            var afterUsd = after[i] / (decimal)MicroPerUsd;
-            var beforeUsd = afterUsd - actualUsd;
-            foreach (var threshold in BudgetEvaluator.CrossedThresholds(check.Budget, beforeUsd, afterUsd))
+            var afterValue = InUnit(check.Budget, after[i]);
+            var beforeValue = afterValue - InUnit(check.Budget, used[i]);
+            foreach (var threshold in BudgetEvaluator.CrossedThresholds(check.Budget, beforeValue, afterValue))
             {
-                alerts.Add(new AlertCandidate(check.Budget, check.Window, threshold, afterUsd));
+                alerts.Add(new AlertCandidate(check.Budget, check.Window, threshold, afterValue));
             }
         }
 
         return alerts;
     }
+
+    /// <summary>A counter value in the budget's unit: USD from micro-USD, tokens as they are.</summary>
+    private static decimal InUnit(Budget budget, long counter) => budget.Unit == BudgetUnit.Tokens ? counter : counter / (decimal)MicroPerUsd;
 
     private List<BudgetCheck> BuildChecks(IReadOnlyList<Budget> budgets)
     {
@@ -141,8 +216,8 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         return [.. budgets.Select(b =>
         {
             var window = BudgetPeriods.GetWindow(b.Period, now);
-            var key = SpendCounter.KeyFor(b.Scope, b.ScopeId, b.Period, window.Start);
-            return new BudgetCheck(b, window, new SpendCounter(key, ToMicro(b.LimitUsd), window.End - now + TimeSpan.FromDays(1)));
+            var limit = b.Unit == BudgetUnit.Tokens ? b.LimitTokens : ToMicro(b.LimitUsd);
+            return new BudgetCheck(b, window, new SpendCounter(SpendCounter.KeyFor(b, window.Start), limit, window.End - now + TimeSpan.FromDays(1)));
         })];
     }
 
@@ -164,7 +239,8 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
                 {
                     // Not tied to one request: concurrent requests for the same counter share this work.
                     var spent = await SpentFromDatabaseAsync(check.Budget, check.Window, CancellationToken.None);
-                    await ledger.InitializeAsync(key, ToMicro(spent), check.Counter.TimeToLive, CancellationToken.None);
+                    var value = check.Budget.Unit == BudgetUnit.Tokens ? (long)spent : ToMicro(spent);
+                    await ledger.InitializeAsync(key, value, check.Counter.TimeToLive, CancellationToken.None);
                 }
                 finally
                 {

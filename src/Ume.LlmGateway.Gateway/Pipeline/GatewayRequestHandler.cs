@@ -211,7 +211,12 @@ public sealed partial class GatewayRequestHandler(
             : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
             : new TokenUsage(estimatedInputTokens, 0, maxOutput);
         var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
-        if (await TryReserveAsync(http, state, snapshot, BudgetService.ApplicableBudgets(snapshot, key), estimate, ct) is null)
+        var applicable = BudgetService.ApplicableBudgets(snapshot, key);
+        // Token quotas limited to a residency need the candidates' residencies; without one, nothing extra is computed.
+        HashSet<DataResidency>? residencies = BudgetService.HasTokenQuota(applicable)
+            ? [.. selected.Candidates.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]
+            : null;
+        if (await TryReserveAsync(http, state, snapshot, applicable, estimate, ct, expectedUsage.InputTokens + expectedUsage.OutputTokens, residencies) is null)
         {
             return;
         }

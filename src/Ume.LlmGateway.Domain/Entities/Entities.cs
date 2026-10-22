@@ -403,8 +403,24 @@ public sealed class Budget
     public BudgetScope Scope { get; set; }
     public Guid ScopeId { get; set; }
 
-    /// <summary>The limit in USD, the currency costs are calculated and counted in.</summary>
+    /// <summary>What the budget counts: USD (default) or tokens.</summary>
+    public BudgetUnit Unit { get; set; }
+
+    /// <summary>The limit in USD, the currency costs are calculated and counted in (<see cref="BudgetUnit.Usd"/> budgets).</summary>
     public decimal LimitUsd { get; set; }
+
+    /// <summary>The limit in input plus output tokens (<see cref="BudgetUnit.Tokens"/> budgets).</summary>
+    public long LimitTokens { get; set; }
+
+    /// <summary>
+    /// Token budgets only: count only requests served by providers of this residency (e.g. <see cref="DataResidency.OnPrem"/>
+    /// for a quota on on-prem capacity). Null counts every request.
+    /// </summary>
+    public DataResidency? Residency { get; set; }
+
+    /// <summary>The limit in the budget's unit.</summary>
+    public decimal Limit => Unit == BudgetUnit.Tokens ? LimitTokens : LimitUsd;
+
     public BudgetPeriod Period { get; set; }
 
     /// <summary>Percentages (1-100) at which alerts are raised.</summary>
@@ -620,6 +636,13 @@ public sealed class AlertEvent
     public int ThresholdPercent { get; set; }
     public decimal SpentUsd { get; set; }
     public decimal LimitUsd { get; set; }
+
+    /// <summary>Set for alerts of token budgets (their <see cref="SpentUsd"/> and <see cref="LimitUsd"/> are 0).</summary>
+    public long? SpentTokens { get; set; }
+
+    /// <summary>Set for alerts of token budgets.</summary>
+    public long? LimitTokens { get; set; }
+
     public DateTimeOffset Timestamp { get; set; }
     public bool Acknowledged { get; set; }
 }

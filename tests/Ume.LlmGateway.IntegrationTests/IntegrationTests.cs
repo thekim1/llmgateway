@@ -239,6 +239,40 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task Redis_usage_journal_holds_batches_up_to_its_cap_and_hands_over_abandoned_ones()
+    {
+        var redis = fixture.GatewayServices.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>();
+        var mine = new RedisUsageJournal(redis, TimeProvider.System);
+        var batch = UsageJournalBatches.Name(Guid.NewGuid().ToString("N"), 3);
+        byte[] payload = [1, 2, 3, 4];
+        var before = await mine.CountRecordsAsync(Cancellation);
+
+        (await mine.AddAsync(batch, payload, 3, maxRecords: before + 2, Cancellation)).ShouldBeFalse(); // over the cap
+        (await mine.AddAsync(batch, payload, 3, maxRecords: before + 3, Cancellation)).ShouldBeTrue();
+        (await mine.GetAsync(batch, Cancellation)).ShouldBe(payload);
+        (await mine.CountRecordsAsync(Cancellation)).ShouldBe(before + 3);
+
+        // Touched batches belong to a living instance; one untouched for longer than the idle time is taken over once.
+        var later = new ShiftedTime(TimeSpan.FromMinutes(5));
+        var other = new RedisUsageJournal(redis, later);
+        await mine.TouchAsync([batch], Cancellation);
+        (await other.ClaimAbandonedAsync(TimeSpan.FromMinutes(10), 100, Cancellation)).ShouldNotContain(batch);
+        var claimed = await other.ClaimAbandonedAsync(TimeSpan.FromMinutes(2), 1000, Cancellation);
+        claimed.ShouldContain(batch);
+        (await new RedisUsageJournal(redis, later).ClaimAbandonedAsync(TimeSpan.FromMinutes(2), 1000, Cancellation)).ShouldNotContain(batch);
+
+        await other.RemoveAsync(batch, Cancellation);
+        await other.RemoveAsync(batch, Cancellation); // removing twice counts down once
+        (await mine.GetAsync(batch, Cancellation)).ShouldBeNull();
+        (await mine.CountRecordsAsync(Cancellation)).ShouldBe(before);
+    }
+
+    private sealed class ShiftedTime(TimeSpan shift) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + shift;
+    }
+
+    [Fact]
     public async Task Redis_cooldowns_are_shared_and_never_shortened()
     {
         var circuits = fixture.GatewayServices.GetRequiredService<ICircuitBreakerStore>();

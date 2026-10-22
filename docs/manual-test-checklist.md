@@ -109,6 +109,19 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
   with a `cache_control` block over 1 024 tokens twice: the first request's cost (`x-ume-cost-usd`, Usage) includes the
   cache write at 3.75 per 1M, the second the cache read. Export and import the configuration: the price survives.
 
+## Usage journal and token quotas (uncommitted)
+
+- [ ] **Database outage:** stop Postgres for a minute (`docker stop` the Postgres container) while sending a few requests: they
+  succeed without delay; the gateway logs "Failed to write … usage records"; *Operations > Health* shows `journaledBatches`
+  above 0. Start Postgres again: within seconds the log says "Wrote … journaled usage records" and the requests appear on
+  the *Usage* page, each once.
+- [ ] **Instance stopped during an outage:** with Postgres stopped, send requests, then stop the gateway container; start
+  Postgres and a gateway again: within about 2 minutes it logs "Took over a journaled batch …" and the requests appear.
+- [ ] **Redis ACL:** after redeploying with the new `users.acl.example`, no `NOPERM` warnings for the usage journal.
+- [ ] **Token quota:** *Budgets > New budget*, a team, *Counts: Tokens*, limit 2 000, *On-prem models only*: the list shows
+  "token quota (On-prem)" and tokens used. A key of the team gets answers from an on-prem model until the quota is used up,
+  then 402 "token quota … is used up"; requests to an EU or cloud model still work. At 50/80/100 % the alert says tokens.
+
 ## Retries, limits, policies, prompt caching (uncommitted)
 
 - [ ] **Retry:** stop an on-prem provider's server briefly (or point a route's only target at a closed port and back): a single

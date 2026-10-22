@@ -120,7 +120,8 @@ public sealed partial class GatewayRequestHandler
         var block = CostCalculator.EstimateRealtime(settings.ReserveMinutes * 60m);
         var estimate = candidates.Max(t => CostCalculator.Calculate(block, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
         var applicable = BudgetService.ApplicableBudgets(snapshot, key);
-        var reservation = await TryReserveAsync(http, state, snapshot, applicable, estimate, ct);
+        var reservation = await TryReserveAsync(http, state, snapshot, applicable, estimate, ct, 0,
+            [.. candidates.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]);
         if (reservation is null)
         {
             return;
@@ -244,7 +245,7 @@ public sealed partial class GatewayRequestHandler
 
                 try
                 {
-                    var more = await budgets.ReserveAsync(applicable, blockUsd, token);
+                    var more = await budgets.ReserveAsync(applicable, blockUsd, 0, [account.Residency], token);
                     if (!more.Allowed)
                     {
                         return new RealtimeStop(RealtimeEndReason.BudgetExceeded,
