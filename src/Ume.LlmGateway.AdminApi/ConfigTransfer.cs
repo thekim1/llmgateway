@@ -58,7 +58,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled),
-                [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd))])))],
+                [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd, price.CacheWriteInputPerMillionUsd))])))],
             [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
             RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);
     }
@@ -130,7 +130,8 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                         ctx.Db.ModelPrices.Add(added);
                     }
                     else if (existing.InputPerMillionUsd != price.InputPerMillionUsd || existing.CachedInputPerMillionUsd != price.CachedInputPerMillionUsd || existing.OutputPerMillionUsd != price.OutputPerMillionUsd || existing.AudioPerMinuteUsd != price.AudioPerMinuteUsd
-                        || existing.AudioInputPerMillionUsd != price.AudioInputPerMillionUsd || existing.AudioOutputPerMillionUsd != price.AudioOutputPerMillionUsd || existing.PerImageUsd != price.PerImageUsd)
+                        || existing.AudioInputPerMillionUsd != price.AudioInputPerMillionUsd || existing.AudioOutputPerMillionUsd != price.AudioOutputPerMillionUsd || existing.PerImageUsd != price.PerImageUsd
+                        || existing.CacheWriteInputPerMillionUsd != price.CacheWriteInputPerMillionUsd)
                     {
                         throw new ApiFaultException(409, "Price history cannot be changed. Add a new effective date.");
                     }

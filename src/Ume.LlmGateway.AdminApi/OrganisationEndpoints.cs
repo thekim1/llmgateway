@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
@@ -14,7 +15,13 @@ public sealed record TeamRequest(
     Guid DepartmentId,
     [property: Required, StringLength(200)] string Name,
     [property: StringLength(1000)] string? Description = null,
-    bool IsActive = true) : AdminRequest;
+    bool IsActive = true,
+    // Applies to the team's keys. Omitted = unchanged; {} clears it.
+    RequestPolicy? RequestPolicy = null) : AdminRequest, IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
+        RequestPolicy?.Validate().Select(message => new ValidationResult(message, [nameof(RequestPolicy)])) ?? [];
+}
 
 public static class OrganisationEndpoints
 {
@@ -59,7 +66,11 @@ public static class OrganisationEndpoints
         api.MapPost("/teams", async (TeamRequest input, AdminContext ctx, CancellationToken ct) =>
         {
             var d = await ctx.Departments().SingleOrDefaultAsync(d => d.Id == input.DepartmentId, ct) ?? throw new ApiFaultException(404, "The department does not exist.");
-            var t = new Team { Department = d, DepartmentId = d.Id, Name = input.Name.Trim(), Description = input.Description, CreatedAt = ctx.Now };
+            var t = new Team
+            {
+                Department = d, DepartmentId = d.Id, Name = input.Name.Trim(), Description = input.Description, CreatedAt = ctx.Now,
+                RequestPolicy = input.RequestPolicy is { IsEmpty: false } policy ? policy : null,
+            };
             ctx.Db.Teams.Add(t);
             await ctx.SaveAsync(AuditActions.Create, AuditEntities.Team, t.Id, null, TeamAudit.Of(t), InvalidationKind.Config, ct);
             return TypedResults.Created($"/api/teams/{t.Id}", TeamDto.Of(t));
@@ -69,6 +80,7 @@ public static class OrganisationEndpoints
             var t = await ctx.Teams().Include(t => t.VirtualKeys).SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
             var before = TeamAudit.Of(t);
             t.Name = input.Name.Trim(); t.Description = input.Description; t.IsActive = input.IsActive;
+            if (input.RequestPolicy is { } policy) { t.RequestPolicy = policy.IsEmpty ? null : policy; }
             await ctx.SaveAsync(AuditActions.Update, AuditEntities.Team, id, before, TeamAudit.Of(t), InvalidationKind.Keys, ct);
             return TypedResults.Ok(TeamDto.Of(t));
         }).RequireAuthorization(AdminPolicies.Manage).WithName("UpdateTeam");

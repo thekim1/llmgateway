@@ -3,6 +3,8 @@ import type { NewPrice } from '@/api/types'
 export interface PriceDraft {
   input: string
   cached: string
+  /** USD per 1M input tokens written to the prompt cache (Anthropic). Empty bills them at the input price. */
+  cacheWrite: string
   output: string
   /** USD per minute of audio, for speech-to-text models billed by duration. Empty means 0. */
   audio: string
@@ -16,10 +18,10 @@ export interface PriceDraft {
 
 export type PriceErrors = Partial<Record<keyof PriceDraft, string>>
 
-export const emptyPriceDraft = (): PriceDraft => ({ input: '', cached: '', output: '', audio: '', audioIn: '', audioOut: '', image: '', from: '' })
+export const emptyPriceDraft = (): PriceDraft => ({ input: '', cached: '', cacheWrite: '', output: '', audio: '', audioIn: '', audioOut: '', image: '', from: '' })
 
 export const isPriceDraftEmpty = (d: PriceDraft): boolean =>
-  !d.input.trim() && !d.cached.trim() && !d.output.trim() && !d.audio.trim() && !d.audioIn.trim() && !d.audioOut.trim() && !d.image.trim() && !d.from.trim()
+  !d.input.trim() && !d.cached.trim() && !d.cacheWrite.trim() && !d.output.trim() && !d.audio.trim() && !d.audioIn.trim() && !d.audioOut.trim() && !d.image.trim() && !d.from.trim()
 
 const parse = (value: string): number => Number(value.replace(',', '.'))
 const invalid = (value: string): boolean => value.trim() === '' || !Number.isFinite(parse(value)) || parse(value) < 0
@@ -30,6 +32,7 @@ export function validatePrice(d: PriceDraft): PriceErrors {
   if (invalid(d.input)) errors.input = message
   if (invalid(d.cached)) errors.cached = message
   if (invalid(d.output)) errors.output = message
+  if (d.cacheWrite.trim() && invalid(d.cacheWrite)) errors.cacheWrite = message
   if (d.audio.trim() && invalid(d.audio)) errors.audio = message
   if (d.audioIn.trim() && invalid(d.audioIn)) errors.audioIn = message
   if (d.audioOut.trim() && invalid(d.audioOut)) errors.audioOut = message
@@ -47,6 +50,7 @@ export function toNewPrice(d: PriceDraft): NewPrice {
     audioInputPerMillionUsd: d.audioIn.trim() ? parse(d.audioIn) : 0,
     audioOutputPerMillionUsd: d.audioOut.trim() ? parse(d.audioOut) : 0,
     perImageUsd: d.image.trim() ? parse(d.image) : 0,
+    cacheWriteInputPerMillionUsd: d.cacheWrite.trim() ? parse(d.cacheWrite) : null,
     effectiveFrom: d.from ? new Date(d.from).toISOString() : null,
   }
 }

@@ -23,7 +23,10 @@ public sealed record KeyRequest(
     [property: EnumDataType(typeof(AttachmentPolicy))] AttachmentPolicy? AttachmentPolicy = null,
     [property: MaxLength(NetworkRanges.MaxEntries)] List<string>? AllowedIpRanges = null,
     bool? AllowProviderTools = null,
-    bool? AllowProviderStorage = null) : AdminRequest, IValidatableObject
+    bool? AllowProviderStorage = null,
+    [property: Range(1, 100_000)] int? MaxConcurrentRequests = null,
+    // On top of the team's policy. Omitted = unchanged on update; {} clears it.
+    RequestPolicy? RequestPolicy = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -42,6 +45,10 @@ public sealed record KeyRequest(
         if (AllowedResidencies?.Any(r => !Enum.IsDefined(r)) == true)
         {
             yield return new ValidationResult("The data residency is invalid.", [nameof(AllowedResidencies)]);
+        }
+        foreach (var message in RequestPolicy?.Validate() ?? [])
+        {
+            yield return new ValidationResult(message, [nameof(RequestPolicy)]);
         }
     }
 }
@@ -134,5 +141,7 @@ public static class KeyEndpoints
         if (input.AllowProviderStorage is { } storage) { key.AllowProviderStorage = storage; }
         if (input.AllowedIpRanges is not null) { NetworkRanges.Normalize(input.AllowedIpRanges, out var ranges); key.AllowedIpRanges = ranges; }
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
+        key.MaxConcurrentRequests = input.MaxConcurrentRequests;
+        if (input.RequestPolicy is { } policy) { key.RequestPolicy = policy.IsEmpty ? null : policy; }
     }
 }

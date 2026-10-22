@@ -81,6 +81,8 @@ public static class KeyRotation
             AllowProviderStorage = oldKey.AllowProviderStorage,
             RequestsPerMinute = oldKey.RequestsPerMinute,
             TokensPerMinute = oldKey.TokensPerMinute,
+            MaxConcurrentRequests = oldKey.MaxConcurrentRequests,
+            RequestPolicy = oldKey.RequestPolicy,
         };
 
         oldKey.RotatedToKeyId = replacement.Id;

@@ -29,6 +29,15 @@ public sealed record GatewayEndpointInfo(
     /// <summary>A multipart image upload (the files to edit, an optional mask) instead of a JSON body.</summary>
     public bool IsImageUpload { get; init; }
 
+    /// <summary>Speaks the Anthropic protocol (request, answer and error shape) rather than OpenAI's.</summary>
+    public bool IsAnthropic { get; init; }
+
+    /// <summary>
+    /// Costs nothing: no budget is reserved and the provider's token counts are not charged (token counting reports
+    /// <c>input_tokens</c> it did not consume).
+    /// </summary>
+    public bool IsFree { get; init; }
+
     /// <summary>The answer is billed per generated image (and per token for models that report tokens).</summary>
     public bool IsImage => Serves(ModelKind.Image);
 
@@ -54,7 +63,9 @@ public static class GatewayEndpoints
         new(GatewayEndpoint.Responses, "responses", "/v1/responses", "responses", ProviderCapabilities.Responses,
             IsAudio: false, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Chat),
         new(GatewayEndpoint.AnthropicMessages, "anthropic_messages", "/v1/messages", "messages", ProviderCapabilities.AnthropicMessages,
-            IsAudio: false, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Chat),
+            IsAudio: false, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Chat) { IsAnthropic = true },
+        new(GatewayEndpoint.AnthropicCountTokens, "anthropic_count_tokens", "/v1/messages/count_tokens", "messages/count_tokens", ProviderCapabilities.AnthropicMessages,
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Chat) { IsAnthropic = true, IsFree = true },
         new(GatewayEndpoint.Models, "models", "/v1/models", null, ProviderCapabilities.None,
             IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false),
         new(GatewayEndpoint.AudioTranscriptions, "audio_transcriptions", "/v1/audio/transcriptions", "audio/transcriptions", ProviderCapabilities.AudioTranscriptions,

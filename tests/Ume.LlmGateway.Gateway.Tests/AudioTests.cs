@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -114,6 +115,7 @@ public sealed class AudioTests(GatewayFixture fixture)
     }
 
     [Fact]
+    [Trait(TestCategory.Name, TestCategory.Flaky)] // failed in CI twice (2026-10-13, 2026-10-16): reads the mock provider's log while other classes share it
     public async Task Pii_policy_redacts_the_prompt_field()
     {
         var key = await fixture.CreateKeyAsync(k => k.PiiPolicy = PiiPolicy.Redact);

@@ -127,6 +127,16 @@ export interface UpdateDepartmentRequest {
   isActive: boolean
 }
 
+/** What an administrator imposes on a team's or key's requests; a key's values win over its team's. */
+export interface RequestPolicy {
+  maxOutputTokens?: number | null
+  systemPrompt?: string | null
+  /** Parameters set when a request leaves them out. */
+  defaults?: Record<string, unknown> | null
+  /** Parameters always set. */
+  overrides?: Record<string, unknown> | null
+}
+
 export interface Team {
   id: string
   departmentId: string
@@ -136,16 +146,21 @@ export interface Team {
   isActive: boolean
   keyCount: number
   createdAt: IsoDateTime
+  requestPolicy?: RequestPolicy | null
 }
 export interface CreateTeamRequest {
   departmentId: string
   name: string
   description?: string | null
+  /** Omitted = none; {} = none. */
+  requestPolicy?: RequestPolicy
 }
 export interface UpdateTeamRequest {
   name: string
   description?: string | null
   isActive: boolean
+  /** Omitted = unchanged; {} clears it. */
+  requestPolicy?: RequestPolicy
 }
 
 // ---------- Virtual keys ----------
@@ -177,6 +192,9 @@ export interface VirtualKey {
   attachmentPolicy: AttachmentPolicy
   requestsPerMinute: number | null
   tokensPerMinute: number | null
+  /** Requests in flight at once across all gateway instances; null = no limit. */
+  maxConcurrentRequests?: number | null
+  requestPolicy?: RequestPolicy | null
   rotatedToKeyId: string | null
   /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
   canReveal?: boolean
@@ -208,6 +226,9 @@ export interface CreateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
+  maxConcurrentRequests?: number | null
+  /** Omitted = unchanged on update; {} clears it. */
+  requestPolicy?: RequestPolicy
   /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
   allowedIpRanges?: string[]
   /** Omitted = false on create, unchanged on update. */
@@ -233,6 +254,8 @@ export interface UpdateKeyRequest {
   attachmentPolicy?: AttachmentPolicy
   requestsPerMinute?: number | null
   tokensPerMinute?: number | null
+  maxConcurrentRequests?: number | null
+  requestPolicy?: RequestPolicy
   allowedIpRanges?: string[]
   allowProviderTools?: boolean
   allowProviderStorage?: boolean
@@ -336,6 +359,8 @@ export interface Price {
   audioOutputPerMillionUsd: number
   /** Image models billed per picture (DALL·E, FLUX). Token-billed image models (gpt-image-1) use the token prices. */
   perImageUsd: number
+  /** Prompt-cache writes (Anthropic); null bills them at the input price. */
+  cacheWriteInputPerMillionUsd: number | null
   effectiveFrom: IsoDateTime
 }
 
@@ -350,6 +375,8 @@ export interface NewPrice {
   audioOutputPerMillionUsd?: number
   /** Optional, defaults to 0. */
   perImageUsd?: number
+  /** Optional, defaults to null (cache writes billed at the input price). */
+  cacheWriteInputPerMillionUsd?: number | null
   /** Optional, defaults to now. */
   effectiveFrom?: IsoDateTime | null
 }
@@ -631,6 +658,7 @@ export const GATEWAY_ENDPOINTS = [
   'RealtimeTranslations',
   'ImageGenerations',
   'ImageEdits',
+  'AnthropicCountTokens',
 ] as const
 export type GatewayEndpointName = (typeof GATEWAY_ENDPOINTS)[number]
 

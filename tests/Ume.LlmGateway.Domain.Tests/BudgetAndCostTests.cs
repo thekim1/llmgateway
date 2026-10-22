@@ -247,6 +247,24 @@ public class CostCalculatorTests
     }
 
     [Fact]
+    public void Cache_writes_are_billed_at_the_cache_write_price_when_one_is_set()
+    {
+        // Claude-like: input 3, cache read 0.30, cache write 3.75, output 15 USD per million.
+        var price = new ModelPrice { InputPerMillionUsd = 3, CachedInputPerMillionUsd = 0.30m, CacheWriteInputPerMillionUsd = 3.75m, OutputPerMillionUsd = 15 };
+        // 1M input in total: 200k plain, 300k read from the cache, 500k written to it.
+        var usage = new TokenUsage(1_000_000, 300_000, 0, CacheWriteInputTokens: 500_000);
+        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(0.6m + 0.09m + 1.875m);
+
+        // Without a cache-write price, writes cost the input price, as before.
+        price.CacheWriteInputPerMillionUsd = null;
+        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(2.1m + 0.09m);
+        price.CacheWriteInputPerMillionUsd = 3.75m;
+
+        // Cache writes never exceed the uncached input.
+        CostCalculator.Calculate(new TokenUsage(100, 60, 0, CacheWriteInputTokens: 100), price, 10).Usd.ShouldBe((40 * 3.75m + 60 * 0.30m) / 1_000_000);
+    }
+
+    [Fact]
     public void Live_session_estimate_adds_spoken_output()
     {
         var estimate = CostCalculator.EstimateRealtime(60);

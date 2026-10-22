@@ -28,6 +28,8 @@ public sealed partial class GatewayRequestHandler(
     IRateLimiter rateLimiter,
     BudgetService budgets,
     ICircuitBreakerStore circuits,
+    IOptions<CircuitBreakerOptions> circuitOptions,
+    DeploymentLoad load,
     IEnumerable<IProviderAdapter> adapters,
     IRealtimeConnector realtime,
     IRealtimeSessionRegistry sessions,
@@ -127,7 +129,8 @@ public sealed partial class GatewayRequestHandler(
         // 4. Rate limits (requests and tokens per minute).
         // Audio: from the file's playing time (both the per-minute and the per-token way of pricing speech models).
         var audioEstimate = audio is null ? default : CostCalculator.EstimateTranscription(audio.EstimatedSeconds);
-        var estimatedInputTokens = audio is null ? CostCalculator.EstimateInputTokens(bodyLength, attachments) : audioEstimate.InputTokens;
+        // A free endpoint (token counting) counts no tokens, not even estimated ones (rate limit, a cancelled request).
+        var estimatedInputTokens = info.IsFree ? 0 : audio is null ? CostCalculator.EstimateInputTokens(bodyLength, attachments) : audioEstimate.InputTokens;
         state.EstimatedInputTokens = estimatedInputTokens;
         state.EstimatedAudioSeconds = audioEstimate.AudioSeconds;
         if (!await AcquireRateLimitAsync(http, state, key, ct))
@@ -180,15 +183,31 @@ public sealed partial class GatewayRequestHandler(
         // 7. Candidate providers in attempt order.
         var stream = info.SupportsStreaming && RequestRewriter.IsStreaming(body);
         state.Streamed = stream;
-        var route = await SelectRouteAsync(http, state, snapshot, key, model, requested, routing, restrictTo, stream, circuitPrefetch, ct);
+        // Audio and images are counted by length or picture, not in tokens a context window limits.
+        var contextTokens = audio is null && !info.IsImage ? estimatedInputTokens : 0;
+        var route = await SelectRouteAsync(http, state, snapshot, key, model, requested, routing, restrictTo, stream, circuitPrefetch, ct, contextTokens,
+            SessionAffinity(http, body, key));
         if (route is not { } selected)
         {
             return;
         }
 
+        // 7b. The team's and key's request policy (output-token cap, system prompt, parameter defaults and overrides).
+        //     After the PII guard and the rules, which see what the client sent; before the budget estimate it changes.
+        if (audio is null && images is null && RequestPolicy.Merge(key.Team?.RequestPolicy, key.RequestPolicy) is { } policy)
+        {
+            var promptCharacters = RequestPolicies.Apply(body, endpoint, policy);
+            if (promptCharacters > 0 && !info.IsFree)
+            {
+                estimatedInputTokens += CostCalculator.EstimateTokens(promptCharacters);
+                state.EstimatedInputTokens = estimatedInputTokens;
+            }
+        }
+
         // 8. Budget reservation across key, team and förvaltning.
         long maxOutput = info.HasOutputTokens ? RequestRewriter.RequestedMaxOutputTokens(body) ?? options.CurrentValue.DefaultOutputTokenEstimate : 0;
-        var expectedUsage = audio is not null ? audioEstimate
+        var expectedUsage = info.IsFree ? default
+            : audio is not null ? audioEstimate
             : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
             : new TokenUsage(estimatedInputTokens, 0, maxOutput);
         var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
@@ -211,7 +230,11 @@ public sealed partial class GatewayRequestHandler(
         }
     }
 
-    /// <summary>Calls the candidates in order, falling back while nothing has been sent to the client, and accounts the outcome.</summary>
+    /// <summary>
+    /// Calls the candidates in order, falling back while nothing has been sent to the client, and accounts the outcome.
+    /// The last candidate is retried after a passing failure (<see cref="RetryOptions"/>). <c>x-ume-fallbacks</c> and
+    /// the usage record count every extra attempt.
+    /// </summary>
     private async Task AttemptAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, JsonObject body, AudioUpload? audio,
         ImageUploads? images, SelectedRoute route, CancellationToken ct)
     {
@@ -219,11 +242,14 @@ public sealed partial class GatewayRequestHandler(
         var now = time.GetUtcNow();
         var clientWantsStreamUsage = (body["stream_options"] as JsonObject)?["include_usage"] is JsonValue iu && iu.TryGetValue<bool>(out var wants) && wants;
         ProviderFailure? lastFailure = null;
+        var retry = options.CurrentValue.Retry;
+        var retriesLeft = retry.MaxRetries;
+        var attempt = 0;
         for (var i = 0; i < candidates.Count; i++)
         {
             var deployment = candidates[i].ModelDeployment!;
             var provider = deployment.ProviderAccount!;
-            state.Fallbacks = i;
+            state.Fallbacks = attempt++;
             state.Deployment = deployment;
 
             if (!TryGetCredential(snapshot, provider, out var credential))
@@ -232,16 +258,20 @@ public sealed partial class GatewayRequestHandler(
                 continue;
             }
 
-            // The rewrite mutates the body; only keep a pristine copy when a fallback attempt may still need it.
+            // The rewrite mutates the body; only keep a pristine copy when a fallback attempt may still need it. A retry
+            // of the last candidate reuses its body: the rewrite for the same deployment gives the same result.
             var attemptBody = i == candidates.Count - 1 ? body : (JsonObject)body.DeepClone();
             RequestRewriter.Apply(attemptBody, state.Endpoint, deployment.UpstreamModel, deployment.ParameterProfile, state.Streamed);
 
             ProviderResult result;
+            // In flight until the attempt ends (a relayed stream included); feeds least-loaded balancing.
+            using var lease = load.Start(deployment.Id);
             var sent = time.GetTimestamp();
             try
             {
                 result = await _adapters.Resolve(provider.Type)
-                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, attemptBody, state.Streamed, credential, clientWantsStreamUsage, audio, images), ct);
+                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, attemptBody, state.Streamed, credential, clientWantsStreamUsage, audio, images,
+                        options.CurrentValue.PromptCaching), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -252,16 +282,26 @@ public sealed partial class GatewayRequestHandler(
 
             // Failed attempts count too: time spent waiting on providers is not gateway overhead.
             state.AddUpstreamTime(time.GetTimestamp() - sent);
+            lease.Complete(result is not ProviderFailure { Kind: not FailureKind.ClientError }, time.GetElapsedTime(sent));
             switch (result)
             {
                 case ProviderFailure failure when failure.CanFallBack:
-                    await RecordFailureAsync(state, provider, failure);
+                    await RecordFailureAsync(state, deployment, failure);
                     lastFailure = failure;
+                    if (i == candidates.Count - 1 && failure.IsRetryable && retriesLeft > 0)
+                    {
+                        var delay = RetryDelay(retry, retry.MaxRetries - retriesLeft);
+                        retriesLeft--;
+                        LogRetrying(logger, state.RequestId, provider.Name, (long)delay.TotalMilliseconds);
+                        await Task.Delay(delay, time, ct);
+                        i--; // the same candidate again
+                    }
+
                     continue;
 
                 case ProviderFailure failure:
                     // Client error (e.g. invalid parameter): retrying elsewhere would fail the same way.
-                    SetRoutingHeaders(http, deployment, i);
+                    SetRoutingHeaders(http, deployment, state.Fallbacks);
                     // Only the provider's message, type, code and param are passed on (ProviderErrors).
                     http.Response.StatusCode = failure.StatusCode;
                     http.Response.ContentType = "application/json; charset=utf-8";
@@ -276,7 +316,7 @@ public sealed partial class GatewayRequestHandler(
                     {
                         await RecordSuccessAsync(state, provider);
                         var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
-                        SetRoutingHeaders(http, deployment, i);
+                        SetRoutingHeaders(http, deployment, state.Fallbacks);
                         http.Response.Headers[GatewayHeaders.CostUsd] = cost.Usd.ToString("0.00000000", CultureInfo.InvariantCulture);
                         http.Response.Headers[GatewayHeaders.CostSek] = cost.Sek.ToString("0.000000", CultureInfo.InvariantCulture);
                         if (state.Reservation?.RemainingUsd is { } rem)
@@ -299,7 +339,7 @@ public sealed partial class GatewayRequestHandler(
                     using (streamResult)
                     {
                         await RecordSuccessAsync(state, provider);
-                        await StreamAsync(http, state, deployment, i, streamResult, snapshot, ct);
+                        await StreamAsync(http, state, deployment, state.Fallbacks, streamResult, snapshot, ct);
                     }
 
                     return;
@@ -307,7 +347,7 @@ public sealed partial class GatewayRequestHandler(
         }
 
         // 10. Every candidate failed.
-        await RejectAllFailedAsync(http, state, candidates.Count, route.ModelName, lastFailure);
+        await RejectAllFailedAsync(http, state, attempt, route.ModelName, lastFailure);
     }
 
     private async Task StreamAsync(HttpContext http, RequestState state, ModelDeployment deployment, int fallbacks, ProviderStreamResult result, CatalogSnapshot snapshot, CancellationToken ct)

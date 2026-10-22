@@ -93,6 +93,49 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 - [ ] **Admin UI:** *Getting started* is gone from the menu; `/getting-started` opens the *Catalogue*, which shows the
   gateway base URL (copy works) and a *Getting started guide* link that opens the website in a new tab.
 
+## Ideas from agentgateway (uncommitted)
+
+- [ ] **Retry-After cooldown on Foundry/Azure:** on a deployment with a small TPM quota, send requests until Azure answers 429.
+  The gateway log shows "provider … asked to retry … after … ms; it goes last until then"; while it lasts, requests to a route
+  with that deployment first and another one second go straight to the second (`x-ume-fallbacks: 0`). After the time Azure
+  gave, the first deployment is used again. Other deployments on the same provider are not affected.
+- [ ] **Cooldown with the production Redis ACL:** the same test on the hardened deployment logs no `NOPERM` (the cooldown uses
+  `set` and `pexpire`, already in `deploy/redis/users.acl.example`).
+- [ ] **Least-loaded balancing:** set `Gateway__LoadBalancing=LeastLoaded`, give a route two targets of the same priority
+  on different providers (for example a fast cloud model and a slow on-prem one) and send 50 requests: most go to the faster
+  one (`x-ume-provider`), but the slower one still gets some. With the default (`Weighted`) the split follows the weights.
+- [ ] **Cache-write price:** add a price with *Cache write* 3.75 to a Claude model (Providers > Models > the model > Add price);
+  the price history shows it in the *Cache write* column, and an empty field shows a dash. Send a `/v1/messages` request
+  with a `cache_control` block over 1 024 tokens twice: the first request's cost (`x-ume-cost-usd`, Usage) includes the
+  cache write at 3.75 per 1M, the second the cache read. Export and import the configuration: the price survives.
+
+## Retries, limits, policies, prompt caching (uncommitted)
+
+- [ ] **Retry:** stop an on-prem provider's server briefly (or point a route's only target at a closed port and back): a single
+  request during a short blip succeeds with `x-ume-fallbacks: 1` and the log line "retrying provider … in … ms".
+- [ ] **Requests at once:** give a key *Requests at once* 1 (Keys > edit > Limits), start a long streamed answer and send a second
+  request with the same key: 429 "already has 1 requests in progress"; after the stream ends the next request works. Also on
+  the hardened deployment (the Redis ACL already allows the sorted-set commands).
+- [ ] **Sliding rate limit:** a key with 10 requests per minute: send 10 late in a minute, then more right after the minute
+  changes: they are still refused for a while, and `Retry-After` is a few seconds, not a full minute.
+- [ ] **Request policy:** on a team set *Max output tokens* 50 and a *System prompt* ("Answer in one sentence"); a chat request
+  with a key of that team gets a one-sentence answer and at most 50 output tokens (Usage). Set the key's *Max output tokens*
+  to 20: the key wins. A forced parameter `{"model": "x"}` is refused in the form.
+- [ ] **Policy on Claude:** the same team policy on a `/v1/messages` request to a Claude deployment: the answer follows the
+  system prompt; a client `system` block with `cache_control` keeps its marker.
+- [ ] **count_tokens:** `POST /v1/messages/count_tokens` with a key and a Claude model answers `{"input_tokens": …}`; the
+  Usage page shows the request with endpoint *Token counting* and cost 0.
+- [ ] **Context window:** set a model's context window to 1 000 and send a 10 000-character prompt: 400
+  `context_length_exceeded`; with a route that has a larger model as fallback, the request goes to that model.
+- [ ] **Prompt caching (translated):** a chat completion through the OpenAI SDK to a Claude deployment with a system prompt over
+  ~1 500 words, sent twice: the second request's usage shows cached input tokens (Usage, *Cached*), and the first one's cost
+  includes the cache write at the *Cache write* price.
+- [ ] **Session affinity:** a route with two on-prem targets at the same priority; requests with the same `x-ume-session`
+  header always land on the same provider (`x-ume-provider`), different sessions spread over both.
+- [ ] **GenAI metrics:** by default the Aspire dashboard (or your collector) shows `ume.gateway.cost.usd` but no `gen_ai.*`
+  metrics. With `Gateway__GenAiMetrics=true` on the gateway it also shows `gen_ai.client.token.usage` and
+  `gen_ai.server.request.duration` with `gen_ai.provider.name` and `gen_ai.request.model`.
+
 ## Already built (from earlier sessions)
 
 - [ ] **Migration startup log:** a fresh database starts without the `42P01 DataProtectionKeys` error in the migration log (commit e9871ad).

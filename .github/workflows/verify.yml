@@ -57,7 +57,9 @@ jobs:
           TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX: mirror.gcr.io/
         run: |
           dotnet build UmeLlmGateway.slnx -c Release --nologo
-          dotnet test --solution UmeLlmGateway.slnx -c Release --no-build
+          # Tests marked [Trait(TestCategory.Name, TestCategory.Flaky)] (timing or race dependent) run locally and in the
+          # weekly flake hunt, not here: a known flake should not fail a pull request (docs/local-development.md).
+          dotnet test --solution UmeLlmGateway.slnx -c Release --no-build --filter-not-trait "Category=Flaky"
           dotnet list UmeLlmGateway.slnx package --vulnerable --include-transitive --format json > /tmp/ume-package-audit.json
           python -c "import json; d=json.load(open('/tmp/ume-package-audit.json')); p=[p for x in d.get('projects',[]) for f in x.get('frameworks',[]) for k in ('topLevelPackages','transitivePackages') for p in f.get(k,[]) if p.get('vulnerabilities')]; assert not p, 'Vulnerable .NET dependencies detected'"
       - name: Scan the service base image

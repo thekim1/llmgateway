@@ -28,6 +28,9 @@ public sealed class Team
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
     public List<VirtualKey> VirtualKeys { get; set; } = [];
+
+    /// <summary>Applies to every key of the team; a key's own policy wins where it sets something.</summary>
+    public RequestPolicy? RequestPolicy { get; set; }
 }
 
 /// <summary>
@@ -96,6 +99,12 @@ public sealed class VirtualKey
 
     public int? RequestsPerMinute { get; set; }
     public int? TokensPerMinute { get; set; }
+
+    /// <summary>Requests of this key in flight at once, across all gateway instances; null = no limit. Live audio sessions have their own limit.</summary>
+    public int? MaxConcurrentRequests { get; set; }
+
+    /// <summary>Output-token cap, system prompt, parameter defaults and overrides; on top of the team's.</summary>
+    public RequestPolicy? RequestPolicy { get; set; }
 
     public KeyStatus GetStatus(DateTimeOffset now)
     {
@@ -292,6 +301,12 @@ public sealed class ModelPrice
     public decimal InputPerMillionUsd { get; set; }
     public decimal CachedInputPerMillionUsd { get; set; }
     public decimal OutputPerMillionUsd { get; set; }
+
+    /// <summary>
+    /// Price per million input tokens written to the prompt cache in USD (Anthropic: 1.25x input for the 5-minute
+    /// cache, 2x for the 1-hour cache). Null bills cache writes at <see cref="InputPerMillionUsd"/>.
+    /// </summary>
+    public decimal? CacheWriteInputPerMillionUsd { get; set; }
 
     /// <summary>Price per minute of input audio in USD.</summary>
     public decimal AudioPerMinuteUsd { get; set; }

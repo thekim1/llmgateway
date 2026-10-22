@@ -19,6 +19,11 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(call);
         var translate = call.Endpoint == GatewayEndpoint.ChatCompletions;
+        if (call.Endpoint == GatewayEndpoint.AnthropicCountTokens)
+        {
+            return await CountTokensAsync(call, cancellationToken);
+        }
+
         if (!translate && call.Endpoint != GatewayEndpoint.AnthropicMessages)
         {
             return ProviderFailure.EndpointNotSupported;
@@ -27,7 +32,7 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         JsonObject body;
         try
         {
-            body = translate ? AnthropicTranslator.ToMessagesRequest(call.Body, call.Deployment.UpstreamModel) : call.Body;
+            body = translate ? AnthropicTranslator.ToMessagesRequest(call.Body, call.Deployment.UpstreamModel, call.PromptCaching) : call.Body;
         }
         catch (NotSupportedException ex)
         {
@@ -42,7 +47,7 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         if (failure is not null)
         {
             return translate && failure.Body is not null
-                ? new ProviderFailure(failure.StatusCode, failure.Kind, failure.Reason, AnthropicTranslator.ToOpenAIError(failure.Body), "application/json")
+                ? new ProviderFailure(failure.StatusCode, failure.Kind, failure.Reason, AnthropicTranslator.ToOpenAIError(failure.Body), "application/json", failure.RetryAfter)
                 : failure;
         }
 
@@ -82,6 +87,31 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         }
 
         return new ProviderStreamResult(events, acc, response);
+    }
+
+    /// <summary>
+    /// <c>/v1/messages/count_tokens</c>, passed through. The answer's <c>input_tokens</c> is a count, not consumption,
+    /// so the result carries no usage.
+    /// </summary>
+    private async Task<ProviderResult> CountTokensAsync(ProviderCall call, CancellationToken cancellationToken)
+    {
+        using var timeout = CreateTimeout(call, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), call.Body, call, timeout, cancellationToken);
+        if (failure is not null)
+        {
+            return failure;
+        }
+
+        using (response)
+        {
+            return await ReadCompleteAsync(response!, 0,
+                static (response, buffer, length, _) =>
+                {
+                    using var document = JsonDocument.Parse(buffer.AsMemory(0, length)); // validates; throws for invalid JSON
+                    return new ProviderJsonResult((int)response.StatusCode, buffer.AsMemory(0, length), default, buffer);
+                },
+                timeout.Token, cancellationToken);
+        }
     }
 
     internal static IEnumerable<SseEvent> Passthrough(SseEvent evt, UsageAccumulator acc)

@@ -22,7 +22,25 @@ public sealed record ProviderCall(
     string? Credential,
     bool ClientRequestedStreamUsage,
     AudioUpload? Audio = null,
-    ImageUploads? Images = null);
+    ImageUploads? Images = null,
+    PromptCacheMode PromptCaching = PromptCacheMode.Off);
+
+/// <summary>
+/// Prompt-cache markers the gateway adds when it translates an OpenAI-format request for Anthropic (a client using
+/// the OpenAI SDK cannot add them). Cached input costs a tenth of normal input on a later hit and 1.25 times on the
+/// write. Prompts below Anthropic's minimum (1 024 tokens; 2 048 for Haiku) are not cached and not charged extra.
+/// </summary>
+public enum PromptCacheMode
+{
+    /// <summary>No markers.</summary>
+    Off = 0,
+
+    /// <summary>The tool definitions and the system prompt, which an application repeats on every request.</summary>
+    Static = 1,
+
+    /// <summary>Also the conversation so far, so the next turn of a chat reads it from the cache.</summary>
+    Conversation = 2,
+}
 
 /// <summary>
 /// An audio file uploaded to a speech-to-text endpoint, held in memory only (never on disk) for as long as the
@@ -95,7 +113,7 @@ public enum FailureKind
 }
 
 /// <summary>Upstream failed before any byte was sent to the client. <see cref="Kind"/> decides fallback and circuit breaking.</summary>
-public sealed class ProviderFailure(int statusCode, FailureKind kind, string reason, string? body = null, string? contentType = null) : ProviderResult
+public sealed class ProviderFailure(int statusCode, FailureKind kind, string reason, string? body = null, string? contentType = null, TimeSpan? retryAfter = null) : ProviderResult
 {
     /// <summary>Production refuses to send content or credentials over plain HTTP.</summary>
     public static ProviderFailure HttpsRequired { get; } = new(503, FailureKind.ProviderConfig, "https_required");
@@ -115,8 +133,19 @@ public sealed class ProviderFailure(int statusCode, FailureKind kind, string rea
     public string? Body { get; } = body;
     public string? ContentType { get; } = contentType;
 
+    /// <summary>How long the provider asked us to wait (<c>Retry-After</c>, <c>retry-after-ms</c>); null when it did not say.</summary>
+    public TimeSpan? RetryAfter { get; } = retryAfter;
+
     /// <summary>Everything but a client error is worth another provider.</summary>
     public bool CanFallBack => Kind != FailureKind.ClientError;
+
+    /// <summary>
+    /// A quick, passing failure worth one more try on the same deployment: a connection error or 502/503/504 without
+    /// <c>Retry-After</c>. Not a timeout (the attempt already took the whole timeout and may still be generating), not
+    /// a 429 or a <c>Retry-After</c> (a quota: the deployment is put on cooldown instead).
+    /// </summary>
+    public bool IsRetryable => Kind == FailureKind.Transient && RetryAfter is null
+        && (Reason.StartsWith("connection_error", StringComparison.Ordinal) || StatusCode is 502 or 503 && Reason.StartsWith("http_", StringComparison.Ordinal) || Reason == "http_504");
 
     /// <summary>Only transient failures say something about the provider's health.</summary>
     public bool CountsAgainstCircuit => Kind == FailureKind.Transient;
@@ -130,8 +159,8 @@ public sealed class ProviderFailure(int statusCode, FailureKind kind, string rea
     };
 
     /// <summary>A failure for an upstream HTTP error status, with the provider's error body when there is one.</summary>
-    public static ProviderFailure FromStatus(int status, string? body = null, string? contentType = null) =>
-        new(status, KindForStatus(status), $"http_{status}", body, contentType);
+    public static ProviderFailure FromStatus(int status, string? body = null, string? contentType = null, TimeSpan? retryAfter = null) =>
+        new(status, KindForStatus(status), $"http_{status}", body, contentType, retryAfter);
 }
 
 /// <summary>
@@ -215,6 +244,9 @@ public sealed class UsageAccumulator
     public long CachedInputTokens { get; set; }
     public long OutputTokens { get; set; }
 
+    /// <summary>Part of <see cref="InputTokens"/> written to the prompt cache (Anthropic).</summary>
+    public long CacheWriteInputTokens { get; set; }
+
     /// <summary>Seconds of audio, when a speech-to-text provider reports usage by duration.</summary>
     public decimal AudioSeconds { get; set; }
 
@@ -231,7 +263,8 @@ public sealed class UsageAccumulator
 
     /// <summary>The reported usage, or estimates for what was not reported (audio length comes from the uploaded file).</summary>
     public TokenUsage ToTokenUsage(long estimatedInputTokens, decimal estimatedAudioSeconds = 0) => Reported
-        ? new TokenUsage(InputTokens, CachedInputTokens, OutputTokens, AudioSeconds > 0 ? AudioSeconds : estimatedAudioSeconds, AudioInputTokens, AudioOutputTokens)
+        ? new TokenUsage(InputTokens, CachedInputTokens, OutputTokens, AudioSeconds > 0 ? AudioSeconds : estimatedAudioSeconds, AudioInputTokens, AudioOutputTokens,
+            CacheWriteInputTokens: CacheWriteInputTokens)
         : new TokenUsage(estimatedInputTokens, 0, OutputCharacters == 0 ? 0 : CostCalculator.EstimateTokens((int)Math.Min(int.MaxValue, OutputCharacters)), estimatedAudioSeconds);
 }
 
@@ -339,8 +372,9 @@ public static class UsageParser
         if (u["cache_read_input_tokens"] is not null || u["cache_creation_input_tokens"] is not null)
         {
             var cacheRead = Long(u["cache_read_input_tokens"]);
-            var input = Long(u["input_tokens"]) + cacheRead + Long(u["cache_creation_input_tokens"]);
-            result = new TokenUsage(input, cacheRead, Long(u["output_tokens"]));
+            var cacheWrite = Long(u["cache_creation_input_tokens"]);
+            var input = Long(u["input_tokens"]) + cacheRead + cacheWrite;
+            result = new TokenUsage(input, cacheRead, Long(u["output_tokens"]), CacheWriteInputTokens: cacheWrite);
             return true;
         }
 
@@ -362,6 +396,7 @@ public static class UsageParser
         ArgumentNullException.ThrowIfNull(acc);
         acc.InputTokens = usage.InputTokens;
         acc.CachedInputTokens = usage.CachedInputTokens;
+        acc.CacheWriteInputTokens = usage.CacheWriteInputTokens;
         acc.OutputTokens = usage.OutputTokens;
         acc.AudioSeconds = usage.AudioSeconds;
         acc.AudioInputTokens = usage.AudioInputTokens;

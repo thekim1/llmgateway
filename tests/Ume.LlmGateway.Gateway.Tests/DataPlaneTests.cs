@@ -42,6 +42,22 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public void Only_passing_failures_are_retried_on_the_same_deployment()
+    {
+        ProviderFailure.FromStatus(502).IsRetryable.ShouldBeTrue();
+        ProviderFailure.FromStatus(503).IsRetryable.ShouldBeTrue();
+        ProviderFailure.FromStatus(504).IsRetryable.ShouldBeTrue();
+        new ProviderFailure(502, FailureKind.Transient, "connection_error:ConnectionError").IsRetryable.ShouldBeTrue();
+
+        ProviderFailure.Timeout.IsRetryable.ShouldBeFalse(); // already waited the whole timeout
+        ProviderFailure.FromStatus(503, retryAfter: TimeSpan.FromSeconds(5)).IsRetryable.ShouldBeFalse(); // cooldown instead
+        ProviderFailure.FromStatus(429).IsRetryable.ShouldBeFalse();
+        ProviderFailure.FromStatus(500).IsRetryable.ShouldBeFalse();
+        ProviderFailure.FromStatus(404).IsRetryable.ShouldBeFalse();
+        ProviderFailure.InvalidJson.IsRetryable.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Endpoint_not_supported_falls_back_without_counting_against_the_circuit()
     {
         using var http = new ProviderHttpClient(new NoSendHandler());
@@ -115,7 +131,7 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
         string[] keys =
         [
             RedisKeys.RateRequests(id, 1), RedisKeys.RateTokens(id, 1), RedisKeys.RealtimeSessions(id), RedisKeys.CircuitOpen(id),
-            RedisKeys.CircuitFailures(id), RedisKeys.Spend(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
+            RedisKeys.CircuitFailures(id), RedisKeys.Cooldown(id), RedisKeys.Spend(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
             SpendCounter.KeyFor(BudgetScope.Team, id, BudgetPeriod.Daily, DateTimeOffset.UnixEpoch),
         ];
         keys.ShouldAllBe(k => k.StartsWith("ume:", StringComparison.Ordinal));
@@ -139,6 +155,69 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
         await limiter.AcquireAsync(Guid.NewGuid(), 10, 100, Ct);
         // The current and the previous minute are kept (previous: one request and one token counter).
         limiter.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Rate_limit_slides_across_the_minute_boundary()
+    {
+        // 30 s into a minute, a key with 10 requests per minute uses all 10.
+        var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1).AddSeconds(30));
+        var limiter = new InMemoryRateLimiter(time);
+        var key = Guid.NewGuid();
+        for (var i = 0; i < 10; i++)
+        {
+            (await limiter.AcquireAsync(key, 10, null, Ct)).Allowed.ShouldBeTrue();
+        }
+
+        var refused = await limiter.AcquireAsync(key, 10, null, Ct);
+        refused.Allowed.ShouldBeFalse();
+        refused.Reason.ShouldBe("requests");
+
+        // A fixed window would allow 10 more right after the boundary; the last 60 s still hold about 10.
+        time.Advance(TimeSpan.FromSeconds(31));
+        (await limiter.AcquireAsync(key, 10, null, Ct)).Allowed.ShouldBeFalse();
+
+        // Half a minute later half of the previous minute has slid out: 5 fit (10 × 0.5 + 5 = 10).
+        time.Advance(TimeSpan.FromSeconds(30));
+        var admitted = 0;
+        while ((await limiter.AcquireAsync(key, 10, null, Ct)).Allowed)
+        {
+            admitted++;
+        }
+
+        admitted.ShouldBeInRange(4, 5);
+    }
+
+    [Fact]
+    public void Retry_after_is_when_the_sliding_count_allows_one_more()
+    {
+        // 10 last minute, none this minute, limit 10, 6 s in: one fits once a tenth of last minute slid out (now).
+        RateLimitWindow.RetryAfter(10, 0, 1, 10, 0.1).ShouldBe(TimeSpan.FromSeconds(1));
+        // 10 last minute, 5 this minute, 30 s in: 10 × (1 − f) + 6 ≤ 10 at f = 0.6, 6 s from now.
+        RateLimitWindow.RetryAfter(10, 5, 1, 10, 0.5).ShouldBe(TimeSpan.FromSeconds(6));
+        // This minute alone is full: wait for the next minute, plus until enough of this one has slid out.
+        RateLimitWindow.RetryAfter(0, 10, 1, 10, 0.5).ShouldBe(TimeSpan.FromSeconds(36));
+    }
+
+    [Fact]
+    public async Task Concurrency_limit_counts_requests_in_flight_until_released()
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        var limiter = new InMemoryRateLimiter(time);
+        var key = Guid.NewGuid();
+        (await limiter.AcquireAsync(key, null, null, 2, "a", Ct)).Allowed.ShouldBeTrue();
+        (await limiter.AcquireAsync(key, null, null, 2, "b", Ct)).Allowed.ShouldBeTrue();
+        var refused = await limiter.AcquireAsync(key, null, null, 2, "c", Ct);
+        refused.Allowed.ShouldBeFalse();
+        refused.Reason.ShouldBe("concurrency");
+
+        limiter.Release(key, "a");
+        (await limiter.AcquireAsync(key, null, null, 2, "c", Ct)).Allowed.ShouldBeTrue();
+
+        // A slot that is never released (the instance died) expires.
+        time.Advance(RateLimitWindow.InFlightLease);
+        (await limiter.AcquireAsync(key, null, null, 2, "d", Ct)).Allowed.ShouldBeTrue();
+        (await limiter.AcquireAsync(key, null, null, 2, "e", Ct)).Allowed.ShouldBeTrue();
     }
 
     [Fact]

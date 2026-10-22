@@ -89,14 +89,80 @@ public sealed class ProviderUnitTests
     }
 
     [Theory]
-    [InlineData("""{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":10}}""", 100, 10, 20)]
-    [InlineData("""{"input_tokens":30,"output_tokens":4,"input_tokens_details":{"cached_tokens":5}}""", 30, 5, 4)]
-    [InlineData("""{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":5,"cache_creation_input_tokens":2}""", 17, 5, 3)]
-    [InlineData("""{"input_tokens":10,"output_tokens":3}""", 10, 0, 3)]
-    public void Usage_parser_reads_each_provider_format(string json, long input, long cached, long output)
+    [InlineData("""{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":10}}""", 100, 10, 20, 0)]
+    [InlineData("""{"input_tokens":30,"output_tokens":4,"input_tokens_details":{"cached_tokens":5}}""", 30, 5, 4, 0)]
+    [InlineData("""{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":5,"cache_creation_input_tokens":2}""", 17, 5, 3, 2)]
+    [InlineData("""{"input_tokens":10,"output_tokens":3}""", 10, 0, 3, 0)]
+    public void Usage_parser_reads_each_provider_format(string json, long input, long cached, long output, long cacheWrite)
     {
         UsageParser.TryRead(JsonNode.Parse(json), out var usage).ShouldBeTrue();
-        usage.ShouldBe(new TokenUsage(input, cached, output));
+        usage.ShouldBe(new TokenUsage(input, cached, output, CacheWriteInputTokens: cacheWrite));
+    }
+
+    [Fact]
+    public void Fast_stream_translation_matches_the_general_path()
+    {
+        string[] events =
+        [
+            """{"type":"message_start","message":{"id":"msg_1","model":"claude-x","usage":{"input_tokens":10,"output_tokens":1}}}""",
+            """{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t1","name":"lookup","input":{}}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hej på dig, \"citat\" \\ och\nny rad 🙂 <b>&</b>"}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"plain ascii"}}""",
+            """{"index":0,"delta":{"text":"fields in another order","type":"text_delta"},"type":"content_block_delta"}""",
+            """{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"id\": 1, \"q\": \"å\""}}""",
+            """{"type":"content_block_delta","index":7,"delta":{"type":"input_json_delta","partial_json":"{}"}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}""",
+            """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":""" + "\"" + new string('x', 3000) + "\"" + """}}""",
+        ];
+
+        var fastUsage = new UsageAccumulator();
+        var slowUsage = new UsageAccumulator();
+        var fast = new AnthropicStreamTranslator(fastUsage, includeUsage: true, created: 1);
+        var slow = new AnthropicStreamTranslator(slowUsage, includeUsage: true, created: 1);
+        foreach (var data in events)
+        {
+            var name = JsonNode.Parse(data)!["type"]!.GetValue<string>();
+            var viaFast = fast.Translate(new SseEvent(name, data)).Select(e => e.Data).ToList();
+            var viaSlow = slow.Translate(new SseEvent(null, data)).Select(e => e.Data).ToList(); // no event name: the general path
+            viaFast.ShouldBe(viaSlow, data);
+        }
+
+        fastUsage.OutputCharacters.ShouldBe(slowUsage.OutputCharacters);
+        fastUsage.OutputCharacters.ShouldBeGreaterThan(3000);
+        fast.Translate(new SseEvent("ping", """{"type":"ping"}""")).ShouldBeEmpty();
+        fast.Translate(new SseEvent("content_block_delta", "not json")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Translated_requests_get_cache_markers_on_tools_system_and_optionally_the_conversation()
+    {
+        var chat = JsonNode.Parse("""
+            {"model":"m","messages":[{"role":"system","content":"Long instructions"},{"role":"user","content":"Hej"},
+             {"role":"assistant","content":"Hej!"},{"role":"user","content":"Vad kostar det?"}],
+             "tools":[{"type":"function","function":{"name":"a","parameters":{"type":"object"}}},{"type":"function","function":{"name":"b","parameters":{"type":"object"}}}]}
+            """)!.AsObject();
+
+        var off = AnthropicTranslator.ToMessagesRequest(chat, "claude");
+        off.ToJsonString().ShouldNotContain("cache_control");
+        off["system"]!.GetValue<string>().ShouldBe("Long instructions");
+
+        var stat = AnthropicTranslator.ToMessagesRequest(chat, "claude", PromptCacheMode.Static);
+        stat["tools"]![1]!["cache_control"]!["type"]!.GetValue<string>().ShouldBe("ephemeral");
+        stat["tools"]![0]!["cache_control"].ShouldBeNull();
+        stat["system"]![0]!["text"]!.GetValue<string>().ShouldBe("Long instructions");
+        stat["system"]![0]!["cache_control"].ShouldNotBeNull();
+        stat["messages"]!.ToJsonString().ShouldNotContain("cache_control");
+
+        var conversation = AnthropicTranslator.ToMessagesRequest(chat, "claude", PromptCacheMode.Conversation);
+        var messages = conversation["messages"]!.AsArray();
+        var lastContent = messages[^1]!["content"]!.AsArray();
+        lastContent[^1]!["cache_control"].ShouldNotBeNull();
+        messages[0]!["content"]![0]!["cache_control"].ShouldBeNull();
+        conversation.ToJsonString().Split("cache_control").Length.ShouldBe(4); // three markers; at most four are allowed
+
+        // Without tools or a system prompt there is nothing static to mark.
+        var bare = JsonNode.Parse("""{"model":"m","messages":[{"role":"user","content":"Hej"}]}""")!.AsObject();
+        AnthropicTranslator.ToMessagesRequest(bare, "claude", PromptCacheMode.Static).ToJsonString().ShouldNotContain("cache_control");
     }
 
     [Fact]

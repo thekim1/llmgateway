@@ -85,6 +85,9 @@ public enum GatewayEndpoint
 
     /// <summary><c>POST /v1/images/edits</c>: edits or combines uploaded images from a prompt (multipart upload).</summary>
     ImageEdits = 10,
+
+    /// <summary><c>POST /v1/messages/count_tokens</c>: the input tokens of an Anthropic Messages request (free, not billed).</summary>
+    AnthropicCountTokens = 11,
 }
 
 public enum ModelKind

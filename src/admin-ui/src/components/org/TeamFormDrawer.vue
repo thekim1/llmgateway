@@ -8,6 +8,8 @@ import { useTeamsStore } from '@/stores/teams'
 import { useUiStore } from '@/stores/ui'
 import { formatUsdCost } from '@/utils/format'
 import { problemMessage } from '@/utils/problem'
+import { emptyPolicyDraft, fromPolicyDraft, toPolicyDraft, type PolicyErrors } from '../policy/policyDraft'
+import RequestPolicyFields from '../policy/RequestPolicyFields.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import CheckField from '../ui/CheckField.vue'
 import InlineError from '../ui/InlineError.vue'
@@ -33,6 +35,7 @@ const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'team-name',
   description: 'team-desc',
   budget: 'team-budget',
+  requestPolicy: 'team-policy-max-output',
 })
 
 const step = ref<'form' | 'done'>('form')
@@ -41,6 +44,8 @@ const name = ref('')
 const description = ref('')
 const isActive = ref(true)
 const budget = ref('')
+const policy = ref(emptyPolicyDraft())
+const policyErrors = ref<PolicyErrors>({})
 const busy = ref(false)
 const created = ref<Team | null>(null)
 const budgetLimit = ref<number | null>(null)
@@ -63,6 +68,8 @@ watch(
     description.value = props.team?.description ?? ''
     isActive.value = props.team?.isActive ?? true
     budget.value = ''
+    policy.value = toPolicyDraft(props.team?.requestPolicy)
+    policyErrors.value = {}
   },
   { immediate: true },
 )
@@ -80,18 +87,20 @@ async function submit(): Promise<void> {
     name: !name.value.trim() && 'Give the team a name.',
     budget: budgetProblem(),
   })
-  if (!ok) return
+  const parsed = fromPolicyDraft(policy.value)
+  policyErrors.value = parsed.errors
+  if (!ok || Object.keys(parsed.errors).length > 0) return
   busy.value = true
   try {
     const desc = description.value.trim() || null
     if (props.team) {
-      const saved = await teams.update(props.team.id, { name: name.value.trim(), description: desc, isActive: isActive.value })
+      const saved = await teams.update(props.team.id, { name: name.value.trim(), description: desc, isActive: isActive.value, requestPolicy: parsed.policy })
       ui.notify('Team saved')
       emit('saved', saved)
       emit('update:open', false)
       return
     }
-    const team = await teams.create({ departmentId: departmentId.value, name: name.value.trim(), description: desc })
+    const team = await teams.create({ departmentId: departmentId.value, name: name.value.trim(), description: desc, requestPolicy: parsed.policy })
     created.value = team
     emit('saved', team)
     ui.notify('Team created')
@@ -143,6 +152,12 @@ function go(name: 'keys' | 'budgets'): void {
         :error="errors.budget"
       />
       <CheckField v-if="team" v-model="isActive" label="Active" description="Turn off to retire this team." />
+      <RequestPolicyFields
+        v-model="policy"
+        id-prefix="team-policy"
+        :errors="policyErrors"
+        hint="Optional. Applies to every key of the team; a key's own policy wins where it sets something."
+      />
     </form>
     <div v-else class="flex flex-col gap-5">
       <p class="flex items-start gap-2"><AppIcon name="check_circle" filled class="mt-px text-ok" /><span><span lang="sv" class="font-medium">{{ created?.name }}</span> was added to <span lang="sv">{{ created?.departmentName }}</span>.</span></p>

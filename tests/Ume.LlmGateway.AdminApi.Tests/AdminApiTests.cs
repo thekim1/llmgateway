@@ -116,6 +116,36 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Team_request_policy_is_validated_kept_and_cleared()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        using var set = await client.PutAsJsonAsync($"/api/teams/{org.Team}", new
+        {
+            name = "Policy team", isActive = true,
+            requestPolicy = new { maxOutputTokens = 800, systemPrompt = "Svara på svenska.", defaults = new { temperature = 0.2 } },
+        }, TestContext.Current.CancellationToken);
+        var team = await AdminFixture.ReadAsync(set);
+        team["requestPolicy"]!["maxOutputTokens"]!.GetValue<int>().ShouldBe(800);
+        team["requestPolicy"]!["defaults"]!["temperature"]!.GetValue<double>().ShouldBe(0.2);
+
+        // Omitted: unchanged.
+        using var rename = await client.PutAsJsonAsync($"/api/teams/{org.Team}", new { name = "Renamed policy team", isActive = true }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(rename))["requestPolicy"]!["systemPrompt"]!.GetValue<string>().ShouldBe("Svara på svenska.");
+
+        // A policy may not set the model or the conversation.
+        using var bad = await client.PutAsJsonAsync($"/api/teams/{org.Team}", new
+        {
+            name = "Policy team", isActive = true, requestPolicy = new { overrides = new { model = "gpt-5" } },
+        }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(bad, HttpStatusCode.BadRequest))["errors"]!["requestPolicy"].ShouldNotBeNull();
+
+        // {} clears it.
+        using var clear = await client.PutAsJsonAsync($"/api/teams/{org.Team}", new { name = "Policy team", isActive = true, requestPolicy = new { } }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(clear))["requestPolicy"].ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Organisation_crud_validates_conflicts_and_audits()
     {
         using var client = await fixture.ClientAsync();
@@ -252,12 +282,13 @@ public sealed class AdminApiTests(AdminFixture fixture)
         using var create = await client.PostAsJsonAsync("/api/keys", new
         {
             teamId = org.Team, name = "Limited", allowedModels = new[] { "ume/chat-standard" }, allowedResidencies = new[] { "Eu" },
-            allowedProviders = new[] { " ollama-cloud ", "OLLAMA-CLOUD", "anthropic" }, piiPolicy = "Off", requestsPerMinute = 30, tokensPerMinute = 5000,
+            allowedProviders = new[] { " ollama-cloud ", "OLLAMA-CLOUD", "anthropic" }, piiPolicy = "Off", requestsPerMinute = 30, tokensPerMinute = 5000, maxConcurrentRequests = 4,
         }, TestContext.Current.CancellationToken);
         var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
         key["allowedProviders"]!.AsArray().Select(p => p!.GetValue<string>()).ShouldBe(["ollama-cloud", "anthropic"]);
         key["requestsPerMinute"]!.GetValue<int>().ShouldBe(30);
         key["tokensPerMinute"]!.GetValue<int>().ShouldBe(5000);
+        key["maxConcurrentRequests"]!.GetValue<int>().ShouldBe(4);
         var keyId = key["id"]!.GetValue<Guid>();
 
         using var update = await client.PutAsJsonAsync($"/api/keys/{keyId}", new
@@ -535,6 +566,43 @@ public sealed class AdminApiTests(AdminFixture fixture)
         await AdminFixture.ReadAsync(import);
 
         exported["prices"]![0]!["perImageUsd"] = 0.08m;
+        using var changed = await client.PostAsJsonAsync("/api/ops/config/import", document, TestContext.Current.CancellationToken);
+        changed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Cache_write_price_is_optional_and_survives_export_and_import()
+    {
+        using var client = await fixture.ClientAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        using var providerResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            name = "claude-" + suffix, baseUrl = "https://claude.invalid", type = "Anthropic", authMode = "XApiKeyHeader", residency = "External",
+            capabilities = new[] { "AnthropicMessages", "ChatCompletions" }, timeoutSeconds = 60, isEnabled = true,
+        }, TestContext.Current.CancellationToken);
+        var provider = await AdminFixture.ReadAsync(providerResponse, HttpStatusCode.Created);
+
+        using var modelResponse = await client.PostAsJsonAsync("/api/models", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(), name = "claude-" + suffix + "/sonnet", upstreamModel = "claude-sonnet", kind = "Chat", parameterProfile = "Standard",
+            isEnabled = true, price = new { inputPerMillionUsd = 3, cachedInputPerMillionUsd = 0.3m, cacheWriteInputPerMillionUsd = 3.75m, outputPerMillionUsd = 15 },
+        }, TestContext.Current.CancellationToken);
+        var model = await AdminFixture.ReadAsync(modelResponse, HttpStatusCode.Created);
+        model["currentPrice"]!["cacheWriteInputPerMillionUsd"]!.GetValue<decimal>().ShouldBe(3.75m);
+
+        // A price without one bills cache writes at the input price (null).
+        using var plain = await client.PostAsJsonAsync($"/api/models/{model["id"]!.GetValue<Guid>()}/prices",
+            new { inputPerMillionUsd = 3, cachedInputPerMillionUsd = 0.3m, outputPerMillionUsd = 15 }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(plain, HttpStatusCode.Created))["cacheWriteInputPerMillionUsd"].ShouldBeNull();
+
+        using var export = await client.GetAsync("/api/ops/config/export", TestContext.Current.CancellationToken);
+        var document = await AdminFixture.ReadAsync(export);
+        var exported = document["models"]!.AsArray().Single(m => m!["configuration"]!["name"]!.GetValue<string>() == "claude-" + suffix + "/sonnet")!;
+        exported["prices"]!.AsArray().Select(p => p!["cacheWriteInputPerMillionUsd"]?.GetValue<decimal>()).ShouldBe([3.75m, null], ignoreOrder: true);
+        using var import = await client.PostAsJsonAsync("/api/ops/config/import", document, TestContext.Current.CancellationToken);
+        await AdminFixture.ReadAsync(import);
+
+        exported["prices"]![0]!["cacheWriteInputPerMillionUsd"] = 6m; // differs from either stored price
         using var changed = await client.PostAsJsonAsync("/api/ops/config/import", document, TestContext.Current.CancellationToken);
         changed.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }

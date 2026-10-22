@@ -32,6 +32,9 @@ public static class GatewayHeaders
     /// <summary>Ids of the routing rules that decided where the request went, comma separated.</summary>
     public const string Rule = "x-ume-rule";
 
+    /// <summary>Request header: a session or conversation id that keeps the session on one target (prompt cache reuse).</summary>
+    public const string Session = "x-ume-session";
+
     /// <summary>What the PII guard did: detected, redacted, blocked or rerouted-onprem.</summary>
     public const string Pii = "x-ume-pii";
 

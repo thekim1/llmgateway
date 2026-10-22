@@ -70,16 +70,29 @@ Roles (OIDC `roles` claim):
 - `POST /api/departments` `{ name, costCenterCode }` → 201 `Department` *(gateway-admin)*
 - `PUT /api/departments/{id}` `{ name, costCenterCode, isActive }` → `Department`
 - `DELETE /api/departments/{id}` → 204 (409 if it has teams)
-- `GET /api/teams?departmentId=` → `Team[]` where `Team = { id, departmentId, departmentName, name, description, isActive, keyCount, createdAt }`
-- `POST /api/teams` `{ departmentId, name, description? }` → 201 `Team`
-- `PUT /api/teams/{id}` `{ name, description?, isActive }` → `Team`
+- `GET /api/teams?departmentId=` → `Team[]` where `Team = { id, departmentId, departmentName, name, description, isActive, keyCount, createdAt, requestPolicy: RequestPolicy|null }`
+- `POST /api/teams` `{ departmentId, name, description?, requestPolicy? }` → 201 `Team`
+- `PUT /api/teams/{id}` `{ name, description?, isActive, requestPolicy? }` → `Team` (`requestPolicy` omitted = unchanged, `{}` clears it)
+- `RequestPolicy = { maxOutputTokens?, systemPrompt?, defaults?: object, overrides?: object }`: applied by the gateway to
+  every request of the team's keys, after the PII policy and routing rules. `maxOutputTokens` (1–1 000 000) lowers
+  `max_tokens` / `max_completion_tokens` / `max_output_tokens` to it, or sets it when the request has none; `systemPrompt`
+  (at most 8 000 characters) goes before the request's own system message, `instructions` or `system`; `defaults` are
+  request parameters set when the request leaves them out, `overrides` always (at most 20 each). They may not set `model`,
+  `messages`, `input`, `prompt`, `system`, `instructions`, `stream`, `stream_options`, `file`, `image`, `mask`, the
+  `max_*` token parameters, or the provider tool and storage fields (`tools`, `tool_choice`, `web_search_options`,
+  `mcp_servers`, `container`, `store`, `background`, `conversation`, `previous_response_id`), which need the key's own
+  *Allow provider tools* / *Allow provider storage* (400). A key's own policy wins over its team's field by field (parameters by name).
 - `DELETE /api/teams/{id}` → 204 (409 if it has keys)
 
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
-allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean }`
+allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean, maxConcurrentRequests: number|null,
+requestPolicy: RequestPolicy|null }`
+(`maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
+get 429 `rate_limited`. Live audio sessions have their own limit. `requestPolicy`: see *Organisation*; omitted on update =
+unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 (`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
 100; empty = any address; omitted on update = unchanged; returned in canonical form, a network with host bits set such as
 `10.20.1.5/16` is refused with 400; copied to the replacement key on rotation. Behind a reverse proxy it needs the proxy in
@@ -92,9 +105,9 @@ allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: bo
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -127,10 +140,12 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
   (or `""`) answers `400` with a field error on `credential`.
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
-- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
+- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
   (`audioPerMinuteUsd` is for models billed by duration, such as Whisper and gpt-realtime-translate; `audioInputPerMillionUsd`
   and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
-  as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0)
+  as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0;
+  `cacheWriteInputPerMillionUsd` prices prompt-cache writes (Anthropic `cache_creation_input_tokens`), omitted or null =
+  billed at `inputPerMillionUsd`)
 - `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
   (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). `ModelKind` (models and
   routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
@@ -428,4 +443,4 @@ Both key settings are off by default:
 
 Both refusals are recorded with outcome `Rejected` and logged as `gateway.request.refused`.
 
-**Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced per minute (429 `rate_limited`; token usage is counted after each response).
+**Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced over a sliding minute: this minute's count plus the previous minute's, weighted by how much of it the last 60 seconds still cover, so a client cannot send twice its limit across a minute boundary (429 `rate_limited` with `Retry-After` when one more fits; token usage is counted after each response; refused requests are not counted).

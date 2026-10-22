@@ -50,7 +50,7 @@ BEGIN
     GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
       "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
       "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute", "AllowProviderTools",
-      "AllowProviderStorage") ON "VirtualKeys" TO ume_data;
+      "AllowProviderStorage", "MaxConcurrentRequests") ON "VirtualKeys" TO ume_data;
     GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
     -- Its own credentials: the key hash (SHA-256 of a 256-bit random key) to authenticate Data API keys, and the
     -- only column it may write, the approximate last use.

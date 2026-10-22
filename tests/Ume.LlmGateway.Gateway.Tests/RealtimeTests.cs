@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -238,6 +239,7 @@ public sealed class RealtimeTests(GatewayFixture fixture)
     }
 
     [Fact]
+    [Trait(TestCategory.Name, TestCategory.Flaky)] // failed 2 of 5 flake-hunt runs (2026-10-19): timing of the periodic budget check
     public async Task A_session_is_closed_when_its_budget_runs_out()
     {
         var key = await fixture.CreateKeyAsync();

@@ -54,6 +54,7 @@ const ENDPOINT_LABEL: Record<GatewayEndpointName, string> = {
   RealtimeTranslations: 'Live translation',
   ImageGenerations: 'Image generation',
   ImageEdits: 'Image edits',
+  AnthropicCountTokens: 'Token counting',
 }
 
 const auth = useAuthStore()

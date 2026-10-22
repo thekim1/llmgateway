@@ -14,6 +14,14 @@ describe('priceDraft per-image price', () => {
     expect(isPriceDraftEmpty({ ...emptyPriceDraft(), image: '0.04' })).toBe(false)
   })
 
+  it('sends a cache-write price only when one is typed', () => {
+    expect(toNewPrice({ ...base, cacheWrite: '3,75' }).cacheWriteInputPerMillionUsd).toBe(3.75)
+    expect(toNewPrice(base).cacheWriteInputPerMillionUsd).toBeNull()
+    expect(isPriceDraftEmpty({ ...emptyPriceDraft(), cacheWrite: '3.75' })).toBe(false)
+    expect(validatePrice({ ...base, cacheWrite: '-1' }).cacheWrite).toBeTruthy()
+    expect(validatePrice({ ...base, cacheWrite: '' }).cacheWrite).toBeUndefined()
+  })
+
   it('refuses a negative or non-numeric per-picture price but accepts an empty one', () => {
     expect(validatePrice(base)).toEqual({})
     expect(validatePrice({ ...base, image: '-1' }).image).toBeTruthy()

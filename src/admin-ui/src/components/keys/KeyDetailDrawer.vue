@@ -137,6 +137,7 @@ const reason = computed(() => {
       <DetailSection title="Limits">
         <DetailRow label="Requests per minute"><span class="tabular">{{ keyData.requestsPerMinute === null ? 'No limit' : formatNumber(keyData.requestsPerMinute) }}</span></DetailRow>
         <DetailRow label="Tokens per minute"><span class="tabular">{{ keyData.tokensPerMinute === null ? 'No limit' : formatNumber(keyData.tokensPerMinute) }}</span></DetailRow>
+        <DetailRow label="Requests at once"><span class="tabular">{{ keyData.maxConcurrentRequests == null ? 'No limit' : formatNumber(keyData.maxConcurrentRequests) }}</span></DetailRow>
         <DetailRow label="Expires">{{ keyData.expiresAt ? formatDateTime(keyData.expiresAt) : 'Never' }}</DetailRow>
       </DetailSection>
       <DetailSection title="Budgets" :list="false">

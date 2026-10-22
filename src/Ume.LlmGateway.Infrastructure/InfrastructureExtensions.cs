@@ -87,7 +87,7 @@ public static class InfrastructureExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.Services.TryAddSingleton(TimeProvider.System);
-        builder.Services.AddOptions<CircuitBreakerOptions>().Bind(builder.Configuration.GetSection("CircuitBreaker"));
+        builder.Services.AddOptions<CircuitBreakerOptions>().Bind(builder.Configuration.GetSection("CircuitBreaker")).ValidateDataAnnotations().ValidateOnStart();
 
         if (builder.Environment.IsProduction())
         {

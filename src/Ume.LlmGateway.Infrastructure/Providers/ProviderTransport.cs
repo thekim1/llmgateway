@@ -109,6 +109,29 @@ public static class ProviderTransport
             : new Uri(baseUrl[..query].TrimEnd('/') + "/" + path + baseUrl[query..]);
     }
 
+    /// <summary>
+    /// How long an error response asks the client to wait: <c>retry-after-ms</c> (OpenAI, Azure OpenAI) or
+    /// <c>Retry-After</c> in seconds or as an HTTP date. Null when neither is present or the delay is not positive.
+    /// </summary>
+    public static TimeSpan? RetryAfter(HttpResponseMessage response, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (response.Headers.TryGetValues("retry-after-ms", out var values)
+            && double.TryParse(values.FirstOrDefault(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms)
+            && ms > 0 && ms < TimeSpan.MaxValue.TotalMilliseconds)
+        {
+            return TimeSpan.FromMilliseconds(ms);
+        }
+
+        var delay = response.Headers.RetryAfter switch
+        {
+            { Delta: { } delta } => delta,
+            { Date: { } date } => date - (response.Headers.Date ?? now),
+            _ => (TimeSpan?)null,
+        };
+        return delay > TimeSpan.Zero ? delay : null;
+    }
+
     /// <summary>The provider path of <paramref name="endpoint"/> (see <see cref="GatewayEndpoints"/>).</summary>
     public static string UpstreamPath(GatewayEndpoint endpoint) =>
         GatewayEndpoints.Info(endpoint).UpstreamPath ?? throw new ArgumentOutOfRangeException(nameof(endpoint), endpoint, "The endpoint is never sent to a provider.");

@@ -292,15 +292,28 @@ public sealed class GatewayMetrics
     private readonly Histogram<double> _streamMaxGap;
     private readonly Histogram<double> _streamMaxWrite;
     private readonly Counter<long> _streamStalls;
+    private readonly Counter<double> _costUsd;
+    private readonly Histogram<long>? _genAiTokens;
+    private readonly Histogram<double>? _genAiClientDuration;
+    private readonly Histogram<double>? _genAiServerDuration;
+    private readonly Histogram<double>? _genAiTimeToFirstToken;
     private readonly Meter _meter;
 
-    public GatewayMetrics(IMeterFactory meterFactory)
+    // Bucket boundaries recommended by the OpenTelemetry GenAI semantic conventions.
+    private static readonly IReadOnlyList<long> TokenBuckets = [1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864];
+    private static readonly IReadOnlyList<double> DurationBuckets = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92];
+    private static readonly IReadOnlyList<double> FirstTokenBuckets = [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0];
+
+    public GatewayMetrics(IMeterFactory meterFactory, Microsoft.Extensions.Options.IOptions<GatewayOptions> options)
     {
         ArgumentNullException.ThrowIfNull(meterFactory);
+        ArgumentNullException.ThrowIfNull(options);
         _meter = meterFactory.Create(Extensions.TelemetryName);
         _requests = _meter.CreateCounter<long>("ume.gateway.requests", description: "Gateway requests by outcome");
         _tokens = _meter.CreateCounter<long>("ume.gateway.tokens", description: "Tokens processed");
-        _costSek = _meter.CreateCounter<double>("ume.gateway.cost", unit: "SEK", description: "Cost in SEK");
+        _costSek = _meter.CreateCounter<double>("ume.gateway.cost", unit: "SEK", description: "Cost in SEK at the current exchange rate (to be removed with SEK; use ume.gateway.cost.usd)");
+        _costUsd = _meter.CreateCounter<double>("ume.gateway.cost.usd", unit: "USD", description: "Cost in USD, the currency prices and budgets are in");
+
         _fallbacks = _meter.CreateCounter<long>("ume.gateway.fallbacks", description: "Fallback attempts");
         _ruleRouted = _meter.CreateCounter<long>("ume.gateway.routing.rule_routed", description: "Requests routed by a routing rule (no per-rule label: rule names are unbounded)");
         _latency = _meter.CreateHistogram<double>("ume.gateway.request.duration", unit: "ms", description: "End-to-end latency");
@@ -312,6 +325,23 @@ public sealed class GatewayMetrics
         _streamMaxGap = _meter.CreateHistogram<double>("ume.gateway.stream.max_upstream_gap", unit: "ms", description: "Streamed answers: longest wait for the provider's next event after the first");
         _streamMaxWrite = _meter.CreateHistogram<double>("ume.gateway.stream.max_write", unit: "ms", description: "Streamed answers: longest time the gateway spent writing one event to the client");
         _streamStalls = _meter.CreateCounter<long>("ume.gateway.stream.stalls", description: "Waits of a second or more for a provider's next event, mid-stream");
+
+        // OpenTelemetry GenAI semantic conventions, so standard GenAI dashboards work (Gateway:GenAiMetrics, off by default:
+        // four more histogram recordings per request). Model attributes are the catalogue's upstream model names
+        // (bounded), never the name a client sent.
+        if (!options.Value.GenAiMetrics)
+        {
+            return;
+        }
+
+        _genAiTokens = _meter.CreateHistogram<long>("gen_ai.client.token.usage", unit: "{token}", description: "Tokens used per request to a provider",
+            advice: new InstrumentAdvice<long> { HistogramBucketBoundaries = TokenBuckets });
+        _genAiClientDuration = _meter.CreateHistogram<double>("gen_ai.client.operation.duration", unit: "s", description: "Time spent waiting on providers per request",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = DurationBuckets });
+        _genAiServerDuration = _meter.CreateHistogram<double>("gen_ai.server.request.duration", unit: "s", description: "Gateway request duration, end to end",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = DurationBuckets });
+        _genAiTimeToFirstToken = _meter.CreateHistogram<double>("gen_ai.server.time_to_first_token", unit: "s", description: "Streamed answers: time until the first event reached the client",
+            advice: new InstrumentAdvice<double> { HistogramBucketBoundaries = FirstTokenBuckets });
     }
 
     /// <summary>Once per stream: its longest provider gap and client write, and its stalls.</summary>
@@ -333,7 +363,28 @@ public sealed class GatewayMetrics
     public void ObserveQueueDepth(Func<int> depth) =>
         _meter.CreateObservableGauge("ume.gateway.usage_queue.depth", depth, description: "Usage records waiting to be written");
 
-    public void Record(UsageRecord record)
+    /// <summary>The <c>gen_ai.provider.name</c> of a provider type (the semantic conventions' names where there is one).</summary>
+    public static string GenAiProviderName(ProviderType type) => type switch
+    {
+        ProviderType.OpenAI => "openai",
+        ProviderType.AzureOpenAI => "azure.ai.openai",
+        ProviderType.AzureAIFoundry => "azure.ai.inference",
+        ProviderType.Anthropic => "anthropic",
+        ProviderType.Ollama or ProviderType.OllamaCloud => "ollama",
+        _ => "openai_compatible",
+    };
+
+    /// <summary>The <c>gen_ai.operation.name</c> of an endpoint.</summary>
+    public static string GenAiOperationName(GatewayEndpoint endpoint) => endpoint switch
+    {
+        GatewayEndpoint.ChatCompletions or GatewayEndpoint.Responses or GatewayEndpoint.AnthropicMessages => "chat",
+        GatewayEndpoint.Embeddings => "embeddings",
+        _ => GatewayEndpoints.Info(endpoint).RoutingName,
+    };
+
+    /// <param name="record">The request's usage record.</param>
+    /// <param name="providerType">The type of the provider the request went to; with it the GenAI metrics are recorded too.</param>
+    public void Record(UsageRecord record, ProviderType? providerType = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         var tags = new TagList
@@ -369,6 +420,11 @@ public sealed class GatewayMetrics
         _tokens.Add(record.InputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "input" } });
         _tokens.Add(record.OutputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "output" } });
         _costSek.Add((double)record.CostSek, new TagList { { "provider", record.ProviderName ?? "none" } });
+        _costUsd.Add((double)record.CostUsd, new TagList { { "provider", record.ProviderName ?? "none" } });
+        if (_genAiTokens is not null && providerType is { } type && record.UpstreamModel is { } model && !GatewayEndpoints.Info(record.Endpoint).IsRealtime)
+        {
+            RecordGenAi(record, type, model);
+        }
         if (record.RoutingRuleId is not null)
         {
             _ruleRouted.Add(1, new TagList { { "endpoint", record.Endpoint.ToString() } });
@@ -377,6 +433,44 @@ public sealed class GatewayMetrics
         if (record.FallbackCount > 0)
         {
             _fallbacks.Add(record.FallbackCount, new TagList { { "endpoint", record.Endpoint.ToString() } });
+        }
+    }
+
+    private void RecordGenAi(UsageRecord record, ProviderType type, string model)
+    {
+        var tags = new TagList
+        {
+            { "gen_ai.operation.name", GenAiOperationName(record.Endpoint) },
+            { "gen_ai.provider.name", GenAiProviderName(type) },
+            { "gen_ai.request.model", model },
+        };
+        if (record.Outcome != RequestOutcome.Success)
+        {
+            tags.Add("error.type", record.ErrorCode ?? record.StatusCode.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        _genAiServerDuration!.Record(record.LatencyMs / 1000d, tags);
+        if (record.UpstreamMs is { } upstream)
+        {
+            _genAiClientDuration!.Record(upstream / 1000d, tags);
+        }
+
+        if (record.TimeToFirstTokenMs is { } firstToken)
+        {
+            _genAiTimeToFirstToken!.Record(firstToken / 1000d, tags);
+        }
+
+        if (record.Outcome == RequestOutcome.Success)
+        {
+            var input = tags;
+            input.Add("gen_ai.token.type", "input");
+            _genAiTokens!.Record(record.InputTokens, input);
+            if (GatewayEndpoints.Info(record.Endpoint).HasOutputTokens)
+            {
+                var output = tags;
+                output.Add("gen_ai.token.type", "output");
+                _genAiTokens!.Record(record.OutputTokens, output);
+            }
         }
     }
 }

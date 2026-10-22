@@ -12,6 +12,8 @@ import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/v
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
 import AddressListField from '@/components/ui/AddressListField.vue'
+import RequestPolicyFields from '@/components/policy/RequestPolicyFields.vue'
+import { emptyPolicyDraft, fromPolicyDraft, toPolicyDraft, type PolicyErrors } from '@/components/policy/policyDraft'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import CheckField from '@/components/ui/CheckField.vue'
@@ -50,6 +52,8 @@ const ids = {
   allowedIpRanges: 'key-addresses',
   requestsPerMinute: 'key-rpm',
   tokensPerMinute: 'key-tpm',
+  maxConcurrentRequests: 'key-concurrent',
+  requestPolicy: 'key-policy-max-output',
 } as const
 const { errors, formError, clear, validate, applyServerError } = useFormErrors(ids)
 
@@ -69,11 +73,14 @@ const values = reactive({
   addresses: '',
   requestsPerMinute: '60',
   tokensPerMinute: '',
+  maxConcurrentRequests: '',
   expiresAt: '',
   isEnabled: true,
 })
 const piiOptions = PII_POLICIES.map((p) => ({ value: p, label: PII_LABEL[p] }))
 const attachmentOptions = ATTACHMENT_POLICIES.map((p) => ({ value: p, label: ATTACHMENT_LABEL[p] }))
+const policy = ref(emptyPolicyDraft())
+const policyErrors = ref<PolicyErrors>({})
 const busy = ref(false)
 const isEdit = computed(() => !!props.existing)
 
@@ -139,6 +146,9 @@ function reset(): void {
   values.addresses = formatAddressList(key?.allowedIpRanges)
   values.requestsPerMinute = key ? (key.requestsPerMinute?.toString() ?? '') : '60'
   values.tokensPerMinute = key?.tokensPerMinute?.toString() ?? ''
+  values.maxConcurrentRequests = key?.maxConcurrentRequests?.toString() ?? ''
+  policy.value = toPolicyDraft(key?.requestPolicy)
+  policyErrors.value = {}
   values.expiresAt = isoToDateInput(key?.expiresAt)
   values.isEnabled = key?.isEnabled ?? true
 }
@@ -189,9 +199,12 @@ async function submit(): Promise<void> {
     allowedIpRanges: addressListError(parseAddressList(values.addresses)),
     requestsPerMinute: limitError(values.requestsPerMinute, 'Requests per minute'),
     tokensPerMinute: limitError(values.tokensPerMinute, 'Tokens per minute'),
+    maxConcurrentRequests: limitError(values.maxConcurrentRequests, 'Requests at once'),
     expiresAt: expiryError(),
   })
-  if (!ok) return
+  const parsedPolicy = fromPolicyDraft(policy.value)
+  policyErrors.value = parsedPolicy.errors
+  if (!ok || Object.keys(parsedPolicy.errors).length > 0) return
   const body = {
     name: values.name.trim(),
     description: isBlank(values.description) ? null : values.description.trim(),
@@ -206,6 +219,8 @@ async function submit(): Promise<void> {
     allowProviderStorage: values.allowProviderStorage,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
+    maxConcurrentRequests: parseInteger(values.maxConcurrentRequests),
+    requestPolicy: parsedPolicy.policy,
   }
   busy.value = true
   try {
@@ -364,6 +379,14 @@ async function submit(): Promise<void> {
           <div class="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <TextField :id="ids.requestsPerMinute" v-model="values.requestsPerMinute" label="Requests per minute" inputmode="numeric" :error="errors.requestsPerMinute" />
             <TextField :id="ids.tokensPerMinute" v-model="values.tokensPerMinute" label="Tokens per minute" inputmode="numeric" :error="errors.tokensPerMinute" />
+            <TextField
+              :id="ids.maxConcurrentRequests"
+              v-model="values.maxConcurrentRequests"
+              label="Requests at once"
+              inputmode="numeric"
+              hint="Requests in progress at the same time, across all gateway instances. Protects shared on-prem servers from one busy key."
+              :error="errors.maxConcurrentRequests"
+            />
           </div>
           <TextField
             :id="ids.expiresAt"
@@ -375,6 +398,13 @@ async function submit(): Promise<void> {
             hint="The key stops working at the end of this day. Leave empty for no expiry."
           />
         </FieldGroup>
+
+        <RequestPolicyFields
+          v-model="policy"
+          id-prefix="key-policy"
+          :errors="policyErrors"
+          hint="Optional. On top of the team's policy: what you set here wins, the rest comes from the team."
+        />
       </form>
     </AsyncState>
     <template #footer>
