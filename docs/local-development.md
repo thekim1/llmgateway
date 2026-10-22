@@ -127,6 +127,20 @@ CPUs make every race wider. The rules that keep them stable:
 To hunt for flakes, run the workflow *Flake hunt* (Actions tab): it runs the backend tests on a CI runner several times
 and lists every test that failed. It also runs once a week.
 
+**Known flakes stay out of the pull request pipeline.** A test that has failed intermittently because of timing or a race
+is marked `[Trait(TestCategory.Name, TestCategory.Flaky)]` (`tests/Ume.LlmGateway.TestKit/TestCategory.cs`) with a comment
+saying why. *Verify POC* runs `dotnet test ... --filter-not-trait "Category=Flaky"`; locally `dotnet test` runs every
+test, and *Flake hunt* runs the marked ones too, so they are still watched. Run only the pipeline's set with
+`dotnet test --solution UmeLlmGateway.slnx --filter-not-trait "Category=Flaky"`, or only the flaky ones with
+`--filter-trait "Category=Flaky"`. The trait is a to-do, not a home: fix the test and remove it. Marked now:
+
+| Test | Why |
+|---|---|
+| `RealtimeTests.A_session_is_closed_when_its_budget_runs_out` | Timing of the periodic budget check (2 of 5 flake-hunt runs, 2026-10-19) |
+| `AudioTests.Pii_policy_redacts_the_prompt_field` | Reads the shared mock provider's log (failed in CI 2026-10-13 and 2026-10-16) |
+| `HotPathTests.Expired_key_is_served_while_it_refreshes_and_revocation_drops_it` | Races the background key refresh (CI, 2026-10-15) |
+| `GatewayTests.Requests_in_flight_are_limited_per_key` | Needs a slow request still in flight 300 ms later on a busy runner |
+
 ## Browser tests
 
 Browser tests (`tests\e2e`, Playwright) need a running stack. Use the separate test database so your

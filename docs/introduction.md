@@ -10,13 +10,19 @@ It is a demonstrator by Umeå kommun, **not a production approval, legal complia
 ## What it does
 
 - **Virtual keys** per application, owned by a team in a department, with allowed models, residencies, client addresses,
-  rate limits and an expiry. Secrets are shown once; rotation has a grace period.
+  rate limits (sliding per-minute windows and a cap on requests in progress) and an expiry. Secrets are shown once;
+  rotation has a grace period.
+- **Request policies** per team and key: a cap on output tokens, a system prompt placed before the application's own,
+  and parameter defaults or forced values.
 - **Budgets** per department, team and key, with alerts at your thresholds. Requests stop when a budget runs out.
   Prices are configured in USD per model.
 - **Routing**: applications ask for an alias such as `ume/chat-standard`; routes and [routing rules](routing-rules.md)
   (conditions on headers, team, budget use and personal data, with weights, fallbacks and chaining) decide where it goes.
   The `x-ume-rule` response header shows which rule applied.
-- **Fallback and circuit breaking** between providers, only within the residencies a key allows (on-prem, EU, external).
+- **Fallback, retries and circuit breaking** between providers, only within the residencies a key allows (on-prem, EU,
+  external). A provider's `Retry-After` puts that deployment on cooldown; prompts too large for a model skip it.
+- **Prompt caching**: Anthropic cache markers are added to translated requests, and `x-ume-session` keeps a conversation
+  on one server so its prompt cache is reused.
 - **Personal data**: an optional per-key [PII policy](personal-data.md) that detects Swedish personnummer, samordningsnummer,
   email addresses, phone numbers and IBANs, then records, redacts, blocks or keeps the request on-prem.
 - **Attached files, speech to text, image generation and live audio** go through the same pipeline as chat.

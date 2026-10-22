@@ -9,14 +9,18 @@ public sealed record RoutingConstraints(
     Func<Guid, bool>? IsProviderHealthy = null,
     IReadOnlyCollection<string>? AllowedProviders = null);
 
+/// <summary>Chooses which of <paramref name="pool"/> (targets of one priority, at least two) is tried first.</summary>
+public delegate int FirstTargetPicker(List<RouteTarget> pool, Random random);
+
 public static class RouteSelector
 {
     /// <summary>
     /// Orders targets into an attempt list: ascending priority (fallback chain); within the same priority a
-    /// weighted random order (load balancing). Targets violating constraints are removed.
+    /// weighted random order (load balancing). Targets violating constraints are removed. With
+    /// <paramref name="pickFirst"/> (<see cref="PowerOfTwoChoices"/>, <see cref="Rendezvous"/>) the first target of a
+    /// priority is the one it picks; the rest follow in weighted random order.
     /// </summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Load balancing between targets, not a security decision.")]
-    public static IReadOnlyList<RouteTarget> Order(IEnumerable<RouteTarget> targets, RoutingConstraints constraints, Random random)
+    public static IReadOnlyList<RouteTarget> Order(IEnumerable<RouteTarget> targets, RoutingConstraints constraints, Random random, FirstTargetPicker? pickFirst = null)
     {
         ArgumentNullException.ThrowIfNull(targets);
         ArgumentNullException.ThrowIfNull(constraints);
@@ -28,20 +32,16 @@ public static class RouteSelector
         foreach (var group in eligible.GroupBy(t => t.Priority).OrderBy(g => g.Key))
         {
             var pool = group.ToList();
+            if (pickFirst is not null && pool.Count > 1)
+            {
+                var first = pickFirst(pool, random);
+                result.Add(pool[first]);
+                pool.RemoveAt(first);
+            }
+
             while (pool.Count > 0)
             {
-                var total = pool.Sum(t => Math.Max(t.Weight, 1));
-                var pick = random.Next(total);
-                var index = 0;
-                for (; index < pool.Count; index++)
-                {
-                    pick -= Math.Max(pool[index].Weight, 1);
-                    if (pick < 0)
-                    {
-                        break;
-                    }
-                }
-
+                var index = WeightedIndex(pool, random);
                 result.Add(pool[index]);
                 pool.RemoveAt(index);
             }
@@ -56,6 +56,91 @@ public static class RouteSelector
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Power of two choices: the better (higher <paramref name="score"/>) of two targets drawn by weight. Drawn with
+    /// replacement, so the worst target still gets some traffic and its averages stay current.
+    /// </summary>
+    public static FirstTargetPicker PowerOfTwoChoices(Func<RouteTarget, double> score)
+    {
+        ArgumentNullException.ThrowIfNull(score);
+        return (pool, random) =>
+        {
+            var a = WeightedIndex(pool, random);
+            var b = WeightedIndex(pool, random);
+            return score(pool[b]) > score(pool[a]) ? b : a;
+        };
+    }
+
+    /// <summary>
+    /// Weighted rendezvous hashing: the same <paramref name="affinity"/> always picks the same target while the set of
+    /// targets is unchanged, and a removed target moves only its own share. Keeps a conversation on one server, so the
+    /// server's prompt (prefix) cache is reused. Each target wins about its weight's share of affinity values.
+    /// </summary>
+    public static FirstTargetPicker Rendezvous(ulong affinity) => (pool, _) =>
+    {
+        var best = 0;
+        var bestScore = double.NegativeInfinity;
+        for (var i = 0; i < pool.Count; i++)
+        {
+            // weight / -ln(u) with u uniform in (0, 1) from the hash: the largest wins (weighted HRW).
+            var u = ((Mix(affinity, pool[i].ModelDeploymentId) >> 11) + 0.5) / (1UL << 53);
+            var score = Math.Max(pool[i].Weight, 1) / -Math.Log(u);
+            if (score > bestScore)
+            {
+                (best, bestScore) = (i, score);
+            }
+        }
+
+        return best;
+    };
+
+    /// <summary>A stable 64-bit hash of an affinity value (FNV-1a; unlike <see cref="string.GetHashCode()"/> the same in every process).</summary>
+    public static ulong AffinityHash(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var hash = 14695981039346656037UL;
+        foreach (var c in value)
+        {
+            hash = (hash ^ c) * 1099511628211UL;
+        }
+
+        return hash;
+    }
+
+    private static ulong Mix(ulong affinity, Guid target)
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        target.TryWriteBytes(bytes);
+        var x = affinity ^ BitConverter.ToUInt64(bytes) ^ (BitConverter.ToUInt64(bytes[8..]) * 0x9E3779B97F4A7C15UL);
+        // SplitMix64 finaliser.
+        x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9UL;
+        x = (x ^ (x >> 27)) * 0x94D049BB133111EBUL;
+        return x ^ (x >> 31);
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Load balancing between targets, not a security decision.")]
+    private static int WeightedIndex(List<RouteTarget> pool, Random random)
+    {
+        var total = 0;
+        foreach (var t in pool)
+        {
+            total += Math.Max(t.Weight, 1);
+        }
+
+        var pick = random.Next(total);
+        var index = 0;
+        for (; index < pool.Count - 1; index++)
+        {
+            pick -= Math.Max(pool[index].Weight, 1);
+            if (pick < 0)
+            {
+                break;
+            }
+        }
+
+        return index;
     }
 
     public static bool IsEligible(RouteTarget target, RoutingConstraints constraints)

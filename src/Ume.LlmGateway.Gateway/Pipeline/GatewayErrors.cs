@@ -21,6 +21,9 @@ public static class GatewayErrorCodes
     /// <summary>Several providers offer the plain model name and no route has it: the client must name the provider.</summary>
     public const string ModelAmbiguous = "model_ambiguous";
     public const string ModelNotAllowed = "model_not_allowed";
+
+    /// <summary>The prompt is larger than the context window of every model it could go to (OpenAI's code for it).</summary>
+    public const string ContextLengthExceeded = "context_length_exceeded";
     public const string RateLimited = "rate_limited";
     public const string PiiBlocked = "pii_blocked";
     public const string AttachmentNotAllowed = "attachment_not_allowed";
@@ -104,8 +107,12 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
         : "No available provider can handle the request for this alias within the key's restrictions.");
 
     // Limits and budgets
+    public static GatewayError ContextTooLong(string model, long estimatedTokens, int largestWindow) => new(400, GatewayErrorCodes.ContextLengthExceeded,
+        $"The request is about {estimatedTokens} tokens, more than the context window of '{model}' ({largestWindow} tokens). Shorten the input.");
     public static GatewayError RateLimited(bool tokens, int retryAfterSeconds) => new(429, GatewayErrorCodes.RateLimited,
         $"The key has reached its limit of {(tokens ? "tokens" : "requests")} per minute. Try again in {retryAfterSeconds} s.");
+    public static GatewayError TooManyConcurrentRequests(int max) => new(429, GatewayErrorCodes.RateLimited,
+        $"The API key already has {max} requests in progress, its limit. Wait for one to finish.");
     public static GatewayError TooManySessions(int max) => new(429, GatewayErrorCodes.RateLimited,
         $"The key already has {max} open realtime sessions. Close one and try again.");
 
@@ -124,8 +131,8 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
     }
 
     // Providers and the gateway
-    public static GatewayError AllProvidersFailed(bool timedOut, int candidates, string model, string? lastReason) => new(timedOut ? 504 : 502,
-        GatewayErrorCodes.AllProvidersFailed, $"All {candidates} providers for '{model}' failed. Last error: {lastReason ?? "unknown"}.");
+    public static GatewayError AllProvidersFailed(bool timedOut, int attempts, string model, string? lastReason) => new(timedOut ? 504 : 502,
+        GatewayErrorCodes.AllProvidersFailed, $"All {attempts} attempt{(attempts == 1 ? "" : "s")} for '{model}' failed. Last error: {lastReason ?? "unknown"}.");
     public static GatewayError InternalError { get; } = new(500, GatewayErrorCodes.InternalError,
         "An internal error occurred in the gateway. Try again; if it persists, contact your administrator and give the request id.");
 
@@ -176,7 +183,7 @@ public static class GatewayErrors
     public static JsonObject Create(GatewayEndpoint endpoint, int status, string code, string message, string requestId, string docsUrl)
     {
         var type = TypeFor(status, endpoint);
-        if (endpoint == GatewayEndpoint.AnthropicMessages)
+        if (GatewayEndpoints.Info(endpoint).IsAnthropic)
         {
             return new JsonObject
             {
@@ -224,11 +231,11 @@ public static class GatewayErrors
     {
         400 or 413 or 415 => "invalid_request_error",
         401 => "authentication_error",
-        402 => endpoint == GatewayEndpoint.AnthropicMessages ? "permission_error" : "insufficient_quota",
+        402 => GatewayEndpoints.Info(endpoint).IsAnthropic ? "permission_error" : "insufficient_quota",
         403 => "permission_error",
         404 => "not_found_error",
         429 => "rate_limit_error",
-        503 => endpoint == GatewayEndpoint.AnthropicMessages ? "overloaded_error" : "service_unavailable",
+        503 => GatewayEndpoints.Info(endpoint).IsAnthropic ? "overloaded_error" : "service_unavailable",
         _ => "api_error",
     };
 }

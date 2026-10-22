@@ -512,11 +512,24 @@ fresh dependency-injection container of ~230 providers, uses three to four trans
 through litellm's parameter handling and pydantic serialisation per streamed chunk. Caching the space/assistant
 resolution per user would likely remove most of the database work.
 
+## Anthropic-translated streaming (2026-10-22)
+
+`AnthropicStreamTranslator` reads text and tool-argument deltas with `Utf8JsonReader` and writes the OpenAI chunks with a
+reused `Utf8JsonWriter`; only the few other events of a stream (start, stop, errors) still build JSON trees. A test checks
+that both paths write identical chunks. `ProviderBenchmarks`, same machine, back to back:
+
+| Chat stream, 300 chunks, Anthropic translated | Mean | Allocated |
+|---|---|---|
+| Before | 683 µs | 1 270 KB |
+| After | 291 µs | 379 KB |
+
+(The native `/v1/messages` passthrough of the same stream: 176–193 µs, 259 KB.)
+
+The OpenTelemetry GenAI metrics are off by default (`Gateway:GenAiMetrics`): they add four histogram recordings per
+request, and `ume.gateway.*` already covers tokens, cost and latency.
+
 ## Not done (yet)
 
-- **Anthropic-translated streaming** (`/v1/chat/completions` routed to an Anthropic provider) still builds JSON trees per
-  event in `AnthropicStreamTranslator`; writing the OpenAI chunks with `Utf8JsonWriter` would remove most of the
-  remaining 1.27 MB per 300-chunk stream. Native `/v1/messages` passthrough is already optimised.
 - **Rate limit and budget in one script.** Both are Lua scripts on the same Redis; merging them would save one more round
   trip but couples two independent stores, and the budget estimate depends on routing, which runs in between.
 - **Caching decrypted provider credentials.** Data Protection decryption takes a few microseconds per attempt; keeping

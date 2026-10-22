@@ -81,7 +81,8 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
             }
 
             var status = (int)response.StatusCode;
-            return (null, ProviderFailure.FromStatus(status, errorBody, response.Content.Headers.ContentType?.ToString()));
+            return (null, ProviderFailure.FromStatus(status, errorBody, response.Content.Headers.ContentType?.ToString(),
+                ProviderTransport.RetryAfter(response, DateTimeOffset.UtcNow)));
         }
     }
 

@@ -12,39 +12,71 @@ namespace Ume.LlmGateway.Infrastructure.Stores;
 /// </summary>
 public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider time) : IRateLimiter
 {
+    // KEYS: requests this minute, tokens this minute, requests last minute, tokens last minute, in-flight set.
+    // ARGV: rpm, tpm, counter TTL (s), weight of last minute, max in flight, now (ms), lease expiry (ms), lease id, set TTL (ms).
+    // Returns {status, this minute's count, last minute's count}: status -1 requests, -2 tokens, -3 in flight, else the
+    // request count including this one. Only an admitted request is counted.
     private const string Script = """
+        local w = tonumber(ARGV[4])
         local tpm = tonumber(ARGV[2])
-        local tok = tonumber(redis.call('GET', KEYS[2]) or '0')
-        if tpm > 0 and tok >= tpm then return {-2, tok} end
-        local req = redis.call('INCR', KEYS[1])
-        if req == 1 then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
+        if tpm > 0 then
+          local tok = tonumber(redis.call('GET', KEYS[2]) or '0')
+          local prevTok = tonumber(redis.call('GET', KEYS[4]) or '0')
+          if tok + prevTok * w >= tpm then return {-2, tok, prevTok} end
+        end
         local rpm = tonumber(ARGV[1])
-        if rpm > 0 and req > rpm then return {-1, req} end
-        return {req, tok}
+        local prevReq = 0
+        if rpm > 0 then
+          local req = tonumber(redis.call('GET', KEYS[1]) or '0')
+          prevReq = tonumber(redis.call('GET', KEYS[3]) or '0')
+          if req + prevReq * w + 1 > rpm then return {-1, req, prevReq} end
+        end
+        local max = tonumber(ARGV[5])
+        if max > 0 then
+          redis.call('ZREMRANGEBYSCORE', KEYS[5], '-inf', ARGV[6])
+          if redis.call('ZCARD', KEYS[5]) >= max then return {-3, 0, 0} end
+          redis.call('ZADD', KEYS[5], ARGV[7], ARGV[8])
+          redis.call('PEXPIRE', KEYS[5], ARGV[9])
+        end
+        local n = redis.call('INCR', KEYS[1])
+        if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
+        return {n, n, prevReq}
         """;
 
-    public async Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken)
+    public async Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId,
+        CancellationToken cancellationToken)
     {
-        if (requestsPerMinute is not > 0 && tokensPerMinute is not > 0)
+        var concurrency = maxConcurrent is > 0 && leaseId is not null ? maxConcurrent.Value : 0;
+        if (requestsPerMinute is not > 0 && tokensPerMinute is not > 0 && concurrency == 0)
         {
             return RateLimitDecision.Unlimited;
         }
 
-        var (minute, retry) = RateLimitWindow.Current(time.GetUtcNow());
+        var now = time.GetUtcNow();
+        var (minute, elapsed) = RateLimitWindow.Sliding(now);
+        var nowMs = now.ToUnixTimeMilliseconds();
+        var lease = (long)RateLimitWindow.InFlightLease.TotalMilliseconds;
         var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(
             Script,
-            [RedisKeys.RateRequests(keyId, minute), RedisKeys.RateTokens(keyId, minute)],
-            [requestsPerMinute ?? 0, tokensPerMinute ?? 0, RedisKeys.RateWindowSeconds]))!;
+            [RedisKeys.RateRequests(keyId, minute), RedisKeys.RateTokens(keyId, minute), RedisKeys.RateRequests(keyId, minute - 1),
+             RedisKeys.RateTokens(keyId, minute - 1), RedisKeys.InFlight(keyId)],
+            [requestsPerMinute ?? 0, tokensPerMinute ?? 0, RedisKeys.RateWindowSeconds, 1 - elapsed, concurrency, nowMs, nowMs + lease,
+             leaseId ?? string.Empty, lease]))!;
 
-        var status = (long)result[0];
+        var (status, current, previous) = ((long)result[0], (long)result[1], (long)result[2]);
         return status switch
         {
-            -2 => new RateLimitDecision(false, requestsPerMinute, 0, retry, "tokens"),
-            -1 => new RateLimitDecision(false, requestsPerMinute, 0, retry, "requests"),
+            -3 => new RateLimitDecision(false, requestsPerMinute, null, TimeSpan.FromSeconds(1), "concurrency"),
+            -2 => new RateLimitDecision(false, requestsPerMinute, 0, RateLimitWindow.RetryAfter(previous, current, 1, tokensPerMinute!.Value, elapsed), "tokens"),
+            -1 => new RateLimitDecision(false, requestsPerMinute, 0, RateLimitWindow.RetryAfter(previous, current, 1, requestsPerMinute!.Value, elapsed), "requests"),
             _ => new RateLimitDecision(true, requestsPerMinute,
-                requestsPerMinute is > 0 ? (int)Math.Max(0, requestsPerMinute.Value - status) : null, TimeSpan.Zero, null),
+                requestsPerMinute is > 0 ? (int)Math.Max(0, requestsPerMinute.Value - Math.Ceiling(RateLimitWindow.Estimate(previous, current, elapsed))) : null,
+                TimeSpan.Zero, null),
         };
     }
+
+    public void Release(Guid keyId, string leaseId) =>
+        redis.GetDatabase().SortedSetRemove(RedisKeys.InFlight(keyId), leaseId, CommandFlags.FireAndForget);
 
     public async Task RecordTokensAsync(Guid keyId, long tokens, CancellationToken cancellationToken)
     {
@@ -68,9 +100,10 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
             return null;
         }
 
-        var (minute, _) = RateLimitWindow.Current(time.GetUtcNow());
-        var used = await redis.GetDatabase().StringGetAsync(RedisKeys.RateTokens(keyId, minute));
-        return RateLimitWindow.TokenPercent(used.HasValue ? (long)used : 0, tokensPerMinute.Value);
+        var (minute, elapsed) = RateLimitWindow.Sliding(time.GetUtcNow());
+        var used = await redis.GetDatabase().StringGetAsync([RedisKeys.RateTokens(keyId, minute), RedisKeys.RateTokens(keyId, minute - 1)]);
+        return RateLimitWindow.TokenPercent(
+            RateLimitWindow.Estimate(used[1].HasValue ? (long)used[1] : 0, used[0].HasValue ? (long)used[0] : 0, elapsed), tokensPerMinute.Value);
     }
 }
 
@@ -228,6 +261,14 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
         return 0
         """;
 
+    // Never shortens a cooldown: SET only creates the key, PEXPIRE GT only lengthens it (Redis 7+; both in the gateway ACL).
+    private const string CooldownScript = """
+        if not redis.call('SET', KEYS[1], 'retry-after', 'NX', 'PX', ARGV[1]) then
+          redis.call('PEXPIRE', KEYS[1], ARGV[1], 'GT')
+        end
+        return 0
+        """;
+
     private static RedisKey OpenKey(Guid id) => RedisKeys.CircuitOpen(id);
     private static RedisKey FailKey(Guid id) => RedisKeys.CircuitFailures(id);
 
@@ -242,6 +283,54 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
         var values = await redis.GetDatabase().StringGetAsync([.. ids.Select(OpenKey)]);
         return ids.Where((_, i) => values[i].HasValue).ToHashSet();
     }
+
+    public async Task<CircuitStatus> GetStatusAsync(IReadOnlyCollection<Guid> providerIds, IReadOnlyCollection<Guid> deploymentIds, CancellationToken cancellationToken)
+    {
+        if (providerIds.Count == 0 && deploymentIds.Count == 0)
+        {
+            return CircuitStatus.None;
+        }
+
+        // One MGET for both: circuits by provider, then cooldowns by deployment.
+        var providers = providerIds.ToArray();
+        var deployments = deploymentIds.ToArray();
+        var keys = new RedisKey[providers.Length + deployments.Length];
+        for (var i = 0; i < providers.Length; i++)
+        {
+            keys[i] = OpenKey(providers[i]);
+        }
+
+        for (var i = 0; i < deployments.Length; i++)
+        {
+            keys[providers.Length + i] = RedisKeys.Cooldown(deployments[i]);
+        }
+
+        var values = await redis.GetDatabase().StringGetAsync(keys);
+        HashSet<Guid>? open = null;
+        HashSet<Guid>? cooling = null;
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!values[i].HasValue)
+            {
+                continue;
+            }
+
+            if (i < providers.Length)
+            {
+                (open ??= []).Add(providers[i]);
+            }
+            else
+            {
+                (cooling ??= []).Add(deployments[i - providers.Length]);
+            }
+        }
+
+        return open is null && cooling is null ? CircuitStatus.None
+            : new CircuitStatus(open ?? CircuitStatus.None.OpenProviders, cooling ?? CircuitStatus.None.CoolingDeployments);
+    }
+
+    public Task CoolDownAsync(Guid deploymentId, TimeSpan duration, CancellationToken cancellationToken) =>
+        redis.GetDatabase().ScriptEvaluateAsync(CooldownScript, [RedisKeys.Cooldown(deploymentId)], [Math.Max(1, (long)duration.TotalMilliseconds)]);
 
     public Task RecordFailureAsync(Guid providerId, CancellationToken cancellationToken)
     {

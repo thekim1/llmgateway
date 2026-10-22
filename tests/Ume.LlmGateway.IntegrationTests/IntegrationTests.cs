@@ -214,6 +214,51 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task Redis_limits_requests_in_flight_and_frees_released_slots()
+    {
+        var limiter = fixture.GatewayServices.GetRequiredService<IRateLimiter>();
+        limiter.ShouldBeOfType<RedisRateLimiter>();
+        var key = Guid.NewGuid();
+        (await limiter.AcquireAsync(key, 100, null, 1, "first", Cancellation)).Allowed.ShouldBeTrue();
+        var refused = await limiter.AcquireAsync(key, 100, null, 1, "second", Cancellation);
+        refused.Allowed.ShouldBeFalse();
+        refused.Reason.ShouldBe("concurrency");
+
+        limiter.Release(key, "first");
+        for (var attempt = 0; attempt < 20; attempt++) // the release is fire-and-forget
+        {
+            if ((await limiter.AcquireAsync(key, 100, null, 1, "second", Cancellation)).Allowed)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), Cancellation);
+        }
+
+        Assert.Fail("The released slot was not freed.");
+    }
+
+    [Fact]
+    public async Task Redis_cooldowns_are_shared_and_never_shortened()
+    {
+        var circuits = fixture.GatewayServices.GetRequiredService<ICircuitBreakerStore>();
+        circuits.ShouldBeOfType<RedisCircuitBreakerStore>();
+        var (cooling, other, provider) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await circuits.CoolDownAsync(cooling, TimeSpan.FromMinutes(1), Cancellation);
+        await circuits.CoolDownAsync(cooling, TimeSpan.FromMilliseconds(1), Cancellation); // a shorter Retry-After keeps the longer cooldown
+        await Task.Delay(TimeSpan.FromMilliseconds(50), Cancellation);
+
+        var status = await circuits.GetStatusAsync([provider], [cooling, other], Cancellation);
+        status.CoolingDeployments.ShouldBe([cooling]);
+        status.OpenProviders.ShouldBeEmpty();
+        (await circuits.GetOpenAsync([provider], Cancellation)).ShouldBeEmpty(); // a cooldown is not an open circuit
+
+        await circuits.SetStateAsync(provider, CircuitState.Open, TimeSpan.FromMinutes(1), Cancellation);
+        (await circuits.GetStatusAsync([provider], [other], Cancellation)).IsUnavailable(provider, other).ShouldBeTrue();
+        (await circuits.GetStatusAsync([], [], Cancellation)).ShouldBeSameAs(CircuitStatus.None);
+    }
+
+    [Fact]
     public async Task Redis_reports_token_usage_without_consuming_request_quota()
     {
         var limiter = fixture.GatewayServices.GetRequiredService<IRateLimiter>();

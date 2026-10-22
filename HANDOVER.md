@@ -32,8 +32,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 6. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Usage writer ceiling.** One gateway instance tops out at about 11 000 messages/s because the single
    usage writer (batched EF inserts) cannot write faster; its queue fills and back-pressure slows requests. Postgres `COPY`
    for batches or parallel writers would raise it (see *Scaling* in [docs/performance.md](docs/performance.md)).
-7. **Performance, not done yet:** the Anthropic *translated* stream (`/v1/chat/completions` to an Anthropic provider) still builds a JSON tree per event
-   (about 1.8 MB per 300-chunk stream); rewriting `AnthropicStreamTranslator` with `Utf8JsonWriter` would remove most of it. See [docs/performance.md](docs/performance.md).
+7. **Done 2026-10-22:** the Anthropic *translated* stream writes chunks with `Utf8JsonWriter` (683 → 291 µs, 1 270 → 379 KB per 300-chunk
+   stream). See [docs/performance.md](docs/performance.md).
 
 ## Conventions and gotchas
 

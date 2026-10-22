@@ -37,6 +37,20 @@ streaming. Other client errors (such as 400) are returned as they are. The respo
 `x-ume-rule` names the rule. Providers whose circuit breaker is open are moved last, so the fallback is tried before a known-broken primary.
 Only transient failures (timeouts, connection errors, 408, 409, 429, 5xx) count toward the circuit breaker; a provider configuration
 error (such as an upstream 401, 403 or 404) falls back to the next provider without opening the circuit.
+A failure that says when to come back (`Retry-After` or `retry-after-ms`, as Azure OpenAI and OpenAI send with a 429) puts that
+one model deployment on **cooldown** for that long instead, shared by all gateway instances: it goes last, like an open circuit,
+so requests stop paying a wasted round trip to a deployment that is out of quota. A cooldown is a quota, not a health problem,
+so it does not count toward the provider's circuit, and the provider's other deployments are unaffected. The longest cooldown
+is `CircuitBreaker:MaxRetryAfter` (default 5 minutes, at most 1 hour; `00:00:00` ignores `Retry-After`).
+The **last** candidate is also retried once after a passing failure (a connection error or 502/503/504 without
+`Retry-After`; not a timeout, a 429 or a client error), after a short jittered delay: a route with a single target no longer
+fails on one network blip. Earlier candidates are not retried, the next candidate is their retry. `x-ume-fallbacks` and the
+usage record count every extra attempt. Settings: `Gateway:Retry:MaxRetries` (default 1, 0–3; 0 turns it off) and
+`Gateway:Retry:BaseDelayMs` (default 250, doubled per retry).
+A model whose context window (set on the model, or found by discovery) the prompt clearly exceeds is skipped, so a route
+can send long prompts to a larger fallback model; when no candidate is large enough the request is refused with 400
+`context_length_exceeded` before anything is sent or reserved. The prompt is estimated from the request size (about 4
+bytes per token, 10 % margin), so a request close to the limit can still be refused by the provider.
 
 ### Example 2 (advanced): chats with personal data go to an on-prem model
 
@@ -143,6 +157,16 @@ and the migration skips a template if a global rule with the same name already e
 
 The matching rule's targets are put in weighted-random order (so a 70/30 split sends about 70 % of
 requests to the first target), the remaining targets act as failover, and the fallbacks follow.
+Route targets of the same priority are ordered the same way. With `Gateway:LoadBalancing=LeastLoaded`
+(`Gateway__LoadBalancing`) the first of them is instead the better of two drawn by weight ("power of two choices"):
+each gateway instance keeps moving averages of every deployment's latency and success and counts its requests in
+flight, and prefers the faster, healthier, less busy one. Use it for the same model on several regions or GPU servers;
+keep the default `Weighted` when the shares must follow the weights exactly (a 90/10 canary), because the scores move
+traffic away from the weights.
+A request with the header `x-ume-session` (any id of the conversation, at most 200 characters), or OpenAI's
+`prompt_cache_key` body parameter, goes first to the same target of each priority every time (rendezvous hashing, by
+weight), whatever the balancing mode, so a vLLM or Ollama server's prompt (prefix) cache is reused across the turns of a
+conversation. Sessions are spread over the targets by weight; when a target goes away only its sessions move.
 Duplicates are removed. The existing failover behaviour is unchanged: transient and provider-configuration failures
 move to the next candidate, and nothing is retried once streaming has started.
 

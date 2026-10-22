@@ -49,6 +49,45 @@ public class RouteSelectorTests
     }
 
     [Fact]
+    public void Least_loaded_prefers_the_better_score_but_keeps_the_worse_reachable()
+    {
+        var fast = Target("fast", 0);
+        var slow = Target("slow", 0);
+        var backup = Target("backup", 1);
+        var random = new Random(7);
+        double Score(RouteTarget t) => t == fast ? 0.9 : 0.1;
+
+        var orders = Enumerable.Range(0, 10_000).Select(_ => RouteSelector.Order([slow, fast, backup], Chat, random, RouteSelector.PowerOfTwoChoices(Score))).ToList();
+
+        // Two draws with replacement: the slow one is first only when it is drawn twice (about a quarter of the time).
+        orders.Count(o => o[0] == fast).ShouldBeInRange(7_200, 7_800);
+        orders.ShouldAllBe(o => o.Count == 3 && o[2] == backup); // priorities still decide the fallback chain
+    }
+
+    [Fact]
+    public void Affinity_keeps_a_session_on_one_target_and_spreads_sessions_by_weight()
+    {
+        var a = Target("a", 0, weight: 3);
+        var b = Target("b", 0, weight: 1);
+        var backup = Target("backup", 1);
+        var random = new Random(3);
+
+        var session = RouteSelector.Rendezvous(RouteSelector.AffinityHash("conversation-42"));
+        var first = RouteSelector.Order([a, b, backup], Chat, random, session)[0];
+        for (var i = 0; i < 50; i++)
+        {
+            RouteSelector.Order(i % 2 == 0 ? [b, a, backup] : [a, b, backup], Chat, random, session)[0].ShouldBeSameAs(first); // input order does not matter
+        }
+
+        var toA = Enumerable.Range(0, 4_000)
+            .Count(i => RouteSelector.Order([a, b, backup], Chat, random, RouteSelector.Rendezvous(RouteSelector.AffinityHash("s" + i)))[0] == a);
+        toA.ShouldBeInRange(2_800, 3_200); // about 3 in 4
+
+        RouteSelector.AffinityHash("x").ShouldBe(RouteSelector.AffinityHash("x"));
+        RouteSelector.AffinityHash("x").ShouldNotBe(RouteSelector.AffinityHash("y"));
+    }
+
+    [Fact]
     public void Filters_disabled_drained_and_unsupported_targets()
     {
         var ok = Target("ok", 0);

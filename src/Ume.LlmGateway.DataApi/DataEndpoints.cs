@@ -29,7 +29,8 @@ public sealed record KeyInventoryItem(
     Guid Id, string Prefix, string Name, Guid TeamId, Guid? DepartmentId, KeyStatus Status, DateTimeOffset CreatedAt, string? CreatedBy,
     DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, DateTimeOffset? LastUsedAt,
     PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, IReadOnlyList<string> AllowedModels, IReadOnlyList<string> AllowedProviders,
-    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges);
+    IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges,
+    int? MaxConcurrentRequests);
 
 public sealed record AggregateItem(
     DateOnly Period, Guid? DepartmentId, string? CostCenterCode, string? DepartmentName, Guid? ModelId, string? ModelName, Guid? ProviderId,
@@ -123,12 +124,12 @@ public static class DataEndpoints
             {
                 k.Id, k.Prefix, k.Name, k.TeamId, DepartmentId = (Guid?)k.Team!.DepartmentId, k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt,
                 k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy, k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders,
-                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges,
+                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.MaxConcurrentRequests,
             }).ToListAsync(ct);
             return DataResults.List(http, keys.Select(k => new KeyInventoryItem(k.Id, k.Prefix, k.Name, k.TeamId, k.DepartmentId,
                 new VirtualKey { Name = k.Name, Prefix = k.Prefix, KeyHash = string.Empty, IsEnabled = k.IsEnabled, ExpiresAt = k.ExpiresAt, RevokedAt = k.RevokedAt, GraceUntil = k.GraceUntil }.GetStatus(now),
                 k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy,
-                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges)).ToList());
+                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.MaxConcurrentRequests)).ToList());
         }).WithSummary("Every key with its status and policies (never the secret or its hash)");
 
         var catalog = v1.MapGroup("/catalog").WithTags("Catalog").RequireAuthorization(DataPermissions.CatalogRead);
@@ -149,7 +150,7 @@ public static class DataEndpoints
                 .Select(m => new { m.Id, m.Name, m.UpstreamModel, m.Kind, ProviderId = m.ProviderAccountId, m.IsEnabled }).ToListAsync(ct)));
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
-                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd }).ToListAsync(ct)));
+                .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd, p.CacheWriteInputPerMillionUsd }).ToListAsync(ct)));
         catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             // Limits are in USD. LimitSek is the same limit at the current rate (null without one), kept for existing reports.

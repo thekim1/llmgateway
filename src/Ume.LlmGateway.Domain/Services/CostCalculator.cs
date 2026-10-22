@@ -7,15 +7,18 @@ namespace Ume.LlmGateway.Domain.Services;
 /// <paramref name="Images"/> (generated images) by the image endpoints.
 /// <paramref name="AudioInputTokens"/> and <paramref name="AudioOutputTokens"/> are the audio part of the input and
 /// output tokens (already included in them), as reported by audio-capable models.
+/// <paramref name="CacheWriteInputTokens"/> is the part of the input written to the provider's prompt cache (Anthropic
+/// <c>cache_creation_input_tokens</c>), already included in <paramref name="InputTokens"/>.
 /// </summary>
 public readonly record struct TokenUsage(long InputTokens, long CachedInputTokens, long OutputTokens, decimal AudioSeconds = 0,
-    long AudioInputTokens = 0, long AudioOutputTokens = 0, int Images = 0)
+    long AudioInputTokens = 0, long AudioOutputTokens = 0, int Images = 0, long CacheWriteInputTokens = 0)
 {
     public long Total => InputTokens + OutputTokens;
 
     public static TokenUsage operator +(TokenUsage a, TokenUsage b) => new(
         a.InputTokens + b.InputTokens, a.CachedInputTokens + b.CachedInputTokens, a.OutputTokens + b.OutputTokens,
-        a.AudioSeconds + b.AudioSeconds, a.AudioInputTokens + b.AudioInputTokens, a.AudioOutputTokens + b.AudioOutputTokens, a.Images + b.Images);
+        a.AudioSeconds + b.AudioSeconds, a.AudioInputTokens + b.AudioInputTokens, a.AudioOutputTokens + b.AudioOutputTokens, a.Images + b.Images,
+        a.CacheWriteInputTokens + b.CacheWriteInputTokens);
 }
 
 public readonly record struct Cost(decimal Usd, decimal Sek);
@@ -26,7 +29,8 @@ public static class CostCalculator
 
     /// <summary>
     /// <paramref name="usage"/>.InputTokens is the total prompt tokens INCLUDING cached tokens (OpenAI semantics);
-    /// cached tokens are billed at the cached rate, the rest at the input rate. Reasoning tokens are part of
+    /// cached tokens are billed at the cached rate, cache writes at the cache-write rate (the input rate when none is
+    /// set), the rest at the input rate. Reasoning tokens are part of
     /// output tokens. Audio tokens are billed at the audio token prices when those are set (otherwise as text), and
     /// audio duration per minute on top, for models priced that way.
     /// </summary>
@@ -41,8 +45,10 @@ public static class CostCalculator
         var uncached = Math.Max(usage.InputTokens - cached, 0);
         var output = Math.Max(usage.OutputTokens, 0);
         var audioIn = price.AudioInputPerMillionUsd > 0 ? Math.Clamp(usage.AudioInputTokens, 0, uncached) : 0;
+        var cacheWrite = Math.Clamp(usage.CacheWriteInputTokens, 0, uncached - audioIn);
         var audioOut = price.AudioOutputPerMillionUsd > 0 ? Math.Clamp(usage.AudioOutputTokens, 0, output) : 0;
-        var usd = ((uncached - audioIn) * price.InputPerMillionUsd
+        var usd = ((uncached - audioIn - cacheWrite) * price.InputPerMillionUsd
+                   + cacheWrite * (price.CacheWriteInputPerMillionUsd ?? price.InputPerMillionUsd)
                    + audioIn * price.AudioInputPerMillionUsd
                    + cached * price.CachedInputPerMillionUsd
                    + (output - audioOut) * price.OutputPerMillionUsd

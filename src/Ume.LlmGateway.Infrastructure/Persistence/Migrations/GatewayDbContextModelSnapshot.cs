@@ -458,6 +458,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");
 
+                    b.Property<decimal?>("CacheWriteInputPerMillionUsd")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
                     b.Property<decimal>("CachedInputPerMillionUsd")
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");
@@ -713,6 +717,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("RequestPolicy")
+                        .HasColumnType("jsonb");
 
                     b.HasKey("Id");
 
@@ -997,6 +1004,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("MaxConcurrentRequests")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1011,6 +1021,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RequestPolicy")
+                        .HasColumnType("jsonb");
 
                     b.Property<int?>("RequestsPerMinute")
                         .HasColumnType("integer");

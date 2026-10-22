@@ -9,13 +9,24 @@ public readonly record struct RateLimitDecision(bool Allowed, int? RequestLimit,
 }
 
 /// <summary>
-/// Per virtual key fixed-window (1 minute) limits on requests and tokens. Like every store here, the Redis
+/// Per virtual key limits on requests and tokens per minute and on requests in flight. The per-minute limits use a
+/// sliding window: the current minute's count plus the previous minute's, weighted by how much of it the last 60 seconds
+/// still cover, so a client cannot send twice its limit across a minute boundary. Like every store here, the Redis
 /// implementation is bounded by the multiplexer's timeouts and does not observe cancellation tokens (see
 /// <see cref="RedisRateLimiter"/>); in-memory implementations complete synchronously.
 /// </summary>
 public interface IRateLimiter
 {
-    Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken);
+    /// <summary>
+    /// Counts a request against the per-minute limits and, with <paramref name="maxConcurrent"/> also takes an in-flight slot named <paramref name="leaseId"/>
+    /// (refused with reason <c>concurrency</c> when all are taken). Release it with <see cref="Release"/>; a slot
+    /// that is never released expires after <see cref="RateLimitWindow.InFlightLease"/>. Denied requests count nowhere.
+    /// </summary>
+    Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId, CancellationToken cancellationToken);
+
+    /// <summary>Frees the in-flight slot taken by <see cref="AcquireAsync(Guid, int?, int?, int?, string?, CancellationToken)"/>. Fire-and-forget in Redis.</summary>
+    void Release(Guid keyId, string leaseId);
+
     Task RecordTokensAsync(Guid keyId, long tokens, CancellationToken cancellationToken);
 
     /// <summary>
@@ -23,6 +34,16 @@ public interface IRateLimiter
     /// has no token limit. Does not count as a request.
     /// </summary>
     Task<double?> PeekTokensUsedPercentAsync(Guid keyId, int? tokensPerMinute, CancellationToken cancellationToken);
+}
+
+public static class RateLimiterExtensions
+{
+    /// <summary>The per-minute limits only, without an in-flight slot.</summary>
+    public static Task<RateLimitDecision> AcquireAsync(this IRateLimiter limiter, Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(limiter);
+        return limiter.AcquireAsync(keyId, requestsPerMinute, tokensPerMinute, null, null, cancellationToken);
+    }
 }
 
 /// <summary>A spend counter for one budget scope and period window, in micro-USD (1 USD = 1 000 000).</summary>
@@ -98,11 +119,32 @@ public enum CircuitState
     Open = 1,
 }
 
-/// <summary>Shared per-provider circuit breaker state so all gateway instances and the admin API agree.</summary>
+/// <summary>Providers whose circuit is open and model deployments on cooldown, from one lookup.</summary>
+public sealed record CircuitStatus(IReadOnlySet<Guid> OpenProviders, IReadOnlySet<Guid> CoolingDeployments)
+{
+    public static CircuitStatus None { get; } = new(new HashSet<Guid>(), new HashSet<Guid>());
+
+    /// <summary>The provider's circuit is open or the deployment is on cooldown: try it only after everything else.</summary>
+    public bool IsUnavailable(Guid providerId, Guid deploymentId) => OpenProviders.Contains(providerId) || CoolingDeployments.Contains(deploymentId);
+}
+
+/// <summary>
+/// Shared per-provider circuit breaker state and per-deployment cooldowns, so all gateway instances and the admin API
+/// agree. A cooldown is what a provider asked for with <c>Retry-After</c> (a quota, not a health problem), so it
+/// applies to the one deployment and does not count against the provider's circuit.
+/// </summary>
 public interface ICircuitBreakerStore
 {
     Task<IReadOnlySet<Guid>> GetOpenAsync(IReadOnlyCollection<Guid> providerIds, CancellationToken cancellationToken);
+
+    /// <summary>Open circuits of <paramref name="providerIds"/> and cooldowns of <paramref name="deploymentIds"/> in one round trip.</summary>
+    Task<CircuitStatus> GetStatusAsync(IReadOnlyCollection<Guid> providerIds, IReadOnlyCollection<Guid> deploymentIds, CancellationToken cancellationToken);
+
     Task RecordFailureAsync(Guid providerId, CancellationToken cancellationToken);
+
+    /// <summary>Takes the deployment out of rotation for <paramref name="duration"/>; an existing longer cooldown is kept.</summary>
+    Task CoolDownAsync(Guid deploymentId, TimeSpan duration, CancellationToken cancellationToken);
+
     Task RecordSuccessAsync(Guid providerId, CancellationToken cancellationToken);
     Task SetStateAsync(Guid providerId, CircuitState state, TimeSpan? openFor, CancellationToken cancellationToken);
 }
@@ -112,11 +154,21 @@ public sealed class CircuitBreakerOptions
     public int FailureThreshold { get; set; } = 5;
     public TimeSpan SamplingWindow { get; set; } = TimeSpan.FromSeconds(60);
     public TimeSpan BreakDuration { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The longest cooldown a provider's <c>Retry-After</c> can put a deployment on; zero ignores <c>Retry-After</c>.</summary>
+    [System.ComponentModel.DataAnnotations.Range(typeof(TimeSpan), "00:00:00", "01:00:00")]
+    public TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromMinutes(5);
 }
 
-/// <summary>The fixed one-minute window shared by the rate limiters.</summary>
-internal static class RateLimitWindow
+/// <summary>The one-minute windows shared by the rate limiters, and the sliding estimate over the last two.</summary>
+public static class RateLimitWindow
 {
+    /// <summary>
+    /// How long an in-flight slot lasts without being released: the longest provider timeout. A stream that lives
+    /// longer stops counting toward the concurrency limit after this.
+    /// </summary>
+    public static readonly TimeSpan InFlightLease = TimeSpan.FromSeconds(900);
+
     /// <summary>The current minute (Unix minutes) and the time left until it ends.</summary>
     public static (long Minute, TimeSpan RetryAfter) Current(DateTimeOffset now)
     {
@@ -124,7 +176,39 @@ internal static class RateLimitWindow
         return (seconds / 60, TimeSpan.FromSeconds(60 - (seconds % 60)));
     }
 
-    public static double TokenPercent(long used, int limit) => Math.Clamp(used * 100d / limit, 0d, 100d);
+    /// <summary>The current minute and how far into it <paramref name="now"/> is (0 to 1).</summary>
+    public static (long Minute, double Elapsed) Sliding(DateTimeOffset now)
+    {
+        var ms = now.ToUnixTimeMilliseconds();
+        return (ms / 60_000, ms % 60_000 / 60_000d);
+    }
+
+    /// <summary>The sliding count: all of this minute plus the part of the previous one the last 60 seconds cover.</summary>
+    public static double Estimate(long previous, long current, double elapsed) => current + previous * (1 - elapsed);
+
+    /// <summary>
+    /// How long until <paramref name="cost"/> more fits under <paramref name="limit"/>, as the previous minute's weight
+    /// falls (and, if this minute alone is too much, as it in turn becomes the previous one). At least one second.
+    /// </summary>
+    public static TimeSpan RetryAfter(long previous, long current, long cost, long limit, double elapsed)
+    {
+        double wait;
+        if (current + cost <= limit && previous > 0)
+        {
+            // This minute: previous × (1 − f) + current + cost ≤ limit once f reaches the needed fraction.
+            wait = 1 - (double)(limit - current - cost) / previous - elapsed;
+        }
+        else
+        {
+            // Next minute, when this minute's count is the one that fades.
+            var next = current > 0 ? Math.Max(0, 1 - (double)(limit - cost) / current) : 0;
+            wait = 1 - elapsed + next;
+        }
+
+        return TimeSpan.FromSeconds(Math.Max(1, Math.Ceiling(wait * 60)));
+    }
+
+    public static double TokenPercent(double used, int limit) => Math.Clamp(used * 100d / limit, 0d, 100d);
 }
 
 /// <summary>Single-instance implementations used in tests and when Redis is not configured.</summary>
@@ -134,27 +218,70 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
     private readonly Lock _lock = new();
     private long _prunedMinute;
 
+    private readonly Dictionary<Guid, Dictionary<string, DateTimeOffset>> _inFlight = [];
+
     private readonly record struct Counter(Guid KeyId, long Minute, bool Tokens);
 
-    public Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, CancellationToken cancellationToken)
+    public Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId,
+        CancellationToken cancellationToken)
     {
-        var (minute, retry) = Window();
+        Window();
+        var now = time.GetUtcNow();
+        var (minute, elapsed) = RateLimitWindow.Sliding(now);
         lock (_lock)
         {
             var tokens = _counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true));
-            if (tokensPerMinute is > 0 && tokens >= tokensPerMinute)
+            var previousTokens = _counters.GetValueOrDefault(new Counter(keyId, minute - 1, Tokens: true));
+            if (tokensPerMinute is > 0 && RateLimitWindow.Estimate(previousTokens, tokens, elapsed) >= tokensPerMinute)
             {
-                return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0, retry, "tokens"));
+                return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0,
+                    RateLimitWindow.RetryAfter(previousTokens, tokens, 1, tokensPerMinute.Value, elapsed), "tokens"));
             }
 
-            var requests = _counters.AddOrUpdate(new Counter(keyId, minute, Tokens: false), 1, (_, v) => v + 1);
-            if (requestsPerMinute is > 0 && requests > requestsPerMinute)
+            var requests = _counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: false));
+            var previousRequests = _counters.GetValueOrDefault(new Counter(keyId, minute - 1, Tokens: false));
+            if (requestsPerMinute is > 0 && RateLimitWindow.Estimate(previousRequests, requests, elapsed) + 1 > requestsPerMinute)
             {
-                return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0, retry, "requests"));
+                return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, 0,
+                    RateLimitWindow.RetryAfter(previousRequests, requests, 1, requestsPerMinute.Value, elapsed), "requests"));
             }
 
-            int? remaining = requestsPerMinute is > 0 ? (int)Math.Max(0, requestsPerMinute.Value - requests) : null;
+            if (maxConcurrent is > 0 && leaseId is not null)
+            {
+                if (!_inFlight.TryGetValue(keyId, out var leases))
+                {
+                    _inFlight[keyId] = leases = [];
+                }
+
+                foreach (var expired in leases.Where(l => l.Value <= now).Select(l => l.Key).ToList())
+                {
+                    leases.Remove(expired);
+                }
+
+                if (leases.Count >= maxConcurrent)
+                {
+                    return Task.FromResult(new RateLimitDecision(false, requestsPerMinute, null, TimeSpan.FromSeconds(1), "concurrency"));
+                }
+
+                leases[leaseId] = now + RateLimitWindow.InFlightLease;
+            }
+
+            requests = _counters.AddOrUpdate(new Counter(keyId, minute, Tokens: false), 1, (_, v) => v + 1);
+            int? remaining = requestsPerMinute is > 0
+                ? (int)Math.Max(0, requestsPerMinute.Value - Math.Ceiling(RateLimitWindow.Estimate(previousRequests, requests, elapsed)))
+                : null;
             return Task.FromResult(new RateLimitDecision(true, requestsPerMinute, remaining, TimeSpan.Zero, null));
+        }
+    }
+
+    public void Release(Guid keyId, string leaseId)
+    {
+        lock (_lock)
+        {
+            if (_inFlight.TryGetValue(keyId, out var leases) && leases.Remove(leaseId) && leases.Count == 0)
+            {
+                _inFlight.Remove(keyId);
+            }
         }
     }
 
@@ -172,8 +299,11 @@ public sealed class InMemoryRateLimiter(TimeProvider time) : IRateLimiter
             return Task.FromResult<double?>(null);
         }
 
-        var (minute, _) = Window();
-        return Task.FromResult<double?>(RateLimitWindow.TokenPercent(_counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true)), tokensPerMinute.Value));
+        Window();
+        var (minute, elapsed) = RateLimitWindow.Sliding(time.GetUtcNow());
+        var used = RateLimitWindow.Estimate(_counters.GetValueOrDefault(new Counter(keyId, minute - 1, Tokens: true)),
+            _counters.GetValueOrDefault(new Counter(keyId, minute, Tokens: true)), elapsed);
+        return Task.FromResult<double?>(RateLimitWindow.TokenPercent(used, tokensPerMinute.Value));
     }
 
     /// <summary>Number of counters held (tests: old windows are dropped).</summary>
@@ -365,12 +495,28 @@ public sealed class InMemoryCircuitBreakerStore(TimeProvider time, Microsoft.Ext
 {
     private readonly ConcurrentDictionary<Guid, DateTimeOffset> _openUntil = new();
     private readonly ConcurrentDictionary<Guid, List<DateTimeOffset>> _failures = new();
+    private readonly ConcurrentDictionary<Guid, DateTimeOffset> _coolUntil = new();
 
     public Task<IReadOnlySet<Guid>> GetOpenAsync(IReadOnlyCollection<Guid> providerIds, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         IReadOnlySet<Guid> open = providerIds.Where(id => _openUntil.TryGetValue(id, out var until) && until > now).ToHashSet();
         return Task.FromResult(open);
+    }
+
+    public async Task<CircuitStatus> GetStatusAsync(IReadOnlyCollection<Guid> providerIds, IReadOnlyCollection<Guid> deploymentIds, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var open = await GetOpenAsync(providerIds, cancellationToken);
+        var cooling = deploymentIds.Where(id => _coolUntil.TryGetValue(id, out var until) && until > now).ToHashSet();
+        return open.Count == 0 && cooling.Count == 0 ? CircuitStatus.None : new CircuitStatus(open, cooling);
+    }
+
+    public Task CoolDownAsync(Guid deploymentId, TimeSpan duration, CancellationToken cancellationToken)
+    {
+        var until = time.GetUtcNow() + duration;
+        _coolUntil.AddOrUpdate(deploymentId, until, (_, existing) => existing > until ? existing : until);
+        return Task.CompletedTask;
     }
 
     public Task RecordFailureAsync(Guid providerId, CancellationToken cancellationToken)

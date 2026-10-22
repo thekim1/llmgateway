@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
@@ -65,21 +66,21 @@ public sealed record DepartmentAudit(Guid Id, string Name, string CostCenterCode
     public static DepartmentAudit Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive);
 }
 
-public sealed record TeamAudit(Guid Id, Guid DepartmentId, string Name, string? Description, bool IsActive)
+public sealed record TeamAudit(Guid Id, Guid DepartmentId, string Name, string? Description, bool IsActive, RequestPolicy? RequestPolicy = null)
 {
-    public static TeamAudit Of(Team t) => new(t.Id, t.DepartmentId, t.Name, t.Description, t.IsActive);
+    public static TeamAudit Of(Team t) => new(t.Id, t.DepartmentId, t.Name, t.Description, t.IsActive, t.RequestPolicy);
 }
 
 public sealed record KeyAudit(
     Guid Id, Guid TeamId, string Name, string? Description, string Prefix, bool IsEnabled, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    IReadOnlyList<string> AllowedIpRanges)
+    IReadOnlyList<string> AllowedIpRanges, int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        [.. k.AllowedIpRanges]);
+        [.. k.AllowedIpRanges], k.MaxConcurrentRequests, k.RequestPolicy);
 }
 
 public sealed record RetentionSettingsAudit(int UsageRetentionDays, int? AuditRetentionDays)

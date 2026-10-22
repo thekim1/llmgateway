@@ -1,7 +1,8 @@
 name: Flake hunt
 # Runs the backend tests several times on a CI runner (two CPUs, where races show up) and lists every test that failed,
 # so a flaky test is found and fixed before it fails someone's pull request (docs/local-development.md, "Tests that do
-# not flake"). Weekly, and on demand from the Actions tab.
+# not flake"). Weekly, and on demand from the Actions tab. Unlike the pull request pipeline it also runs the tests marked
+# Category=Flaky, so they are still watched until they are fixed.
 on:
   schedule:
     - cron: '17 3 * * 1'

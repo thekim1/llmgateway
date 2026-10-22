@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Infrastructure.Providers;
 
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
@@ -43,6 +44,31 @@ public sealed class GatewayOptions
     [Range(typeof(decimal), "0.01", "1000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
     public decimal FallbackSekPerUsd { get; set; } = 10m;
 
+    /// <summary>
+    /// How the first target among targets of the same priority is chosen: <c>Weighted</c> (default, shares follow the
+    /// weights) or <c>LeastLoaded</c> (the faster, healthier, less busy of two drawn by weight; see docs/routing-rules.md).
+    /// </summary>
+    public LoadBalancingMode LoadBalancing { get; set; } = LoadBalancingMode.Weighted;
+
+    /// <summary>
+    /// Prompt-cache markers added to OpenAI-format requests the gateway translates for Anthropic: <c>Off</c>,
+    /// <c>Static</c> (default: tools and system prompt) or <c>Conversation</c> (also the chat so far). Requests sent to
+    /// <c>/v1/messages</c> keep the client's own markers.
+    /// </summary>
+    public PromptCacheMode PromptCaching { get; set; } = PromptCacheMode.Static;
+
+    /// <summary>
+    /// Also record the OpenTelemetry GenAI semantic-convention metrics (<c>gen_ai.client.token.usage</c>,
+    /// <c>gen_ai.client.operation.duration</c>, <c>gen_ai.server.request.duration</c>,
+    /// <c>gen_ai.server.time_to_first_token</c>) for standard GenAI dashboards. Off by default: they cost four histogram
+    /// recordings per request, and <c>ume.gateway.*</c> covers the same ground.
+    /// </summary>
+    public bool GenAiMetrics { get; set; }
+
+    /// <summary>Retries of the last candidate after a passing failure (see <see cref="RetryOptions"/>).</summary>
+    [ValidateObjectMembers]
+    public RetryOptions Retry { get; set; } = new();
+
     /// <summary>Public documentation URL used in error responses.</summary>
     public string DocsUrl { get; set; } = "/scalar";
 
@@ -56,6 +82,22 @@ public sealed class GatewayOptions
     /// <summary>Live audio sessions on <c>/v1/realtime</c> and <c>/v1/realtime/translations</c>.</summary>
     [ValidateObjectMembers]
     public RealtimeOptions Realtime { get; set; } = new();
+}
+
+/// <summary>
+/// When the last candidate fails with a connection error or 502/503/504 (no <c>Retry-After</c>, not a timeout), it is
+/// tried again after a short, jittered, doubling delay. Earlier candidates are not retried: the next one is the retry.
+/// Never after a response has started.
+/// </summary>
+public sealed class RetryOptions
+{
+    /// <summary>Extra attempts on the last candidate; 0 turns retries off.</summary>
+    [Range(0, 3)]
+    public int MaxRetries { get; set; } = 1;
+
+    /// <summary>Delay before the first retry; each further retry doubles it. ±50 % jitter.</summary>
+    [Range(10, 10_000)]
+    public int BaseDelayMs { get; set; } = 250;
 }
 
 public sealed class RealtimeOptions

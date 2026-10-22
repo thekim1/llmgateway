@@ -17,7 +17,7 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
     public override async Task<ProviderResult> SendAsync(ProviderCall call, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(call);
-        if (call.Endpoint == GatewayEndpoint.AnthropicMessages)
+        if (GatewayEndpoints.Info(call.Endpoint).IsAnthropic)
         {
             return ProviderFailure.EndpointNotSupported;
         }

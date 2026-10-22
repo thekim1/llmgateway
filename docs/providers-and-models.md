@@ -57,7 +57,21 @@ came from; it is a list price, so check it against your agreement before you add
 
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
 edited in the model drawer. Most providers, including Ollama Cloud, do not publish prices, so
-add them under the model's price history. Prices are in USD, so also enter the USD exchange rate under **Settings**:
+add them under the model's price history. A model's *context window* is used for routing: a prompt clearly larger is
+not sent to it (see [routing rules](routing-rules.md)).
+
+**Prompt caching with Claude.** Clients of `/v1/messages` set their own `cache_control` markers. Requests the gateway
+translates (OpenAI SDK clients calling a Claude model through `/v1/chat/completions`) get markers added, set by
+`Gateway:PromptCaching`: `Static` (default) marks the tool definitions and the system prompt, which an application repeats
+on every request; `Conversation` also marks the conversation so far, so the next turn of a chat reads it from the cache;
+`Off` adds none. A cache hit costs a tenth of the input price, a write 1.25 times (enter the *Cache write* price below);
+prompts below Anthropic's minimum (1 024 tokens, 2 048 for Haiku) are not cached and cost nothing extra.
+`POST /v1/messages/count_tokens` is passed to the Anthropic provider and is free: no budget, no tokens counted.
+
+*Cache write* is for providers that charge for writing the prompt cache:
+Anthropic bills `cache_creation_input_tokens` at 1.25 times the input price (2 times for the 1-hour cache), so enter
+that for Claude models; left empty, cache writes are billed at the input price (as before this field existed, which
+undercharged them). Prices are in USD, so also enter the USD exchange rate under **Settings**:
 until one is in effect the gateway uses `Gateway:FallbackSekPerUsd` (10 SEK), logs a warning and reports its readiness
 check `exchange-rate` as Degraded (visible under operations health). Audio, image-generation-only and moderation models
 are left out of the list. Models added before this feature have no capabilities until you set

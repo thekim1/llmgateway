@@ -1,6 +1,7 @@
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Domain.Routing.Expressions;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
@@ -19,9 +20,10 @@ public sealed record DepartmentDto(Guid Id, string Name, string CostCenterCode, 
     public static DepartmentDto Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive, d.Teams.Count, d.CreatedAt);
 }
 
-public sealed record TeamDto(Guid Id, Guid DepartmentId, string? DepartmentName, string Name, string? Description, bool IsActive, int KeyCount, DateTimeOffset CreatedAt)
+public sealed record TeamDto(Guid Id, Guid DepartmentId, string? DepartmentName, string Name, string? Description, bool IsActive, int KeyCount, DateTimeOffset CreatedAt,
+    RequestPolicy? RequestPolicy = null)
 {
-    public static TeamDto Of(Team t) => new(t.Id, t.DepartmentId, t.Department?.Name, t.Name, t.Description, t.IsActive, t.VirtualKeys.Count, t.CreatedAt);
+    public static TeamDto Of(Team t) => new(t.Id, t.DepartmentId, t.Department?.Name, t.Name, t.Description, t.IsActive, t.VirtualKeys.Count, t.CreatedAt, t.RequestPolicy);
 }
 
 public sealed record KeyDto(
@@ -29,13 +31,13 @@ public sealed record KeyDto(
     KeyStatus Status, bool IsEnabled, DateTimeOffset CreatedAt, string? CreatedBy, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges)
+    Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges, int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges);
+        k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges, k.MaxConcurrentRequests, k.RequestPolicy);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>
@@ -75,11 +77,12 @@ public sealed record ProviderDto(
 
 public sealed record PriceDto(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd, decimal AudioPerMinuteUsd,
-    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom, decimal PerImageUsd = 0)
+    decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom, decimal PerImageUsd = 0,
+    decimal? CacheWriteInputPerMillionUsd = null)
 {
     public static PriceDto Of(ModelPrice p) => new(
         p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd,
-        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd);
+        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd, p.CacheWriteInputPerMillionUsd);
 }
 
 public sealed record ModelDto(

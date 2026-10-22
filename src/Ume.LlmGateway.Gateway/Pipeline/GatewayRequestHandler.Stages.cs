@@ -58,10 +58,26 @@ public sealed partial class GatewayRequestHandler
         return key;
     }
 
-    /// <summary>Counts the request against the key's per-minute limits; when refused, the 429 has been written.</summary>
-    private async Task<bool> AcquireRateLimitAsync(HttpContext http, RequestState state, VirtualKey key, CancellationToken ct)
+    /// <summary>
+    /// Counts the request against the key's per-minute limits and, with <paramref name="inFlight"/>, takes one of the
+    /// key's in-flight slots until the response has completed (or the client went away). When refused, the 429 has been written.
+    /// </summary>
+    private async Task<bool> AcquireRateLimitAsync(HttpContext http, RequestState state, VirtualKey key, CancellationToken ct, bool inFlight = true)
     {
-        var rate = await rateLimiter.AcquireAsync(key.Id, key.RequestsPerMinute, key.TokensPerMinute, ct);
+        var maxConcurrent = inFlight ? key.MaxConcurrentRequests : null;
+        // Not the request id: a client may set that, and repeating it would share one slot.
+        var lease = maxConcurrent is > 0 ? Guid.NewGuid().ToString("N") : null;
+        var rate = await rateLimiter.AcquireAsync(key.Id, key.RequestsPerMinute, key.TokensPerMinute, maxConcurrent, lease, ct);
+        if (rate.Allowed && lease is not null)
+        {
+            var (limiter, keyId) = (rateLimiter, key.Id);
+            http.Response.OnCompleted(() =>
+            {
+                limiter.Release(keyId, lease);
+                return Task.CompletedTask;
+            });
+        }
+
         if (rate.RequestLimit is { } limit)
         {
             http.Response.Headers[GatewayHeaders.RateLimitLimitRequests] = limit.ToString(CultureInfo.InvariantCulture);
@@ -75,7 +91,9 @@ public sealed partial class GatewayRequestHandler
 
         var retryAfter = Math.Max(1, (int)Math.Ceiling(rate.RetryAfter.TotalSeconds));
         http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
-        await RejectAsync(http, state, GatewayError.RateLimited(rate.Reason == "tokens", retryAfter), RequestOutcome.RateLimited);
+        await RejectAsync(http, state, rate.Reason == "concurrency"
+            ? GatewayError.TooManyConcurrentRequests(key.MaxConcurrentRequests ?? 0)
+            : GatewayError.RateLimited(rate.Reason == "tokens", retryAfter), RequestOutcome.RateLimited);
         return false;
     }
 
@@ -103,8 +121,36 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>Turns the routing decision into models and orders their eligible targets into an attempt list.</summary>
+    /// <summary>
+    /// What keeps a conversation on one server (so its prompt cache is reused): the <c>x-ume-session</c> header, else
+    /// OpenAI's <c>prompt_cache_key</c> body parameter. Null when the client sends neither. Scoped to the key, so two
+    /// applications using the same session name do not share a target by accident (they would not share a cache either).
+    /// </summary>
+    private static string? SessionAffinity(HttpContext http, JsonObject body, VirtualKey key)
+    {
+        var session = http.Request.Headers[GatewayHeaders.Session].ToString();
+        if (string.IsNullOrEmpty(session) && body["prompt_cache_key"] is JsonValue v && v.TryGetValue<string>(out var cacheKey))
+        {
+            session = cacheKey;
+        }
+
+        return string.IsNullOrEmpty(session) || session.Length > 200 ? null : $"{key.Id:N}:{session}";
+    }
+
+    /// <summary>
+    /// The estimate may exceed a model's context window by this much before the model is skipped: it is counted from the
+    /// body's bytes (JSON syntax included), so it runs high for prompts in English and low for Swedish.
+    /// </summary>
+    private const double ContextWindowMargin = 1.1;
+
+    /// <summary>
+    /// The candidates in attempt order, or null when the request was refused. With <paramref name="estimatedInputTokens"/>,
+    /// models whose context window the prompt clearly exceeds are skipped (a route's larger fallback model takes it);
+    /// when none is left the request is refused with <c>context_length_exceeded</c> instead of failing at the provider.
+    /// </summary>
     private async Task<SelectedRoute?> SelectRouteAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, VirtualKey key, string model,
-        ResolvedModel? requested, RoutingDecision routing, DataResidency? restrictTo, bool stream, CircuitPrefetch? prefetch, CancellationToken ct)
+        ResolvedModel? requested, RoutingDecision routing, DataResidency? restrictTo, bool stream, CircuitPrefetch? prefetch, CancellationToken ct,
+        long estimatedInputTokens = 0, string? affinity = null)
     {
         var plan = router.Plan(snapshot, key, state.Endpoint, model, requested, routing);
         if (plan.Rejection is { } planRejection)
@@ -113,14 +159,31 @@ public sealed partial class GatewayRequestHandler
             return null;
         }
 
-        var selection = await router.SelectCandidatesAsync(plan.Models, key, state.Endpoint, restrictTo, stream, ct, prefetch);
+        var selection = await router.SelectCandidatesAsync(plan.Models, key, state.Endpoint, restrictTo, stream, ct, prefetch, affinity);
         if (selection.Rejection is { } selectionRejection)
         {
             await RejectAsync(http, state, selectionRejection, RequestOutcome.Rejected);
             return null;
         }
 
-        return new SelectedRoute(selection.Candidates, plan.Models[0].Name);
+        var candidates = selection.Candidates;
+        if (estimatedInputTokens > 0 && candidates.Any(t => !Fits(t, estimatedInputTokens)))
+        {
+            var fitting = candidates.Where(t => Fits(t, estimatedInputTokens)).ToList();
+            if (fitting.Count == 0)
+            {
+                var largest = candidates.Max(t => t.ModelDeployment!.ContextWindow ?? 0);
+                await RejectAsync(http, state, GatewayError.ContextTooLong(plan.Models[0].Name, estimatedInputTokens, largest), RequestOutcome.Rejected);
+                return null;
+            }
+
+            candidates = fitting;
+        }
+
+        return new SelectedRoute(candidates, plan.Models[0].Name);
+
+        static bool Fits(RouteTarget target, long tokens) =>
+            target.ModelDeployment!.ContextWindow is not { } window || tokens <= window * ContextWindowMargin;
     }
 
     /// <summary>
@@ -163,11 +226,14 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>
-    /// Logs a failed attempt the next candidate will take over, and counts transient failures against the provider's
-    /// circuit. The circuit store being unavailable does not fail the request.
+    /// Logs a failed attempt the next candidate will take over. A transient failure with <c>Retry-After</c> puts the
+    /// deployment on cooldown for that long (capped by <see cref="Infrastructure.Stores.CircuitBreakerOptions.MaxRetryAfter"/>): the provider
+    /// said when to come back, so it is a quota rather than a health problem and does not count against the provider's
+    /// circuit; other transient failures do. The circuit store being unavailable does not fail the request.
     /// </summary>
-    private async Task RecordFailureAsync(RequestState state, ProviderAccount provider, ProviderFailure failure)
+    private async Task RecordFailureAsync(RequestState state, ModelDeployment deployment, ProviderFailure failure)
     {
+        var provider = deployment.ProviderAccount!;
         LogProviderFailed(logger, state.RequestId, provider.Name, failure.StatusCode, failure.Reason);
         if (!failure.CountsAgainstCircuit)
         {
@@ -176,6 +242,15 @@ public sealed partial class GatewayRequestHandler
 
         try
         {
+            var maxCooldown = circuitOptions.Value.MaxRetryAfter;
+            if (failure.RetryAfter is { } retryAfter && maxCooldown > TimeSpan.Zero)
+            {
+                var cooldown = retryAfter < maxCooldown ? retryAfter : maxCooldown;
+                LogDeploymentCooldown(logger, state.RequestId, provider.Name, deployment.UpstreamModel, (long)cooldown.TotalMilliseconds);
+                await circuits.CoolDownAsync(deployment.Id, cooldown, CancellationToken.None);
+                return;
+            }
+
             await circuits.RecordFailureAsync(provider.Id, CancellationToken.None);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -204,7 +279,7 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>
-    /// Every candidate failed: 504 when the last one timed out, else 502. The usage record names the last provider tried
+    /// Every attempt failed (<paramref name="candidates"/> counts retries too): 504 when the last one timed out, else 502. The usage record names the last provider tried
     /// (nothing is charged), so a provider that is down shows up in the provider statistics instead of only in its circuit.
     /// </summary>
     private async Task RejectAllFailedAsync(HttpContext http, RequestState state, int candidates, string modelName, ProviderFailure? lastFailure)
@@ -329,6 +404,16 @@ public sealed partial class GatewayRequestHandler
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: provider {Provider} failed with {Status} ({Reason}); trying next")]
     private static partial void LogProviderFailed(ILogger logger, string requestId, string provider, int status, string reason);
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5394:Do not use insecure randomness", Justification = "Retry jitter, not a security decision.")]
+    private static TimeSpan RetryDelay(RetryOptions retry, int retryIndex) =>
+        TimeSpan.FromMilliseconds(retry.BaseDelayMs * (1 << retryIndex) * (0.5 + Random.Shared.NextDouble()));
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Request {RequestId}: retrying provider {Provider} in {DelayMs} ms")]
+    private static partial void LogRetrying(ILogger logger, string requestId, string provider, long delayMs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: provider {Provider} asked to retry {UpstreamModel} after {CooldownMs} ms; it goes last until then")]
+    private static partial void LogDeploymentCooldown(ILogger logger, string requestId, string provider, string upstreamModel, long cooldownMs);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: circuit breaker store unavailable ({ExceptionType}); provider health not recorded")]
     private static partial void LogCircuitStoreFailed(ILogger logger, string exceptionType, string requestId);

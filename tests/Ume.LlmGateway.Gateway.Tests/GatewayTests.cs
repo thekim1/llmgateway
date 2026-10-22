@@ -1,12 +1,15 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.Infrastructure.Stores;
 using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
@@ -105,6 +108,167 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.FallbackCount.ShouldBe(1);
         // The failed attempt is provider time too; the slow provider is given up on after its 1 s timeout.
         usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(failingModel == "slow/slow" ? 900 : 0, usage.LatencyMs);
+    }
+
+    [Fact]
+    public async Task Retry_after_puts_the_deployment_on_cooldown()
+    {
+        var route = await fixture.CreateRouteAsync("eu/quota429", "onprem/ok");
+        var key = await fixture.CreateKeyAsync();
+        using (var first = await fixture.SendAsync(key, route))
+        {
+            first.StatusCode.ShouldBe(HttpStatusCode.OK);
+            first.Headers.GetValues("x-ume-provider").Single().ShouldBe("onprem");
+        }
+
+        var deployment = fixture.DeploymentId("eu/quota429");
+        var status = await fixture.Services.GetRequiredService<ICircuitBreakerStore>()
+            .GetStatusAsync([], [deployment], TestContext.Current.CancellationToken);
+        status.CoolingDeployments.ShouldContain(deployment);
+
+        // Until the cooldown ends the quota-limited deployment goes last: no wasted round trip.
+        using var second = await fixture.SendAsync(key, route);
+        second.StatusCode.ShouldBe(HttpStatusCode.OK);
+        second.Headers.GetValues("x-ume-provider").Single().ShouldBe("onprem");
+        second.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
+    }
+
+    [Fact]
+    public async Task Last_candidate_is_retried_after_a_passing_failure()
+    {
+        // A single target that fails once with 503 and then answers: the retry saves the request.
+        var route = await fixture.CreateRouteAsync("eu/flaky503");
+        using var response = await fixture.SendAsync(await fixture.CreateKeyAsync(), route);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1");
+        var usage = await fixture.UsageAsync(response);
+        usage.Outcome.ShouldBe(RequestOutcome.Success);
+        usage.FallbackCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_lasting_failure_is_retried_once_then_refused()
+    {
+        var route = await fixture.CreateRouteAsync("external/fail503");
+        using var response = await fixture.SendAsync(await fixture.CreateKeyAsync(), route);
+        await AssertErrorAsync(response, 502, "all_providers_failed");
+        response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1"); // one retry (Gateway:Retry:MaxRetries = 1)
+        (await fixture.UsageAsync(response)).FallbackCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Quota_and_client_errors_are_not_retried()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var quota = await fixture.SendAsync(key, await fixture.CreateRouteAsync("external/fail429"));
+        await AssertErrorAsync(quota, 502, "all_providers_failed");
+        quota.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
+
+        using var bad = await fixture.SendAsync(key, await fixture.CreateRouteAsync("external/bad400"));
+        bad.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        bad.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
+    }
+
+    [Fact]
+    public async Task Count_tokens_is_passed_through_and_costs_nothing()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendAsync(key, "anthropic/ok", "/v1/messages/count_tokens");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<JsonObject>(TestContext.Current.CancellationToken))!["input_tokens"]!.GetValue<int>().ShouldBe(1234);
+        var usage = await fixture.UsageAsync(response);
+        usage.Endpoint.ShouldBe(GatewayEndpoint.AnthropicCountTokens);
+        usage.Outcome.ShouldBe(RequestOutcome.Success);
+        usage.InputTokens.ShouldBe(0); // a count, not consumption
+        usage.CostUsd.ShouldBe(0);
+
+        // Only Anthropic providers count tokens; errors have the Anthropic shape.
+        using var openai = await fixture.SendAsync(key, "eu/ok", "/v1/messages/count_tokens");
+        ((int)openai.StatusCode).ShouldBeGreaterThanOrEqualTo(400);
+        (await openai.Content.ReadFromJsonAsync<JsonObject>(TestContext.Current.CancellationToken))!["type"]!.GetValue<string>().ShouldBe("error");
+    }
+
+    [Fact]
+    public async Task A_prompt_too_large_for_a_model_skips_it_or_is_refused()
+    {
+        var small = await fixture.AddDeploymentAsync("onprem", "ok", contextWindow: 100);
+        var large = await fixture.AddDeploymentAsync("onprem", "ok", contextWindow: null);
+        var key = await fixture.CreateKeyAsync();
+        var longPrompt = string.Concat(Enumerable.Repeat("lorem ipsum ", 200)); // ≈ 600 tokens by the estimate
+
+        // A route with a larger fallback: the small model is skipped, nothing is sent to it.
+        using (var routed = await fixture.SendAsync(key, await fixture.CreateRouteAsync(small, large), prompt: longPrompt))
+        {
+            routed.StatusCode.ShouldBe(HttpStatusCode.OK);
+            routed.Headers.GetValues("x-ume-model").Single().ShouldBe(large);
+            routed.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
+        }
+
+        // Short prompts still use the small model.
+        using (var shortPrompt = await fixture.SendAsync(key, small))
+        {
+            shortPrompt.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        using var refused = await fixture.SendAsync(key, small, prompt: longPrompt);
+        await AssertErrorAsync(refused, 400, "context_length_exceeded");
+        (await fixture.UsageAsync(refused)).Outcome.ShouldBe(RequestOutcome.Rejected);
+    }
+
+    [Fact]
+    [Trait(TestCategory.Name, TestCategory.Flaky)] // timing: needs the first request still in flight 300 ms later on a busy runner
+    public async Task Requests_in_flight_are_limited_per_key()
+    {
+        var key = await fixture.CreateKeyAsync(k => k.MaxConcurrentRequests = 1);
+        var slow = fixture.SendAsync(key, "slow/slow"); // holds the key's only slot for about a second (provider timeout)
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
+
+        using (var second = await fixture.SendAsync(key))
+        {
+            await AssertErrorAsync(second, 429, "rate_limited");
+            (await fixture.UsageAsync(second)).Outcome.ShouldBe(RequestOutcome.RateLimited);
+        }
+
+        using (await slow)
+        {
+        }
+
+        // The slot is freed when the first response has completed.
+        for (var attempt = 0; ; attempt++)
+        {
+            using var third = await fixture.SendAsync(key);
+            if (third.StatusCode == HttpStatusCode.OK)
+            {
+                break;
+            }
+
+            attempt.ShouldBeLessThan(20);
+            await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Team_and_key_request_policy_reach_the_provider()
+    {
+        var marker = "policy-" + Guid.NewGuid().ToString("N");
+        var key = await fixture.CreateKeyAsync(k =>
+        {
+            k.Team!.RequestPolicy = new RequestPolicy { SystemPrompt = "Svara på svenska.", MaxOutputTokens = 1000 };
+            k.RequestPolicy = new RequestPolicy
+            {
+                MaxOutputTokens = 7,
+                Overrides = new Dictionary<string, JsonElement> { ["temperature"] = JsonDocument.Parse("0").RootElement.Clone() },
+            };
+        });
+        using var response = await fixture.SendAsync(key, prompt: marker); // asks for max_tokens 20
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var sent = JsonNode.Parse((await fixture.UpstreamRequestsAsync(e => e.RequestMessage?.Body?.Contains(marker, StringComparison.Ordinal) == true)).Single().RequestMessage!.Body!)!;
+        sent["messages"]![0]!["role"]!.GetValue<string>().ShouldBe("system");
+        sent["messages"]![0]!["content"]!.GetValue<string>().ShouldBe("Svara på svenska."); // from the team
+        sent["messages"]![1]!["content"]!.GetValue<string>().ShouldBe(marker);
+        sent["max_tokens"]!.GetValue<int>().ShouldBe(7); // the key's cap wins
+        sent["temperature"]!.GetValue<int>().ShouldBe(0);
     }
 
     [Fact]

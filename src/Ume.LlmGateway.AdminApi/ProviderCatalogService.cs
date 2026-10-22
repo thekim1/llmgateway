@@ -173,7 +173,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         InputPerMillionUsd = input.InputPerMillionUsd, CachedInputPerMillionUsd = input.CachedInputPerMillionUsd,
         OutputPerMillionUsd = input.OutputPerMillionUsd, AudioPerMinuteUsd = input.AudioPerMinuteUsd,
         AudioInputPerMillionUsd = input.AudioInputPerMillionUsd, AudioOutputPerMillionUsd = input.AudioOutputPerMillionUsd,
-        PerImageUsd = input.PerImageUsd,
+        PerImageUsd = input.PerImageUsd, CacheWriteInputPerMillionUsd = input.CacheWriteInputPerMillionUsd,
         EffectiveFrom = (input.EffectiveFrom ?? ctx.Now).ToUniversalTime(),
     };
 

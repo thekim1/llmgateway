@@ -14,6 +14,15 @@ function set(key: keyof PriceDraft, value: string): void {
   <div class="flex flex-col gap-4">
     <TextField :id="`${idPrefix}-input`" :model-value="draft.input" label="Input (USD per 1M tokens)" inputmode="decimal" :error="errors.input" @update:model-value="set('input', $event)" />
     <TextField :id="`${idPrefix}-cached`" :model-value="draft.cached" label="Cached input (USD per 1M tokens)" inputmode="decimal" :error="errors.cached" @update:model-value="set('cached', $event)" />
+    <TextField
+      :id="`${idPrefix}-cache-write`"
+      :model-value="draft.cacheWrite"
+      label="Cache write (USD per 1M tokens)"
+      inputmode="decimal"
+      hint="Optional. For providers that charge for writing the prompt cache, such as Anthropic (1.25 times the input price, 2 times for the 1-hour cache). Empty bills cache writes at the input price."
+      :error="errors.cacheWrite"
+      @update:model-value="set('cacheWrite', $event)"
+    />
     <TextField :id="`${idPrefix}-output`" :model-value="draft.output" label="Output (USD per 1M tokens)" inputmode="decimal" :error="errors.output" @update:model-value="set('output', $event)" />
     <TextField
       :id="`${idPrefix}-audio`"

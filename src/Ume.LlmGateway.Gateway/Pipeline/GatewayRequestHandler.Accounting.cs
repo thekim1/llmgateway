@@ -95,7 +95,7 @@ public sealed partial class GatewayRequestHandler
             RoutingRuleName = state.Rule?.Name is { Length: > 200 } ruleName ? ruleName[..200] : state.Rule?.Name,
         };
 
-        metrics.Record(record);
+        metrics.Record(record, deployment?.ProviderAccount?.Type);
         // Successful requests are in the usage table and the metrics already; a log line for each cost 9-16 % of peak
         // throughput (docs/performance.md), so only refused, failed and cancelled requests are logged at Information,
         // unless an admin has switched on logging every request (Settings, GatewaySettings.LogAllRequests).

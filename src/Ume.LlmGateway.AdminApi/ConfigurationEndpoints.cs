@@ -52,7 +52,9 @@ public sealed record PriceRequest(
     [property: Range(typeof(decimal), "0", "1000000")] decimal AudioInputPerMillionUsd = 0,
     [property: Range(typeof(decimal), "0", "1000000")] decimal AudioOutputPerMillionUsd = 0,
     // Image models billed per picture (DALL·E, FLUX). Omitted = 0 (token-billed models such as gpt-image-1 use the token prices).
-    [property: Range(typeof(decimal), "0", "1000000")] decimal PerImageUsd = 0) : AdminRequest;
+    [property: Range(typeof(decimal), "0", "1000000")] decimal PerImageUsd = 0,
+    // Prompt-cache writes (Anthropic: 1.25x input). Omitted = null (billed at the input price).
+    [property: Range(typeof(decimal), "0", "1000000")] decimal? CacheWriteInputPerMillionUsd = null) : AdminRequest;
 public sealed record ModelRequest(
     Guid ProviderId,
     [property: Required, StringLength(200)] string Name,

@@ -93,7 +93,9 @@ public sealed class GatewayFixture : IAsyncLifetime
                         (type == ProviderType.Anthropic ? ProviderCapabilities.AnthropicMessages : ProviderCapabilities.Embeddings | ProviderCapabilities.Responses),
                     TimeoutSeconds = name == "slow" ? 1 : 10, CreatedAt = DateTimeOffset.UtcNow,
                 };
-                foreach (var model in name == "slow" ? new[] { "slow" } : new[] { "ok", "fail503", "fail429", "bad400", "embedding" })
+                foreach (var model in name == "slow" ? new[] { "slow" }
+                    : name == "eu" ? new[] { "ok", "fail503", "fail429", "quota429", "flaky503", "bad400", "embedding" }
+                    : new[] { "ok", "fail503", "fail429", "bad400", "embedding" })
                 {
                     var deployment = new ModelDeployment
                     {
@@ -196,7 +198,25 @@ public sealed class GatewayFixture : IAsyncLifetime
         var request = Request.Create().WithPath(path).UsingPost()
             .WithBody(new JsonPartialMatcher(new { model }));
         var response = Response.Create().WithHeader("Content-Type", "application/json");
-        if (behavior.StartsWith("fail", StringComparison.Ordinal) || behavior == "bad400")
+        if (behavior == "flaky503")
+        {
+            // Fails once, then answers: what a retry of the same deployment is for.
+            Upstream.Given(request).InScenario(model).WillSetStateTo("failed-once").AtPriority(10)
+                .RespondWith(Response.Create().WithStatusCode(503).WithHeader("Content-Type", "application/json")
+                    .WithBody("""{"error":{"message":"Service unavailable"}}"""));
+            Upstream.Given(request).InScenario(model).WhenStateIs("failed-once").AtPriority(10)
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                    .WithBody("""{"id":"chatcmpl-test","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Test answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":20}}"""));
+            return;
+        }
+
+        if (behavior == "quota429")
+        {
+            // A quota answer that says when to come back, as Azure OpenAI sends it.
+            response.WithStatusCode(429).WithHeader("Retry-After", "30")
+                .WithBody("""{"error":{"code":"429","message":"Rate limit exceeded. Try again in 30 seconds."}}""");
+        }
+        else if (behavior.StartsWith("fail", StringComparison.Ordinal) || behavior == "bad400")
         {
             var status = behavior == "fail503" ? 503 : behavior == "fail429" ? 429 : 400;
             response.WithStatusCode(status).WithBody("""{"error":{"type":"invalid_request_error","message":"Upstream rejected request"}}""");
@@ -212,6 +232,13 @@ public sealed class GatewayFixture : IAsyncLifetime
             }
         }
         Upstream.Given(request).AtPriority(10).RespondWith(response);
+        if (type == ProviderType.Anthropic && behavior == "ok")
+        {
+            Upstream.Given(Request.Create().WithPath("/v1/messages/count_tokens").UsingPost().WithBody(new JsonPartialMatcher(new { model })))
+                .AtPriority(1)
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"input_tokens":1234}"""));
+        }
+
         if (type != ProviderType.Anthropic && behavior == "ok")
         {
             Upstream.Given(Request.Create().WithPath("/v1/chat/completions").UsingPost()
@@ -397,6 +424,26 @@ public sealed class GatewayFixture : IAsyncLifetime
         db.VirtualKeys.Add(key);
         await db.SaveChangesAsync();
         return new TestKey(key.Id, team.Id, generated.PlainText);
+    }
+
+    public Guid DeploymentId(string model) => _models[model].Id;
+
+    /// <summary>A new deployment on an existing provider, answered like that provider's <paramref name="like"/> model.</summary>
+    public async Task<string> AddDeploymentAsync(string provider, string like, int? contextWindow)
+    {
+        var template = _models[provider + "/" + like];
+        var deployment = new ModelDeployment
+        {
+            Name = $"{provider}/{like}-{Guid.NewGuid():N}", UpstreamModel = template.UpstreamModel, Kind = template.Kind, ContextWindow = contextWindow,
+            ProviderAccountId = template.ProviderAccountId,
+            Prices = [new ModelPrice { InputPerMillionUsd = 1, OutputPerMillionUsd = 2, EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1) }],
+        };
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        db.ModelDeployments.Add(deployment);
+        await db.SaveChangesAsync();
+        _models.Add(deployment.Name, deployment);
+        return deployment.Name;
     }
 
     public async Task<string> CreateRouteAsync(params string[] models)

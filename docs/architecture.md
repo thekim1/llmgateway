@@ -32,12 +32,16 @@ isolating Redis to the gateway alone would break these control-plane functions.
 
 Client address (from `X-Forwarded-For` only on connections from trusted proxies, held in the catalogue snapshot) ->
 bounded JSON request -> HMAC authentication -> key address allow-list -> key attachment policy -> model/endpoint authorization -> Redis
-rate limit -> optional PII policy -> routing rules (optional, see routing-rules.md) -> residency/capability route filter -> hierarchical
-budget reservation -> provider invocation -> usage reconciliation -> metadata writer.
+rate limit (sliding minute, requests in progress) -> optional PII policy -> routing rules (optional, see routing-rules.md) ->
+residency/capability/context-window route filter -> team and key request policy -> hierarchical budget reservation -> provider
+invocation (fallback; the last candidate retried once) -> usage reconciliation -> metadata writer.
 Fallback occurs for transient failures (408, 409, 429, 5xx, timeouts, connection errors, invalid JSON) and
 provider-configuration failures (upstream 401/403/404, plain HTTP in production, an undecryptable credential, an
 endpoint the provider type cannot serve), never after streaming has sent bytes. Only transient failures count
-toward the circuit breaker, so a misconfigured provider does not open its circuit. Unknown JSON fields pass through;
+toward the circuit breaker, so a misconfigured provider does not open its circuit. A transient failure with `Retry-After`
+puts that deployment on a shared cooldown instead (it goes last until then; read in the same Redis `MGET` as the circuits).
+Within a priority, targets are ordered by weight, or with `Gateway:LoadBalancing=LeastLoaded` by power of two choices over
+per-instance latency, success and in-flight averages (`DeploymentLoad`). Unknown JSON fields pass through;
 model parameter rewrites are explicit.
 Every request that passes authentication ends in exactly one usage record: an unexpected exception after acceptance
 releases the budget reservation, is recorded (outcome `ProviderError`, error `internal_error`; an HTTP request is charged nothing, a live session what it
@@ -109,7 +113,11 @@ ring makes existing provider credentials and BFF state unreadable.
 ## Operational surfaces
 
 `/health/live`, `/health/ready`, `/version` are metadata-only. OTel metrics use bounded
-labels for request outcomes, providers, endpoints, tokens, cost, duration and queue depth.
+labels for request outcomes, providers, endpoints, tokens, cost (`ume.gateway.cost.usd`; `ume.gateway.cost` in SEK until SEK
+is removed), duration and queue depth. With `Gateway:GenAiMetrics=true` (off by default: four more histogram
+recordings per request) also the OpenTelemetry GenAI semantic-convention metrics (`gen_ai.client.token.usage`,
+`gen_ai.client.operation.duration`, `gen_ai.server.request.duration`, `gen_ai.server.time_to_first_token`, with the
+catalogue's upstream model name), so standard GenAI dashboards work.
 The authenticated ops API displays component status, schema/version, provider statistics,
 drain/circuit actions and key-cache invalidation. Reachability is not a successful upstream
 inference probe; an idle provider's historical latency is unavailable, not zero.

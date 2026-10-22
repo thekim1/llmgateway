@@ -21,6 +21,9 @@ internal static class RedisKeys
 
     public static readonly TimeSpan RateWindow = TimeSpan.FromSeconds(RateWindowSeconds);
 
+    /// <summary>Requests of a key in flight (sorted set of lease id → expiry in ms), for its concurrency limit.</summary>
+    public static string InFlight(Guid keyId) => $"ume:inflight:{keyId:N}";
+
     /// <summary>Requests a key made in the minute <paramref name="minute"/> (Unix minutes).</summary>
     public static string RateRequests(Guid keyId, long minute) => $"ume:rl:req:{keyId:N}:{minute}";
 
@@ -35,6 +38,9 @@ internal static class RedisKeys
 
     /// <summary>Failures of a provider in the current sampling window.</summary>
     public static string CircuitFailures(Guid providerId) => $"ume:circuit-fail:{providerId:N}";
+
+    /// <summary>Set while a model deployment is on cooldown because its provider answered with <c>Retry-After</c>, with that delay as TTL.</summary>
+    public static string Cooldown(Guid deploymentId) => $"ume:cooldown:{deploymentId:N}";
 
     /// <summary>
     /// Spend of one budget scope in one period window, in micro-USD. (Before budgets were counted in USD the counters

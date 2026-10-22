@@ -16,6 +16,7 @@ public static class GatewayRoutes
         [GatewayEndpoint.Embeddings] = "Embeddings (OpenAI-compatible)",
         [GatewayEndpoint.Responses] = "Responses API (OpenAI-compatible; only providers that support it)",
         [GatewayEndpoint.AnthropicMessages] = "Anthropic Messages API (Anthropic providers only)",
+        [GatewayEndpoint.AnthropicCountTokens] = "Anthropic token counting for a Messages request (Anthropic providers only; free)",
         [GatewayEndpoint.Models] = "Models and aliases the key may use",
         [GatewayEndpoint.AudioTranscriptions] = "Speech to text (OpenAI-compatible, multipart/form-data with the 'file' field)",
         [GatewayEndpoint.AudioTranslations] = "Speech to English text (OpenAI-compatible, multipart/form-data with the 'file' field)",

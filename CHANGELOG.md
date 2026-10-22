@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+Three improvements taken from a comparison with agentgateway ([docs/agentgateway-comparison.md](docs/agentgateway-comparison.md)).
+
+**Retry-After cooldown.** A provider answer with `Retry-After` or `retry-after-ms` (a 429 from Azure OpenAI or OpenAI)
+puts that model deployment on cooldown for that long, shared by all gateway instances through Redis: it goes last, like
+an open circuit, so requests stop paying a wasted round trip to a deployment that is out of quota. It no longer counts
+toward the provider's circuit breaker, so a quota on one deployment no longer closes the provider's other deployments.
+Capped by `CircuitBreaker:MaxRetryAfter` (default 5 minutes; `00:00:00` turns it off). No extra Redis round trip.
+
+**Least-loaded balancing (opt-in).** `Gateway:LoadBalancing=LeastLoaded` picks the first of several targets with the
+same priority by power of two choices over each instance's moving averages of latency and success and its requests in
+flight, so a slow, failing or saturated deployment gets less traffic. The default stays `Weighted`. See
+[routing rules](docs/routing-rules.md#evaluation-order).
+
+**Retries.** The last candidate of a request is retried once, after a short jittered delay, when it fails with a
+connection error or 502/503/504 (not a timeout, a 429 or a client error): a route with one target no longer fails on a
+network blip. `Gateway:Retry:MaxRetries` (1; 0 turns it off) and `Gateway:Retry:BaseDelayMs` (250). `x-ume-fallbacks` and
+the usage record count every extra attempt; the `all_providers_failed` message counts attempts.
+
+**Smoother rate limits and a concurrency cap.** Requests and tokens per minute are counted over a sliding minute (the
+previous minute weighted by how much of it the last 60 seconds cover), so a client can no longer send twice its limit
+across a minute boundary; `Retry-After` says when one more fits; refused requests no longer count. Keys get *Requests at
+once* (`maxConcurrentRequests`): requests in progress across all instances, so one busy key cannot saturate a shared
+on-prem server. Same single Redis round trip. Migration `KeyConcurrencyLimit`.
+
+**Request policies per team and key.** A cap on output tokens, a system prompt placed before the application's own,
+default parameters and forced parameters (admin UI: *Request policy* on the team and key forms; admin API `requestPolicy`).
+A key's values win over its team's. Applied after the PII policy and the routing rules, before the budget estimate (which
+the cap tightens). Migration `RequestPolicies`.
+
+**Token counting and context windows.** `POST /v1/messages/count_tokens` is passed to Anthropic providers, free (the
+Anthropic SDKs offer it; it answered 404 before). A model whose context window the prompt clearly exceeds is skipped, so a larger
+fallback model takes long prompts; with none left the answer is 400 `context_length_exceeded` before anything is sent.
+
+**Prompt caching.** OpenAI-format requests translated for Claude get Anthropic cache markers on the tools and the system
+prompt (`Gateway:PromptCaching`: `Static` by default, `Conversation` or `Off`). The header `x-ume-session` (or OpenAI's
+`prompt_cache_key`) keeps a conversation on the same target, so vLLM and Ollama prefix caches are reused.
+
+**GenAI metrics (opt-in).** With `Gateway:GenAiMetrics=true` the gateway also records the OpenTelemetry GenAI
+semantic-convention metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`,
+`gen_ai.server.request.duration`, `gen_ai.server.time_to_first_token`) for standard GenAI dashboards. Off by default, so
+the request path does no extra work. Always: `ume.gateway.cost.usd`; `ume.gateway.cost` (SEK) stays until SEK is removed.
+
+**Flaky tests outside the pull request pipeline.** Tests that depend on timing or on races between the shared fixtures'
+parallel test classes are marked `[Trait(TestCategory.Name, TestCategory.Flaky)]`. `dotnet test` still runs every test
+locally, and the weekly *Flake hunt* runs them too; *Verify POC* runs with `--filter-not-trait "Category=Flaky"`. Four
+tests are marked, each with the reason (see *Tests that do not flake* in the local development guide).
+
+**Faster Claude streams through the OpenAI API.** The translated stream writes its chunks with `Utf8JsonWriter`: 683 → 291
+µs and 1 270 → 379 KB per 300-chunk stream.
+
+**Cache-write prices.** A model price can set *Cache write* (USD per 1M tokens) for providers that charge for writing
+the prompt cache. Anthropic `cache_creation_input_tokens` were billed at the input price; with a cache-write price
+(1.25x input for Claude) they are billed correctly. Admin API and config export: `cacheWriteInputPerMillionUsd`
+(optional); Data API prices feed: the same field. Migration `CacheWritePrice` adds a nullable column.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

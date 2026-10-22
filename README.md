@@ -3,8 +3,8 @@
 **Website and documentation: <https://thekim1.github.io/llmgateway/>**
 
 One gateway between an organisation's applications and every language model: virtual keys, department/team/key budgets (in USD),
-routing rules that keep personal data on-prem, residency restrictions, provider fallback and a per-key policy for attached
-files. Applications keep the OpenAI or Anthropic SDK they already use. The gateway stores usage metadata, **never prompt
+routing rules that keep personal data on-prem, residency restrictions, provider fallback and retries, request policies
+(output caps, system prompts) per team and key, prompt caching and a per-key policy for attached files. Applications keep the OpenAI or Anthropic SDK they already use. The gateway stores usage metadata, **never prompt
 or response content**. Chat, Responses, Messages, embeddings, speech to text, images and live audio all go through the
 same pipeline.
 
@@ -79,5 +79,5 @@ Benchmarks: [Performance](docs/performance.md), [Gateway vs. eneo, 2026-10-13](d
 [platform comparison](docs/reports/platform-comparison.pdf).
 
 Changes per release: [Changelog](CHANGELOG.md). For maintainers (not on the website): [Handover](HANDOVER.md),
-[Manual test checklist](docs/manual-test-checklist.md), [Performance improvement plan](docs/performance-improvement-plan.md)
-and the [Demo script](docs/demo-script.md).
+[Manual test checklist](docs/manual-test-checklist.md), [Performance improvement plan](docs/performance-improvement-plan.md),
+the [Demo script](docs/demo-script.md) and the [comparison with agentgateway](docs/agentgateway-comparison.md).

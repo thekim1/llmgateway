@@ -52,6 +52,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Description).HasMaxLength(1000);
             e.HasIndex(x => new { x.DepartmentId, x.Name }).IsUnique();
             e.HasMany(x => x.VirtualKeys).WithOne(x => x.Team).HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.Restrict);
+            PolicyColumn(e.Property(x => x.RequestPolicy));
         });
 
         modelBuilder.Entity<VirtualKey>(e =>
@@ -67,6 +68,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.RevokedAt).IsConcurrencyToken();
             e.Property(x => x.PiiPolicy).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.AttachmentPolicy).HasConversion<string>().HasMaxLength(20);
+            PolicyColumn(e.Property(x => x.RequestPolicy));
         });
 
         modelBuilder.Entity<DataApiKey>(e =>
@@ -108,6 +110,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
         {
             e.Property(x => x.InputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.CachedInputPerMillionUsd).HasPrecision(18, 6);
+            e.Property(x => x.CacheWriteInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.OutputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
@@ -237,6 +240,26 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.HasIndex(x => new { x.VirtualKeyId, x.LastSeen });
         });
     }
+
+    private static readonly System.Text.Json.JsonSerializerOptions PolicyJson = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// <summary>A <see cref="RequestPolicy"/> as one jsonb column, compared by content (its dictionaries are not values).</summary>
+    private static void PolicyColumn(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<RequestPolicy?> property) =>
+        property.HasColumnType("jsonb").HasConversion(
+            new ValueConverter<RequestPolicy?, string?>(p => SerializePolicy(p), s => DeserializePolicy(s)),
+            new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<RequestPolicy?>(
+                (a, b) => SerializePolicy(a) == SerializePolicy(b),
+                p => (SerializePolicy(p) ?? string.Empty).GetHashCode(StringComparison.Ordinal),
+                p => DeserializePolicy(SerializePolicy(p))));
+
+    private static string? SerializePolicy(RequestPolicy? policy) =>
+        policy is null || policy.IsEmpty ? null : System.Text.Json.JsonSerializer.Serialize(policy, PolicyJson);
+
+    private static RequestPolicy? DeserializePolicy(string? json) =>
+        json is null ? null : System.Text.Json.JsonSerializer.Deserialize<RequestPolicy>(json, PolicyJson);
 }
 
 public sealed class UtcDateTimeOffsetConverter() : ValueConverter<DateTimeOffset, DateTimeOffset>(

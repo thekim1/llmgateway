@@ -137,8 +137,12 @@ public sealed class RoutingSignalsTests(GatewayFixture fixture)
 
         (await limiter.AcquireAsync(other, 1, null, Ct)).Allowed.ShouldBeTrue();
 
-        // A new minute starts from zero.
+        // The window slides: 10 s into the next minute, 50 s of the previous one still count; two minutes on, nothing does.
+        var light = Guid.NewGuid();
+        await limiter.RecordTokensAsync(light, 600, Ct);
         time.Advance(TimeSpan.FromSeconds(60));
-        (await limiter.PeekTokensUsedPercentAsync(key, 1000, Ct)).ShouldBe(0);
+        (await limiter.PeekTokensUsedPercentAsync(light, 1000, Ct))!.Value.ShouldBe(50, tolerance: 0.001); // 600 × 50/60
+        time.Advance(TimeSpan.FromSeconds(60));
+        (await limiter.PeekTokensUsedPercentAsync(light, 1000, Ct)).ShouldBe(0);
     }
 }

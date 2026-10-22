@@ -11,7 +11,27 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: updates without downtime, budgets in USD
+## Unreleased: retries, rate limits, request policies, prompt caching, cache-write prices
+
+- **Rolling update: yes.** The migrations `CacheWritePrice`, `KeyConcurrencyLimit` and `RequestPolicies` only add nullable
+  columns (`ModelPrices.CacheWriteInputPerMillionUsd`, `VirtualKeys.MaxConcurrentRequests`, `VirtualKeys.RequestPolicy` and
+  `Teams.RequestPolicy`, jsonb); the previous version ignores them. One caveat: until every admin API instance runs the new
+  version, an old instance cannot read usage records of the new endpoint `AnthropicCountTokens` (usage and PII pages may
+  fail on it), so finish the rollout before clients use `/v1/messages/count_tokens`.
+- `app-roles.sql` grants the Data API role `MaxConcurrentRequests` on `VirtualKeys`; the migration service applies it on
+  its next start (the Data API keys feed gains `maxConcurrentRequests`).
+- **Behaviour changes:** per-minute limits slide (a key that used its whole limit at the end of one minute waits into the
+  next, and refused requests no longer count); the last candidate is retried once after a connection error or 502/503/504
+  (`Gateway__Retry__MaxRetries=0` restores the old behaviour); OpenAI-format requests translated for Claude carry prompt-cache
+  markers (`Gateway__PromptCaching=Off` restores the old behaviour; with Claude add a *Cache write* price, see below).
+- **Redis:** the new keys `ume:cooldown:*` are inside the existing ACL (`~ume:*`); the cooldown script uses `set` and
+  `pexpire` (already granted). Needs Redis 7 or later (`PEXPIRE … GT`); the shipped images use 8.6.
+- **Behaviour change:** a 429/503 with `Retry-After` no longer counts toward the provider's circuit breaker; the deployment
+  is put on cooldown instead (`CircuitBreaker__MaxRetryAfter=00:00:00` restores the old behaviour).
+- Existing Claude prices bill cache writes at the input price, as before; add a price with *Cache write* to bill them
+  at Anthropic's rate from its effective date.
+
+## 0.6.0: updates without downtime, budgets in USD
 
 - **Rolling update: no** (renames budget columns 0.5.0 reads). Stop the gateway, admin API and Data API, migrate, start the
   new version. Later releases can use the rolling update described below.

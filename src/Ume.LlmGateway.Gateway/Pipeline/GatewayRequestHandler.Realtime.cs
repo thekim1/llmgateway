@@ -65,7 +65,7 @@ public sealed partial class GatewayRequestHandler
         }
 
         var circuitPrefetch = resolution.Model is null ? null : router.PrefetchCircuits(resolution.Model, ct);
-        if (!await AcquireRateLimitAsync(http, state, key, ct))
+        if (!await AcquireRateLimitAsync(http, state, key, ct, inFlight: false)) // sessions have their own limit
         {
             return;
         }
@@ -179,7 +179,7 @@ public sealed partial class GatewayRequestHandler
                     return;
                 }
 
-                await RecordFailureAsync(state, provider, failure);
+                await RecordFailureAsync(state, target, failure);
                 lastFailure = failure;
             }
 
