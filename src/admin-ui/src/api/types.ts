@@ -104,6 +104,8 @@ export interface BffUser {
   roles: string[]
   departmentCodes: string[]
   sessionExpiresAt: IsoDateTime | null
+  /** The session's absolute end (Admin:MaxSessionHours after sign-in); extending never goes past it. */
+  sessionLimitAt?: IsoDateTime | null
 }
 
 // ---------- Organisation ----------
@@ -198,6 +200,10 @@ export interface VirtualKey {
   canReveal?: boolean
   /** Client addresses (single IPs or CIDR networks) the key may be used from. Empty = any address. */
   allowedIpRanges?: string[]
+  /** Tools the provider runs itself (web search, MCP, ...). False: only function tools. */
+  allowProviderTools?: boolean
+  /** Conversations kept at the provider (store, background, conversations). False: refused, Responses get store: false. */
+  allowProviderStorage?: boolean
 }
 
 export interface KeyFilter {
@@ -225,6 +231,9 @@ export interface CreateKeyRequest {
   requestPolicy?: RequestPolicy
   /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
   allowedIpRanges?: string[]
+  /** Omitted = false on create, unchanged on update. */
+  allowProviderTools?: boolean
+  allowProviderStorage?: boolean
 }
 
 export interface CreateKeyResponse {
@@ -248,6 +257,8 @@ export interface UpdateKeyRequest {
   maxConcurrentRequests?: number | null
   requestPolicy?: RequestPolicy
   allowedIpRanges?: string[]
+  allowProviderTools?: boolean
+  allowProviderStorage?: boolean
   isEnabled: boolean
 }
 
@@ -922,6 +933,14 @@ export interface AuditEntry {
   entityType: string
   entityId: string | null
   details: string | Record<string, unknown> | null
+  /** Who and from where, as recorded with the entry (older entries have none of these). */
+  actorName?: string | null
+  actorRoles?: string | null
+  actorDepartments?: string | null
+  sourceAddress?: string | null
+  sessionId?: string | null
+  requestId?: string | null
+  userAgent?: string | null
 }
 
 export interface AuditQuery {

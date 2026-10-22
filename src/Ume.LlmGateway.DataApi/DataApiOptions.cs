@@ -21,6 +21,12 @@ public sealed class DataApiOptions
     [Range(0, 300)]
     public int KeyCacheSeconds { get; set; } = 30;
 
+    /// <summary>
+    /// Whether the OpenAPI document (<c>/openapi/v1.json</c>) and the browsable reference (<c>/scalar</c>) are served. They hold
+    /// no data and need no credentials; turn off to give less away. Read at startup.
+    /// </summary>
+    public bool PublishApiReference { get; set; } = true;
+
     /// <summary>Required <c>aud</c> of access tokens.</summary>
     [Required]
     public string Audience { get; set; } = "ume-data-api";

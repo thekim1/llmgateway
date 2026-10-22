@@ -259,6 +259,24 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task Redis_admin_sessions_round_trip_expire_and_are_removed()
+    {
+        var sessions = fixture.GatewayServices.GetRequiredService<IAdminSessionStore>();
+        sessions.ShouldBeOfType<RedisAdminSessionStore>();
+        var id = Guid.NewGuid().ToString("N");
+        byte[] value = [1, 2, 3, 250];
+
+        await sessions.SetAsync(id, value, TimeSpan.FromMinutes(5), Cancellation);
+        (await sessions.GetAsync(id, Cancellation)).ShouldBe(value);
+        await sessions.RemoveAsync(id, Cancellation);
+        (await sessions.GetAsync(id, Cancellation)).ShouldBeNull();
+
+        await sessions.SetAsync(id, value, TimeSpan.FromMilliseconds(300), Cancellation);
+        await Task.Delay(TimeSpan.FromSeconds(1), Cancellation);
+        (await sessions.GetAsync(id, Cancellation)).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Redis_reports_token_usage_without_consuming_request_quota()
     {
         var limiter = fixture.GatewayServices.GetRequiredService<IRateLimiter>();

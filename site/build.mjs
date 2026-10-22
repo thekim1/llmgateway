@@ -135,7 +135,7 @@ ${origin ? `<link rel="canonical" href="${esc(origin + url(path))}">\n` : ''}<li
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..24,400,0..1,0&icon_names=__ICONS__&display=block">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,GRAD@20..24,400,0&icon_names=__ICONS__&display=block">
 <link rel="stylesheet" href="${url('assets/tokens.css')}">
 <link rel="stylesheet" href="${url('assets/site.css')}">
 <script src="${url('assets/site.js')}" defer></script>
@@ -199,7 +199,7 @@ function homePage() {
 </section>
 <section class="wrap pt-120 stack-40" aria-labelledby="pillars-h">
   <div class="intro">${eyebrow('Made for the public sector')}<h2 id="pillars-h" class="h-xl">Control over AI that you can explain to a data protection officer.</h2></div>
-  <div class="grid-280">${C.PILLARS.map(p => `<article class="card pillar"><span class="tile tone-${p.tone}" aria-hidden="true">${icon(p.icon, 'fill')}</span><h3>${p.title}</h3><p>${p.body}</p><ul>${p.points.map(pt => `<li>${icon('check', 'ok')}<span>${pt}</span></li>`).join('')}</ul></article>`).join('')}</div>
+  <div class="grid-280">${C.PILLARS.map(p => `<article class="card pillar"><span class="tile tone-${p.tone}" aria-hidden="true">${icon(p.icon, 'big-icon')}</span><h3>${p.title}</h3><p>${p.body}</p><ul>${p.points.map(pt => `<li>${icon('check', 'ok')}<span>${pt}</span></li>`).join('')}</ul></article>`).join('')}</div>
 </section>
 <section class="wrap pt-120" aria-labelledby="rules-h">
   <div class="split">

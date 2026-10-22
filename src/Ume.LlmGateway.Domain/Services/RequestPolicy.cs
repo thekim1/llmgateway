@@ -30,12 +30,16 @@ public sealed record RequestPolicy
 
     /// <summary>
     /// Parameters a policy may not set: they carry the conversation or decide where and how it is sent, which the
-    /// gateway controls (the model) or the client must (the content, streaming).
+    /// gateway controls (the model) or the client must (the content, streaming). Also the provider tool and storage fields
+    /// that <see cref="ProviderFeaturePolicy"/> checks against the key's permission before the policy runs: a policy must
+    /// not be a way around it.
     /// </summary>
     public static IReadOnlySet<string> ProtectedParameters { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "model", "messages", "input", "prompt", "system", "instructions", "stream", "stream_options", "file", "image", "mask",
         "max_tokens", "max_completion_tokens", "max_output_tokens",
+        "tools", "tool_choice", "web_search_options", "mcp_servers", "container", "store", "background", "conversation",
+        "previous_response_id",
     };
 
     /// <summary>The team's policy with the key's values on top (parameters merged by name). Null when neither sets anything.</summary>

@@ -4,7 +4,7 @@ import { api } from '@/api'
 import type { VirtualKey } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, modelsLabel } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -124,6 +124,14 @@ const reason = computed(() => {
           <span v-if="keyData.attachmentPolicy !== 'Allowed'" class="mt-1 flex items-start gap-1.5 text-small text-fg-3">
             <AppIcon name="info" :size="16" class="mt-px shrink-0" />{{ ATTACHMENT_LIMIT_NOTE }}
           </span>
+        </DetailRow>
+        <DetailRow label="Provider tools">
+          {{ keyData.allowProviderTools ? 'Allowed' : 'Function tools only' }}
+          <span class="block text-small text-fg-3">{{ PROVIDER_TOOLS_HINT }}</span>
+        </DetailRow>
+        <DetailRow label="Provider storage">
+          {{ keyData.allowProviderStorage ? 'Allowed' : 'Not allowed' }}
+          <span class="block text-small text-fg-3">{{ PROVIDER_STORAGE_HINT }}</span>
         </DetailRow>
       </DetailSection>
       <DetailSection title="Limits">

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Gateway.Pipeline;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -106,7 +107,7 @@ public sealed class SecurityEventTests(GatewayFixture fixture)
     [InlineData("::ffff:192.0.2.123", SourceAddressMode.Truncated, "192.0.2.0")]
     [InlineData("2001:db8:abcd:1234:5678::1", SourceAddressMode.Truncated, "2001:db8:abcd::")]
     public void Source_address_is_truncated_by_default(string address, SourceAddressMode mode, string? expected) =>
-        AuthFailureRecorder.FormatAddress(IPAddress.Parse(address), mode).ShouldBe(expected);
+        ClientAddresses.Format(IPAddress.Parse(address), mode).ShouldBe(expected);
 
     [Fact]
     public async Task Pii_actions_and_policy_refusals_are_security_events()

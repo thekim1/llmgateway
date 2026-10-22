@@ -7,6 +7,10 @@ name says (`Usd` or `Sek`; budgets and alerts are in USD, SEK amounts are for di
 A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "An internal error occurred."
 (the exception is only logged, by type). Every response, error responses included, carries `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+A change is saved before the gateways are told to reload. If they cannot be told (Redis unavailable), the request still
+succeeds, the admin API logs a warning, and the response carries `Ume-Change-Propagation: delayed`: the gateways apply the
+change when their cache expires (`Gateway:KeyCacheSeconds` / `Gateway:CatalogCacheSeconds`, 30 s by default). The admin UI
+shows this as a notice.
 
 ## Authentication (BFF)
 - `GET /bff/login?returnUrl=/path` → 302 to OIDC provider (Keycloak in dev, Entra ID/AD FS in prod).
@@ -15,12 +19,15 @@ A malformed request (unreadable body) → 400; an unexpected failure → 500 wit
   The end-session request includes `client_id` and protected state for the local return to `/`.
   Register `/signout-callback-oidc` as an allowed post-logout redirect at the identity provider.
   Tokens are not saved; providers such as Keycloak may therefore require logout confirmation.
-- `POST /bff/session/extend` → `{ sessionExpiresAt }`, renews an authenticated session for eight
-  hours without losing unsaved forms. Requires the same CSRF headers as other mutations.
-- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], sessionExpiresAt }`
-  (always 200; `isAuthenticated=false` when not signed in).
+- `POST /bff/session/extend` → `{ sessionExpiresAt, sessionLimitAt }`, renews an authenticated session for eight
+  hours (but not past `sessionLimitAt`) without losing unsaved forms. At the limit it answers `409`: sign in again.
+  Requires the same CSRF headers as other mutations.
+- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], sessionExpiresAt, sessionLimitAt }`
+  (always 200; `isAuthenticated=false` when not signed in). `sessionLimitAt` is the absolute end of the session.
 - Session cookie: `__Host-ume-admin`, HttpOnly, Secure, SameSite=Lax (compatible with OIDC redirects).
-  No tokens reach the browser. Sessions last eight hours; the UI warns before expiry and can start a new login.
+  No tokens reach the browser. The cookie only holds a session id; the session itself is stored encrypted in Redis
+  (`ume:admin-session:*`), so signing out ends it for every copy of the cookie. A sign-in lasts eight hours, a session at
+  most `Admin:MaxSessionHours` (12, 1–24) from sign-in; the UI warns before expiry and can start a new login.
 - **CSRF**: every non-GET request must send header `X-XSRF-TOKEN` with the value of the readable cookie
   `XSRF-TOKEN` (set on `GET /bff/user`). Also send `X-Requested-With: XMLHttpRequest`.
 - Unauthenticated API calls → 401 (no redirect). Missing role → 403.
@@ -71,15 +78,18 @@ Roles (OIDC `roles` claim):
   `max_tokens` / `max_completion_tokens` / `max_output_tokens` to it, or sets it when the request has none; `systemPrompt`
   (at most 8 000 characters) goes before the request's own system message, `instructions` or `system`; `defaults` are
   request parameters set when the request leaves them out, `overrides` always (at most 20 each). They may not set `model`,
-  `messages`, `input`, `prompt`, `system`, `instructions`, `stream`, `stream_options`, `file`, `image`, `mask` or the
-  `max_*` token parameters (400). A key's own policy wins over its team's field by field (parameters by name).
+  `messages`, `input`, `prompt`, `system`, `instructions`, `stream`, `stream_options`, `file`, `image`, `mask`, the
+  `max_*` token parameters, or the provider tool and storage fields (`tools`, `tool_choice`, `web_search_options`,
+  `mcp_servers`, `container`, `store`, `background`, `conversation`, `previous_response_id`), which need the key's own
+  *Allow provider tools* / *Allow provider storage* (400). A key's own policy wins over its team's field by field (parameters by name).
 - `DELETE /api/teams/{id}` → 204 (409 if it has keys)
 
 ## Virtual keys
 `VirtualKey = { id, teamId, teamName, departmentId, departmentName, name, description, prefix, status: KeyStatus,
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
-allowedIpRanges: string[], maxConcurrentRequests: number|null, requestPolicy: RequestPolicy|null }`
+allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean, maxConcurrentRequests: number|null,
+requestPolicy: RequestPolicy|null }`
 (`maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
 get 429 `rate_limited`. Live audio sessions have their own limit. `requestPolicy`: see *Organisation*; omitted on update =
 unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
@@ -89,13 +99,15 @@ unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 [trusted proxies](#settings). Any key manager may set it.)
 (empty `allowedModels` / `allowedResidencies` = all allowed)
 (`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
+(`allowProviderTools` / `allowProviderStorage` omitted = `false` on create, unchanged on update; copied on rotation; see
+[provider tools and storage](#gateway-data-plane--for-the-developer-portal-snippets))
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -123,7 +135,9 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `Provider = { id, name, displayName, type, baseUrl, authMode, hasCredential, residency, capabilities: ProviderCapabilities[], isEnabled, isDrained, timeoutSeconds, createdAt, deploymentCount }`
   (credential is **write-only**, never returned)
 - `GET /api/providers` · `POST /api/providers` `{ name, displayName?, type, baseUrl, authMode, credential?, residency, capabilities, timeoutSeconds, isEnabled }`
-- `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove
+- `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove. A stored credential is only
+  kept while the base URL's scheme, host and port stay the same: moving the provider elsewhere without a new `credential`
+  (or `""`) answers `400` with a field error on `credential`.
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
 - `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
@@ -297,7 +311,13 @@ and invalidate the gateway catalogue.
   Import is transactional, rejects plaintext credentials, preserves existing encrypted credentials when
   a reference is omitted, and never overwrites price history. Environment references must already exist
   in the Admin API process. Export never contains secret values or encrypted credentials.
-- `GET /api/audit?page=&pageSize=&entityType=` → `{ items: [{ id, timestamp, actor, action, entityType, entityId, details }], total }`
+- `GET /api/audit?page=&pageSize=&entityType=` → `{ items: [{ id, timestamp, actor, action, entityType, entityId, details, actorName,
+  actorRoles, actorDepartments, sourceAddress, sessionId, requestId, userAgent }], total }`. `actor` is the OIDC subject; the
+  other actor fields are recorded with each entry: name or e-mail, roles and department codes at the time, the client address
+  behind the trusted proxies (`Admin:AuditSourceAddress`: `Full` by default, `Truncated` or `None`), a random session id
+  given at sign-in (never the cookie), the request's trace id and the user agent (200 characters). Entries written before
+  have them empty. `GET /api/ops/config/export` and `GET /api/usage/export.csv` write an entry with action `export`
+  (entity `Config` or `Usage`, with counts or the period and row count).
   - `details` is JSON `{ before, after }` (camelCase, enums as names) with snapshots of the entity's own stored settings,
     never a secret: no derived or volatile values such as `deploymentCount`, `createdAt`, `currentPrice`, `providerName`,
     key `status` or `lastUsedAt`. For a rotation `after` is `{ previousKey, key }`, for a reveal/copy the key's name and
@@ -330,10 +350,13 @@ and invalidate the gateway catalogue.
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
   `x-ume-cost-sek` and `x-ume-budget-remaining-sek` carry the same amounts in SEK at the current exchange rate; they are
   for display and will be removed with SEK.
-- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`) with codes
+- Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
+  `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
   client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
-  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `no_eligible_provider`, `all_providers_failed`, `invalid_request`,
+  `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
+  `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two
+  `model` fields),
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
   with outcome `ProviderError`, nothing is charged and the budget reservation is released; quote the `request_id`).
 - Model names: a model is addressed by its public name (the plain name while one provider has it) or `<provider>/<model>`
@@ -344,12 +367,15 @@ and invalidate the gateway catalogue.
   never to another provider's model of the same name). The next one is tried after a transient failure (408, 409, 429, 5xx, timeout,
   connection error, invalid JSON) or a provider configuration failure (upstream 401/403/404, `https_required`,
   `credential_unavailable`, `endpoint_not_supported`). Only transient failures count toward the provider's circuit
-  breaker. Other client errors (e.g. 400) are returned as they are.
+  breaker. Other client errors (e.g. 400) are returned to the client, see below.
 - `GET /v1/models` lists only aliases and models the key may use and that some endpoint of their kind can reach, by the
   same rule as routing: model and provider enabled and not drained, a provider capability for that endpoint, and the
   key's provider and residency allow-lists.
 - Outgoing requests to providers carry `User-Agent: Ume-LlmGateway/<version>`.
-  A provider-side refusal is passed through with the provider's status; one the gateway raises itself is
+  A provider-side refusal is returned with the provider's status, but only its `message`, `type`, `code` and `param`, in
+  the client's error shape (OpenAI, or Anthropic on `/v1/messages`) with the gateway's `request_id`; the rest of the
+  provider's body (inner errors, deployment or organisation names) is dropped, and a body that is not JSON becomes
+  *The provider rejected the request.* (`provider_rejected`). One the gateway raises itself is
   `unsupported_content` (400): a Chat Completions request to a Claude model contains a part the Messages API cannot
   take (audio, video, an OpenAI `file_id`, or a file other than PDF or plain text). An audio upload with no `file`, or
   one that is not `multipart/form-data`, gets `invalid_request` (400) or `unsupported_media_type` (415); one over the
@@ -372,7 +398,9 @@ WebSocket endpoints speaking the OpenAI Realtime protocol (JSON events, audio as
 - During the session the gateway sends OpenAI-style `error` events `{ type: "error", error: { type, code, message,
   event_id } }` (`event_id` is the client event refused): `model_not_allowed` (an input transcription model that is
   not a `Transcription` alias/model of the session's provider, or whose provider is unavailable or outside the key's
-  provider and residency allow-lists), `pii_blocked`, `invalid_request` (binary frame),
+  provider and residency allow-lists), `pii_blocked`, `tool_not_allowed` (an `mcp` tool in `session.update` or
+  `response.create` on a key without provider tools), `invalid_request` (binary frame, or a session or conversation event
+  that is not valid JSON or repeats a property; it is not passed on),
   `request_too_large` (event over `MaxMessageBytes`; the session is closed with 1009). It ends the session with an
   error event and a close frame on `budget_exceeded` (close 1008; the message names the exhausted budget like the HTTP 402), `session_time_limit` (1000),
   `gateway_shutting_down` (1001) and `provider_disconnected` (1001).
@@ -400,5 +428,19 @@ documents, audio and video; `None` refuses all four. A refused request gets 400 
 with outcome `Rejected`. The PII policy scans text only, never file contents, so a key that must not send personal
 data to a provider should use `None`. It cannot stop a client that extracts a file's text itself and sends it as an
 ordinary message (common in chat front-ends); the PII policy is what covers that text.
+
+**Provider tools and storage.** Checked after the attachment policy, on Chat Completions, Responses and Anthropic Messages.
+Both key settings are off by default:
+
+- `allowProviderTools`: tools the provider runs itself send the conversation to third parties or the internet. Without it
+  only client tools are accepted: `function` and `custom` (OpenAI), and Anthropic tools without a type, `custom`, and the
+  client-executed `bash_*`, `text_editor_*`, `computer_*` and `memory_*`. Anything else in `tools` (`web_search`,
+  `file_search`, `code_interpreter`, `mcp`, `image_generation`, Anthropic `web_search_*`, `web_fetch_*`, `code_execution_*`,
+  …), Chat Completions `web_search_options`, and Anthropic `mcp_servers` or `container` get 400 `tool_not_allowed`.
+- `allowProviderStorage`: `store: true`, Responses `background: true` and Responses `conversation` keep the conversation at
+  the provider; without it they get 400 `storage_not_allowed`, and a Responses request without `store` is sent with
+  `store: false` (the Responses API stores by default). `previous_response_id` then only finds responses the provider kept.
+
+Both refusals are recorded with outcome `Rejected` and logged as `gateway.request.refused`.
 
 **Key budgets.** A key can have one budget per period (`Hourly`, `Daily`, `Weekly`, `Monthly`, `Quarterly`, `Yearly`) via `POST /api/budgets` with `scope: "VirtualKey"`; a second budget for the same owner and period returns 409. The gateway enforces every applicable budget (key, team, department) and rejects with 402 when any is exhausted. Hourly windows are aligned to the clock hour. `requestsPerMinute` and `tokensPerMinute` on the key are enforced over a sliding minute: this minute's count plus the previous minute's, weighted by how much of it the last 60 seconds still cover, so a client cannot send twice its limit across a minute boundary (429 `rate_limited` with `Retry-After` when one more fits; token usage is counted after each response; refused requests are not counted).

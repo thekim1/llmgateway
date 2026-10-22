@@ -5,8 +5,8 @@ using StackExchange.Redis;
 namespace Ume.LlmGateway.Infrastructure.Stores;
 
 /// <summary>
-/// Redis-backed stores. Only counters, circuit flags and invalidation signals are stored – never prompt or
-/// response content, never key material. All keys are namespaced with <c>ume:</c> (see <see cref="RedisKeys"/>).
+/// Redis-backed stores. Only counters, circuit flags, invalidation signals and encrypted admin sessions are stored – never
+/// prompt or response content, never key material. All keys are namespaced with <c>ume:</c> (see <see cref="RedisKeys"/>).
 /// Calls are bounded by the multiplexer's sync/async timeouts; cancellation tokens are not passed on (StackExchange.Redis
 /// cannot cancel a command once it is queued, and wrapping every call would cost an allocation on the request path).
 /// </summary>
@@ -357,4 +357,16 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
             await db.KeyDeleteAsync([OpenKey(providerId), FailKey(providerId)]);
         }
     }
+}
+
+public sealed class RedisAdminSessionStore(IConnectionMultiplexer redis) : IAdminSessionStore
+{
+    public Task SetAsync(string sessionId, byte[] value, TimeSpan timeToLive, CancellationToken cancellationToken) =>
+        redis.GetDatabase().StringSetAsync(RedisKeys.AdminSession(sessionId), value, timeToLive);
+
+    public async Task<byte[]?> GetAsync(string sessionId, CancellationToken cancellationToken) =>
+        (byte[]?)await redis.GetDatabase().StringGetAsync(RedisKeys.AdminSession(sessionId));
+
+    public Task RemoveAsync(string sessionId, CancellationToken cancellationToken) =>
+        redis.GetDatabase().KeyDeleteAsync(RedisKeys.AdminSession(sessionId));
 }

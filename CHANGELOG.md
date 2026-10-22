@@ -57,6 +57,88 @@ the prompt cache. Anthropic `cache_creation_input_tokens` were billed at the inp
 (1.25x input for Claude) they are billed correctly. Admin API and config export: `cacheWriteInputPerMillionUsd`
 (optional); Data API prices feed: the same field. Migration `CacheWritePrice` adds a nullable column.
 
+## 0.6.4 - 2026-10-22
+
+Security hardening from an internal security assessment (findings H1–M4, L2, L4, L5, A3, A5, A6, LG1, LG2, LG4 and LG5),
+and a live audio fix. Rolling update: yes (two additive migrations). Read the 0.6.4 section of `docs/upgrade-guide.md`
+first: provider tools and storage are off for every key until an admin allows them, console logs are JSON, everyone is
+signed out once, and existing Compose installations should renew the internal CA.
+
+**Provider credentials stay with their address.** Changing a provider's base URL to another scheme, host or port now
+requires entering the credential again (`400`, field `credential`); the stored credential is never sent to a new address.
+Another path on the same host keeps it. The same applies to configuration import. Before, an edit of the address alone
+sent the stored API key to whatever host was entered.
+
+**Runtime image 10.0.13.** The service images are built on `aspnet:10.0.13-noble-chiseled-extra` (two critical and five
+high ASP.NET Core CVEs in 10.0.12). CI now scans the pinned base image and fails on fixable HIGH/CRITICAL findings.
+
+**PII guard reads more of the request.** Anthropic plain-text and custom-content documents (`document` blocks with a `source`
+of type `text` or `content`) are scanned like messages; before, a personnummer in such a document passed a key with policy
+*Block*. The request's `user` field and a message's `name` are scanned too (tool and function names are not). Text is
+compared in a canonical form, so full-width and other non-ASCII digits, no-break spaces, zero-width and other invisible
+characters and Unicode dashes no longer hide a personnummer; a redacted value is written in that form.
+
+**Admin sessions end when you sign out.** Sessions are kept on the server (Redis, encrypted), the cookie only names one:
+signing out ends the session for every copy of the cookie. A session lasts at most `Admin:MaxSessionHours` (12) from
+sign-in, however often it is extended; after that the user signs in at the identity provider again, which also picks up
+role changes. `GET /bff/user` and `POST /bff/session/extend` return `sessionLimitAt`; extending at the limit answers `409`.
+Everyone is signed out once by the upgrade.
+
+**Floods of made-up keys are throttled.** After `Gateway:AuthFailuresPerMinute` (60) failed authentications in a minute
+from one client address (IPv6 per /64), the gateway stops looking keys up for that address until the minute ends: keys
+it already has cached keep working, others get `429 rate_limited` with `Retry-After`. `0` turns it off.
+
+**Repeated JSON properties are refused.** A request body such as `{"model":"a","model":"b"}` gets `400 invalid_request`
+(it was a `500` with no usage record). On live audio such an event is answered with an `error` event, not passed on.
+
+**Provider refusals are trimmed.** When a provider refuses a request (4xx), the client gets only its `message`, `type`,
+`code` and `param` in the client API's error shape with the gateway's `request_id`; inner errors, deployment and
+organisation names stay out.
+
+**A saved change is not reported as failed when Redis is down.** The admin API used to answer `500` after a change was
+saved if it could not tell the gateways; now it retries once, logs a warning and answers with
+`Ume-Change-Propagation: delayed`, and the admin UI says the gateways apply it when their cache refreshes.
+
+**JSON console logs.** Outside development the services log JSON (set `Logging__Console__FormatterName=simple` for plain
+text), and model names and Data API paths are logged with control characters replaced, so a client cannot forge log lines.
+
+**API reference CSP and switch.** `/scalar` on the gateway, Data API and admin API gets a strict Content-Security-Policy
+(scripts only with a per-request nonce). `Gateway:PublishApiReference` and `DataApi:PublishApiReference` (default on) turn
+the public reference and OpenAPI document off.
+
+**Database roles hold only what they use.** `app-roles.sql` now revokes and grants again in one transaction on every
+migration-service start, naming each table: the gateway role cannot read the audit log or Data API key hashes or add Data
+Protection keys (the gateway no longer generates them; the admin API does), and the admin role can change the settings
+row only column by column, without `UsageRetainedFrom`. A test compares the effective grants, so a new table is readable
+by no service until it is granted on purpose.
+
+**Conformant internal CA.** The generated CA has `keyUsage` (certificate and CRL signing), and service certificates have
+`keyUsage` and `authorityKeyIdentifier`, so strict TLS clients (Python 3.13, newer Go and Java) accept the chain.
+`init-deployment.sh --renew-ca` replaces an older CA; the Portainer bootstrap does it on its own. The setup now tells you
+to move `ca.key` off the host.
+
+**Provider tools and storage need the key's permission.** Two new key settings, both off for every key: *Allow provider
+tools* (web search, file search, code interpreter, MCP, web fetch and other tools the provider runs itself; otherwise only
+function tools, else `400 tool_not_allowed`) and *Allow provider storage* (`store: true`, Responses `background` and
+`conversation`; otherwise `400 storage_not_allowed`, and Responses API requests are sent with `store: false`). Live audio
+refuses `mcp` tools the same way. Both are in the key form and detail, the admin API (`allowProviderTools`,
+`allowProviderStorage`), the audit log and the Data API key inventory, and are copied on rotation; refusals are
+`gateway.request.refused` events. Migration `ProviderFeaturePolicy`.
+
+**Admin activity is attributable.** Audit entries now record the user's name, roles and departments at the time, the client
+address behind the trusted proxies (`Admin:AuditSourceAddress`, `Full` by default), a session id given at sign-in (never the
+cookie), the request's trace id and the user agent; the audit page shows them and the Data API audit feed passes them on
+(migration `AuditActorContext`). Configuration and usage exports are audit entries. New security events: `admin.signin`,
+`admin.signout`, `admin.session.extended`, `admin.access.denied` (at most once a minute per user, with a count) and
+`admin.data.read` (audit log, request list, PII incidents, Data API keys), with suggested SIEM alerts in
+`docs/security-events.md`.
+
+**Live audio sessions stopped by the gateway close with the right code.** When the budget ran out, the provider's answer to
+the gateway's close could reach the client first: the client got close code 1000 instead of 1008 and the session could be
+recorded as a normal close instead of `BudgetExceeded`. The gateway's own close and outcome now always win.
+
+**Website:** the icons on the "Control over AI" cards are outlined like the rest of the site, without a fill.
+
 ## 0.6.3 - 2026-10-20
 
 **`:latest` image tags.** Releases also tag the service images `:latest` on ghcr.io (pre-releases do not), so a Portainer

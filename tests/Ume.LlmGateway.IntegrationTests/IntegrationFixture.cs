@@ -4,6 +4,7 @@ extern alias Migration;
 
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -48,6 +49,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
         using (var scope = GatewayServices.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            // The gateway creates no Data Protection keys (the admin API and migration service do); seeding encrypts with one.
+            scope.ServiceProvider.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(90));
             var seeder = new Migration::Ume.LlmGateway.MigrationService.DevSeeder(
                 Options.Create(new Migration::Ume.LlmGateway.MigrationService.SeedOptions
                 {

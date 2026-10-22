@@ -41,8 +41,8 @@ for _ in $(seq 30); do
 done
 
 load="$repo/deploy/tests/rolling-load.py"; stop="$work/stop"; pids=()
-python3 "$load" llm.test "$port" /v1/chat/completions 401 16 "$stop" POST 127.0.0.1 > "$work/post.txt" 2>&1 & pids+=($!)
-python3 "$load" llm.test "$port" /v1/models 401 8 "$stop" GET 127.0.0.1 > "$work/get.txt" 2>&1 & pids+=($!)
+python3 "$load" llm.test "$port" /v1/chat/completions 401,429 16 "$stop" POST 127.0.0.1 > "$work/post.txt" 2>&1 & pids+=($!)
+python3 "$load" llm.test "$port" /v1/models 401,429 8 "$stop" GET 127.0.0.1 > "$work/get.txt" 2>&1 & pids+=($!)
 python3 "$load" llm-admin.test "$port" / 200 4 "$stop" GET 127.0.0.1 > "$work/admin.txt" 2>&1 & pids+=($!)
 sleep 5
 COMPOSE_PROJECT_NAME="$project" ./deploy/rolling-update.sh --force

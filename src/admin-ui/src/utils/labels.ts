@@ -122,6 +122,12 @@ export const ATTACHMENT_HINT: Record<AttachmentPolicy, string> = {
 export const ATTACHMENT_LIMIT_NOTE =
   'A safeguard, not a guarantee: some chat apps read a file themselves and paste its text into the message. That text is no longer a file, so it gets through. The PII policy still checks it.'
 
+/** Key settings that let requests send the conversation beyond the provider (tool_not_allowed / storage_not_allowed when off). */
+export const PROVIDER_TOOLS_HINT =
+  'Web search, file search, code interpreter, MCP servers and other tools the provider runs itself. They send the conversation to other services or the internet. Off: only function tools.'
+export const PROVIDER_STORAGE_HINT =
+  'Lets requests ask the provider to keep the conversation (store, background responses, conversations). Off: refused, and Responses API requests are sent with store: false.'
+
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }
 export const ROUTING_SCOPE_PLURAL: Record<RoutingScope, string> = { VirtualKey: 'Keys', Team: 'Teams', Department: 'Departments', Global: 'Everyone' }

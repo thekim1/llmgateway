@@ -3,6 +3,86 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Live audio close code and website icons (branch `fix/realtime-close-and-site-icons`)
+
+- [ ] **Budget stop on live audio:** with a key whose budget is almost used up, start a live audio session against the real
+  provider and use it until the budget runs out: the client gets the `budget_exceeded` error event and close code 1008,
+  and the request list shows the session as *Budget exceeded* (402).
+- [ ] **Website:** on the published GitHub Pages site, the three card icons under "Control over AI that you can explain to a
+  data protection officer" are outlined, with no fill, in light and dark mode.
+
+## Security hardening: low findings (branch `security/low-hardening`)
+
+- [ ] **Redis down during a change:** stop Redis, revoke a key in the admin UI: it is revoked (no error), a notice says the
+  gateways apply it when their cache refreshes, and after Redis is back and 30 s have passed the key is refused.
+- [ ] **JSON logs:** `docker logs` of the gateway, admin API and Data API show one JSON object per line; the SIEM or log
+  shipper still picks up `Ume.LlmGateway.Security` events.
+- [ ] **API reference:** `https://<gateway>/scalar` and the Data API's `/scalar` render (browser console has no CSP
+  errors); with `Gateway__PublishApiReference=false` both `/scalar` and `/openapi/v1.json` answer `404`.
+- [ ] **Admin API reference:** as gateway-admin, `https://<admin>/scalar/` renders with no CSP errors in the browser console.
+- [ ] **Provider refusal:** send a request a provider refuses (for example `"temperature": 5`): the error has the provider's
+  message and the gateway's `request_id`, and nothing else from the provider.
+
+## Security hardening: CA and database roles (branch `security/deploy-hardening`)
+
+- [ ] **CA renewal (Compose):** on an existing installation run `deploy/init-deployment.sh --renew-ca`, restart the stack:
+  all services become healthy, and `openssl x509 -in deploy/certs/ca.pem -noout -ext keyUsage` shows *Certificate Sign,
+  CRL Sign*. A Python 3.13 client with `deploy/certs/ca.pem` as its CA file reaches `https://<gateway>:8443/health/ready`
+  without turning off strict verification.
+- [ ] **CA key offline:** move `deploy/certs/ca.key` away; the stack still starts; `--renew-certs` stops with *ca.key is
+  needed…* until it is back.
+- [ ] **Portainer:** redeploy an existing stack: the bootstrap log says *replacing the internal CA*, and all services start.
+- [ ] **Grants after upgrade:** the migrations container exits 0; providers with credentials still answer through the
+  gateway; the admin UI shows Audit, Data API access and Settings (retention, trusted proxies) and saves changes.
+- [ ] **Data Protection key rotation:** the gateway log has no Data Protection errors after the upgrade; a provider
+  credential entered in the admin UI after the upgrade works through the gateway.
+
+## Provider tools and storage (branch `security/request-policy`)
+
+- [ ] **Existing keys are strict after the upgrade:** with a key from before the upgrade, a Chat Completions request with
+  `"tools":[{"type":"web_search"}]` gets `400 tool_not_allowed`; a function tool still works.
+- [ ] **Responses storage:** a Responses API request without `store` works; at OpenAI (or in the provider's request log) it
+  arrives with `store: false`. `"store": true` gets `400 storage_not_allowed`.
+- [ ] **Turning it on:** in the admin UI edit the key, tick *Allow provider tools* and *Allow provider storage*, save: the
+  key detail shows *Allowed* for both, the audit entry has both fields, and the requests above go through.
+- [ ] **Rotation:** rotate that key: the new key keeps both settings.
+- [ ] **Anthropic:** with a strict key, `/v1/messages` with a `web_search_20250305` tool gets `400 tool_not_allowed`; a
+  plain tool (`name` + `input_schema`) works.
+- [ ] **SIEM:** the refusals appear as `gateway.request.refused` with `ErrorCode` `tool_not_allowed` / `storage_not_allowed`.
+
+## Admin audit trail (branch `security/audit-trail`)
+
+- [ ] **Audit context:** change something in the admin UI, then open *Audit log* and expand the entry: your name, roles,
+  your own address (not the proxy's, once the proxy is a trusted proxy), a session id, request id and browser are shown.
+- [ ] **Exports:** export the configuration (*Operations*) and the usage CSV: both appear in the audit log as `export`.
+- [ ] **Sign-in and sign-out events:** sign in and out: the SIEM (or `docker logs` of the admin API) has `admin.signin`
+  and `admin.signout` with the same session id as your audit entries.
+- [ ] **Stay signed in:** use *Stay signed in* in the expiry dialog: `admin.session.extended` with that session id.
+- [ ] **Refused requests:** as a viewer, open `/api/providers` a few times: one `admin.access.denied`, and after a minute
+  one more with the count.
+- [ ] **Sensitive reads:** open the audit log and PII incidents: `admin.data.read` events with the filters used.
+- [ ] **Data API:** `GET /v1/security/audit` returns the new fields for new entries.
+
+## Security hardening H1–M4 (branch `security/h1-m4-hardening`)
+
+- [ ] **Provider address and credential:** edit a provider with a stored credential and change only the path of the base
+  URL: it saves and still works. Change the host instead without entering the credential: the form says *Enter the
+  credential again…* and nothing is saved. Enter the credential with the new host: it saves.
+- [ ] **Sign-out ends the session:** sign in, copy the `__Host-ume-admin` cookie (browser dev tools), sign out, then send a
+  request with the copied cookie (for example `curl -b '__Host-ume-admin=…' https://<admin>/api/departments`): `401`.
+- [ ] **Session limit:** with `Admin__MaxSessionHours=1`, sign in and wait for the expiry warning: it says sessions have a
+  maximum length and offers no *Stay signed in*; after the hour the UI asks you to sign in. Remove the setting afterwards.
+- [ ] **Everyone signed out once after the upgrade:** after deploying, existing admin sessions must sign in again (expected).
+- [ ] **Redis ACL:** after the upgrade the admin API log has no `NOPERM` errors on sign-in (`ume:admin-session:*`).
+- [ ] **PII in an Anthropic document:** with a *Block* key, send `/v1/messages` to a Claude deployment with a `document` block
+  whose `source` is `{"type":"text","media_type":"text/plain","data":"… 19121212-1212 …"}`: `400 pii_blocked`.
+- [ ] **PII look-alikes:** with a *Block* key, a personnummer written with full-width digits (`１９１２１２１２-１２１２`) or pasted
+  with a no-break space is blocked; ordinary Swedish text without personal data still goes through.
+- [ ] **Invalid-key throttle:** from one machine send 70 requests with a made-up key in a minute: the first 60 get `401`, the
+  rest `429` with `Retry-After`. Meanwhile a real key used from the same machine just before keeps working. Behind the
+  reverse proxy, check that another client is not affected (trusted proxies set).
+- [ ] **Image scan in CI:** the *Verify POC* workflow's *Scan the service base image* step passes.
+
 ## Website and Getting started (uncommitted)
 
 - [ ] **Website published:** after the push to `main`, the *Website* workflow succeeds and <https://thekim1.github.io/llmgateway/>

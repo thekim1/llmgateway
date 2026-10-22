@@ -28,6 +28,7 @@ public static class AuditActions
     public const string Run = "run";
     public const string Import = "import";
     public const string Invalidate = "invalidate";
+    public const string Export = "export";
 }
 
 /// <summary>Audit log <c>EntityType</c> values (also the <c>entityType</c> filter of <c>GET /api/audit</c>).</summary>
@@ -47,6 +48,7 @@ public static class AuditEntities
     public const string Settings = "Settings";
     public const string Config = "Config";
     public const string Keys = "Keys";
+    public const string Usage = "Usage";
 }
 
 /// <summary>The <c>Details</c> of an audit entry.</summary>
@@ -75,12 +77,13 @@ public sealed record KeyAudit(
     Guid Id, Guid TeamId, string Name, string? Description, string Prefix, bool IsEnabled, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt,
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
-    IReadOnlyList<string> AllowedIpRanges, int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null)
+    IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage, int? MaxConcurrentRequests = null,
+    RequestPolicy? RequestPolicy = null)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
-        [.. k.AllowedIpRanges], k.MaxConcurrentRequests, k.RequestPolicy);
+        [.. k.AllowedIpRanges], k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests, k.RequestPolicy);
 }
 
 public sealed record RetentionSettingsAudit(int UsageRetentionDays, int? AuditRetentionDays)

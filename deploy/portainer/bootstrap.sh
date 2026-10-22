@@ -15,20 +15,28 @@ for d in postgres redis gateway adminapi dataapi migrations; do mkdir -p "$C/$d"
 rand() { openssl rand -hex 32; }
 quiet() { "$@" >/dev/null 2>&1; }
 
+# A CA from an earlier version has no keyUsage, which strict clients (Python 3.13, newer Go and Java) refuse: it is
+# replaced, and every certificate it issued is re-issued below because it no longer verifies.
+if [ -f "$C/ca.pem" ] && ! openssl x509 -noout -text -in "$C/ca.pem" | grep -q "X509v3 Key Usage"; then
+  echo "bootstrap: replacing the internal CA (no keyUsage)"
+  mv "$C/ca.pem" "$C/ca.pem.old"; rm -f "$C/ca.key"
+fi
 if [ ! -f "$C/ca.pem" ]; then
-  quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout "$C/ca.key" -out "$C/ca.pem" -days 3650 -subj /CN=ume-gateway-internal-ca
+  quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout "$C/ca.key" -out "$C/ca.pem" -days 3650 -subj /CN=ume-gateway-internal-ca \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
 fi
 
-# issue SERVICE SAN-LIST: (re)issue unless a valid certificate for exactly these names exists
+# issue SERVICE SAN-LIST: (re)issue unless a valid certificate for exactly these names, from the current CA, exists
 issue() {
   svc="$1"; san="$2"; dir="$C/$svc"
   if [ -f "$dir/$svc.crt" ] && [ "$(cat "$dir/.san" 2>/dev/null)" = "$san" ] &&
-     quiet openssl x509 -checkend 2592000 -noout -in "$dir/$svc.crt"; then
+     quiet openssl x509 -checkend 2592000 -noout -in "$dir/$svc.crt" && quiet openssl verify -CAfile "$C/ca.pem" "$dir/$svc.crt"; then
     return
   fi
   echo "bootstrap: issuing certificate for $svc ($san)"
   quiet openssl req -newkey rsa:3072 -nodes -keyout "$dir/$svc.key" -out "/tmp/$svc.csr" -subj "/CN=$svc"
-  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$san" > "/tmp/$svc.ext"
+  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n' \
+    "$san" > "/tmp/$svc.ext"
   quiet openssl x509 -req -in "/tmp/$svc.csr" -CA "$C/ca.pem" -CAkey "$C/ca.key" -CAcreateserial -CAserial /tmp/ca.srl \
     -out "$dir/$svc.crt" -days 825 -extfile "/tmp/$svc.ext"
   printf '%s' "$san" > "$dir/.san"

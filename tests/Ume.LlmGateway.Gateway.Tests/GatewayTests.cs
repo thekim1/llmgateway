@@ -281,6 +281,14 @@ public sealed class GatewayTests(GatewayFixture fixture)
         response.Headers.GetValues("x-ume-provider").Single().ShouldBe("eu");
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
         (await fixture.UsageAsync(response)).Outcome.ShouldBe(RequestOutcome.ProviderError);
+
+        // The provider's message is passed on; the rest of its error body is not.
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var error = JsonNode.Parse(body)!["error"]!;
+        error["message"]!.GetValue<string>().ShouldBe("Upstream rejected request");
+        error["type"]!.GetValue<string>().ShouldBe("invalid_request_error");
+        body.ShouldNotContain("internal-deployment-7");
+        body.ShouldNotContain("org-internal-42");
     }
 
     [Fact]
@@ -640,6 +648,59 @@ public sealed class GatewayTests(GatewayFixture fixture)
             persisted.ShouldNotContain(sensitive);
         }
         fixture.Logs.Text.ShouldContain("Request");
+    }
+
+    [Fact]
+    public async Task Repeated_properties_are_refused_and_recorded()
+    {
+        // A provider would read the last "model" (or text) while the gateway checked another; before .NET 10's option this was a 500.
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendRawAsync(key, "/v1/chat/completions",
+            """{"model":"eu/ok","model":"external/ok","messages":[{"role":"user","content":"Hej"}]}""");
+
+        await AssertErrorAsync(response, 400, "invalid_request");
+        var usage = await fixture.UsageAsync(response);
+        usage.Outcome.ShouldBe(RequestOutcome.Rejected);
+        usage.StatusCode.ShouldBe(400);
+    }
+
+    [Fact]
+    public async Task Model_names_are_logged_without_control_characters()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendAsync(key, model: "no-such-model\nwarn: Ume.LlmGateway.Security[1001]\u001b[2J");
+
+        ((int)response.StatusCode).ShouldBe(404);
+        (await fixture.UsageAsync(response)).RequestedModel.ShouldBe("no-such-model?warn: Ume.LlmGateway.Security[1001]?[2J");
+    }
+
+    [Fact]
+    public async Task Provider_tools_and_storage_need_the_keys_permission()
+    {
+        var strict = await fixture.CreateKeyAsync();
+        using var tool = await fixture.SendRawAsync(strict, "/v1/chat/completions",
+            """{"model":"eu/ok","messages":[{"role":"user","content":"Hej"}],"tools":[{"type":"web_search"}]}""");
+        await AssertErrorAsync(tool, 400, "tool_not_allowed");
+        var usage = await fixture.UsageAsync(tool);
+        usage.Outcome.ShouldBe(RequestOutcome.Rejected);
+        usage.ErrorCode.ShouldBe("tool_not_allowed");
+        fixture.Logs.Text.ShouldContain("refused by policy: tool_not_allowed");
+
+        using var store = await fixture.SendRawAsync(strict, "/v1/chat/completions",
+            """{"model":"eu/ok","messages":[{"role":"user","content":"Hej"}],"store":true}""");
+        await AssertErrorAsync(store, 400, "storage_not_allowed");
+
+        // The Responses API stores by default: the gateway says not to.
+        var marker = "responses-" + Guid.NewGuid().ToString("N");
+        using var responses = await fixture.SendRawAsync(strict, "/v1/responses", $$"""{"model":"eu/ok","input":"{{marker}}"}""");
+        responses.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var sent = (await fixture.UpstreamRequestsAsync(e => e.RequestMessage!.Body?.Contains(marker, StringComparison.Ordinal) == true)).ShouldHaveSingleItem();
+        JsonNode.Parse(sent.RequestMessage!.Body!)!["store"]!.GetValue<bool>().ShouldBeFalse();
+
+        var allowed = await fixture.CreateKeyAsync(k => { k.AllowProviderTools = true; k.AllowProviderStorage = true; });
+        using var both = await fixture.SendRawAsync(allowed, "/v1/chat/completions",
+            """{"model":"eu/ok","messages":[{"role":"user","content":"Hej"}],"tools":[{"type":"web_search"}],"store":true}""");
+        both.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     private static async Task AssertErrorAsync(HttpResponseMessage response, int status, string code)

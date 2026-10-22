@@ -72,6 +72,10 @@ public sealed class KeyAuthenticator : IDisposable
         return null;
     }
 
+    /// <summary>The key if it is in the cache (fresh or stale); never queries the database. For throttled client addresses.</summary>
+    public VirtualKey? FindCached(string? presentedKey) =>
+        VirtualKeyHasher.LooksLikeKey(presentedKey) && _cache.TryGetValue(_hasher.Hash(presentedKey!), out CachedKey? cached) ? cached?.Key : null;
+
     public async Task<VirtualKey?> FindAsync(string? presentedKey, CancellationToken cancellationToken)
     {
         if (!VirtualKeyHasher.LooksLikeKey(presentedKey))

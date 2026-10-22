@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.Gateway.Pipeline;
 
@@ -11,6 +12,14 @@ public sealed class GatewayOptions
     /// <summary>How long authenticated key metadata is cached in memory. Revocations invalidate immediately via pub/sub.</summary>
     [Range(0, 300)]
     public int KeyCacheSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Failed authentications (missing or unknown key) one client address may cause per minute before the gateway stops
+    /// looking keys up for it: until the minute ends only keys already in the cache are accepted from that address, and
+    /// the rest get 429. Protects the database from floods of made-up keys. IPv6 clients count per /64. 0 turns it off.
+    /// </summary>
+    [Range(0, 1_000_000)]
+    public int AuthFailuresPerMinute { get; set; } = 60;
 
     /// <summary>How long providers/models/routes/budgets are cached. Admin changes invalidate immediately via pub/sub.</summary>
     [Range(0, 300)]
@@ -69,8 +78,17 @@ public sealed class GatewayOptions
     [ValidateObjectMembers]
     public RetryOptions Retry { get; set; } = new();
 
-    /// <summary>Public documentation URL used in error responses.</summary>
+    /// <summary>Public documentation URL used in error responses (<c>doc_url</c>); empty leaves it out.</summary>
     public string DocsUrl { get; set; } = "/scalar";
+
+    /// <summary>
+    /// Whether the OpenAPI document (<c>/openapi/v1.json</c>) and the browsable reference (<c>/scalar</c>) are served. They
+    /// describe the public client API and need no key; turn off to give less away. Read at startup.
+    /// </summary>
+    public bool PublishApiReference { get; set; } = true;
+
+    /// <summary><see cref="DocsUrl"/>, unless it points at this gateway's own reference and that is not published.</summary>
+    public string ErrorDocsUrl => PublishApiReference || !DocsUrl.StartsWith('/') ? DocsUrl : "";
 
     /// <summary>Optional webhook that receives budget threshold alerts (metadata only).</summary>
     public Uri? AlertWebhookUrl { get; set; }
@@ -138,12 +156,4 @@ public sealed class SecurityEventOptions
     /// <summary>Distinct (reason, endpoint, key, address) buckets kept per interval; more are folded into one overflow bucket.</summary>
     [Range(10, 100_000)]
     public int MaxAuthFailureBuckets { get; set; } = 1000;
-}
-
-public enum SourceAddressMode
-{
-    /// <summary>IPv4 /24 or IPv6 /48.</summary>
-    Truncated = 0,
-    Full = 1,
-    None = 2,
 }

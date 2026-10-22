@@ -153,8 +153,8 @@ public class PiiJsonScannerTests
 
         result.HasPii.ShouldBeTrue();
         result.Counts[PiiCategory.Personnummer].ShouldBe(1);
-        result.Counts[PiiCategory.Email].ShouldBe(1); // "user" field is structural and skipped
-        result.Summary.ShouldBe("Personnummer:1,Email:1");
+        result.Counts[PiiCategory.Email].ShouldBe(2); // the message's and the "user" field's: the provider receives both
+        result.Summary.ShouldBe("Personnummer:1,Email:2");
         body.ToJsonString().ShouldBe(original);
     }
 
@@ -208,6 +208,74 @@ public class PiiJsonScannerTests
         result.Counts[PiiCategory.Personnummer].ShouldBe(2);
         body["messages"]![0]!["content"]!.GetValue<string>().ShouldBe("Mitt pnr är [PERSONNUMMER]");
         body["messages"]![1]!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("och hans är [PERSONNUMMER]");
+    }
+
+    [Fact]
+    public void Scan_reads_anthropic_plain_text_and_content_documents_but_not_file_sources()
+    {
+        var body = JsonNode.Parse("""
+            {"model":"claude","messages":[{"role":"user","content":[
+              {"type":"document","source":{"type":"text","media_type":"text/plain","data":"Pnr 19900101-1234"}},
+              {"type":"document","source":{"type":"content","content":[{"type":"text","text":"mejl anna@umea.se"}]}},
+              {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"QUJD1212121212QUJD"}},
+              {"type":"image","source":{"type":"url","url":"https://example.se/199001011234.png"}},
+              {"type":"text","text":"Sammanfatta."}]}]}
+            """)!;
+
+        var result = PiiJsonScanner.Scan(body, redact: true);
+
+        result.Summary.ShouldBe("Personnummer:1,Email:1");
+        var content = body["messages"]![0]!["content"]!;
+        content[0]!["source"]!["data"]!.GetValue<string>().ShouldBe("Pnr [PERSONNUMMER]");
+        content[1]!["source"]!["content"]![0]!["text"]!.GetValue<string>().ShouldBe("mejl [E-POST]");
+        content[2]!["source"]!["data"]!.GetValue<string>().ShouldBe("QUJD1212121212QUJD");
+    }
+
+    [Fact]
+    public void Scan_reads_message_names_but_not_tool_names()
+    {
+        var body = JsonNode.Parse("""
+            {"model":"m","messages":[{"role":"user","name":"19900101-1234","content":"hej"}],
+             "tools":[{"type":"function","function":{"name":"lookup_199001011234","parameters":{}}}]}
+            """)!;
+
+        var result = PiiJsonScanner.Scan(body, redact: true);
+
+        result.Counts[PiiCategory.Personnummer].ShouldBe(1);
+        body["messages"]![0]!["name"]!.GetValue<string>().ShouldBe("[PERSONNUMMER]");
+        body["tools"]![0]!["function"]!["name"]!.GetValue<string>().ShouldBe("lookup_199001011234");
+    }
+
+    [Theory]
+    [InlineData("Pnr \uFF11\uFF19\uFF19\uFF10\uFF10\uFF11\uFF10\uFF11-\uFF11\uFF12\uFF13\uFF14")] // full-width digits
+    [InlineData("Pnr 19900101\u00A01234")] // no-break space (pasted from Word or Outlook)
+    [InlineData("Pnr 1990\u200B0101-1234")] // zero-width space
+    [InlineData("Pnr 19900101\u20111234")] // non-breaking hyphen
+    [InlineData("Pnr 199001\u00AD01\u20601234")] // soft hyphen and word joiner
+    [InlineData("Pnr \u0661\u0669\u0669\u0660\u0660\u0661\u0660\u0661-\u0661\u0662\u0663\u0664")] // Arabic-Indic digits
+    public void Scan_catches_look_alike_characters(string text)
+    {
+        var body = JsonNode.Parse($$"""{"model":"m","messages":[{"role":"user","content":{{System.Text.Json.JsonSerializer.Serialize(text)}}}]}""")!;
+
+        var result = PiiJsonScanner.Scan(body, redact: true);
+
+        result.Counts.GetValueOrDefault(PiiCategory.Personnummer).ShouldBe(1, text);
+        body["messages"]![0]!["content"]!.GetValue<string>().ShouldBe("Pnr [PERSONNUMMER]");
+    }
+
+    [Theory]
+    [InlineData("Hej, jag heter Åsa och bor i Umeå.")]
+    [InlineData("Plain ASCII text with a - hyphen.")]
+    [InlineData("Ärende \u2013 med tankstreck")]
+    public void Canonical_keeps_ordinary_text(string text)
+    {
+        var canonical = PiiDetector.Canonical(text);
+        if (!text.Contains('–', StringComparison.Ordinal))
+        {
+            ReferenceEquals(canonical, text).ShouldBeTrue(); // no copy for ordinary prose
+        }
+
+        canonical.Replace('-', '–').ShouldBe(text.Replace('-', '–'));
     }
 
     [Fact]

@@ -20,11 +20,29 @@ public sealed partial class GatewayRequestHandler
 
     private async Task<VirtualKey?> AuthenticateAsync(HttpContext http, GatewayEndpoint endpoint, DateTimeOffset now, CancellationToken ct)
     {
-        var docs = options.CurrentValue.DocsUrl;
+        var docs = options.CurrentValue.ErrorDocsUrl;
         var presented = KeyAuthenticator.ExtractKey(http.Request);
-        var key = await keys.FindAsync(presented, ct);
+        var address = http.Connection.RemoteIpAddress;
+        VirtualKey? key;
+        if (authThrottle.IsLimited(address, out var retryAfter))
+        {
+            // Too many failed authentications from this address: no database lookups for it until the window ends.
+            key = keys.FindCached(presented);
+            if (key is null)
+            {
+                http.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
+                await GatewayErrors.WriteAsync(http, endpoint, GatewayError.TooManyAuthFailures(retryAfter), docs);
+                return null;
+            }
+        }
+        else
+        {
+            key = await keys.FindAsync(presented, ct);
+        }
+
         if (key is null)
         {
+            authThrottle.RecordFailure(address);
             authFailures.Record(string.IsNullOrEmpty(presented) ? AuthFailureReason.MissingKey : AuthFailureReason.InvalidKey,
                 endpoint, null, http.Connection.RemoteIpAddress);
             http.Response.Headers.WWWAuthenticate = "Bearer";
@@ -274,7 +292,7 @@ public sealed partial class GatewayRequestHandler
     /// <summary>Answers with <paramref name="error"/> and accounts the refused request.</summary>
     private async Task RejectAsync(HttpContext http, RequestState state, GatewayError error, RequestOutcome outcome)
     {
-        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.ErrorDocsUrl);
         await AccountAsync(state, null, default, error.StatusCode, outcome, error.Code, null);
     }
 
@@ -287,7 +305,7 @@ public sealed partial class GatewayRequestHandler
         state.Fallbacks = Math.Max(0, candidates - 1);
         http.Response.Headers[GatewayHeaders.Fallbacks] = state.Fallbacks.ToString(CultureInfo.InvariantCulture);
         var error = GatewayError.AllProvidersFailed(lastFailure?.StatusCode == 504, candidates, modelName, lastFailure?.Reason);
-        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, error, options.CurrentValue.ErrorDocsUrl);
         await AccountAsync(state, state.Deployment, default, error.StatusCode, RequestOutcome.ProviderError, error.Code, null);
     }
 
@@ -312,7 +330,7 @@ public sealed partial class GatewayRequestHandler
             return false;
         }
 
-        await GatewayErrors.WriteAsync(http, state.Endpoint, GatewayError.InternalError, options.CurrentValue.DocsUrl);
+        await GatewayErrors.WriteAsync(http, state.Endpoint, GatewayError.InternalError, options.CurrentValue.ErrorDocsUrl);
         return true;
     }
 

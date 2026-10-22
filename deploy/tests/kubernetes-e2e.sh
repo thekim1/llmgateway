@@ -4,12 +4,13 @@
 # restart of the gateway and admin API while a pod in the cluster sends requests to their Services. Fails if a single
 # request is lost.
 #
-#   deploy/tests/kubernetes-e2e.sh           # needs kind, kubectl and the local images ume-llm-gateway/*:<version>
+#   deploy/tests/kubernetes-e2e.sh           # needs kind, kubectl and the local images ume-llm-gateway/*:latest
 #   KEEP_CLUSTER=1 deploy/tests/kubernetes-e2e.sh    # leave the cluster running afterwards
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cluster="${KIND_CLUSTER:-ume-e2e}"; ns=ume-e2e
-version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$repo/Directory.Build.props")"
+# Local builds are tagged :latest, which Kubernetes always pulls; the test loads them under their own tag instead.
+tag=e2e
 work="$(mktemp -d)"
 cp -R "$repo/deploy" "$work/"
 cd "$work"
@@ -21,7 +22,10 @@ trap cleanup EXIT
 
 kind get clusters 2>/dev/null | grep -qx "$cluster" || kind create cluster --name "$cluster" --wait 120s
 kubectl config use-context "kind-$cluster" >/dev/null
-for svc in gateway adminapi migrations dataapi; do kind load docker-image --name "$cluster" "ume-llm-gateway/$svc:$version"; done
+for svc in gateway adminapi migrations dataapi; do
+  docker tag "ume-llm-gateway/$svc:latest" "ume-llm-gateway/$svc:$tag"
+  kind load docker-image --name "$cluster" "ume-llm-gateway/$svc:$tag"
+done
 
 ./deploy/init-deployment.sh --no-chown --yes --oidc-authority https://login.microsoftonline.com/common/v2.0 \
   --gateway-host llm.test --admin-host llm-admin.test >/dev/null
@@ -35,6 +39,11 @@ kind: Kustomization
 namespace: $ns
 resources: [../base]
 components: [../components/datastores, ../components/dataapi]
+images:
+  - {name: ume-llm-gateway/gateway, newTag: $tag}
+  - {name: ume-llm-gateway/adminapi, newTag: $tag}
+  - {name: ume-llm-gateway/migrations, newTag: $tag}
+  - {name: ume-llm-gateway/dataapi, newTag: $tag}
 configMapGenerator:
   - name: ume-adminapi-config
     behavior: merge
@@ -65,8 +74,8 @@ YAML
 kubectl -n "$ns" wait --for=condition=Ready pod/rolling-load --timeout=300s
 # Each leg writes its output and exit code; the pod keeps running so they can be read afterwards.
 kubectl -n "$ns" exec rolling-load -- sh -c '
-  (python /load/rolling-load.py gateway 8443 /v1/chat/completions 401 16 /tmp/stop POST > /tmp/post.txt 2>&1; echo $? > /tmp/post.rc) </dev/null >/dev/null 2>&1 &
-  (python /load/rolling-load.py gateway 8443 /v1/models 401 8 /tmp/stop > /tmp/get.txt 2>&1; echo $? > /tmp/get.rc) </dev/null >/dev/null 2>&1 &
+  (python /load/rolling-load.py gateway 8443 /v1/chat/completions 401,429 16 /tmp/stop POST > /tmp/post.txt 2>&1; echo $? > /tmp/post.rc) </dev/null >/dev/null 2>&1 &
+  (python /load/rolling-load.py gateway 8443 /v1/models 401,429 8 /tmp/stop > /tmp/get.txt 2>&1; echo $? > /tmp/get.rc) </dev/null >/dev/null 2>&1 &
   (python /load/rolling-load.py adminapi 8443 / 200 4 /tmp/stop > /tmp/admin.txt 2>&1; echo $? > /tmp/admin.rc) </dev/null >/dev/null 2>&1 &
   sleep 1'
 sleep 8

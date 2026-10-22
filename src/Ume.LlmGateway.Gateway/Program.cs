@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
@@ -18,6 +19,9 @@ builder.AddDeploymentSecrets();
 builder.AddServiceDefaults();
 builder.AddGatewayDatabase();
 builder.AddGatewaySecurity();
+// The gateway only decrypts (provider credentials). The admin API creates and rotates the Data Protection keys; the
+// gateway's database role may not add any (deploy/postgres/app-roles.sql).
+builder.Services.AddDataProtection().DisableAutomaticKeyGeneration();
 builder.AddGatewayStores();
 builder.Services.AddProviderAdapters();
 
@@ -31,6 +35,7 @@ builder.Services.AddOptions<GatewayOptions>()
 builder.Services.PostConfigure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.None);
 
 builder.Services.AddSingleton<KeyAuthenticator>();
+builder.Services.AddSingleton<AuthFailureThrottle>();
 builder.Services.AddSingleton<GatewayCatalog>();
 builder.Services.AddSingleton<DeploymentLoad>();
 builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
@@ -79,6 +84,7 @@ app.UseUmeSecurityHeaders(o =>
     o.ContentSecurityPolicyPrefixes.Add("/v1");
     o.NoStorePrefixes.Add("/v1");
 });
+app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 
 app.MapDefaultEndpoints();
 app.MapGet(OperationsSignature.Path, async (HttpContext http, IOptions<GatewaySecurityOptions> security,
@@ -96,9 +102,12 @@ app.MapGet(OperationsSignature.Path, async (HttpContext http, IOptions<GatewaySe
         status.ConsecutiveFailures > 0 && report.Status == HealthStatus.Healthy ? "Degraded" : report.Status.ToString(),
         typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown", status));
 }).ExcludeFromDescription();
-app.MapOpenApi();
-app.MapScalarApiReference(o => o.WithTitle("Umeå kommun LLM Gateway"));
-app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+if (app.Configuration.GetValue($"{GatewayOptions.SectionName}:{nameof(GatewayOptions.PublishApiReference)}", true))
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(o => o.WithTitle("Umeå kommun LLM Gateway").WithNonce().DisableDefaultFonts());
+    app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
+}
 
 app.MapGatewayEndpoints();
 

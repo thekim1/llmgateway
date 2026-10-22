@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, RESIDENCY } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
@@ -64,6 +64,8 @@ const values = reactive({
   residencies: [] as DataResidency[],
   piiPolicy: 'RerouteToOnPrem' as PiiPolicy,
   attachmentPolicy: 'Allowed' as AttachmentPolicy,
+  allowProviderTools: false,
+  allowProviderStorage: false,
   allowAll: true,
   models: [] as string[],
   allProviders: true,
@@ -135,6 +137,8 @@ function reset(): void {
   values.residencies = [...(key?.allowedResidencies ?? [])]
   values.piiPolicy = key?.piiPolicy ?? 'RerouteToOnPrem'
   values.attachmentPolicy = key?.attachmentPolicy ?? 'Allowed'
+  values.allowProviderTools = key?.allowProviderTools ?? false
+  values.allowProviderStorage = key?.allowProviderStorage ?? false
   values.allowAll = key ? key.allowedModels.length === 0 : true
   values.models = [...(key?.allowedModels ?? [])]
   values.allProviders = key ? (key.allowedProviders ?? []).length === 0 : true
@@ -211,6 +215,8 @@ async function submit(): Promise<void> {
     allowedIpRanges: parseAddressList(values.addresses),
     piiPolicy: values.piiPolicy,
     attachmentPolicy: values.attachmentPolicy,
+    allowProviderTools: values.allowProviderTools,
+    allowProviderStorage: values.allowProviderStorage,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
     maxConcurrentRequests: parseInteger(values.maxConcurrentRequests),
@@ -308,6 +314,12 @@ async function submit(): Promise<void> {
             </p>
             <span v-if="errors.attachmentPolicy" class="text-small text-danger">{{ errors.attachmentPolicy }}</span>
           </div>
+
+          <fieldset class="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
+            <legend class="mb-1.5 p-0 font-medium">Provider features</legend>
+            <CheckField v-model="values.allowProviderTools" label="Allow provider tools" :description="PROVIDER_TOOLS_HINT" />
+            <CheckField v-model="values.allowProviderStorage" label="Allow provider storage" :description="PROVIDER_STORAGE_HINT" />
+          </fieldset>
 
           <div v-if="canPickProviders" :id="ids.allowedProviders" class="flex flex-col gap-2" tabindex="-1">
             <CheckField v-model="values.allProviders" label="Allow all providers" description="Includes providers added later." />

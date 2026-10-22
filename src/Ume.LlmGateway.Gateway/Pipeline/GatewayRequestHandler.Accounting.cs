@@ -110,7 +110,8 @@ public sealed partial class GatewayRequestHandler
                 key.Id, key.Prefix, key.TeamId, record.DepartmentId);
         }
 
-        if ((errorCode is GatewayErrorCodes.AttachmentNotAllowed or GatewayErrorCodes.ModelNotAllowed) && _security.IsEnabled(LogLevel.Information))
+        if ((errorCode is GatewayErrorCodes.AttachmentNotAllowed or GatewayErrorCodes.ModelNotAllowed or GatewayErrorCodes.ToolNotAllowed
+                or GatewayErrorCodes.StorageNotAllowed) && _security.IsEnabled(LogLevel.Information))
         {
             SecurityEvents.RequestRefused(_security, state.RequestId, state.Endpoint.ToString(), errorCode, key.Id, key.Prefix, key.TeamId, record.DepartmentId);
         }

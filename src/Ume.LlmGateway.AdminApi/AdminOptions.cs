@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi;
 
@@ -10,6 +11,19 @@ public sealed class AdminOptions
     /// <summary>Requests per minute per signed-in user (or client address before sign-in).</summary>
     [Range(1, 10_000)]
     public int RequestsPerMinute { get; set; } = 120;
+
+    /// <summary>
+    /// Hours a session may last from sign-in, however often it is extended. After that the user signs in at the identity
+    /// provider again (which also picks up role changes made there).
+    /// </summary>
+    [Range(1, 24)]
+    public int MaxSessionHours { get; set; } = 12;
+
+    /// <summary>
+    /// How much of an admin user's address audit entries and admin security events keep: <c>Full</c> (default; an
+    /// investigation needs it), <c>Truncated</c> (IPv4 /24, IPv6 /48) or <c>None</c>.
+    /// </summary>
+    public SourceAddressMode AuditSourceAddress { get; set; } = SourceAddressMode.Full;
 
     /// <summary>The Azure region (<c>armRegionName</c>) whose list prices are suggested for Azure AI Foundry deployments.</summary>
     [RegularExpression("^[a-z0-9]{2,40}$")]

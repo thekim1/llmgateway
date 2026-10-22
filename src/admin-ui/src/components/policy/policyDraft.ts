@@ -15,6 +15,9 @@ export type PolicyErrors = Partial<Record<keyof PolicyDraft, string>>
 export const PROTECTED_PARAMETERS = [
   'model', 'messages', 'input', 'prompt', 'system', 'instructions', 'stream', 'stream_options', 'file', 'image', 'mask',
   'max_tokens', 'max_completion_tokens', 'max_output_tokens',
+  // Provider tools and storage need the key's own permission (Allow provider tools / storage), not a policy.
+  'tools', 'tool_choice', 'web_search_options', 'mcp_servers', 'container', 'store', 'background', 'conversation',
+  'previous_response_id',
 ]
 export const MAX_SYSTEM_PROMPT = 8000
 const MAX_PARAMETERS = 20

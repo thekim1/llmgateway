@@ -11,8 +11,12 @@ detection, set the key's policy (*Keys*, edit the key) to one of:
 | Block | The request is refused with `pii_blocked`. |
 | On-prem (`RerouteToOnPrem`) | The request may only go to on-prem models. |
 
-What is detected, in all text a client sends (chat messages as a string or as content parts, Responses input, Anthropic
-messages, the transcription `prompt`, realtime text events; not file contents):
+What is detected, in all text a client sends (chat messages as a string or as content parts, a message's `name`, the
+request's `user` field, Responses input, Anthropic messages including plain-text and custom-content documents, the
+transcription `prompt`, realtime text events; not file contents such as images, PDFs or base64 files). Text is compared
+in a canonical form: full-width and other non-ASCII digits count as digits, no-break spaces as spaces and Unicode dashes as
+`-`, and invisible characters (zero-width space, soft hyphen, word joiner) are ignored. A redacted value is sent on in that
+form.
 
 - **Personnummer and samordningsnummer** (day + 60) with a real calendar date, as `YYMMDD-NNNN`, `YYMMDD+NNNN`, `YYMMDD NNNN`,
   `YYYYMMDD-NNNN`, `YYYYMMDD NNNN` or `YYYYMMDDNNNN` (century 18, 19 or 20). These are caught even when the check digit is
@@ -28,3 +32,18 @@ personal data was found, newest first: when, which key, team and department, end
 the gateway did (detected and sent on, redacted, blocked, sent on-prem). Filter by period, department, team, key, category
 and action; tiles show the number of requests per category and per action for the period. Each row links to the request on
 the *Usage* page. Department admins and viewers see their own departments. A key with policy Off never has incidents.
+
+## Provider tools and storage
+
+A provider and its region (the residency a key allows) are not the only places a request can send data. Tools the
+provider runs itself (web search, file search, code interpreter, MCP servers, web fetch) pass the conversation to other
+services or the open internet, and `store`, background responses and conversations keep it at the provider. Each key has
+two settings for this, both off by default (Keys > edit key > Access > *Provider features*):
+
+| Setting | Off (default) | On |
+|---|---|---|
+| **Allow provider tools** | Only tools the client runs (functions) are accepted; others get 400 `tool_not_allowed`. | Provider tools are sent on. |
+| **Allow provider storage** | `store: true`, background responses and conversations get 400 `storage_not_allowed`; Responses API requests are sent with `store: false`. | Requests are sent as they are. |
+
+Turn them on only for keys whose users may send their data to those services. Details:
+[admin-api.md](admin-api.md#gateway-data-plane--for-the-developer-portal-snippets).

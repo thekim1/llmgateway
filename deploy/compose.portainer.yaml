@@ -277,20 +277,28 @@ configs:
       rand() { openssl rand -hex 32; }
       quiet() { "$$@" >/dev/null 2>&1; }
 
+      # A CA from an earlier version has no keyUsage, which strict clients (Python 3.13, newer Go and Java) refuse: it is
+      # replaced, and every certificate it issued is re-issued below because it no longer verifies.
+      if [ -f "$$C/ca.pem" ] && ! openssl x509 -noout -text -in "$$C/ca.pem" | grep -q "X509v3 Key Usage"; then
+        echo "bootstrap: replacing the internal CA (no keyUsage)"
+        mv "$$C/ca.pem" "$$C/ca.pem.old"; rm -f "$$C/ca.key"
+      fi
       if [ ! -f "$$C/ca.pem" ]; then
-        quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout "$$C/ca.key" -out "$$C/ca.pem" -days 3650 -subj /CN=ume-gateway-internal-ca
+        quiet openssl req -x509 -newkey rsa:3072 -nodes -keyout "$$C/ca.key" -out "$$C/ca.pem" -days 3650 -subj /CN=ume-gateway-internal-ca \
+          -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
       fi
 
-      # issue SERVICE SAN-LIST: (re)issue unless a valid certificate for exactly these names exists
+      # issue SERVICE SAN-LIST: (re)issue unless a valid certificate for exactly these names, from the current CA, exists
       issue() {
         svc="$$1"; san="$$2"; dir="$$C/$$svc"
         if [ -f "$$dir/$$svc.crt" ] && [ "$$(cat "$$dir/.san" 2>/dev/null)" = "$$san" ] &&
-           quiet openssl x509 -checkend 2592000 -noout -in "$$dir/$$svc.crt"; then
+           quiet openssl x509 -checkend 2592000 -noout -in "$$dir/$$svc.crt" && quiet openssl verify -CAfile "$$C/ca.pem" "$$dir/$$svc.crt"; then
           return
         fi
         echo "bootstrap: issuing certificate for $$svc ($$san)"
         quiet openssl req -newkey rsa:3072 -nodes -keyout "$$dir/$$svc.key" -out "/tmp/$$svc.csr" -subj "/CN=$$svc"
-        printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$$san" > "/tmp/$$svc.ext"
+        printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n' \
+          "$$san" > "/tmp/$$svc.ext"
         quiet openssl x509 -req -in "/tmp/$$svc.csr" -CA "$$C/ca.pem" -CAkey "$$C/ca.key" -CAcreateserial -CAserial /tmp/ca.srl \
           -out "$$dir/$$svc.crt" -days 825 -extfile "/tmp/$$svc.ext"
         printf '%s' "$$san" > "$$dir/.san"
@@ -408,13 +416,39 @@ configs:
       hostssl gatewaydb ume_migrator,ume_gateway,ume_admin,ume_data all scram-sha-256
   app-roles:
     content: |
-      GRANT SELECT ON ALL TABLES IN SCHEMA public TO ume_gateway, ume_admin;
+      -- Applied by the migration service on every start. The service roles' table privileges are revoked and granted again in
+      -- one transaction, so each role holds exactly what this file lists (a privilege removed here is removed from existing
+      -- installations too) and running services see either the old or the new grants, never none. Tables are named one by
+      -- one: a new table is readable by no service until it is added here (DatabaseRoleTests checks the effective grants).
+      -- No curly braces: the migration service runs this file with EF Core's ExecuteSqlRaw, which reads them as placeholders.
+      BEGIN;
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ume_gateway, ume_admin;
+      REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ume_gateway, ume_admin;
       GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ume_gateway, ume_admin;
-      GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
+
+      -- The settings row exists before any service runs, so the admin role needs no INSERT on it (an insert could set
+      -- UsageRetainedFrom, which only the retention function may move).
+      INSERT INTO "GatewaySettings" ("Id", "TrustedProxies", "AuditRetentionDays") VALUES (1, ARRAY[]::text[], 365) ON CONFLICT ("Id") DO NOTHING;
+
+      -- Gateway (faces the clients): what it authenticates, routes and accounts with. Not the audit log or Data API keys. It reads
+      -- the Data Protection key ring but does not add keys (it only decrypts; the admin API creates and rotates them).
+      GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "UsageRecords", "UsageMonthlyTotals", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
+      GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures" TO ume_gateway;
       GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
+
+      -- Admin API: reads everything it shows (and the schema version for Operations); changes configuration, appends audit
+      -- entries, creates Data Protection keys. Settings column by column, without UsageRetainedFrom.
+      GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "UsageRecords", "UsageMonthlyTotals", "AuditLog", "AlertEvents", "AuthFailures", "DataProtectionKeys",
+        "__EFMigrationsHistory" TO ume_admin;
       GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-        "Budgets", "ExchangeRates", "DataApiKeys", "GatewaySettings" TO ume_admin;
+        "Budgets", "ExchangeRates", "DataApiKeys" TO ume_admin;
+      GRANT UPDATE ("TrustedProxies", "LogAllRequests", "LogAllRequestsUntil", "UpdatedAt", "UsageRetentionDays", "AuditRetentionDays",
+        "RetentionLastRunAt", "RetentionLastRunDeleted", "RetentionLastRunError") ON "GatewaySettings" TO ume_admin;
       GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
       GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
       -- Data retention: old rows are removed only through this function (owner's rights, minimum 90 days); the admin role
@@ -433,7 +467,8 @@ configs:
           GRANT SELECT ("UsageRetainedFrom") ON "GatewaySettings" TO ume_data;
           GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
             "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",
-            "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute") ON "VirtualKeys" TO ume_data;
+            "AllowedIpRanges", "PiiPolicy", "AttachmentPolicy", "RequestsPerMinute", "TokensPerMinute", "AllowProviderTools",
+            "AllowProviderStorage", "MaxConcurrentRequests") ON "VirtualKeys" TO ume_data;
           GRANT SELECT ("Id", "Name", "DisplayName", "Type", "Residency", "IsEnabled") ON "ProviderAccounts" TO ume_data;
           -- Its own credentials: the key hash (SHA-256 of a 256-bit random key) to authenticate Data API keys, and the
           -- only column it may write, the approximate last use.
@@ -441,6 +476,7 @@ configs:
           GRANT UPDATE ("LastUsedAt") ON "DataApiKeys" TO ume_data;
         END IF;
       END $$$$;
+      COMMIT;
 
 networks:
   edge: {driver: bridge}

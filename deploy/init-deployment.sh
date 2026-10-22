@@ -8,6 +8,7 @@
 #   ./deploy/init-deployment.sh --oidc-authority https://idp.example.se/realms/ume \
 #       --gateway-host llm.example.se --admin-host llm-admin.example.se --yes
 #   ./deploy/init-deployment.sh --renew-certs        # re-issue internal certificates only
+#   ./deploy/init-deployment.sh --renew-ca           # new internal CA, then re-issue its certificates
 #
 # Exposure options (see docs/runbook.md, "Reverse proxy and PKI"):
 #   --proxy                 a reverse proxy (nginx, Nginx Proxy Manager, F5...) terminates public
@@ -29,7 +30,7 @@ umask 077
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 certs="$here/certs"; secrets="$here/secrets"; env_file="$here/.env"
 oidc_authority=""; oidc_client="ume-admin"; gateway_host=""; admin_host=""; data_host=""
-gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0; rolling=0; chown=1
+gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0; renew_ca=0; rolling=0; chown=1
 oidc_secret_file=""; proxy=0; upstream_host=""; gw_cert=""; gw_key=""; adm_cert=""; adm_key=""; ca_file=""
 
 usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -58,6 +59,7 @@ while [ $# -gt 0 ]; do
     --admin-key) adm_key="$2"; shift 2;;
     --ca-file) ca_file="$2"; shift 2;;
     --renew-certs) renew=1; shift;;
+    --renew-ca) renew=1; renew_ca=1; shift;;
     --yes|-y) yes=1; shift;;
     -h|--help) usage 0;;
     *) echo "unknown option: $1" >&2; usage 1;;
@@ -115,18 +117,26 @@ rand() { openssl rand -hex 32; }
 mkdir -p "$certs" "$secrets"
 
 # --- Internal CA (trusted only by the services themselves) ----------------------
+# keyUsage makes it RFC 5280-conformant; strict clients (Python 3.13, newer Go and Java) refuse a CA without it.
+# --renew-ca replaces a CA made by an earlier version, which lacks it; the old one is kept as ca.pem.old.
+if [ "$renew_ca" = 1 ] && [ -e "$certs/ca.pem" ]; then
+  mv "$certs/ca.pem" "$certs/ca.pem.old"; rm -f "$certs/ca.key"
+fi
 if new_file "$certs/ca.pem"; then
   openssl req -x509 -newkey rsa:3072 -nodes -keyout "$certs/ca.key" -out "$certs/ca.pem" \
-    -days 3650 -subj "/CN=ume-gateway-internal-ca" >/dev/null 2>&1
+    -days 3650 -subj "/CN=ume-gateway-internal-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
 fi
 
 # --- Service certificates ---------------------------------------------------------
 issue() { # issue SERVICE SAN...
   local svc="$1"; shift; local san="DNS:$svc,DNS:localhost" h tmp
+  [ -r "$certs/ca.key" ] || die "$certs/ca.key is needed to issue certificates: copy it back from where you keep it offline"
   for h in "$@"; do [ -n "$h" ] && san="$san,DNS:$h"; done
   mkdir -p "$certs/$svc"; tmp="$(mktemp -d)"
   openssl req -newkey rsa:3072 -nodes -keyout "$certs/$svc/$svc.key" -out "$tmp/leaf.csr" -subj "/CN=$svc" >/dev/null 2>&1
-  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$san" > "$tmp/leaf.ext"
+  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n' \
+    "$san" > "$tmp/leaf.ext"
   openssl x509 -req -in "$tmp/leaf.csr" -CA "$certs/ca.pem" -CAkey "$certs/ca.key" -CAcreateserial \
     -CAserial "$tmp/ca.srl" -out "$certs/$svc/$svc.crt" -days 825 -extfile "$tmp/leaf.ext" >/dev/null 2>&1
   rm -rf "$tmp"; : > "$certs/$svc/.internal"
@@ -321,5 +331,7 @@ $own_step
      dumps. Without them a restored database is unusable.
   4. Internal certificates last 825 days; re-issue with: $0 --renew-certs
      To use your PKI instead, re-run with --gateway-cert/--gateway-key/--admin-cert/--admin-key.$update_note
+  5. Move $certs/ca.key off this host (with the backups in step 3). Anyone who can read it can
+     issue certificates the services trust; it is only needed again for --renew-certs.
 $proxy_note
 EOF

@@ -16,6 +16,9 @@ internal static class RedisKeys
     /// <summary>Cache invalidation (key revoked, configuration changed), published by the admin API.</summary>
     public static readonly RedisChannel InvalidateChannel = RedisChannel.Literal(InvalidateChannelName);
 
+    /// <summary>A signed-in admin session (the admin API's encrypted cookie ticket), expiring with the session.</summary>
+    public static string AdminSession(string sessionId) => $"ume:admin-session:{sessionId}";
+
     /// <summary>A per-minute rate-limit counter outlives its minute a little, so late token reports still land.</summary>
     public const int RateWindowSeconds = 120;
 

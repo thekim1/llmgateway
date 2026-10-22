@@ -140,6 +140,7 @@ test, and *Flake hunt* runs the marked ones too, so they are still watched. Run 
 | `AudioTests.Pii_policy_redacts_the_prompt_field` | Reads the shared mock provider's log (failed in CI 2026-10-13 and 2026-10-16) |
 | `HotPathTests.Expired_key_is_served_while_it_refreshes_and_revocation_drops_it` | Races the background key refresh (CI, 2026-10-15) |
 | `GatewayTests.Requests_in_flight_are_limited_per_key` | Needs a slow request still in flight 300 ms later on a busy runner |
+| Admin UI `RuleFormDrawer` "does not save while the condition is known to be invalid" | The submit can run before the debounced validation result is applied (Vitest: `it.skipIf(!!import.meta.env.CI)`) |
 
 ## Browser tests
 

@@ -91,7 +91,7 @@ public static class DataApiAuthentication
         if (http.User.Identity?.IsAuthenticated == true && http.Request.Path.StartsWithSegments("/v1", StringComparison.OrdinalIgnoreCase) &&
             SecurityEvents.CreateLogger(http.RequestServices.GetRequiredService<ILoggerFactory>()) is var logger && logger.IsEnabled(LogLevel.Information))
         {
-            SecurityEvents.DataRead(logger, ClientId(http.User), http.Request.Path.Value ?? string.Empty, http.Response.StatusCode,
+            SecurityEvents.DataRead(logger, ClientId(http.User), SecurityEvents.Printable(http.Request.Path.Value ?? string.Empty), http.Response.StatusCode,
                 http.Response.Headers["X-Next-Cursor"].ToString() is { Length: > 0 } cursor ? cursor : null);
         }
     }

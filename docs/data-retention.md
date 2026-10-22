@@ -23,3 +23,7 @@ The gateway log only has a line for refused, failed and cancelled requests: writ
 peak throughput ([performance](performance.md)). To follow successful requests in the log too, a gateway admin turns on
 **Settings > Request logging**, for 24 hours (it then switches itself off) or without a time limit. It reaches every gateway
 instance within seconds, without a restart, and is audited.
+
+Outside development the services write their console log as JSON (one object per line, with the message and its fields),
+which log shippers read directly and which cannot be broken up by line breaks in client-supplied values. For the
+plain-text format of earlier versions set `Logging__Console__FormatterName=simple`.

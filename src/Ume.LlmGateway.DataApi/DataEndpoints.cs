@@ -23,14 +23,15 @@ public sealed record AuthFailureItem(
     string? KeyPrefix, Guid? TeamId, Guid? DepartmentId, string? SourceAddress, int Count, DateTimeOffset RecordedAt) : IFeedItem;
 
 public sealed record AuditItem(
-    long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details, DateTimeOffset RecordedAt) : IFeedItem;
+    long Id, DateTimeOffset Timestamp, string Actor, string Action, string EntityType, string? EntityId, string? Details, DateTimeOffset RecordedAt,
+    string? ActorName, string? ActorRoles, string? ActorDepartments, string? SourceAddress, string? SessionId, string? RequestId, string? UserAgent) : IFeedItem;
 
 public sealed record KeyInventoryItem(
     Guid Id, string Prefix, string Name, Guid TeamId, Guid? DepartmentId, KeyStatus Status, DateTimeOffset CreatedAt, string? CreatedBy,
     DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt, DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, DateTimeOffset? LastUsedAt,
     PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, IReadOnlyList<string> AllowedModels, IReadOnlyList<string> AllowedProviders,
     IReadOnlyList<DataResidency> AllowedResidencies, int? RequestsPerMinute, int? TokensPerMinute, IReadOnlyList<string> AllowedIpRanges,
-    int? MaxConcurrentRequests);
+    bool AllowProviderTools, bool AllowProviderStorage, int? MaxConcurrentRequests);
 
 public sealed record AggregateItem(
     DateOnly Period, Guid? DepartmentId, string? CostCenterCode, string? DepartmentName, Guid? ModelId, string? ModelName, Guid? ProviderId,
@@ -111,7 +112,8 @@ public static class DataEndpoints
         {
             var (cursor, size) = Feeds.Window(after, limit, options.Value);
             var rows = await db.AuditLog.AsNoTracking().Where(a => a.Id > cursor).OrderBy(a => a.Id).Take(size + 1)
-                .Select(a => new AuditItem(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details, a.RecordedAt))
+                .Select(a => new AuditItem(a.Id, a.Timestamp, a.Actor, a.Action, a.EntityType, a.EntityId, a.Details, a.RecordedAt,
+                    a.ActorName, a.ActorRoles, a.ActorDepartments, a.SourceAddress, a.SessionId, a.RequestId, a.UserAgent))
                 .ToListAsync(ct);
             return DataResults.Feed(http, Feeds.Page(rows, cursor, size, Feeds.Cutoff(time, options.Value)));
         }).WithSummary("Admin audit log with masked before/after details (incremental feed)");
@@ -124,12 +126,14 @@ public static class DataEndpoints
             {
                 k.Id, k.Prefix, k.Name, k.TeamId, DepartmentId = (Guid?)k.Team!.DepartmentId, k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt,
                 k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy, k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders,
-                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.MaxConcurrentRequests,
+                k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage,
+                k.MaxConcurrentRequests,
             }).ToListAsync(ct);
             return DataResults.List(http, keys.Select(k => new KeyInventoryItem(k.Id, k.Prefix, k.Name, k.TeamId, k.DepartmentId,
                 new VirtualKey { Name = k.Name, Prefix = k.Prefix, KeyHash = string.Empty, IsEnabled = k.IsEnabled, ExpiresAt = k.ExpiresAt, RevokedAt = k.RevokedAt, GraceUntil = k.GraceUntil }.GetStatus(now),
                 k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId, k.LastUsedAt, k.PiiPolicy,
-                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges, k.MaxConcurrentRequests)).ToList());
+                k.AttachmentPolicy, k.AllowedModels, k.AllowedProviders, k.AllowedResidencies, k.RequestsPerMinute, k.TokensPerMinute, k.AllowedIpRanges,
+                k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests)).ToList());
         }).WithSummary("Every key with its status and policies (never the secret or its hash)");
 
         var catalog = v1.MapGroup("/catalog").WithTags("Catalog").RequireAuthorization(DataPermissions.CatalogRead);

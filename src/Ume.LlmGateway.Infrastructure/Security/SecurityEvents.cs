@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Ume.LlmGateway.Domain;
 
@@ -16,6 +17,35 @@ public static partial class SecurityEvents
     {
         ArgumentNullException.ThrowIfNull(factory);
         return factory.CreateLogger(Category);
+    }
+
+    private static readonly SearchValues<char> ControlCharacters = SearchValues.Create(
+        [.. Enumerable.Range(0, 0x20).Select(c => (char)c), .. Enumerable.Range(0x7F, 0x21).Select(c => (char)c)]);
+
+    /// <summary>
+    /// <paramref name="value"/> with control characters (line breaks, escape sequences) replaced by '?', for client-supplied
+    /// values that are logged or stored: a newline could otherwise start a forged log line in a plain-text log. Returns the
+    /// same string, without allocating, when there is nothing to replace.
+    /// </summary>
+    public static string Printable(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var first = value.AsSpan().IndexOfAny(ControlCharacters);
+        if (first < 0)
+        {
+            return value;
+        }
+
+        return string.Create(value.Length, (value, first), static (span, state) =>
+        {
+            state.value.AsSpan().CopyTo(span);
+            var rest = span[state.first..];
+            for (var i = rest.IndexOfAny(ControlCharacters); i >= 0; i = rest.IndexOfAny(ControlCharacters))
+            {
+                rest[i] = '?';
+                rest = rest[(i + 1)..];
+            }
+        });
     }
 
     public static string ReasonName(AuthFailureReason reason) => reason switch
@@ -57,4 +87,24 @@ public static partial class SecurityEvents
     [LoggerMessage(2001, LogLevel.Information,
         "Admin {Actor}: {Action} {EntityType} {EntityId}", EventName = "admin.change")]
     public static partial void AdminChange(ILogger logger, string actor, string action, string entityType, string? entityId);
+
+    [LoggerMessage(2002, LogLevel.Information,
+        "Admin {Actor} signed in from {SourceAddress} with roles {Roles}, departments {Departments}; session {SessionId}", EventName = "admin.signin")]
+    public static partial void AdminSignIn(ILogger logger, string actor, string? sourceAddress, string roles, string departments, string? sessionId);
+
+    [LoggerMessage(2003, LogLevel.Information,
+        "Admin {Actor} signed out from {SourceAddress}; session {SessionId}", EventName = "admin.signout")]
+    public static partial void AdminSignOut(ILogger logger, string actor, string? sourceAddress, string? sessionId);
+
+    [LoggerMessage(2004, LogLevel.Information,
+        "Admin {Actor} extended session {SessionId} until {ExpiresAt} from {SourceAddress}", EventName = "admin.session.extended")]
+    public static partial void AdminSessionExtended(ILogger logger, string actor, string? sessionId, DateTimeOffset expiresAt, string? sourceAddress);
+
+    [LoggerMessage(2005, LogLevel.Warning,
+        "Admin {Actor} was refused {Method} {Path} x{Count} from {SourceAddress} (roles {Roles})", EventName = "admin.access.denied")]
+    public static partial void AdminAccessDenied(ILogger logger, string actor, string method, string path, int count, string? sourceAddress, string roles);
+
+    [LoggerMessage(2006, LogLevel.Information,
+        "Admin {Actor} read {Path}{Query} from {SourceAddress}", EventName = "admin.data.read")]
+    public static partial void AdminDataRead(ILogger logger, string actor, string path, string query, string? sourceAddress);
 }

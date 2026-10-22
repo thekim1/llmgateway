@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -74,6 +75,8 @@ public sealed class GatewayFixture : IAsyncLifetime
             DepartmentId = department.Id;
             db.Departments.Add(department);
             db.ExchangeRates.Add(new ExchangeRate { SekPerUnit = 10, EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1) });
+            // The gateway creates no Data Protection keys (the admin API does), so the test makes the one it encrypts with.
+            scope.ServiceProvider.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(90));
             var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();
             foreach (var (name, residency, type) in new[]
             {
@@ -219,7 +222,7 @@ public sealed class GatewayFixture : IAsyncLifetime
         else if (behavior.StartsWith("fail", StringComparison.Ordinal) || behavior == "bad400")
         {
             var status = behavior == "fail503" ? 503 : behavior == "fail429" ? 429 : 400;
-            response.WithStatusCode(status).WithBody("""{"error":{"type":"invalid_request_error","message":"Upstream rejected request"}}""");
+            response.WithStatusCode(status).WithBody("""{"error":{"type":"invalid_request_error","message":"Upstream rejected request","innererror":{"deployment":"internal-deployment-7"}},"organization":"org-internal-42"}""");
         }
         else
         {

@@ -111,6 +111,17 @@ public sealed class RequestPolicyTests
         problems.ShouldContain(p => p.Contains("'model'", StringComparison.Ordinal));
         problems.ShouldContain(p => p.Contains("Max output tokens", StringComparison.Ordinal) && p.Contains("'max_tokens'", StringComparison.Ordinal));
 
+        // Provider tools and storage are the key's own permission, checked before the policy: a policy cannot add them.
+        var sneaky = new RequestPolicy
+        {
+            Overrides = new Dictionary<string, JsonElement> { ["tools"] = Json("""[{"type":"web_search"}]"""), ["store"] = Json("true") },
+        };
+        sneaky.Validate().Count().ShouldBe(2);
+        var request = JsonNode.Parse("""{"model":"m","input":"Hej","store":false}""")!.AsObject();
+        RequestPolicies.Apply(request, GatewayEndpoint.Responses, sneaky);
+        request["tools"].ShouldBeNull();
+        request["store"]!.GetValue<bool>().ShouldBeFalse();
+
         // Even if a stored policy holds one, it is not applied.
         var body = JsonNode.Parse("""{"model":"chosen","messages":[]}""")!.AsObject();
         RequestPolicies.Apply(body, GatewayEndpoint.ChatCompletions, new RequestPolicy { Overrides = policy.Overrides });

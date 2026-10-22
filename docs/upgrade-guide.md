@@ -31,6 +31,46 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - Existing Claude prices bill cache writes at the input price, as before; add a price with *Cache write* to bill them
   at Anthropic's rate from its effective date.
 
+## 0.6.4: security hardening
+
+- **Rolling update: yes.** Two additive migrations (`ProviderFeaturePolicy`, `AuditActorContext`); 0.6.3 runs against the
+  new schema while its instances are replaced.
+- **Everyone is signed out once.** Admin sessions move to Redis (`ume:admin-session:*`, covered by the existing `~ume:*`
+  ACL; only `get`, `set`, `del`, which it already allows). Old cookies are not accepted after the upgrade; users sign in
+  again. During a rolling update a user can be signed out by an old instance once more.
+- **New settings (defaults are fine):** `Admin:MaxSessionHours` (12) and `Gateway:AuthFailuresPerMinute` (60).
+- **Provider address edits** need the credential again when the host, scheme or port changes. Scripts that move a provider
+  with `PUT /api/providers/{id}` or a configuration import must send `credential` (or `credentialEnvironment`).
+- **PII policy:** keys with *Block* or *Redact* may now refuse or change requests that passed before (personal data in the
+  `user` field, a message `name`, an Anthropic text document, or written with full-width digits or invisible characters).
+- **Console logs are JSON** outside development (all services). Log shippers and alerts that parse the plain-text format
+  (`warn: Category[id]` lines) must read JSON, or set `Logging__Console__FormatterName=simple`.
+- **Provider refusals are trimmed.** A provider's 4xx reaches the client with only `message`, `type`, `code` and `param`;
+  clients that read other fields of a provider's error body no longer get them.
+- **Repeated JSON properties** (`{"model":"a","model":"b"}`) get `400 invalid_request` instead of a `500`; on live audio
+  such an event, or one that is not valid JSON, gets an `error` event instead of being passed to the provider.
+- **API reference:** `/openapi/v1.json` and `/scalar` on the gateway and Data API stay public by default; turn them off with
+  `Gateway:PublishApiReference=false` / `DataApi:PublishApiReference=false`. `/scalar` now has its own CSP.
+- **Narrower database grants,** applied by the migration service on start (no manual step). The gateway role can no longer
+  read `AuditLog` or `DataApiKeys` or add Data Protection keys; the admin role can no longer insert or delete the settings
+  row or change `UsageRetainedFrom`. During a rolling update the old gateway version needs nothing it loses.
+- **Internal CA:** new installations get an RFC 5280-conformant CA. On an existing Compose installation run
+  `deploy/init-deployment.sh --renew-ca` once (it needs no other options) and restart the stack; Portainer replaces the CA
+  on its own at the next redeploy. Integrations that trusted the old `ca.pem` must get the new one. Afterwards move
+  `deploy/certs/ca.key` off the host.
+- **Provider tools and storage are off for every key** (migration `ProviderFeaturePolicy` adds two columns, default
+  `false`; rolling update still works). Clients that use web search, file search, code interpreter, MCP or other provider
+  tools get `400 tool_not_allowed`, and `store: true`, `background` or `conversation` get `400 storage_not_allowed`, until
+  an admin turns on *Allow provider tools* / *Allow provider storage* on the key. Responses API requests are now sent with
+  `store: false`, so `previous_response_id` stops working for keys without provider storage. Check which applications
+  rely on these before upgrading.
+- **Audit entries record more** (migration `AuditActorContext` adds seven nullable columns to `AuditLog`; rolling update still
+  works). New setting `Admin:AuditSourceAddress` (`Full`; `Truncated` or `None` if your privacy assessment requires).
+  The admin API applies the gateway's trusted proxies to find the admin user's address. The Data API audit feed has the new
+  fields, and its CSV has seven new columns at the end: consumers that read columns by position must allow for them.
+- **New admin security events:** `admin.signin`, `admin.signout`, `admin.session.extended`, `admin.access.denied`,
+  `admin.data.read`; exports are `admin.change` with action `export`. Route them in the collector like `admin.change`.
+
 ## 0.6.0: updates without downtime, budgets in USD
 
 - **Rolling update: no** (renames budget columns 0.5.0 reads). Stop the gateway, admin API and Data API, migrate, start the
