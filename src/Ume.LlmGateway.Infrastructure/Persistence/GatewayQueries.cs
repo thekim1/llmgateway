@@ -39,7 +39,11 @@ public static class GatewayQueries
     {
         var recordsFrom = retainedFrom is { } r && r > window.Start ? r : window.Start;
         var records = db.UsageRecords.AsNoTracking().Where(u => u.Timestamp >= recordsFrom && u.Timestamp < window.End)
-            .Select(u => new UsageCost { VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostUsd = u.CostUsd });
+            .Select(u => new UsageCost
+            {
+                VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostUsd = u.CostUsd,
+                Tokens = u.InputTokens + u.OutputTokens, ProviderAccountId = u.ProviderAccountId,
+            });
         if (retainedFrom is not { } kept || kept <= window.Start)
         {
             return records;
@@ -47,12 +51,17 @@ public static class GatewayQueries
 
         var totalsUntil = kept < window.End ? kept : window.End;
         return records.Concat(db.UsageMonthlyTotals.AsNoTracking().Where(t => t.MonthStart >= window.Start && t.MonthStart < totalsUntil)
-            .Select(t => new UsageCost { VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostUsd = t.CostUsd }));
+            .Select(t => new UsageCost
+            {
+                VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostUsd = t.CostUsd,
+                Tokens = t.InputTokens + t.OutputTokens, ProviderAccountId = t.ProviderAccountId,
+            }));
     }
 
     /// <summary>
-    /// USD spent against <paramref name="budget"/> in <paramref name="window"/>. A key budget covers the key and every key it was rotated into.
-    /// Pass <paramref name="rotations"/> when it is already loaded (e.g. when summing many budgets).
+    /// What was used against <paramref name="budget"/> in <paramref name="window"/>, in its unit: USD, or input plus output
+    /// tokens (of providers of the budget's residency, when it has one). A key budget covers the key and every key it was
+    /// rotated into. Pass <paramref name="rotations"/> when it is already loaded (e.g. when summing many budgets).
     /// </summary>
     public static async Task<decimal> SpentAsync(this GatewayDbContext db, Budget budget, PeriodWindow window, CancellationToken cancellationToken,
         IReadOnlyDictionary<Guid, Guid>? rotations = null)
@@ -74,7 +83,18 @@ public static class GatewayQueries
                 throw new ArgumentOutOfRangeException(nameof(budget), budget.Scope, "Unknown budget scope.");
         }
 
-        return await query.SumAsync(u => u.CostUsd, cancellationToken);
+        if (budget.Unit != BudgetUnit.Tokens)
+        {
+            return await query.SumAsync(u => u.CostUsd, cancellationToken);
+        }
+
+        if (budget.Residency is { } residency)
+        {
+            var providers = await db.ProviderAccounts.AsNoTracking().Where(p => p.Residency == residency).Select(p => p.Id).ToArrayAsync(cancellationToken);
+            query = query.Where(u => u.ProviderAccountId != null && providers.Contains(u.ProviderAccountId.Value));
+        }
+
+        return await query.SumAsync(u => (decimal)u.Tokens, cancellationToken);
     }
 }
 
@@ -85,4 +105,10 @@ public sealed class UsageCost
     public Guid TeamId { get; init; }
     public Guid DepartmentId { get; init; }
     public decimal CostUsd { get; init; }
+
+    /// <summary>Input plus output tokens, for token budgets.</summary>
+    public long Tokens { get; init; }
+
+    /// <summary>The provider that served it, for token budgets limited to one residency.</summary>
+    public Guid? ProviderAccountId { get; init; }
 }

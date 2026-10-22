@@ -54,7 +54,8 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
         var names = await owners.NamesAsync(alerts.Select(a => Owner.Of(a.Scope, a.ScopeId)), ct);
         return [.. alerts
             .Where(a => names.ContainsKey(Owner.Of(a.Scope, a.ScopeId)))
-            .Select(a => new AlertDto(a.Id, a.BudgetId, a.Scope, names[Owner.Of(a.Scope, a.ScopeId)], a.ThresholdPercent, a.SpentUsd, a.LimitUsd, a.PeriodStart, a.Timestamp, a.Acknowledged))];
+            .Select(a => new AlertDto(a.Id, a.BudgetId, a.Scope, names[Owner.Of(a.Scope, a.ScopeId)], a.ThresholdPercent, a.SpentUsd, a.LimitUsd, a.PeriodStart,
+                a.Timestamp, a.Acknowledged, a.SpentTokens, a.LimitTokens))];
     }
 
     public async Task AcknowledgeAsync(Guid id, CancellationToken ct)
@@ -66,15 +67,21 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
     }
 
     /// <summary>
-    /// USD spent against each budget in its current period, with one grouped query per owner kind and period. A key
-    /// budget covers the key and every key it was rotated into, as in the gateway.
+    /// What each budget used in its current period, in its unit: USD with one grouped query per owner kind and period, and
+    /// tokens with one query per token quota (they are few). A key budget covers the key and every key it was rotated
+    /// into, as in the gateway.
     /// </summary>
     public async Task<Dictionary<Guid, decimal>> SpentAsync(IReadOnlyCollection<Budget> budgets, CancellationToken ct)
     {
         var spent = budgets.ToDictionary(b => b.Id, _ => 0m);
         var rotations = budgets.Any(b => b.Scope == BudgetScope.VirtualKey) ? await ctx.Db.KeyRotationMapAsync(ct) : null;
         var retainedFrom = budgets.Count > 0 ? await ctx.Db.UsageRetainedFromAsync(ct) : null;
-        foreach (var group in budgets.GroupBy(b => (b.Scope, b.Period)))
+        foreach (var quota in budgets.Where(b => b.Unit == BudgetUnit.Tokens))
+        {
+            spent[quota.Id] = await ctx.Db.SpentAsync(quota, BudgetPeriods.GetWindow(quota.Period, ctx.Now), ct, rotations);
+        }
+
+        foreach (var group in budgets.Where(b => b.Unit != BudgetUnit.Tokens).GroupBy(b => (b.Scope, b.Period)))
         {
             var window = BudgetPeriods.GetWindow(group.Key.Period, ctx.Now);
             var usage = ctx.Db.CostsIn(window, retainedFrom);
@@ -119,13 +126,17 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
     private BudgetDto Dto(Budget b, string name, decimal spent)
     {
         var window = BudgetPeriods.GetWindow(b.Period, ctx.Now);
-        var percent = b.LimitUsd == 0 ? (spent > 0 ? 100 : 0) : decimal.Round(spent / b.LimitUsd * 100, 2);
-        return new BudgetDto(b.Id, b.Scope, b.ScopeId, name, b.LimitUsd, b.Period, b.AlertThresholds, b.IsActive, window.Start, window.End, spent, percent);
+        var percent = b.Limit == 0 ? (spent > 0 ? 100 : 0) : decimal.Round(spent / b.Limit * 100, 2);
+        var tokens = b.Unit == BudgetUnit.Tokens;
+        return new BudgetDto(b.Id, b.Scope, b.ScopeId, name, b.LimitUsd, b.Period, b.AlertThresholds, b.IsActive, window.Start, window.End,
+            tokens ? 0 : spent, percent, b.Unit, b.LimitTokens, tokens ? (long)spent : 0, b.Residency);
     }
 
     private static void Apply(Budget b, BudgetRequest input)
     {
-        b.Scope = input.Scope; b.ScopeId = input.ScopeId; b.LimitUsd = input.LimitUsd; b.Period = input.Period;
+        var tokens = input.Unit == BudgetUnit.Tokens;
+        b.Scope = input.Scope; b.ScopeId = input.ScopeId; b.Period = input.Period; b.Unit = input.Unit;
+        b.LimitUsd = tokens ? 0 : input.LimitUsd; b.LimitTokens = tokens ? input.LimitTokens : 0; b.Residency = tokens ? input.Residency : null;
         b.AlertThresholds = [.. input.AlertThresholds.Distinct().Order()]; b.IsActive = input.IsActive;
     }
 
@@ -139,12 +150,19 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
     private async Task<string> OwnerNameAsync(BudgetRequest input, CancellationToken ct) =>
         await owners.NameAsync(Owner.Of(input.Scope, input.ScopeId), ct) ?? throw new ApiFaultException(404, "The budget's owner does not exist.");
 
-    /// <summary>One budget per owner and period: spend counters are keyed by owner and period, so two would share one counter.</summary>
+    /// <summary>
+    /// One cost budget per owner and period, and one token quota per owner, period and residency: counters are keyed that
+    /// way, so two would share one counter.
+    /// </summary>
     private async Task EnsureUniquePeriodAsync(BudgetRequest input, Guid? self, CancellationToken ct)
     {
-        if (await ctx.Db.Budgets.AnyAsync(x => x.Scope == input.Scope && x.ScopeId == input.ScopeId && x.Period == input.Period && x.Id != self, ct))
+        var residency = input.Unit == BudgetUnit.Tokens ? input.Residency : null;
+        if (await ctx.Db.Budgets.AnyAsync(x => x.Scope == input.Scope && x.ScopeId == input.ScopeId && x.Period == input.Period && x.Id != self
+                && x.Unit == input.Unit && x.Residency == residency, ct))
         {
-            throw new ApiFaultException(409, "There is already a budget for the same period. Change the existing budget.");
+            throw new ApiFaultException(409, input.Unit == BudgetUnit.Tokens
+                ? "There is already a token quota for the same period and residency. Change the existing one."
+                : "There is already a budget for the same period. Change the existing budget.");
         }
     }
 }

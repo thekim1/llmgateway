@@ -205,13 +205,14 @@ public sealed partial class GatewayRequestHandler
     }
 
     /// <summary>
-    /// Reserves <paramref name="estimateUsd"/> against every applicable budget and reports what remains in
+    /// Reserves <paramref name="estimateUsd"/> against every applicable cost budget and <paramref name="estimateTokens"/>
+    /// against the token budgets that count one of <paramref name="residencies"/>, and reports what remains in
     /// <c>x-ume-budget-remaining-usd</c>. Null when a budget is exhausted (the 402 has been written).
     /// </summary>
     private async Task<BudgetReservation?> TryReserveAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, IReadOnlyList<Budget> applicable,
-        decimal estimateUsd, CancellationToken ct)
+        decimal estimateUsd, CancellationToken ct, long estimateTokens = 0, IReadOnlyCollection<DataResidency>? residencies = null)
     {
-        var reservation = await budgets.ReserveAsync(applicable, estimateUsd, ct);
+        var reservation = await budgets.ReserveAsync(applicable, estimateUsd, estimateTokens, residencies, ct);
         state.Reservation = reservation;
         if (reservation.RemainingUsd is { } remainingBefore)
         {

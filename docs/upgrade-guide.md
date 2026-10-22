@@ -11,7 +11,17 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: retries, rate limits, request policies, prompt caching, cache-write prices
+## Unreleased: retries, rate limits, request policies, prompt caching, cache-write prices, usage journal, token quotas
+
+- **Usage journal: redeploy the Redis ACL.** The gateway user needs `zrangebyscore` (read-only) to take over usage batches
+  of a stopped instance: redeploy the stack or run `init-deployment.sh` (Compose) so `users.acl` is regenerated from
+  `deploy/redis/users.acl.example`, then restart Redis; Portainer regenerates it on redeploy. Without it the journal still
+  works (no records are lost while the database is down) but batches of a stopped instance wait until it is back, and the
+  log warns "Usage journal unavailable (… NOPERM …)". The journal's keys are `ume:usage-journal*` (inside `~ume:*`).
+- **Token quotas:** migration `TokenBudgets` adds `Budgets.Unit` (default `Usd`, so existing budgets are unchanged),
+  `LimitTokens` and `Residency`, and `AlertEvents.SpentTokens` / `LimitTokens`. During a rolling update an old gateway
+  instance does not enforce token quotas (it ignores the columns); create them after the rollout. The Data API budgets
+  feed adds `unit`, `limitTokens` and `residency`.
 
 - **Rolling update: yes.** The migrations `CacheWritePrice`, `KeyConcurrencyLimit` and `RequestPolicies` only add nullable
   columns (`ModelPrices.CacheWriteInputPerMillionUsd`, `VirtualKeys.MaxConcurrentRequests`, `VirtualKeys.RequestPolicy` and

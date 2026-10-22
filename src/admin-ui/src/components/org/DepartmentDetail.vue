@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Budget, Department, Team } from '@/api/types'
-import { formatUsdCost } from '@/utils/format'
+import { budgetSpentOf } from '@/utils/budgets'
 import { PERIOD_LABEL, plural } from '@/utils/labels'
 import DataTable, { type Column } from '../ui/DataTable.vue'
 import UiBadge from '../ui/UiBadge.vue'
@@ -70,7 +70,7 @@ const summary = computed(() => `${plural(props.department.teamCount, 'team')} ·
         <template v-if="budget">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <span class="text-small font-medium text-fg-2">{{ PERIOD_LABEL[budget.period] }} budget</span>
-            <span class="tabular text-small text-fg-2">{{ formatUsdCost(budget.spentUsd) }} of {{ formatUsdCost(budget.limitUsd) }}</span>
+            <span class="tabular text-small text-fg-2">{{ budgetSpentOf(budget).spent }} of {{ budgetSpentOf(budget).limit }}</span>
           </div>
           <UiMeter :value="budget.percentUsed" label="Department budget used" :ticks="budget.alertThresholds" show-value />
         </template>

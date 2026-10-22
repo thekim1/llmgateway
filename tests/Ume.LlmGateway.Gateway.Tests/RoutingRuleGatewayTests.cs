@@ -157,7 +157,8 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
         var ledger = fixture.Services.GetRequiredService<Ume.LlmGateway.Infrastructure.Stores.ISpendLedger>();
         var budgetKey = Ume.LlmGateway.Infrastructure.Stores.SpendCounter.KeyFor(BudgetScope.VirtualKey, key.Id, BudgetPeriod.Monthly,
             Ume.LlmGateway.Domain.Services.BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow).Start);
-        await ledger.AddAsync([new Ume.LlmGateway.Infrastructure.Stores.SpendCounter(budgetKey, 100_000_000, TimeSpan.FromDays(40))], 95_000_000, Ct);
+        await Ume.LlmGateway.Infrastructure.Stores.SpendLedgerExtensions.AddAsync(ledger,
+            [new Ume.LlmGateway.Infrastructure.Stores.SpendCounter(budgetKey, 100_000_000, TimeSpan.FromDays(40))], 95_000_000, Ct);
 
         using var nearly = await fixture.SendAsync(key, "eu/ok");
         nearly.StatusCode.ShouldBe(HttpStatusCode.OK);

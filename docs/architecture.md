@@ -46,7 +46,9 @@ model parameter rewrites are explicit.
 Every request that passes authentication ends in exactly one usage record: an unexpected exception after acceptance
 releases the budget reservation, is recorded (outcome `ProviderError`, error `internal_error`; an HTTP request is charged nothing, a live session what it
 used so far) and answers 500 `internal_error` if nothing was sent yet; a client abort is recorded as 499. A shared store that times out during accounting is
-logged and the usage record is still written; a record is dropped (and logged) only if the usage queue stays full for 10 s.
+logged and the usage record is still written. While the database refuses writes, batches go to the usage journal in Redis
+(below), so the queue does not fill; without a journal, or when it is full, a record is dropped (and logged) if the usage
+queue stays full for 10 s.
 Anthropic/OpenAI translation covers the implemented text/image/document/tool/streaming paths; content the Messages API
 cannot take (audio, other file types) is rejected with `unsupported_content` rather than dropped.
 
@@ -72,11 +74,23 @@ cold start. Pricing uses effective-date USD rates; SEK amounts (usage records, `
 gateway prices with `Gateway:FallbackSekPerUsd` (10), logs a warning on each catalogue load and reports its readiness
 check `exchange-rate` as Degraded.
 
-The bounded usage channel back-pressures requests. It is **not a durable queue**:
-process/host failure can lose unpersisted metadata and cold-start budget reconstruction
-can lag in-flight usage. Streaming estimates can differ from provider billing.
-Production financial assurance requires durable accounting/reconciliation and tested
-availability objectives; this POC must not be presented as exact invoicing.
+Usage records go from the request into a bounded in-memory queue; a background writer copies them to Postgres in batches,
+off the request path. **Usage journal** (`Gateway:UsageJournal`, `UsageWriter`/`IUsageJournal`): when Postgres refuses a
+batch (`Spill`, the default), the writer puts it in Redis (`ume:usage-journal*`) and keeps draining the queue there, so a
+database outage neither drops records nor holds up requests; journaled batches are written when Postgres is back (a
+separate loop, every 2 s), deduplicated by request id. A gateway instance that stops leaves its batches behind; after
+`AbandonedAfterSeconds` (120) another instance takes them over. `Always` journals every batch before writing it, so a
+crash loses nothing; `Spill` has no cost while Postgres is healthy, and a crash then loses at most the batch being written.
+The journal is capped (`MaxRecords`, 1 000 000, about 1 GB in Redis); beyond it, and with `Off`, a refused batch is kept in
+memory and retried as before. Redis runs without persistence here, so the journal outlives a gateway instance and a
+database outage, not a Redis restart. Cold-start budget reconstruction can lag in-flight usage, and streaming estimates can
+differ from provider billing; this POC must not be presented as exact invoicing.
+
+**Token quotas.** A budget counts USD (default) or, with `Unit: Tokens`, input plus output tokens, optionally only of
+providers of one residency (for on-prem capacity, whose models cost nothing). Both kinds are reserved in the same Redis
+script (one amount per counter); a residency quota applies when one of the candidate providers has that residency, and is
+charged the actual tokens only when the provider that served the request does (a fallback elsewhere refunds the
+reservation). Counters are `ume:spend-tok:*`, seeded from usage records and monthly totals like the USD ones.
 
 ### Code layout
 

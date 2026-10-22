@@ -305,10 +305,10 @@ public sealed class AccountingTests(GatewayFixture fixture)
         public Task InitializeAsync(string key, long valueMicroSek, TimeSpan timeToLive, CancellationToken cancellationToken) =>
             _inner.InitializeAsync(key, valueMicroSek, timeToLive, cancellationToken);
 
-        public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, long amountMicroSek, bool missingAsZero, CancellationToken cancellationToken) =>
-            _inner.ReserveAsync(counters, amountMicroSek, missingAsZero, cancellationToken);
+        public Task<SpendReservation> ReserveAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> amounts, bool missingAsZero, CancellationToken cancellationToken) =>
+            _inner.ReserveAsync(counters, amounts, missingAsZero, cancellationToken);
 
-        public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, long deltaMicroSek, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<long>> AddAsync(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> deltas, CancellationToken cancellationToken)
         {
             await Task.Delay(Timeout.Infinite, cancellationToken);
             return [];

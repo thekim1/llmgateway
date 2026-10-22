@@ -148,6 +148,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.LimitUsd).HasPrecision(18, 2);
             e.Property(x => x.Scope).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Period).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Unit).HasConversion<string>().HasMaxLength(20).HasDefaultValue(Domain.BudgetUnit.Usd); // existing budgets count USD
+            e.Property(x => x.Residency).HasConversion<string>().HasMaxLength(20);
             e.HasIndex(x => new { x.Scope, x.ScopeId });
         });
 

@@ -202,11 +202,16 @@ and invalidate the gateway catalogue.
 - Key rotation: a rule scoped to a key keeps applying to the key that replaced it, like budgets.
 
 ## Budgets & alerts
-- Budgets are in USD, the currency provider prices are in, so what a budget allows does not change with the exchange rate.
-  Spend is the sum of the usage records' `costUsd`.
-- `Budget = { id, scope, scopeId, scopeName, limitUsd, period, alertThresholds: number[], isActive, periodStart, periodEnd, spentUsd, percentUsed }`
-- `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitUsd, period, alertThresholds, isActive }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
-- `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentUsd, limitUsd, periodStart, timestamp, acknowledged }]`
+- Cost budgets are in USD, the currency provider prices are in, so what a budget allows does not change with the exchange
+  rate; spend is the sum of the usage records' `costUsd`. **Token quotas** (`unit: "Tokens"`) count input plus output
+  tokens instead (`limitTokens`, `spentTokens`; their USD fields are 0), optionally only of requests served by providers of
+  one `residency` (`OnPrem`, `Eu`, `External`; null = all): the way to share on-prem capacity, whose models cost nothing.
+  One cost budget per owner and period, and one token quota per owner, period and residency (409 otherwise).
+- `Budget = { id, scope, scopeId, scopeName, limitUsd, period, alertThresholds: number[], isActive, periodStart, periodEnd, spentUsd, percentUsed, unit: "Usd"|"Tokens", limitTokens, spentTokens, residency: DataResidency|null }`
+- `GET /api/budgets?scope=&scopeId=` · `POST /api/budgets` `{ scope, scopeId, limitUsd, period, alertThresholds, isActive, unit?, limitTokens?, residency? }` · `PUT /api/budgets/{id}` · `DELETE /api/budgets/{id}`
+  (`unit` omitted = `Usd`; a token quota needs `limitTokens` > 0; `residency` only on token quotas, 400 otherwise)
+- `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentUsd, limitUsd, periodStart, timestamp, acknowledged, spentTokens|null, limitTokens|null }]`
+  (token quota alerts have `spentTokens`/`limitTokens` and USD amounts of 0; the alert webhook adds `unit`, `spentTokens`, `limitTokens`)
 - `POST /api/alerts/{id}/acknowledge` → 204
 - `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
   Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
@@ -279,7 +284,7 @@ and invalidate the gateway catalogue.
 - `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
 
 ## Operations (gateway-admin)
-- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
+- `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures, journaledBatches }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
   - `errorRate24h`: share of the last 24 h's requests that did not succeed (client errors and cancellations included). `providerErrorRate24h`: only *provider errors*, i.e. outcome `ProviderError` with status ≥ 500 and an error code other than `internal_error` (upstream 5xx, timeouts, broken streams).
   - `status`: `"Healthy"|"Degraded"|"Unhealthy"|"CircuitOpen"|"NoRecentTraffic"|"Disabled"`, computed on every call: `Disabled` if the provider is disabled, else `CircuitOpen` if its circuit is open, else from the last hour (`recentRequests`, `recentProviderErrors`): no requests → `NoRecentTraffic`; fewer than 10 → `Healthy` (too few to judge); otherwise provider error rate ≥ 50 % → `Unhealthy`, ≥ 5 % → `Degraded`, else `Healthy`. `statusReason` is an English sentence for the UI, e.g. `"4 of 40 requests failed at the provider in the last hour (10 %)."`.
 - `GET /api/ops/providers/stats?from=&to=&bucket=hour|day` → `{ from, to, bucket: "Hour"|"Day", timeZone, providers: [{ providerId, name, exists, requests, providerErrors, availability, fallbackRate, p50LatencyMs, p95LatencyMs }], buckets: [{ providerId, start, requests, providerErrors, errorRate, fallbacks, p50LatencyMs, p95LatencyMs }] }`

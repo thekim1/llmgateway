@@ -26,5 +26,10 @@ public static class OperationsSignature
     }
 }
 
-public sealed record UsageWriterStatus(int QueueDepth, int Capacity, int InFlightRecords, DateTimeOffset? LastWriteAt, int ConsecutiveFailures);
+/// <summary>
+/// The gateway's usage writer: queued records, the batch being written, the last successful write, failures in a row,
+/// and <c>JournaledBatches</c>, batches the database refused that the usage journal holds until it takes them.
+/// </summary>
+public sealed record UsageWriterStatus(int QueueDepth, int Capacity, int InFlightRecords, DateTimeOffset? LastWriteAt, int ConsecutiveFailures,
+    int JournaledBatches = 0);
 public sealed record GatewayOperationsStatus(string Status, string Version, UsageWriterStatus UsageWriter);

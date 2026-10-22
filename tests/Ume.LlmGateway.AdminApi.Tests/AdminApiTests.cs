@@ -325,6 +325,56 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Token_quotas_sit_next_to_cost_budgets_once_per_residency()
+    {
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        async Task<HttpResponseMessage> AddAsync(object body) => await client.PostAsJsonAsync("/api/budgets", body, TestContext.Current.CancellationToken);
+
+        using (var cost = await AddAsync(new { scope = "Team", scopeId = org.Team, limitUsd = 100, period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }))
+        {
+            (await AdminFixture.ReadAsync(cost, HttpStatusCode.Created))["unit"]!.GetValue<string>().ShouldBe("Usd");
+        }
+
+        using (var quota = await AddAsync(new
+        {
+            scope = "Team", scopeId = org.Team, limitUsd = 0, unit = "Tokens", limitTokens = 5_000_000, residency = "OnPrem", period = "Monthly",
+            alertThresholds = new[] { 80 }, isActive = true,
+        }))
+        {
+            var created = await AdminFixture.ReadAsync(quota, HttpStatusCode.Created);
+            created["limitTokens"]!.GetValue<long>().ShouldBe(5_000_000);
+            created["residency"]!.GetValue<string>().ShouldBe("OnPrem");
+            created["spentTokens"]!.GetValue<long>().ShouldBe(0);
+        }
+
+        // One quota per owner, period and residency; another residency is a quota of its own.
+        using (var again = await AddAsync(new { scope = "Team", scopeId = org.Team, limitUsd = 0, unit = "Tokens", limitTokens = 1, residency = "OnPrem", period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }))
+        {
+            again.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        }
+
+        using (var all = await AddAsync(new { scope = "Team", scopeId = org.Team, limitUsd = 0, unit = "Tokens", limitTokens = 9_000_000, period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }))
+        {
+            all.StatusCode.ShouldBe(HttpStatusCode.Created);
+        }
+
+        // A token quota needs a token limit; only token quotas count one residency.
+        using (var noLimit = await AddAsync(new { scope = "Team", scopeId = org.Team, limitUsd = 0, unit = "Tokens", period = "Weekly", alertThresholds = new[] { 80 }, isActive = true }))
+        {
+            (await AdminFixture.ReadAsync(noLimit, HttpStatusCode.BadRequest))["errors"]!["limitTokens"].ShouldNotBeNull();
+        }
+
+        using (var costWithResidency = await AddAsync(new { scope = "Team", scopeId = org.Team, limitUsd = 5, residency = "OnPrem", period = "Weekly", alertThresholds = new[] { 80 }, isActive = true }))
+        {
+            (await AdminFixture.ReadAsync(costWithResidency, HttpStatusCode.BadRequest))["errors"]!["residency"].ShouldNotBeNull();
+        }
+
+        using var list = await client.GetAsync($"/api/budgets?scope=Team&scopeId={org.Team}", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(list)).AsArray().Select(b => b!["unit"]!.GetValue<string>()).Order().ShouldBe(["Tokens", "Tokens", "Usd"]);
+    }
+
+    [Fact]
     public async Task Budget_period_cannot_be_changed_to_one_that_already_exists()
     {
         using var client = await fixture.ClientAsync();

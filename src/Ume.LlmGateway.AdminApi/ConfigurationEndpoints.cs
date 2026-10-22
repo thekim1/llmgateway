@@ -88,13 +88,27 @@ public sealed record BudgetRequest(
     [property: Range(typeof(decimal), "0", "1000000000")] decimal LimitUsd,
     [property: EnumDataType(typeof(BudgetPeriod))] BudgetPeriod Period,
     [property: Required, MaxLength(100)] int[] AlertThresholds,
-    bool IsActive = true) : AdminRequest, IValidatableObject
+    bool IsActive = true,
+    // Tokens: a quota of input plus output tokens (LimitTokens), optionally counting only one residency. Omitted = Usd.
+    [property: EnumDataType(typeof(BudgetUnit))] BudgetUnit Unit = BudgetUnit.Usd,
+    [property: Range(0, 1_000_000_000_000)] long LimitTokens = 0,
+    [property: EnumDataType(typeof(DataResidency))] DataResidency? Residency = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (AlertThresholds?.Any(t => t is < 1 or > 100) == true)
         {
             yield return new ValidationResult("Alert thresholds must be 1–100 percent.", [nameof(AlertThresholds)]);
+        }
+
+        if (Unit == BudgetUnit.Tokens && LimitTokens <= 0)
+        {
+            yield return new ValidationResult("Enter the number of tokens the quota allows.", [nameof(LimitTokens)]);
+        }
+
+        if (Unit == BudgetUnit.Usd && Residency is not null)
+        {
+            yield return new ValidationResult("Only token quotas can count one residency.", [nameof(Residency)]);
         }
     }
 }

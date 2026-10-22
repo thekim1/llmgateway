@@ -157,13 +157,15 @@ public static class DataEndpoints
                 .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd, p.CacheWriteInputPerMillionUsd }).ToListAsync(ct)));
         catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, TimeProvider time, CancellationToken ct) =>
         {
-            // Limits are in USD. LimitSek is the same limit at the current rate (null without one), kept for existing reports.
+            // Cost budgets: limits in USD; LimitSek is the same limit at the current rate (null without one), kept for existing
+            // reports. Token budgets (Unit Tokens): LimitTokens, counting only Residency when set; their USD limit is 0.
             var rate = (await db.CurrentRateAsync(time.GetUtcNow(), ct))?.SekPerUnit;
             var budgets = await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
-                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, b.IsActive }).ToListAsync(ct);
+                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, b.IsActive, b.Unit, b.LimitTokens, b.Residency }).ToListAsync(ct);
             return DataResults.List(http, budgets.Select(b => new
             {
                 b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, LimitSek = rate is { } r ? decimal.Round(b.LimitUsd * r, 2) : (decimal?)null, b.IsActive,
+                b.Unit, b.LimitTokens, b.Residency,
             }).ToList());
         });
         catalog.MapGet("/exchange-rates", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,

@@ -157,9 +157,10 @@ public sealed record RuleScopeRemovalAudit(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsEnabled = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<Guid>? ScopeIds = null);
 
-public sealed record BudgetAudit(BudgetScope Scope, Guid ScopeId, decimal LimitUsd, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds, bool IsActive)
+public sealed record BudgetAudit(BudgetScope Scope, Guid ScopeId, decimal LimitUsd, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds, bool IsActive,
+    BudgetUnit Unit = BudgetUnit.Usd, long LimitTokens = 0, DataResidency? Residency = null)
 {
-    public static BudgetAudit Of(Budget b) => new(b.Scope, b.ScopeId, b.LimitUsd, b.Period, [.. b.AlertThresholds], b.IsActive);
+    public static BudgetAudit Of(Budget b) => new(b.Scope, b.ScopeId, b.LimitUsd, b.Period, [.. b.AlertThresholds], b.IsActive, b.Unit, b.LimitTokens, b.Residency);
 }
 
 public sealed record AlertAudit(bool Acknowledged);

@@ -85,6 +85,10 @@ public sealed partial class AlertNotifier : BackgroundService
                 limitUsd = alert.LimitUsd,
                 spentSek = decimal.Round(alert.SpentUsd * sekPerUsd, 2),
                 limitSek = decimal.Round(alert.LimitUsd * sekPerUsd, 2),
+                // Token quotas: the amounts in tokens (the USD and SEK fields are 0).
+                unit = alert.SpentTokens is null ? "Usd" : "Tokens",
+                spentTokens = alert.SpentTokens,
+                limitTokens = alert.LimitTokens,
                 periodStart = alert.PeriodStart,
             }, timeout.Token);
         }

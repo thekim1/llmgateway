@@ -4,7 +4,8 @@ import { api } from '@/api'
 import { BUDGET_PERIODS, type Budget, type BudgetPeriod } from '@/api/types'
 import { PERIOD_LABEL } from '@/utils/labels'
 import { problemMessage } from '@/utils/problem'
-import { formatPercent, formatUsdCost } from '@/utils/format'
+import { formatPercent } from '@/utils/format'
+import { budgetSpentOf } from '@/utils/budgets'
 import { parseDecimal } from '@/utils/validation'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiMeter from '@/components/ui/UiMeter.vue'
@@ -84,7 +85,7 @@ watch(() => props.keyId, load, { immediate: true })
       <li v-for="b in sorted" :key="b.id" class="flex flex-col gap-1">
         <div class="flex items-center justify-between gap-2 text-small">
           <span class="font-medium">{{ PERIOD_LABEL[b.period] }}<span v-if="!b.isActive" class="text-fg-3"> · paused</span></span>
-          <span class="tabular">{{ formatUsdCost(b.spentUsd) }} <span class="text-fg-3">/ {{ formatUsdCost(b.limitUsd) }}</span></span>
+          <span class="tabular">{{ budgetSpentOf(b).spent }} <span class="text-fg-3">/ {{ budgetSpentOf(b).limit }}</span></span>
         </div>
         <div class="flex items-center gap-2">
           <UiMeter :value="b.percentUsed" :label="`${PERIOD_LABEL[b.period]} budget used`" :ticks="b.alertThresholds" thin class="flex-1" />

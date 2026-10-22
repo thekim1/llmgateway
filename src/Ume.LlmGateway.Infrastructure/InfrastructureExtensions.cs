@@ -108,6 +108,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ICircuitBreakerStore, RedisCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IAdminSessionStore, RedisAdminSessionStore>();
+            builder.Services.TryAddSingleton<IUsageJournal, RedisUsageJournal>();
         }
         else
         {
@@ -117,6 +118,7 @@ public static class InfrastructureExtensions
             builder.Services.TryAddSingleton<ICircuitBreakerStore, InMemoryCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();
             builder.Services.TryAddSingleton<IAdminSessionStore, InMemoryAdminSessionStore>();
+            builder.Services.TryAddSingleton<IUsageJournal, InMemoryUsageJournal>();
         }
 
         return builder;

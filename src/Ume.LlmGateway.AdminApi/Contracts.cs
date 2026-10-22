@@ -115,13 +115,16 @@ public sealed record ExchangeRateDto(string Currency, decimal SekPerUnit, DateTi
 
 // ---- budgets ---------------------------------------------------------------------------------------------
 
+/// <summary>A budget: cost budgets have <c>LimitUsd</c>/<c>SpentUsd</c>, token quotas <c>LimitTokens</c>/<c>SpentTokens</c> (their USD fields are 0).</summary>
 public sealed record BudgetDto(
     Guid Id, BudgetScope Scope, Guid ScopeId, string ScopeName, decimal LimitUsd, BudgetPeriod Period, IReadOnlyList<int> AlertThresholds,
-    bool IsActive, DateTimeOffset PeriodStart, DateTimeOffset PeriodEnd, decimal SpentUsd, decimal PercentUsed);
+    bool IsActive, DateTimeOffset PeriodStart, DateTimeOffset PeriodEnd, decimal SpentUsd, decimal PercentUsed,
+    BudgetUnit Unit = BudgetUnit.Usd, long LimitTokens = 0, long SpentTokens = 0, DataResidency? Residency = null);
 
+/// <summary>An alert; for a token quota <c>SpentTokens</c>/<c>LimitTokens</c> are set and the USD amounts are 0.</summary>
 public sealed record AlertDto(
     Guid Id, Guid BudgetId, BudgetScope Scope, string ScopeName, int ThresholdPercent, decimal SpentUsd, decimal LimitUsd,
-    DateTimeOffset PeriodStart, DateTimeOffset Timestamp, bool Acknowledged);
+    DateTimeOffset PeriodStart, DateTimeOffset Timestamp, bool Acknowledged, long? SpentTokens = null, long? LimitTokens = null);
 
 // ---- routing rules ---------------------------------------------------------------------------------------
 

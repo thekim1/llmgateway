@@ -50,6 +50,8 @@ export type BudgetScope = (typeof BUDGET_SCOPES)[number]
 
 export const BUDGET_PERIODS = ['Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'] as const
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number]
+/** Usd: a cost budget; Tokens: a quota of input plus output tokens (for zero-cost on-prem models). */
+export type BudgetUnit = 'Usd' | 'Tokens'
 
 export const KEY_ROTATION_MODES = ['RevokeImmediately', 'Grace24Hours'] as const
 export type KeyRotationMode = (typeof KEY_ROTATION_MODES)[number]
@@ -466,6 +468,12 @@ export interface Budget {
   periodEnd: IsoDateTime
   spentUsd: number
   percentUsed: number
+  /** Omitted by older servers = Usd. Token quotas use limitTokens/spentTokens; their USD fields are 0. */
+  unit?: BudgetUnit
+  limitTokens?: number
+  spentTokens?: number
+  /** Token quotas only: counts only requests served by providers of this residency; null = all. */
+  residency?: DataResidency | null
 }
 
 export interface BudgetRequest {
@@ -475,6 +483,10 @@ export interface BudgetRequest {
   period: BudgetPeriod
   alertThresholds: number[]
   isActive: boolean
+  /** Omitted = Usd. */
+  unit?: BudgetUnit
+  limitTokens?: number
+  residency?: DataResidency | null
 }
 
 export interface BudgetFilter {
@@ -493,6 +505,9 @@ export interface BudgetAlert {
   periodStart: IsoDateTime
   timestamp: IsoDateTime
   acknowledged: boolean
+  /** Set for token quotas (their USD amounts are 0). */
+  spentTokens?: number | null
+  limitTokens?: number | null
 }
 
 export interface ExchangeRate {
