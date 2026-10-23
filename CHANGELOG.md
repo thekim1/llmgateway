@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.7.0 - 2026-10-23
+
+An on-prem content guard, token quotas for sharing on-prem capacity, no usage lost while the database is down, and
+gateway improvements from a comparison with agentgateway (Retry-After cooldown, least-loaded balancing, retries, sliding
+rate limits with a concurrency cap, request policies, prompt caching, cache-write prices). Rolling update: yes (five
+additive migrations). Read the 0.7.0 section of `docs/upgrade-guide.md` first: the Redis ACL must be redeployed for the
+usage journal, per-minute limits slide and a failed last candidate is retried once, and token quotas and
+`/v1/messages/count_tokens` should wait until the rollout is finished.
+
 **Content guard (on-prem).** A per-key check for prompt injection and harmful content (*Keys > Content guard*: Off,
 Record, Block; admin API `contentGuardPolicy`). Rules in the gateway catch common prompt-injection phrasings in English
 and Swedish and your own patterns (`Gateway:ContentGuard:BlockedPatterns`); an optional guard model (Llama Guard or IBM
@@ -78,6 +87,10 @@ tests are marked, each with the reason (see *Tests that do not flake* in the loc
 the prompt cache. Anthropic `cache_creation_input_tokens` were billed at the input price; with a cache-write price
 (1.25x input for Claude) they are billed correctly. Admin API and config export: `cacheWriteInputPerMillionUsd`
 (optional); Data API prices feed: the same field. Migration `CacheWritePrice` adds a nullable column.
+
+**One verify run per pull request.** *Verify POC* ran twice for every push to a branch with a pull request (on the push
+and on the pull request). It now runs on pull requests, on pushes to `main`, on release tags and by hand (Actions tab,
+*Run workflow*), and a newer push cancels the run still in progress for the same pull request.
 
 ## 0.6.4 - 2026-10-22
 
