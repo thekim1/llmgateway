@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.7.1 - 2026-10-23
+
+Fix release: admin sign-in failed with a 500 on deployments with the shipped Redis ACL. Rolling update: yes (no
+migrations). Redeploy the Redis ACL (see the 0.7.1 section of `docs/upgrade-guide.md`).
+
+**Fix: admin sign-in failed with a 500 (RedisServerException).** Admin sessions in Redis (0.6.4) are written with a
+time to live, which StackExchange.Redis sends as `SETEX`/`PSETEX`. The shipped ACL only allowed `set`, so every sign-in
+failed with NOPERM after the identity provider returned. `deploy/redis/users.acl.example` (and the generated Portainer
+stack) now allow `setex` and `psetex`; the forced circuit-breaker open (`StringSetAsync` with a duration) needed them too.
+Redeploy the stack (Portainer) or rerun `init-deployment.sh` and restart Redis (Compose) to regenerate `users.acl`.
+
 ## 0.7.0 - 2026-10-23
 
 An on-prem content guard, token quotas for sharing on-prem capacity, no usage lost while the database is down, and

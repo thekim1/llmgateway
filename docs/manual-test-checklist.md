@@ -3,6 +3,13 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Redis ACL: setex/psetex for admin sessions (uncommitted)
+
+- [ ] **Admin sign-in on Portainer:** redeploy the stack from the regenerated `deploy/compose.portainer.yaml`, sign in to the
+  admin UI through Keycloak: it lands on the dashboard (no 500), and the admin API log has no "Request failed
+  (RedisServerException)" after "Admin … signed in".
+- [ ] **Forced provider open:** force a provider's circuit open from the admin UI: it succeeds (no NOPERM in the gateway log).
+
 ## Live audio close code and website icons (branch `fix/realtime-close-and-site-icons`)
 
 - [ ] **Budget stop on live audio:** with a key whose budget is almost used up, start a live audio session against the real

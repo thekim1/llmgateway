@@ -11,6 +11,15 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.7.1: Redis ACL fix for admin sign-in
+
+- **Rolling update: yes.** No migrations; 0.7.0 runs side by side while its instances are replaced.
+- **Redeploy the Redis ACL.** Admin sessions are written with a time to live (`SETEX`/`PSETEX`), which the ACL shipped
+  with 0.6.4 and 0.7.0 did not allow, so admin sign-in failed with a 500 (`RedisServerException`) right after the
+  identity provider returned. Redeploy the stack (Portainer regenerates `users.acl` on every start) or run
+  `init-deployment.sh` and restart Redis (Compose); Kubernetes: give the Redis user `gateway` the commands in
+  `deploy/redis/users.acl.example`.
+
 ## 0.7.0: content guard, token quotas, usage journal, retries, rate limits, request policies, prompt caching
 
 - **Rolling update: yes,** with the caveats below. Five additive migrations: `CacheWritePrice`, `KeyConcurrencyLimit`,
@@ -50,7 +59,8 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - **Rolling update: yes.** Two additive migrations (`ProviderFeaturePolicy`, `AuditActorContext`); 0.6.3 runs against the
   new schema while its instances are replaced.
 - **Everyone is signed out once.** Admin sessions move to Redis (`ume:admin-session:*`, covered by the existing `~ume:*`
-  ACL; only `get`, `set`, `del`, which it already allows). Old cookies are not accepted after the upgrade; users sign in
+  ACL; commands `get`, `setex`, `psetex`, `del`). The ACL shipped with 0.6.4 and 0.7.0 lacked `setex`/`psetex`, so admin
+  sign-in fails with a 500 (`RedisServerException`): redeploy with the current `deploy/redis/users.acl.example`. Old cookies are not accepted after the upgrade; users sign in
   again. During a rolling update a user can be signed out by an old instance once more.
 - **New settings (defaults are fine):** `Admin:MaxSessionHours` (12) and `Gateway:AuthFailuresPerMinute` (60).
 - **Provider address edits** need the credential again when the host, scheme or port changes. Scripts that move a provider
