@@ -11,8 +11,10 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: retries, rate limits, request policies, prompt caching, cache-write prices, usage journal, token quotas
+## 0.7.0: content guard, token quotas, usage journal, retries, rate limits, request policies, prompt caching
 
+- **Rolling update: yes,** with the caveats below. Five additive migrations: `CacheWritePrice`, `KeyConcurrencyLimit`,
+  `RequestPolicies`, `TokenBudgets` and `ContentGuard`; 0.6.4 runs against the new schema while its instances are replaced.
 - **Usage journal: redeploy the Redis ACL.** The gateway user needs `zrangebyscore` (read-only) to take over usage batches
   of a stopped instance: redeploy the stack or run `init-deployment.sh` (Compose) so `users.acl` is regenerated from
   `deploy/redis/users.acl.example`, then restart Redis; Portainer regenerates it on redeploy. Without it the journal still
@@ -25,7 +27,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
   instance does not enforce token quotas (it ignores the columns); create them after the rollout. The Data API budgets
   feed adds `unit`, `limitTokens` and `residency`.
 
-- **Rolling update: yes.** The migrations `CacheWritePrice`, `KeyConcurrencyLimit` and `RequestPolicies` only add nullable
+- **Migrations:** `CacheWritePrice`, `KeyConcurrencyLimit` and `RequestPolicies` only add nullable
   columns (`ModelPrices.CacheWriteInputPerMillionUsd`, `VirtualKeys.MaxConcurrentRequests`, `VirtualKeys.RequestPolicy` and
   `Teams.RequestPolicy`, jsonb); the previous version ignores them. One caveat: until every admin API instance runs the new
   version, an old instance cannot read usage records of the new endpoint `AnthropicCountTokens` (usage and PII pages may

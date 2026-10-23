@@ -124,6 +124,10 @@ CPUs make every race wider. The rules that keep them stable:
   Stockholm. Call `TestClock.InOneRateLimitMinuteAsync()` before a test that needs several requests in the same minute
   (the fixtures already keep every test away from midnight). Use a `FakeTimeProvider` where the code takes one.
 
+*Verify POC* (`.github/workflows/verify.yml`) runs on every pull request (on its merge with `main`), on pushes to `main`
+and on release tags; a newer push to a pull request cancels the run in progress. A branch without a pull request is not
+verified automatically: open a (draft) pull request, or run *Verify POC* from the Actions tab on the branch.
+
 To hunt for flakes, run the workflow *Flake hunt* (Actions tab): it runs the backend tests on a CI runner several times
 and lists every test that failed. It also runs once a week.
 
