@@ -76,6 +76,11 @@ public static partial class SecurityEvents
     public static partial void RequestRefused(ILogger logger, string requestId, string endpoint, string errorCode,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
+    [LoggerMessage(1005, LogLevel.Information,
+        "Content guard {Action} {Part} of request {RequestId} on {Endpoint} ({Flags}); key {KeyId} {KeyPrefix}, team {TeamId}, department {DepartmentId}", EventName = "gateway.content.flagged")]
+    public static partial void ContentFlagged(ILogger logger, string action, string part, string requestId, string endpoint, string flags,
+        Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
+
     [LoggerMessage(3001, LogLevel.Information,
         "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}", EventName = "data.read")]
     public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);

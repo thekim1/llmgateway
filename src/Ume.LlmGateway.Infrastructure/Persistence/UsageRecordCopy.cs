@@ -21,7 +21,7 @@ public static class UsageRecordCopy
         "RequestId", "Timestamp", "VirtualKeyId", "TeamId", "DepartmentId", "Endpoint", "RequestedModel", "ProviderAccountId",
         "ProviderName", "ModelDeploymentId", "UpstreamModel", "InputTokens", "CachedInputTokens", "OutputTokens", "AudioSeconds",
         "CostUsd", "CostSek", "LatencyMs", "UpstreamMs", "TimeToFirstTokenMs", "StatusCode", "Outcome", "FallbackCount", "Streamed",
-        "PiiActionApplied", "PiiCategories", "ErrorCode", "RoutingRuleId", "RoutingRuleName",
+        "PiiActionApplied", "PiiCategories", "ErrorCode", "RoutingRuleId", "RoutingRuleName", "GuardFlags",
     ];
 
     private static readonly string CopyCommand =
@@ -69,6 +69,7 @@ public static class UsageRecordCopy
                 await WriteAsync(copy, r.ErrorCode, NpgsqlDbType.Varchar, cancellationToken);
                 await WriteAsync(copy, r.RoutingRuleId, NpgsqlDbType.Uuid, cancellationToken);
                 await WriteAsync(copy, r.RoutingRuleName, NpgsqlDbType.Varchar, cancellationToken);
+                await WriteAsync(copy, r.GuardFlags, NpgsqlDbType.Varchar, cancellationToken);
             }
 
             await copy.CompleteAsync(cancellationToken);

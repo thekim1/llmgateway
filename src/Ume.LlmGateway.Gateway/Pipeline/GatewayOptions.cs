@@ -74,6 +74,10 @@ public sealed class GatewayOptions
     /// </summary>
     public bool GenAiMetrics { get; set; }
 
+    /// <summary>The on-prem content guard for keys whose policy is not Off (see <see cref="ContentGuardOptions"/>).</summary>
+    [ValidateObjectMembers]
+    public ContentGuardOptions ContentGuard { get; set; } = new();
+
     /// <summary>Where usage records wait while the database cannot take them (see <see cref="UsageJournalOptions"/>).</summary>
     [ValidateObjectMembers]
     public UsageJournalOptions UsageJournal { get; set; } = new();
@@ -150,6 +154,47 @@ public sealed class UsageJournalOptions
     /// <summary>A journaled batch whose instance has not touched it for this long is taken over by another instance.</summary>
     [Range(30, 3600)]
     public int AbandonedAfterSeconds { get; set; } = 120;
+}
+
+/// <summary>
+/// The content guard (docs/content-guard.md): rules in the gateway and, optionally, a guard model the gateway calls on an
+/// on-prem provider. Applies only to keys whose content guard policy is Record or Block.
+/// </summary>
+public sealed class ContentGuardOptions
+{
+    /// <summary>
+    /// The guard model's name in the catalogue (e.g. <c>onprem/llama-guard3</c>), served by an on-prem provider; empty uses
+    /// the rules only. A deployment whose provider is not on-prem is never used.
+    /// </summary>
+    [StringLength(200)]
+    public string? Model { get; set; }
+
+    /// <summary>How the guard model answers: <c>LlamaGuard</c> (safe/unsafe) or <c>GraniteGuardian</c> (Yes/No).</summary>
+    public Domain.Services.GuardModelFormat Format { get; set; }
+
+    /// <summary>Also check complete (non-streamed) answers with the guard model and the blocked patterns.</summary>
+    public bool CheckAnswers { get; set; }
+
+    /// <summary>The longest the guard model may take; longer counts as unavailable.</summary>
+    [Range(100, 60_000)]
+    public int TimeoutMs { get; set; } = 5000;
+
+    /// <summary>
+    /// When the guard model is unavailable (down, too slow, unreadable answer): true lets the request through and records
+    /// <c>guard_unavailable</c>; false refuses requests of keys with policy Block (503 <c>content_guard_unavailable</c>).
+    /// </summary>
+    public bool FailOpen { get; set; } = true;
+
+    /// <summary>Check the built-in prompt-injection phrasings (English and Swedish).</summary>
+    public bool PromptInjectionRules { get; set; } = true;
+
+    /// <summary>An administrator's regular expressions (case-insensitive); a match is <c>blocked_pattern</c>.</summary>
+    [MaxLength(200)]
+    public List<string> BlockedPatterns { get; set; } = [];
+
+    /// <summary>How much text is checked: the last this many characters of the request (the most recent turns) or answer.</summary>
+    [Range(1000, 1_000_000)]
+    public int MaxCharacters { get; set; } = 16_000;
 }
 
 public sealed class RealtimeOptions

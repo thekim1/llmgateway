@@ -32,6 +32,9 @@ public static class GatewayHeaders
     /// <summary>Ids of the routing rules that decided where the request went, comma separated.</summary>
     public const string Rule = "x-ume-rule";
 
+    /// <summary>Response header: <c>flagged</c> when the content guard flagged the request or answer (policy Record).</summary>
+    public const string Guard = "x-ume-guard";
+
     /// <summary>Request header: a session or conversation id that keeps the session on one target (prompt cache reuse).</summary>
     public const string Session = "x-ume-session";
 

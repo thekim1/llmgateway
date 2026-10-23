@@ -5,7 +5,7 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
 
 - **Security events for your SIEM.** The gateway and admin API log security events under the category
   `Ume.LlmGateway.Security` with stable event names: `gateway.auth.failed`, `gateway.pii.action`,
-  `gateway.request.refused`, `admin.change`, `admin.signin`, `admin.signout`, `admin.session.extended`,
+  `gateway.content.flagged` (the [content guard](content-guard.md); categories only, never text), `gateway.request.refused`, `admin.change`, `admin.signin`, `admin.signout`, `admin.session.extended`,
   `admin.access.denied` and `admin.data.read` (the table is in [data-access.md](data-access.md)). Set
   `OTEL_EXPORTER_OTLP_ENDPOINT` on both services and route that category to your SIEM with an OpenTelemetry Collector.
   [`deploy/otel/collector-siem.example.yaml`](../deploy/otel/collector-siem.example.yaml) sends it to syslog (RFC 5424),

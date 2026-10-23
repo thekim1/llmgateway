@@ -41,6 +41,9 @@ export type ParameterProfile = (typeof PARAMETER_PROFILES)[number]
 
 export const PII_POLICIES = ['Off', 'Allow', 'Redact', 'Block', 'RerouteToOnPrem'] as const
 export type PiiPolicy = (typeof PII_POLICIES)[number]
+export const CONTENT_GUARD_POLICIES = ['Off', 'Record', 'Block'] as const
+/** The on-prem content guard per key: off, record what it flags, or refuse it. */
+export type ContentGuardPolicy = (typeof CONTENT_GUARD_POLICIES)[number]
 
 export const ATTACHMENT_POLICIES = ['Allowed', 'ImagesOnly', 'None'] as const
 export type AttachmentPolicy = (typeof ATTACHMENT_POLICIES)[number]
@@ -197,6 +200,8 @@ export interface VirtualKey {
   /** Requests in flight at once across all gateway instances; null = no limit. */
   maxConcurrentRequests?: number | null
   requestPolicy?: RequestPolicy | null
+  /** Omitted by older servers = Off. */
+  contentGuardPolicy?: ContentGuardPolicy
   rotatedToKeyId: string | null
   /** True when the full key is stored encrypted and a gateway-admin can reveal it. */
   canReveal?: boolean
@@ -231,6 +236,8 @@ export interface CreateKeyRequest {
   maxConcurrentRequests?: number | null
   /** Omitted = unchanged on update; {} clears it. */
   requestPolicy?: RequestPolicy
+  /** Omitted = Off on create, unchanged on update. */
+  contentGuardPolicy?: ContentGuardPolicy
   /** Single IPs or CIDR networks. Empty = any address; omitted = unchanged. */
   allowedIpRanges?: string[]
   /** Omitted = false on create, unchanged on update. */
@@ -258,6 +265,7 @@ export interface UpdateKeyRequest {
   tokensPerMinute?: number | null
   maxConcurrentRequests?: number | null
   requestPolicy?: RequestPolicy
+  contentGuardPolicy?: ContentGuardPolicy
   allowedIpRanges?: string[]
   allowProviderTools?: boolean
   allowProviderStorage?: boolean
@@ -651,6 +659,8 @@ export interface UsageRequest {
   streamed: boolean
   piiActionApplied: string | null
   piiCategories: string[] | string | null
+  /** What the content guard flagged, e.g. request:prompt_injection or answer:S1 (categories only). */
+  guardFlags?: string | null
   errorCode: string | null
   /** The routing rule that decided where the request went (the last one when rules were chained); null when none applied. */
   routingRuleId: string | null

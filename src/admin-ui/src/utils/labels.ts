@@ -1,6 +1,7 @@
 import type {
   AttachmentPolicy,
   BudgetPeriod,
+  ContentGuardPolicy,
   BudgetScope,
   CircuitState,
   DataPermission,
@@ -104,6 +105,14 @@ export const PII_HINT: Record<PiiPolicy, string> = {
   Redact: 'Detected PII is masked before it leaves the gateway.',
   Block: 'Requests containing PII are rejected with pii_blocked.',
   RerouteToOnPrem: 'Requests with PII are sent to on-prem models only.',
+}
+
+export const CONTENT_GUARD_LABEL: Record<ContentGuardPolicy, string> = { Off: 'Off', Record: 'Record', Block: 'Block' }
+
+export const CONTENT_GUARD_HINT: Record<ContentGuardPolicy, string> = {
+  Off: 'No content check.',
+  Record: 'Prompt-injection rules and the on-prem guard model check requests; findings are recorded, requests sent on.',
+  Block: 'Requests the content guard flags are refused with content_blocked.',
 }
 
 export const ATTACHMENT_LABEL: Record<AttachmentPolicy, string> = {

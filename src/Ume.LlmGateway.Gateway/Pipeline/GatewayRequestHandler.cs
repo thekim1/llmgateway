@@ -30,6 +30,7 @@ public sealed partial class GatewayRequestHandler(
     ICircuitBreakerStore circuits,
     IOptions<CircuitBreakerOptions> circuitOptions,
     DeploymentLoad load,
+    ContentGuardRules guardRules,
     IEnumerable<IProviderAdapter> adapters,
     IRealtimeConnector realtime,
     IRealtimeSessionRegistry sessions,
@@ -169,6 +170,13 @@ public sealed partial class GatewayRequestHandler(
             {
                 restrictTo = DataResidency.OnPrem;
             }
+        }
+
+        // 5b. Content guard (optional per key): after the PII guard, so it reads the redacted text; before routing, so a
+        //     refused request costs nothing more.
+        if (key.ContentGuardPolicy != ContentGuardPolicy.Off && !await GuardRequestAsync(http, state, snapshot, key, body, ct))
+        {
+            return;
         }
 
         // 6. Routing rules (optional): conditions on the request may rewrite where it goes. Everything below
@@ -320,6 +328,15 @@ public sealed partial class GatewayRequestHandler(
                     using (usageWriter.TrackPending())
                     {
                         await RecordSuccessAsync(state, provider);
+                        if (await GuardAnswerAsync(http, state, snapshot, state.Key!, json.Body, ct) is { } withheld)
+                        {
+                            // The provider answered (and is paid); the client gets the refusal instead of the answer.
+                            SetRoutingHeaders(http, deployment, state.Fallbacks);
+                            await GatewayErrors.WriteAsync(http, state.Endpoint, withheld, options.CurrentValue.DocsUrl);
+                            await AccountAsync(state, deployment, json.Usage, withheld.StatusCode, RequestOutcome.Rejected, withheld.Code, snapshot);
+                            return;
+                        }
+
                         var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
                         SetRoutingHeaders(http, deployment, state.Fallbacks);
                         http.Response.Headers[GatewayHeaders.CostUsd] = cost.Usd.ToString("0.00000000", CultureInfo.InvariantCulture);

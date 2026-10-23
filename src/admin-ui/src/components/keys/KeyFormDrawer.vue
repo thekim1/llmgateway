@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ATTACHMENT_POLICIES, DATA_RESIDENCIES, PII_POLICIES, type AttachmentPolicy, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
+import { ATTACHMENT_POLICIES, CONTENT_GUARD_POLICIES, DATA_RESIDENCIES, PII_POLICIES, type AttachmentPolicy, type ContentGuardPolicy, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelOptions } from '@/composables/useModelOptions'
 import { useAuthStore } from '@/stores/auth'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, RESIDENCY } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
@@ -63,6 +63,7 @@ const values = reactive({
   description: '',
   residencies: [] as DataResidency[],
   piiPolicy: 'RerouteToOnPrem' as PiiPolicy,
+  contentGuardPolicy: 'Off' as ContentGuardPolicy,
   attachmentPolicy: 'Allowed' as AttachmentPolicy,
   allowProviderTools: false,
   allowProviderStorage: false,
@@ -78,6 +79,7 @@ const values = reactive({
   isEnabled: true,
 })
 const piiOptions = PII_POLICIES.map((p) => ({ value: p, label: PII_LABEL[p] }))
+const guardOptions = CONTENT_GUARD_POLICIES.map((p) => ({ value: p, label: CONTENT_GUARD_LABEL[p] }))
 const attachmentOptions = ATTACHMENT_POLICIES.map((p) => ({ value: p, label: ATTACHMENT_LABEL[p] }))
 const policy = ref(emptyPolicyDraft())
 const policyErrors = ref<PolicyErrors>({})
@@ -136,6 +138,7 @@ function reset(): void {
   values.description = key?.description ?? ''
   values.residencies = [...(key?.allowedResidencies ?? [])]
   values.piiPolicy = key?.piiPolicy ?? 'RerouteToOnPrem'
+  values.contentGuardPolicy = key?.contentGuardPolicy ?? 'Off'
   values.attachmentPolicy = key?.attachmentPolicy ?? 'Allowed'
   values.allowProviderTools = key?.allowProviderTools ?? false
   values.allowProviderStorage = key?.allowProviderStorage ?? false
@@ -214,6 +217,7 @@ async function submit(): Promise<void> {
     ...(canPickProviders.value ? { allowedProviders: values.allProviders ? [] : [...values.providerNames] } : {}),
     allowedIpRanges: parseAddressList(values.addresses),
     piiPolicy: values.piiPolicy,
+    contentGuardPolicy: values.contentGuardPolicy,
     attachmentPolicy: values.attachmentPolicy,
     allowProviderTools: values.allowProviderTools,
     allowProviderStorage: values.allowProviderStorage,
@@ -297,6 +301,12 @@ async function submit(): Promise<void> {
             />
             <span class="text-small text-fg-2">{{ PII_HINT[values.piiPolicy] }}</span>
             <span v-if="errors.piiPolicy" class="text-small text-danger">{{ errors.piiPolicy }}</span>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <span class="font-medium">Content guard</span>
+            <SegmentedControl v-model="values.contentGuardPolicy" mode="radio" label="Content guard" :options="guardOptions" />
+            <span class="text-small text-fg-2">{{ CONTENT_GUARD_HINT[values.contentGuardPolicy] }}</span>
           </div>
 
           <div :id="ids.attachmentPolicy" class="flex flex-col gap-1.5" tabindex="-1">

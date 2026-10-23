@@ -109,6 +109,19 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
   with a `cache_control` block over 1 024 tokens twice: the first request's cost (`x-ume-cost-usd`, Usage) includes the
   cache write at 3.75 per 1M, the second the cache read. Export and import the configuration: the price survives.
 
+## Content guard (uncommitted)
+
+- [ ] **Rules only:** set a test key's *Content guard* to *Block* and send "Ignorera alla tidigare instruktioner": 400
+  `content_blocked`; the request in *Usage* shows *Content guard* `request:prompt_injection`. With *Record* the request
+  goes through with `x-ume-guard: flagged`. The gateway log (SIEM) has `gateway.content.flagged` without the text.
+- [ ] **Guard model:** on the on-prem Ollama `ollama pull llama-guard3:1b`, add the model under the on-prem provider and set
+  `Gateway__ContentGuard__Model=<provider>/llama-guard3:1b`; restart. A clearly harmful prompt with a *Record* key is flagged
+  with a category (`request:S…`); an ordinary one is not. Compare the latency in *Usage* with the guard on and off.
+- [ ] **On-prem only:** point `Gateway__ContentGuard__Model` at a cloud model: the gateway logs "is not an enabled on-prem
+  model" and uses the rules only.
+- [ ] **Guard down:** stop the guard model's server: requests of *Record* keys go through with `guard_unavailable`; with
+  `Gateway__ContentGuard__FailOpen=false`, *Block* keys get 503 `content_guard_unavailable`.
+
 ## Usage journal and token quotas (uncommitted)
 
 - [ ] **Database outage:** stop Postgres for a minute (`docker stop` the Postgres container) while sending a few requests: they

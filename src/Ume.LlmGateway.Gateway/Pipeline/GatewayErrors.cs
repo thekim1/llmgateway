@@ -123,6 +123,12 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
         $"The request is about {estimatedTokens} tokens, more than the context window of '{model}' ({largestWindow} tokens). Shorten the input.");
     public static GatewayError RateLimited(bool tokens, int retryAfterSeconds) => new(429, GatewayErrorCodes.RateLimited,
         $"The key has reached its limit of {(tokens ? "tokens" : "requests")} per minute. Try again in {retryAfterSeconds} s.");
+    public static GatewayError ContentBlocked(string flags) => new(400, "content_blocked",
+        $"The request was refused by the content guard ({flags}).");
+    public static GatewayError AnswerBlocked(string flags) => new(502, "content_blocked",
+        $"The answer was withheld by the content guard ({flags}).");
+    public static GatewayError ContentGuardUnavailable { get; } = new(503, "content_guard_unavailable",
+        "The content guard is unavailable and this key's requests must be checked. Try again later.");
     public static GatewayError TooManyConcurrentRequests(int max) => new(429, GatewayErrorCodes.RateLimited,
         $"The API key already has {max} requests in progress, its limit. Wait for one to finish.");
     public static GatewayError TooManyAuthFailures(int retryAfterSeconds) => new(429, GatewayErrorCodes.RateLimited,

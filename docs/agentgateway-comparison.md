@@ -74,7 +74,7 @@ Ordered by value for our users against risk to the hot path.
 | 3 | **Cache-write pricing.** Separate cache-write tokens in usage and an optional cache-write price per deployment (empty = input price, as today). | Implemented |
 | 4 | Automatic Anthropic cache markers for translated requests, and session affinity (`x-ume-session`) for on-prem prefix caches. | Implemented |
 | 5 | GenAI semantic-convention metrics next to `ume.gateway.*` (opt-in: `Gateway:GenAiMetrics`), and a USD cost counter. | Implemented |
-| 6 | Content guardrails on requests and answers, **on-prem only**: in-process rules plus an optional guard model (Llama Guard, Granite Guardian, Prompt Guard) on an on-prem provider, per key policy, metadata-only incidents. No cloud moderation services. | Planned, needs a scope decision |
+| 6 | Content guardrails on requests and answers, **on-prem only**: in-process rules plus an optional guard model (Llama Guard, Granite Guardian) on an on-prem provider, per key policy, metadata-only incidents. No cloud moderation services. | Implemented (docs/content-guard.md) |
 | 7 | Anthropic `count_tokens` passthrough, and skipping models whose context window the prompt exceeds. | Implemented |
 | 9 | Retry of the last candidate after a passing failure. | Implemented |
 | 10 | Sliding-window rate limits and a per-key cap on requests in progress. | Implemented |

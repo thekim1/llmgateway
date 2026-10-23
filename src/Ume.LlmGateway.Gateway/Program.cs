@@ -38,6 +38,11 @@ builder.Services.AddSingleton<KeyAuthenticator>();
 builder.Services.AddSingleton<AuthFailureThrottle>();
 builder.Services.AddSingleton<GatewayCatalog>();
 builder.Services.AddSingleton<DeploymentLoad>();
+builder.Services.AddSingleton(sp =>
+{
+    var guard = sp.GetRequiredService<IOptions<GatewayOptions>>().Value.ContentGuard;
+    return new Ume.LlmGateway.Domain.Services.ContentGuardRules(guard.PromptInjectionRules, guard.BlockedPatterns);
+});
 builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
 builder.Services.AddSingleton<BudgetService>();
 builder.Services.AddSingleton<GatewayMetrics>();

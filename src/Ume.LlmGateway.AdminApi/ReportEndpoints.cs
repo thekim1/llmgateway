@@ -258,7 +258,7 @@ public static class ReportEndpoints
         return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
-            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs);
+            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags);
     }
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)

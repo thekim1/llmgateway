@@ -83,6 +83,7 @@ public static class KeyRotation
             TokensPerMinute = oldKey.TokensPerMinute,
             MaxConcurrentRequests = oldKey.MaxConcurrentRequests,
             RequestPolicy = oldKey.RequestPolicy,
+            ContentGuardPolicy = oldKey.ContentGuardPolicy,
         };
 
         oldKey.RotatedToKeyId = replacement.Id;

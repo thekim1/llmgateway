@@ -14,6 +14,7 @@ export const DOCS = [
   { group: 'Guides', items: [
     { slug: 'routing-rules', title: 'Routing rules', source: 'docs/routing-rules.md', lead: 'Send requests to the right model based on headers, team, budget use or personal data, with weights and fallbacks.' },
     { slug: 'personal-data', title: 'Personal data (PII)', source: 'docs/personal-data.md', lead: 'Detect personnummer, email addresses, phone numbers and IBANs, then record, redact, block or keep the request on-prem.' },
+    { slug: 'content-guard', title: 'Content guard', source: 'docs/content-guard.md', lead: 'Check requests and answers for prompt injection and harmful content with rules and an on-prem guard model.' },
     { slug: 'attached-files', title: 'Attached files', source: 'docs/attached-files.md', lead: 'Images, PDFs, audio and video inline in the request body, and the per-key policy that limits them.' },
     { slug: 'speech-to-text', title: 'Speech to text', source: 'docs/speech-to-text.md', lead: 'Transcription and translation with Whisper-style models.' },
     { slug: 'image-generation', title: 'Image generation', source: 'docs/image-generation.md', lead: 'Generate and edit pictures with gpt-image-1, DALL·E, FLUX and other OpenAI-compatible models.' },

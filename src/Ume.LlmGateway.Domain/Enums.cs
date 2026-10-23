@@ -187,6 +187,19 @@ public enum BudgetScope
     VirtualKey = 2,
 }
 
+/// <summary>What the gateway does when the content guard flags a request or answer (per key).</summary>
+public enum ContentGuardPolicy
+{
+    /// <summary>No checks (default).</summary>
+    Off = 0,
+
+    /// <summary>Checked and recorded (categories on the usage record, a security event, <c>x-ume-guard</c>); sent on unchanged.</summary>
+    Record = 1,
+
+    /// <summary>A flagged request is refused with <c>content_blocked</c>; a flagged answer is withheld.</summary>
+    Block = 2,
+}
+
 /// <summary>What a budget counts.</summary>
 public enum BudgetUnit
 {

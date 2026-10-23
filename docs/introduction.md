@@ -26,6 +26,8 @@ It is a demonstrator by Umeå kommun, **not a production approval, legal complia
   on one server so its prompt cache is reused.
 - **Personal data**: an optional per-key [PII policy](personal-data.md) that detects Swedish personnummer, samordningsnummer,
   email addresses, phone numbers and IBANs, then records, redacts, blocks or keeps the request on-prem.
+- **Content guard**: an optional per-key [check](content-guard.md) for prompt injection and harmful content, with rules
+  in the gateway and a guard model on your own on-prem server; it records or refuses what it flags.
 - **Attached files, speech to text, image generation and live audio** go through the same pipeline as chat.
 
 ## What it stores

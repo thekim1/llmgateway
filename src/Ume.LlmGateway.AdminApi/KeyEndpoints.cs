@@ -26,7 +26,9 @@ public sealed record KeyRequest(
     bool? AllowProviderStorage = null,
     [property: Range(1, 100_000)] int? MaxConcurrentRequests = null,
     // On top of the team's policy. Omitted = unchanged on update; {} clears it.
-    RequestPolicy? RequestPolicy = null) : AdminRequest, IValidatableObject
+    RequestPolicy? RequestPolicy = null,
+    // The on-prem content guard (docs/content-guard.md). Omitted = Off on create, unchanged on update.
+    [property: EnumDataType(typeof(ContentGuardPolicy))] ContentGuardPolicy? ContentGuardPolicy = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -143,5 +145,6 @@ public static class KeyEndpoints
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
         key.MaxConcurrentRequests = input.MaxConcurrentRequests;
         if (input.RequestPolicy is { } policy) { key.RequestPolicy = policy.IsEmpty ? null : policy; }
+        if (input.ContentGuardPolicy is { } guard) { key.ContentGuardPolicy = guard; }
     }
 }

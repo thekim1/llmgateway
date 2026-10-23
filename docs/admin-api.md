@@ -90,7 +90,8 @@ isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, a
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
 allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean, maxConcurrentRequests: number|null,
 requestPolicy: RequestPolicy|null }`
-(`maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
+(`contentGuardPolicy`: `Off` (default), `Record` or `Block`, see [content guard](content-guard.md); omitted on update = unchanged.
+`maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
 get 429 `rate_limited`. Live audio sessions have their own limit. `requestPolicy`: see *Organisation*; omitted on update =
 unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 (`allowedIpRanges`: client addresses the key may be used from, single IPs or CIDR networks such as `203.0.113.0/24`, at most
