@@ -4,7 +4,7 @@ import { api } from '@/api'
 import type { VirtualKey } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, modelsLabel } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -117,6 +117,10 @@ const reason = computed(() => {
         <DetailRow label="PII policy">
           {{ PII_LABEL[keyData.piiPolicy] }}
           <span class="block text-small text-fg-3">{{ PII_HINT[keyData.piiPolicy] }}</span>
+        </DetailRow>
+        <DetailRow label="Content guard">
+          {{ CONTENT_GUARD_LABEL[keyData.contentGuardPolicy ?? 'Off'] }}
+          <span class="block text-small text-fg-3">{{ CONTENT_GUARD_HINT[keyData.contentGuardPolicy ?? 'Off'] }}</span>
         </DetailRow>
         <DetailRow label="Attached files">
           {{ ATTACHMENT_LABEL[keyData.attachmentPolicy] }}

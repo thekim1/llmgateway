@@ -106,6 +106,9 @@ public sealed class VirtualKey
     /// <summary>Output-token cap, system prompt, parameter defaults and overrides; on top of the team's.</summary>
     public RequestPolicy? RequestPolicy { get; set; }
 
+    /// <summary>Whether requests (and, when configured, answers) are checked by the on-prem content guard.</summary>
+    public ContentGuardPolicy ContentGuardPolicy { get; set; }
+
     public KeyStatus GetStatus(DateTimeOffset now)
     {
         if (RevokedAt is { } revoked && revoked <= now)
@@ -570,6 +573,12 @@ public sealed class UsageRecord
 
     /// <summary>e.g. <c>Personnummer:2,Email:1</c>. Never the matched values.</summary>
     public string? PiiCategories { get; set; }
+
+    /// <summary>
+    /// What the content guard flagged, e.g. <c>request:prompt_injection</c> or <c>answer:S1,S10</c> (categories only, never
+    /// the text); null when nothing was flagged or the key's guard is off.
+    /// </summary>
+    public string? GuardFlags { get; set; }
 
     public string? ErrorCode { get; set; }
 

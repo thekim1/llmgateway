@@ -287,6 +287,7 @@ onMounted(() => {
           <span class="font-mono">{{ selected.piiCategories }}</span>
           <span v-if="selected.piiActionApplied" class="ml-2 text-fg-3">{{ selected.piiActionApplied }}</span>
         </DetailRow>
+        <DetailRow v-if="selected.guardFlags" label="Content guard"><span class="font-mono">{{ selected.guardFlags }}</span></DetailRow>
       </DetailSection>
       <DetailSection title="Owner">
         <DetailRow label="Key">{{ selected.keyName }} <span class="font-mono text-fg-3">{{ selected.keyPrefix }}</span></DetailRow>

@@ -68,6 +68,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.RevokedAt).IsConcurrencyToken();
             e.Property(x => x.PiiPolicy).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.AttachmentPolicy).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.ContentGuardPolicy).HasConversion<string>().HasMaxLength(20).HasDefaultValue(Domain.ContentGuardPolicy.Off);
             PolicyColumn(e.Property(x => x.RequestPolicy));
         });
 
@@ -187,6 +188,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.PiiActionApplied).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.PiiCategories).HasMaxLength(200);
+            e.Property(x => x.GuardFlags).HasMaxLength(200);
             e.Property(x => x.ErrorCode).HasMaxLength(50);
             e.Property(x => x.RoutingRuleName).HasMaxLength(200);
             e.Property(x => x.RecordedAt).HasDefaultValueSql("now()");

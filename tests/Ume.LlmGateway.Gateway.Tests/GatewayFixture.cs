@@ -59,6 +59,10 @@ public sealed class GatewayFixture : IAsyncLifetime
             builder.UseSetting("Gateway:MaxImageRequestBodyBytes", (256 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("Gateway:Realtime:BudgetCheckSeconds", "1");
             builder.UseSetting("Gateway:Realtime:MaxSessionsPerKey", "2");
+            // Content guard: only keys with a guard policy use it (every test key is Off unless the test says otherwise).
+            builder.UseSetting("Gateway:ContentGuard:Model", "onprem/guard");
+            builder.UseSetting("Gateway:ContentGuard:CheckAnswers", "true");
+            builder.UseSetting("Gateway:ContentGuard:BlockedPatterns:0", "Test answer"); // the mock provider's answer
             // Tests flush refused-key counts themselves; a timed flush between a test's requests would split its row in two.
             builder.UseSetting("Gateway:Security:AuthFailureFlushSeconds", "3600");
             builder.ConfigureLogging(logging =>
@@ -98,6 +102,7 @@ public sealed class GatewayFixture : IAsyncLifetime
                 };
                 foreach (var model in name == "slow" ? new[] { "slow" }
                     : name == "eu" ? new[] { "ok", "fail503", "fail429", "quota429", "flaky503", "bad400", "embedding" }
+                    : name == "onprem" ? new[] { "ok", "fail503", "fail429", "bad400", "embedding", "guard" }
                     : new[] { "ok", "fail503", "fail429", "bad400", "embedding" })
                 {
                     var deployment = new ModelDeployment
@@ -201,6 +206,21 @@ public sealed class GatewayFixture : IAsyncLifetime
         var request = Request.Create().WithPath(path).UsingPost()
             .WithBody(new JsonPartialMatcher(new { model }));
         var response = Response.Create().WithHeader("Content-Type", "application/json");
+        if (behavior == "guard")
+        {
+            // A Llama Guard-style guard model: unsafe (category S1) when the text has the marker, safe otherwise.
+            static IResponseBuilder Verdict(string verdict) => Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                .WithBody(new JsonObject
+                {
+                    ["choices"] = new JsonArray(new JsonObject { ["index"] = 0, ["message"] = new JsonObject { ["role"] = "assistant", ["content"] = verdict } }),
+                    ["usage"] = new JsonObject { ["prompt_tokens"] = 10, ["completion_tokens"] = 2 },
+                }.ToJsonString());
+            Upstream.Given(Request.Create().WithPath("/v1/*").UsingPost().WithBody(new WildcardMatcher($"*\"{model}\"*GUARD-UNSAFE*")))
+                .AtPriority(5).RespondWith(Verdict("unsafe\nS1"));
+            Upstream.Given(request).AtPriority(10).RespondWith(Verdict("safe"));
+            return;
+        }
+
         if (behavior == "flaky503")
         {
             // Fails once, then answers: what a retry of the same deployment is for.

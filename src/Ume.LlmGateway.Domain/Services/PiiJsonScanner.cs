@@ -45,6 +45,60 @@ public static class PiiJsonScanner
         return new PiiScanResult(counts);
     }
 
+    /// <summary>
+    /// The request's text (the same values the PII scan reads: messages, instructions, documents, never structural fields
+    /// or base64 payloads), one value per line, keeping the last <paramref name="maxCharacters"/> characters: the most
+    /// recent turns. For the content guard.
+    /// </summary>
+    public static string Text(JsonNode? body, int maxCharacters)
+    {
+        var parts = new List<string>();
+        CollectText(body, parts);
+        var text = string.Join('\n', parts);
+        return text.Length <= maxCharacters ? text : text[^maxCharacters..];
+    }
+
+    private static void CollectText(JsonNode? node, List<string> parts)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var (key, child) in obj)
+                {
+                    if (SkippedProperties.Contains(key) && child is not JsonObject and not JsonArray && !(key == "name" && obj.ContainsKey("role")))
+                    {
+                        continue;
+                    }
+
+                    if (key == "source" && child is JsonObject source)
+                    {
+                        CollectText(source["type"] is JsonValue t && t.TryGetValue<string>(out var kind) && kind is "text" or "content"
+                            ? source[kind == "text" ? "data" : "content"] : null, parts);
+                        continue;
+                    }
+
+                    if (key is "image_url" or "data" && child is JsonObject)
+                    {
+                        continue;
+                    }
+
+                    CollectText(child, parts);
+                }
+
+                break;
+            case JsonArray arr:
+                foreach (var item in arr)
+                {
+                    CollectText(item, parts);
+                }
+
+                break;
+            case JsonValue value when value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text):
+                parts.Add(text);
+                break;
+        }
+    }
+
     public static PiiDecision Decide(PiiPolicy policy, PiiScanResult result)
     {
         ArgumentNullException.ThrowIfNull(result);

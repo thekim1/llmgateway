@@ -18,6 +18,8 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `deploy/redis/users.acl.example`, then restart Redis; Portainer regenerates it on redeploy. Without it the journal still
   works (no records are lost while the database is down) but batches of a stopped instance wait until it is back, and the
   log warns "Usage journal unavailable (… NOPERM …)". The journal's keys are `ume:usage-journal*` (inside `~ume:*`).
+- **Content guard:** migration `ContentGuard` adds `VirtualKeys.ContentGuardPolicy` (default `Off`, so nothing changes)
+  and `UsageRecords.GuardFlags`. Nothing to configure unless you want it (docs/content-guard.md).
 - **Token quotas:** migration `TokenBudgets` adds `Budgets.Unit` (default `Usd`, so existing budgets are unchanged),
   `LimitTokens` and `Residency`, and `AlertEvents.SpentTokens` / `LimitTokens`. During a rolling update an old gateway
   instance does not enforce token quotas (it ignores the columns); create them after the rollout. The Data API budgets

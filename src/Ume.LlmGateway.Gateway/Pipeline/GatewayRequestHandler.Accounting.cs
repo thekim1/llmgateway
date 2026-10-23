@@ -92,6 +92,7 @@ public sealed partial class GatewayRequestHandler
             Streamed = state.Streamed,
             PiiActionApplied = state.PiiAction,
             PiiCategories = state.PiiCategories,
+            GuardFlags = state.GuardFlags,
             ErrorCode = errorCode,
             RoutingRuleId = state.Rule?.RuleId,
             RoutingRuleName = state.Rule?.Name is { Length: > 200 } ruleName ? ruleName[..200] : state.Rule?.Name,
@@ -160,6 +161,9 @@ public sealed partial class GatewayRequestHandler
         public int Fallbacks { get; set; }
         public PiiPolicy? PiiAction { get; set; }
         public string? PiiCategories { get; set; }
+
+        /// <summary>What the content guard flagged (<c>request:…</c>, <c>answer:…</c>), for the usage record.</summary>
+        public string? GuardFlags { get; set; }
         public BudgetReservation? Reservation { get; set; }
         public AppliedRule? Rule { get; set; }
 

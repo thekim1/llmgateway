@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Content guard (on-prem).** A per-key check for prompt injection and harmful content (*Keys > Content guard*: Off,
+Record, Block; admin API `contentGuardPolicy`). Rules in the gateway catch common prompt-injection phrasings in English
+and Swedish and your own patterns (`Gateway:ContentGuard:BlockedPatterns`); an optional guard model (Llama Guard or IBM
+Granite Guardian) on your own on-prem server checks meaning (`Gateway:ContentGuard:Model`, `Format`), and complete
+answers too with `CheckAnswers`. The gateway never uses a guard model that is not on an on-prem provider. Record keeps the
+categories on the usage record (*Usage*, *Content guard*), adds `x-ume-guard: flagged` and logs `gateway.content.flagged`;
+Block answers `content_blocked`. Keys with the guard off do no extra work. See [docs/content-guard.md](docs/content-guard.md).
+Migration `ContentGuard`.
+
 **No usage lost when the database is down.** When Postgres refuses a batch of usage records, the gateway keeps it in a
 usage journal in Redis and writes it when Postgres is back, instead of holding it in memory: the queue no longer fills,
 so requests are not held up and records are no longer dropped after 10 s. Another gateway instance takes over the batches

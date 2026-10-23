@@ -32,14 +32,14 @@ public sealed record KeyDto(
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
     Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage,
-    int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null)
+    int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
         k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests,
-        k.RequestPolicy);
+        k.RequestPolicy, k.ContentGuardPolicy);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>
@@ -209,7 +209,8 @@ public sealed record UsageRequestDto(
     string RequestId, DateTimeOffset Timestamp, string KeyPrefix, string KeyName, string TeamName, string DepartmentName, string Endpoint,
     string RequestedModel, string? ProviderName, string? UpstreamModel, long InputTokens, long CachedInputTokens, long OutputTokens,
     decimal CostSek, int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
-    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs);
+    string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs,
+    string? GuardFlags = null);
 
 /// <summary>
 /// <c>MonthlyTotalsBefore</c> is set when the period reaches back before the oldest kept usage record (data retention): usage

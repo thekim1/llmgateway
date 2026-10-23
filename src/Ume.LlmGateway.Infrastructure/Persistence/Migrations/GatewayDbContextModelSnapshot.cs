@@ -896,6 +896,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<int>("FallbackCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("GuardFlags")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<long>("InputTokens")
                         .HasColumnType("bigint");
 
@@ -1025,6 +1029,13 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ContentGuardPolicy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Off");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

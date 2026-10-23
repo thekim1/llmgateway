@@ -282,13 +282,14 @@ public sealed class AdminApiTests(AdminFixture fixture)
         using var create = await client.PostAsJsonAsync("/api/keys", new
         {
             teamId = org.Team, name = "Limited", allowedModels = new[] { "ume/chat-standard" }, allowedResidencies = new[] { "Eu" },
-            allowedProviders = new[] { " ollama-cloud ", "OLLAMA-CLOUD", "anthropic" }, piiPolicy = "Off", requestsPerMinute = 30, tokensPerMinute = 5000, maxConcurrentRequests = 4,
+            allowedProviders = new[] { " ollama-cloud ", "OLLAMA-CLOUD", "anthropic" }, piiPolicy = "Off", requestsPerMinute = 30, tokensPerMinute = 5000, maxConcurrentRequests = 4, contentGuardPolicy = "Record",
         }, TestContext.Current.CancellationToken);
         var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
         key["allowedProviders"]!.AsArray().Select(p => p!.GetValue<string>()).ShouldBe(["ollama-cloud", "anthropic"]);
         key["requestsPerMinute"]!.GetValue<int>().ShouldBe(30);
         key["tokensPerMinute"]!.GetValue<int>().ShouldBe(5000);
         key["maxConcurrentRequests"]!.GetValue<int>().ShouldBe(4);
+        key["contentGuardPolicy"]!.GetValue<string>().ShouldBe("Record");
         var keyId = key["id"]!.GetValue<Guid>();
 
         using var update = await client.PutAsJsonAsync($"/api/keys/{keyId}", new
