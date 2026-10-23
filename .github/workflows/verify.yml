@@ -1,11 +1,17 @@
 name: Verify POC
+# A pull request is verified on the merge with main (pull_request); a push only verifies main, so a branch with a pull
+# request is not built twice. A branch without one can be verified from the Actions tab (workflow_dispatch).
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: verify-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   verify:
     runs-on: ubuntu-latest
