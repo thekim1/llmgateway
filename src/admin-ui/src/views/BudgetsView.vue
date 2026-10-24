@@ -161,7 +161,7 @@ function parseThresholds(): number[] | null {
 }
 
 function focusInvalid(): void {
-  void nextTick(() => document.querySelector<HTMLElement>('[role=dialog] [aria-invalid=true]')?.focus())
+  void nextTick(() => document.querySelector<HTMLElement>('dialog[open] [aria-invalid=true]')?.focus())
 }
 
 async function save(): Promise<void> {

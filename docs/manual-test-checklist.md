@@ -3,6 +3,19 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Fewer npm packages: native dialogs (uncommitted)
+
+- [ ] **Dialogs and drawers:** in Chrome, Edge, Firefox and Safari (also on an iPhone), open a drawer (New key) and a
+  dialog (Revoke): focus starts inside, Tab stays inside, Esc and a click outside close it and focus returns to the
+  button that opened it; the page behind does not scroll. A confirmation opened from a drawer closes on its own with Esc.
+- [ ] **Secret dialog:** after creating a key, Esc (pressed several times) and clicks outside do not close *Copy your
+  secret now*; only Done after ticking the box does.
+- [ ] **Screen reader:** NVDA or VoiceOver announces drawers and dialogs with their title, and a success toast that
+  appears while a drawer is open (e.g. saving a team) is read out and visible above the drawer (in the Lumen theme it
+  is centred on the drawer rather than the screen).
+- [ ] **Fresh install:** `npm ci` in `src/admin-ui`, `site` and `tests/e2e` works with the new `.npmrc`, and the admin UI
+  builds and its tests pass.
+
 ## Admin UI menu, search and mobile layout (uncommitted)
 
 - [ ] **Menu groups:** as gateway-admin, the side menu reads Monitor (Overview, Usage, Health & operations), Access (Keys,

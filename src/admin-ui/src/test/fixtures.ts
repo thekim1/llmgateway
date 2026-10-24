@@ -28,7 +28,7 @@ export function rule(overrides: Partial<RoutingRule> = {}): RoutingRule {
   }
 }
 
-/** Stub for the Reka UI drawer/dialog wrappers: renders the slots inline when open, so tests need no portal. */
+/** Stub for the drawer/dialog wrappers: renders the slots inline when open, so tests need no native modal dialog. */
 export const inlineOverlay = {
   props: ['open', 'title'],
   template: '<div v-if="open"><h2>{{ title }}</h2><slot name="description" /><slot /><slot name="actions" /><slot name="footer" /></div>',

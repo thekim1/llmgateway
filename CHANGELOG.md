@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Fewer npm packages, and limits on what they can do.** The admin UI no longer uses Reka UI: dialogs, drawers, search
+and the phone menu use the browser's `<dialog>` element, which takes 17 packages out of the code that runs in the
+browser (and the unused `axe-core` out of the admin UI's dev tools). Each npm project has an `.npmrc` that turns off
+install scripts, skips versions published in the last 7 days when packages are added or updated, and refuses
+dependencies from git; `npm ci` and the lockfiles are unchanged. `undici` (used by the unit tests) updated for
+GHSA-4qv8-2p9j-2685. See [npm packages](docs/security-and-compliance.md#npm-packages).
+
 **Admin UI: clearer menu, search into pages, and a working phone layout.** The side menu is grouped by task: Monitor,
 Access, Models & routing, Cost & compliance and System (Catalogue moved to Models & routing, PII incidents to Cost &
 compliance, Settings to System; *Operations* is now *Health & operations*, as on the page). Search (Ctrl K) also finds

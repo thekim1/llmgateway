@@ -16,6 +16,7 @@ approve each downstream use case and deployment before real data is introduced.
 | Transport | Production HTTPS listeners/upstreams (no automatic redirects); Postgres VerifyFull; Redis TLS-only | Municipal PKI renewal, SANs, trust chains and approved upstream endpoints |
 | Database | Migrator DDL owner; separate gateway/admin roles granted table by table (gateway cannot read the audit log or Data API keys, or add Data Protection keys); audit insert-only for admin | No bootstrap credentials in apps; secured backups, DBA access auditing and storage encryption |
 | Redis | Default user disabled; password-hash ACL; `ume:*` keys/invalidation channel; forbidden CONFIG/KEYS/FLUSHALL | Redis is shared by the two APIs; rotate both clients together; monitor memory |
+| npm packages | Few direct packages; lockfiles with `npm ci` in CI; install scripts off, 7-day age gate on new versions, no git dependencies (`.npmrc`); `npm audit` clean | Review new packages before adding them; watch advisories ([npm packages](#npm-packages)) |
 | Containers | Digest-pinned chiseled-extra/infrastructure, nonroot, read-only, dropped capabilities, no-new-privileges | Image/dependency scanning, patch cadence, host hardening and signed release provenance |
 | Networks | Internal data network; no DB/cache publication; distinct API listeners, llm network | Compose networks do not replace a firewall, management VLAN or provider egress policy |
 | Availability/accounting | Readiness, back-pressure, reserve/reconcile, graceful drain | No HA/durable writer guarantee; define RPO/RTO and reconcile provider bills |
@@ -24,6 +25,32 @@ The mandatory Compose override, not the generated base alone, implements product
 controls. RAM-only deployment tests verify TLS/ACL/permissions/container/SPA behavior.
 Local development deliberately uses generated secrets, demo users and host-run resources:
 do not reuse that environment for sensitive processing.
+
+## npm packages
+
+The npm packages are only used to build and test the admin UI, the website and the browser tests; the gateway and the
+APIs are .NET and use none of them. The admin UI's built files contain Vue, Vue Router, Pinia and the self-hosted fonts
+and icons; everything else stays on the build machine. Since every package can run code where it is installed or
+built, the projects keep the list short and limit what a package can do:
+
+- **Few direct packages.** Dialogs, drawers, search and the phone menu use the browser's own `<dialog>` element
+  (`src/admin-ui/src/components/ui/ModalDialog.vue`) instead of a UI component library; removing Reka UI took 17
+  packages out of the admin UI's runtime code. Before adding a package, prefer a few lines of our own code.
+- **No install scripts.** Each project's `.npmrc` sets `ignore-scripts=true`, so a package cannot run code when it is
+  installed (the usual way malicious releases steal tokens). None of our packages need one; `npm run` and `npm test`
+  still run our own scripts.
+- **No brand-new versions.** `min-release-age=7` makes `npm install` and updates skip versions published in the last
+  7 days, when hijacked releases are usually found and removed. `npm ci` installs exactly what `package-lock.json`
+  says and is not affected, so CI and releases never change on their own.
+- **Registry only.** `allow-git=none` refuses dependencies fetched straight from git repositories.
+- **Locked and audited.** CI installs with `npm ci` from the committed lockfiles. Run `npm audit` in `src/admin-ui`,
+  `site` and `tests/e2e` when updating packages.
+
+What remains, and why: the build tool (Vite with Rolldown and Lightning CSS) and Tailwind ship one native binary per
+operating system, and GitHub's dependency graph lists every variant, although a machine only installs its own (about
+50 of the admin UI's lockfile entries). ESLint with the Vue and accessibility rules, and Vitest with jsdom and Vue Test
+Utils, are most of the rest; they only run on developer machines and in CI, and they catch accessibility and logic
+errors before release. Vue Router stays on version 5: version 4 has fewer dependencies but no longer gets fixes.
 
 ## Legal decision matrix
 

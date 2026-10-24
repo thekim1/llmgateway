@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { TONE_CLASSES, type Tone } from '@/utils/labels'
 import AppIcon from './AppIcon.vue'
+import ModalDialog from './ModalDialog.vue'
 
 withDefaults(
   defineProps<{
@@ -21,24 +21,20 @@ const emit = defineEmits<{ (e: 'update:open', value: boolean): void }>()
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="emit('update:open', $event)">
-    <DialogPortal>
-      <DialogOverlay class="fixed inset-0 z-dialog bg-scrim" />
-      <DialogContent
-        class="material-overlay fixed left-1/2 top-1/2 z-dialog flex max-h-[calc(100vh-32px)] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 flex-col gap-5 overflow-auto rounded-dialog p-7 text-fg max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-auto max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:rounded-t-sheet max-md:p-6"
-        :class="wide ? 'w-[760px]' : 'w-dialog'"
-        @escape-key-down="(e) => !dismissible && e.preventDefault()"
-        @pointer-down-outside="(e) => !dismissible && e.preventDefault()"
-        @interact-outside="(e) => !dismissible && e.preventDefault()"
-      >
-        <div class="flex flex-col gap-3">
-          <span v-if="icon" class="grid size-10 place-items-center rounded-tile" :class="TONE_CLASSES[tone]"><AppIcon :name="icon" :size="22" filled /></span>
-          <DialogTitle class="text-title-3">{{ title }}</DialogTitle>
-          <DialogDescription v-if="description || $slots.description" as="div" class="text-fg-2"><slot name="description">{{ description }}</slot></DialogDescription>
-        </div>
-        <slot />
-        <div v-if="$slots.actions" class="flex flex-wrap justify-end gap-2 max-md:flex-col-reverse max-md:[&>*]:h-ctl-xl max-md:[&>*]:w-full"><slot name="actions" /></div>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  <ModalDialog
+    v-slot="{ titleId, descriptionId }"
+    :open="open"
+    :dismissible="dismissible"
+    class="material-overlay inset-0 m-auto flex h-fit max-h-[calc(100dvh-32px)] max-w-[calc(100vw-32px)] flex-col gap-5 overflow-auto rounded-dialog p-7 text-fg max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:m-0 max-md:w-auto max-md:max-w-none max-md:rounded-b-none max-md:rounded-t-sheet max-md:p-6 max-md:pb-[max(24px,env(safe-area-inset-bottom))]"
+    :class="wide ? 'w-[760px]' : 'w-dialog'"
+    @update:open="emit('update:open', $event)"
+  >
+    <div class="flex flex-col gap-3">
+      <span v-if="icon" class="grid size-10 place-items-center rounded-tile" :class="TONE_CLASSES[tone]"><AppIcon :name="icon" :size="22" filled /></span>
+      <h2 :id="titleId" class="text-title-3">{{ title }}</h2>
+      <div v-if="description || $slots.description" :id="descriptionId" class="text-fg-2"><slot name="description">{{ description }}</slot></div>
+    </div>
+    <slot />
+    <div v-if="$slots.actions" class="flex flex-wrap justify-end gap-2 max-md:flex-col-reverse max-md:[&>*]:h-ctl-xl max-md:[&>*]:w-full"><slot name="actions" /></div>
+  </ModalDialog>
 </template>

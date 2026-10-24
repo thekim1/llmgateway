@@ -53,6 +53,9 @@ npm run typecheck
 npm test
 ```
 
+The npm projects (`src/admin-ui`, `site`, `tests/e2e`) do not run package install scripts and skip package versions
+younger than 7 days ([npm packages](docs/security-and-compliance.md#npm-packages)).
+
 Browser tests, benchmarks and the pre-commit hook: [Local development](docs/local-development.md#build-and-test) and
 [Performance](docs/performance.md#measuring).
 
