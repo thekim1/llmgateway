@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useOpsStore } from '@/stores/ops'
 import { PROVIDER_STATUS, SCOPE_LABEL, plural } from '@/utils/labels'
-import { formatMs, formatNumber, formatPercent, formatSek, startOfMonthIso } from '@/utils/format'
+import { formatMs, formatNumber, formatPercent, formatUsdCost, lastDaysIso, startOfMonthIso } from '@/utils/format'
 import { alertSpentOf } from '@/utils/budgets'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import AttentionCard from '@/components/ui/AttentionCard.vue'
@@ -75,14 +75,22 @@ const p95 = computed(() => {
   const values = (ops.health?.providers ?? []).map((p) => p.p95LatencyMs).filter((v): v is number => v !== null)
   return values.length ? Math.max(...values) : null
 })
-const points = computed(() =>
-  [...(daily.value?.rows ?? [])].sort((a, b) => a.key.localeCompare(b.key)).map((r) => ({ day: r.key, costSek: r.costSek })),
-)
+// Every day of the period, also those without spend, so a new installation does not show one bar across the whole card.
+const points = computed(() => {
+  // Day keys come as `yyyy-mm-dd 00:00:00`; a month before the oldest kept record as `yyyy-mm`.
+  const spend = new Map<string, number>()
+  for (const r of daily.value?.rows ?? []) {
+    const day = r.key.slice(0, 10)
+    spend.set(day, (spend.get(day) ?? 0) + r.costUsd)
+  }
+  const days = new Set([...lastDaysIso(30), ...spend.keys()])
+  return [...days].sort().map((day) => ({ day, costUsd: spend.get(day) ?? 0 }))
+})
 
 const columns: Column[] = [
   { key: 'label', label: 'Department' },
   { key: 'requests', label: 'Requests', align: 'right' },
-  { key: 'costSek', label: 'Spend', align: 'right' },
+  { key: 'costUsd', label: 'Spend', align: 'right' },
 ]
 const providerColumns: Column[] = [
   { key: 'name', label: 'Provider' },
@@ -133,7 +141,7 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
       <div class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
         <MetricTile
           label="Spend this month"
-          :value="formatSek(month?.totalCostSek)"
+          :value="formatUsdCost(month?.totalCostUsd)"
           :meter="budgetPercent"
           meter-label="Share of department budgets used"
           :context="budgetPercent === null ? 'Estimate, not an invoice' : `${formatPercent(budgetPercent)} of department budgets`"
@@ -191,7 +199,7 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
       >
         <template #cell-label="{ row }"><span lang="sv" class="font-medium">{{ row.label }}</span></template>
         <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
-        <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
+        <template #cell-costUsd="{ row }">{{ formatUsdCost(row.costUsd) }}</template>
       </DataTable>
     </section>
   </AsyncState>

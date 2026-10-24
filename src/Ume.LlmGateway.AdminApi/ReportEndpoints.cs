@@ -18,7 +18,7 @@ public sealed record UsageRow
     public required string DepartmentName { get; init; }
     public required string CostCenterCode { get; init; }
 }
-public sealed record UsageSummaryRow(string Key, string Label, long Requests, long InputTokens, long OutputTokens, decimal CostSek, long Errors, long Fallbacks);
+public sealed record UsageSummaryRow(string Key, string Label, long Requests, long InputTokens, long OutputTokens, decimal CostUsd, long Errors, long Fallbacks);
 
 /// <summary>A usage record or a monthly total, in the shape the summary and the export add up (<see cref="ReportEndpoints.Facts"/>).</summary>
 public sealed class UsageFact
@@ -31,7 +31,7 @@ public sealed class UsageFact
     public long Requests { get; init; }
     public long InputTokens { get; init; }
     public long OutputTokens { get; init; }
-    public decimal CostSek { get; init; }
+    public decimal CostUsd { get; init; }
     public long Errors { get; init; }
     public long Fallbacks { get; init; }
 }
@@ -89,7 +89,7 @@ public static class ReportEndpoints
                 rows = await query.GroupBy(u => u.Timestamp.Date.ToString()).Select(g => new UsageSummaryRow(g.Key, g.Key,
 #pragma warning restore CA1305
                     g.LongCount(), g.Sum(u => u.InputTokens), g.Sum(u => u.OutputTokens),
-                    g.Sum(u => u.CostSek), g.LongCount(u => u.Outcome != RequestOutcome.Success), g.Sum(u => (long)u.FallbackCount))).ToListAsync(ct);
+                    g.Sum(u => u.CostUsd), g.LongCount(u => u.Outcome != RequestOutcome.Success), g.Sum(u => (long)u.FallbackCount))).ToListAsync(ct);
                 if (retained.TotalsUntil is { } until)
                 {
                     var totals = ctx.UsageTotals().Where(t => t.MonthStart >= retained.FirstMonth && t.MonthStart < until);
@@ -98,7 +98,7 @@ public static class ReportEndpoints
                     var months = await totals.GroupBy(t => t.MonthStart).Select(g => new
                     {
                         g.Key, Requests = g.Sum(t => t.Requests), Input = g.Sum(t => t.InputTokens), Output = g.Sum(t => t.OutputTokens),
-                        Cost = g.Sum(t => t.CostSek), Errors = g.Sum(t => t.Requests - t.SuccessfulRequests), Fallbacks = g.Sum(t => t.Fallbacks),
+                        Cost = g.Sum(t => t.CostUsd), Errors = g.Sum(t => t.Requests - t.SuccessfulRequests), Fallbacks = g.Sum(t => t.Fallbacks),
                     }).ToListAsync(ct);
                     rows.InsertRange(0, months.OrderBy(m => m.Key).Select(m =>
                     {
@@ -124,10 +124,10 @@ public static class ReportEndpoints
                 };
                 rows = await groups.Select(g => new UsageSummaryRow(g.Key.Key, g.Key.Label,
                     g.Sum(u => u.Fact.Requests), g.Sum(u => u.Fact.InputTokens), g.Sum(u => u.Fact.OutputTokens),
-                    g.Sum(u => u.Fact.CostSek), g.Sum(u => u.Fact.Errors), g.Sum(u => u.Fact.Fallbacks))).ToListAsync(ct);
+                    g.Sum(u => u.Fact.CostUsd), g.Sum(u => u.Fact.Errors), g.Sum(u => u.Fact.Fallbacks))).ToListAsync(ct);
             }
 
-            return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostSek), rows.Sum(r => r.Requests),
+            return TypedResults.Ok(new UsageSummaryDto(start, end, rows.Sum(r => r.CostUsd), rows.Sum(r => r.Requests),
                 rows.Sum(r => r.InputTokens), rows.Sum(r => r.OutputTokens), rows.Sum(r => r.Errors), rows, retained.TotalsUntil is null ? null : retained.RecordsFrom));
         }).WithName("GetUsageSummary").WithSummary("Totals grouped by department, team, key, model, provider or day");
         reports.MapGet("/usage/metrics", async (DateTimeOffset? from, DateTimeOffset? to, string? bucket, Guid? departmentId, Guid? teamId, Guid? keyId, string? model, string? provider, RequestOutcome? outcome, GatewayEndpoint? endpoint, UsageMetricsService metrics, CancellationToken ct) =>
@@ -142,8 +142,8 @@ public static class ReportEndpoints
             var query = FactsWithNames(Facts(ctx, await Retained(ctx, start, end, ct), end), ctx.Db);
             var rows = await query.GroupBy(u => new { u.CostCenterCode, u.DepartmentName, u.TeamName, u.KeyName })
                 .Select(g => new { g.Key.CostCenterCode, g.Key.DepartmentName, g.Key.TeamName, g.Key.KeyName,
-                    Requests = g.Sum(u => u.Fact.Requests), Tokens = g.Sum(u => u.Fact.InputTokens + u.Fact.OutputTokens), Cost = g.Sum(u => u.Fact.CostSek) }).ToListAsync(ct);
-            var csv = new StringBuilder("ansvarskod;förvaltning;team;nyckel;requests;tokens;kostnad SEK\r\n");
+                    Requests = g.Sum(u => u.Fact.Requests), Tokens = g.Sum(u => u.Fact.InputTokens + u.Fact.OutputTokens), Cost = g.Sum(u => u.Fact.CostUsd) }).ToListAsync(ct);
+            var csv = new StringBuilder("ansvarskod;förvaltning;team;nyckel;requests;tokens;kostnad USD\r\n");
             foreach (var r in rows)
             {
                 csv.AppendJoin(CsvDelimiter, [Csv(r.CostCenterCode), Csv(r.DepartmentName), Csv(r.TeamName), Csv(r.KeyName),
@@ -165,7 +165,6 @@ public static class ReportEndpoints
         api.MapGet("/catalog", async (AdminContext ctx, ProviderCatalogService catalog, IOptions<GatewayLinkOptions> gateway, CancellationToken ct) =>
         {
             var now = ctx.Now;
-            var rate = (await ctx.Db.CurrentRateAsync(now, ct))?.SekPerUnit ?? throw new ApiFaultException(503, "No exchange rate is set.");
             var models = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices)
                 .Where(m => m.IsEnabled && m.ProviderAccount!.IsEnabled && !m.ProviderAccount.IsDrained).ToListAsync(ct);
             var byId = models.ToDictionary(m => m.Id);
@@ -175,15 +174,15 @@ public static class ReportEndpoints
             return TypedResults.Ok(new CatalogDto(
                 gateway.Value.PublicBaseUrl,
                 [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.ProviderAccount!.Residency, ProviderCatalogService.Capabilities(m.ProviderAccount.Capabilities),
-                    m.PriceAt(now)?.InputPerMillionUsd * rate, m.PriceAt(now)?.OutputPerMillionUsd * rate))],
+                    m.PriceAt(now)?.InputPerMillionUsd, m.PriceAt(now)?.OutputPerMillionUsd))],
                 [.. routes.Where(r => r.Targets.Any(t => byId.ContainsKey(t.ModelDeploymentId))).Select(r =>
                 {
                     var targets = r.Targets.Where(t => byId.ContainsKey(t.ModelDeploymentId)).Select(t => byId[t.ModelDeploymentId]).ToArray();
                     return new CatalogRouteDto(r.Name, r.Description, r.Kind, [.. targets.Select(m => m.ProviderAccount!.Residency).Distinct()],
                         ProviderCatalogService.Capabilities(targets.Aggregate(ProviderCapabilities.None, (a, m) => a | m.ProviderAccount!.Capabilities)),
-                        targets.Max(m => m.PriceAt(now)?.InputPerMillionUsd * rate), targets.Max(m => m.PriceAt(now)?.OutputPerMillionUsd * rate));
+                        targets.Max(m => m.PriceAt(now)?.InputPerMillionUsd), targets.Max(m => m.PriceAt(now)?.OutputPerMillionUsd));
                 })]));
-        }).WithTags("Reports").WithName("GetCatalog").WithSummary("Enabled models and routes with prices in SEK, for key holders");
+        }).WithTags("Reports").WithName("GetCatalog").WithSummary("Enabled models and routes with prices in USD, for key holders");
     }
 
     private const char CsvDelimiter = ';';
@@ -219,7 +218,7 @@ public static class ReportEndpoints
         var records = ctx.Usage().AsNoTracking().Where(u => u.Timestamp >= range.RecordsFrom && u.Timestamp < end).Select(u => new UsageFact
         {
             DepartmentId = u.DepartmentId, TeamId = u.TeamId, VirtualKeyId = u.VirtualKeyId, RequestedModel = u.RequestedModel, ProviderName = u.ProviderName,
-            Requests = 1, InputTokens = u.InputTokens, OutputTokens = u.OutputTokens, CostSek = u.CostSek,
+            Requests = 1, InputTokens = u.InputTokens, OutputTokens = u.OutputTokens, CostUsd = u.CostUsd,
             Errors = u.Outcome != RequestOutcome.Success ? 1 : 0, Fallbacks = u.FallbackCount,
         });
         if (range.TotalsUntil is not { } until)
@@ -230,7 +229,7 @@ public static class ReportEndpoints
         return records.Concat(ctx.UsageTotals().Where(t => t.MonthStart >= range.FirstMonth && t.MonthStart < until).Select(t => new UsageFact
         {
             DepartmentId = t.DepartmentId, TeamId = t.TeamId, VirtualKeyId = t.VirtualKeyId, RequestedModel = t.RequestedModel, ProviderName = t.ProviderName,
-            Requests = t.Requests, InputTokens = t.InputTokens, OutputTokens = t.OutputTokens, CostSek = t.CostSek,
+            Requests = t.Requests, InputTokens = t.InputTokens, OutputTokens = t.OutputTokens, CostUsd = t.CostUsd,
             Errors = t.Requests - t.SuccessfulRequests, Fallbacks = t.Fallbacks,
         }));
     }
@@ -256,7 +255,7 @@ public static class ReportEndpoints
     {
         var u = row.Record;
         return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
-            u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens, u.CostSek,
+            u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
             u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags);
     }

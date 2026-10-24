@@ -3,7 +3,6 @@ const NUMBER_LOCALE = 'sv-SE'
 
 const numberFormatter = new Intl.NumberFormat(NUMBER_LOCALE)
 const decimalFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { maximumFractionDigits: 1 })
-const sekFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const usdFormatter = new Intl.NumberFormat(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 const dayFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric' })
 const shortDayFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, day: 'numeric', month: 'short' })
@@ -26,12 +25,6 @@ function isMissing(value: number | null | undefined): value is null | undefined 
 /** Swedish number formatting uses NBSP thousands separators; normalise any narrow variants. */
 function nbsp(text: string): string {
   return text.replace(/[\u00A0\u202F]/g, NBSP).replace(/\u2212/g, '-')
-}
-
-/** SEK amount in öre precision with `kr` suffix, e.g. `48 210,35 kr`. */
-export function formatSek(value: number | null | undefined): string {
-  if (isMissing(value)) return DASH
-  return `${nbsp(sekFormatter.format(value))}${NBSP}kr`
 }
 
 export function formatUsd(value: number | null | undefined): string {
@@ -159,6 +152,13 @@ export function startOfMonthIso(now: Date = new Date()): string {
 
 export function todayIso(now: Date = new Date()): string {
   return toIsoDate(now)
+}
+
+/** The last `count` calendar days up to today (Stockholm), oldest first, as `yyyy-mm-dd`. */
+export function lastDaysIso(count: number, now: Date = new Date()): string[] {
+  const [y, m, d] = toIsoDate(now).split('-').map(Number) as [number, number, number]
+  // Calendar arithmetic in UTC, so a daylight saving change cannot skip or repeat a day.
+  return Array.from({ length: count }, (_, i) => new Date(Date.UTC(y, m - 1, d - (count - 1 - i))).toISOString().slice(0, 10))
 }
 
 /** Converts a USD amount to SEK using the given rate. */

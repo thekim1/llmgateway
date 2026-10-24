@@ -1,25 +1,25 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { formatSek, formatShortDate } from '@/utils/format'
+import { formatShortDate, formatUsdCost } from '@/utils/format'
 import UiButton from '@/components/ui/UiButton.vue'
 
 export interface DailyPoint {
   day: string
-  costSek: number
+  costUsd: number
 }
 
 const props = defineProps<{ points: DailyPoint[] }>()
 
 const asTable = ref(false)
-const max = computed(() => Math.max(1, ...props.points.map((p) => p.costSek)))
-const total = computed(() => props.points.reduce((sum, p) => sum + p.costSek, 0))
-const peak = computed(() => props.points.reduce<DailyPoint | null>((best, p) => (!best || p.costSek > best.costSek ? p : best), null))
+const max = computed(() => Math.max(0, ...props.points.map((p) => p.costUsd)) || 1)
+const total = computed(() => props.points.reduce((sum, p) => sum + p.costUsd, 0))
+const peak = computed(() => props.points.reduce<DailyPoint | null>((best, p) => (!best || p.costUsd > best.costUsd ? p : best), null))
 const last = computed(() => props.points[props.points.length - 1] ?? null)
 const summary = computed(() => {
   if (props.points.length === 0) return 'No spend recorded in the last 30 days.'
-  const parts = [`Daily spend over ${props.points.length} days, ${formatSek(total.value)} in total.`]
-  if (peak.value) parts.push(`Highest day ${formatShortDate(peak.value.day)} at ${formatSek(peak.value.costSek)}.`)
-  if (last.value) parts.push(`Latest day ${formatShortDate(last.value.day)} at ${formatSek(last.value.costSek)}.`)
+  const parts = [`Daily spend over ${props.points.length} days, ${formatUsdCost(total.value)} in total.`]
+  if (peak.value) parts.push(`Highest day ${formatShortDate(peak.value.day)} at ${formatUsdCost(peak.value.costUsd)}.`)
+  if (last.value) parts.push(`Latest day ${formatShortDate(last.value.day)} at ${formatUsdCost(last.value.costUsd)}.`)
   return parts.join(' ')
 })
 </script>
@@ -33,8 +33,8 @@ const summary = computed(() => {
           :key="point.day"
           class="min-h-px flex-1 rounded-t-chip"
           :class="i === points.length - 1 ? 'bg-chart' : 'bg-chart-muted'"
-          :style="{ height: `${Math.max(1, (point.costSek / max) * 100)}%` }"
-          :title="`${formatShortDate(point.day)}: ${formatSek(point.costSek)}`"
+          :style="{ height: `${Math.max(1, (point.costUsd / max) * 100)}%` }"
+          :title="`${formatShortDate(point.day)}: ${formatUsdCost(point.costUsd)}`"
         />
       </div>
       <p class="mt-2 text-small text-fg-3">{{ summary }}</p>
@@ -51,7 +51,7 @@ const summary = computed(() => {
         <tbody>
           <tr v-for="point in points" :key="point.day" class="border-t border-border">
             <th scope="row" class="py-1 text-left font-normal">{{ formatShortDate(point.day) }}</th>
-            <td class="tabular py-1 text-right">{{ formatSek(point.costSek) }}</td>
+            <td class="tabular py-1 text-right">{{ formatUsdCost(point.costUsd) }}</td>
           </tr>
         </tbody>
       </table>

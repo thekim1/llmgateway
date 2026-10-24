@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Admin UI costs in USD.** Overview (spend this month, daily spend, spend by department), Usage (totals, grouped tables,
+request details) and the Catalogue prices showed Swedish kronor; they now show US$, like budgets. The usage CSV export
+has `kostnad USD` instead of `kostnad SEK`, and the admin API's usage summaries and catalogue report USD. The Data API,
+gateway response headers and budget webhooks still include SEK. See the [upgrade guide](docs/upgrade-guide.md).
+The daily spend chart on Overview shows all 30 days, also those without spend (with one day of usage, that day's bar
+filled the whole card).
+
 **Website: docs menu by task, and a working phone layout.** The documentation menu is grouped by what you came to do:
 Get started (now with Identity provider and roles), Build with the API, Set up the gateway, Run it, Security and
 compliance, Performance and Reference. On phones and tablets the page dropdown is replaced by a docs menu that shows where

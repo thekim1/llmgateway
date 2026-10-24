@@ -247,7 +247,7 @@ and invalidate the gateway catalogue.
 
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
-  → `{ from, to, totalCostSek, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costSek, errors, fallbacks }] }`
+  → `{ from, to, totalCostUsd, totalRequests, totalInputTokens, totalOutputTokens, totalErrors, rows: [{ key, label, requests, inputTokens, outputTokens, costUsd, errors, fallbacks }] }`
 - `GET /api/usage/metrics?from=&to=&bucket=auto|hour|day&departmentId=&teamId=&keyId=&model=&provider=&outcome=&endpoint=` (any role, own departments)
   → `{ from, to, bucket, timeZone, recordsFrom, totals, buckets: [...], models: [...] }`, the Usage dashboard. Cost is in **USD**.
   - `bucket`: `auto` (default) is `hour` for periods up to two days, else `day`. Hours are cut in UTC, days at Europe/Stockholm midnight
@@ -267,7 +267,7 @@ and invalidate the gateway catalogue.
   - `recordsFrom` is set when the period starts before the oldest kept usage record (data retention): monthly totals have no
     timings or days, so the figures cover only `recordsFrom`..`to`.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&outcome=&page=1&pageSize=50`
-  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, costSek, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only)
+  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only)
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
 - `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
   → `{ from, to, items: PiiIncident[], total, totalIncidents, categories: [{ category, requests, occurrences }], actions: [{ action, requests }] }`
@@ -276,13 +276,13 @@ and invalidate the gateway catalogue.
   `category` is `Personnummer|Samordningsnummer|Email|Phone|Iban`, `action` is `Allow|Redact|Block|RerouteToOnPrem` (case-insensitive;
   anything else is 400). `items`/`total` honour every filter; `categories`, `actions` and `totalIncidents` cover the period and the
   department/team/key filters only. Default period: the last 30 days, at most one year. Keys with PII policy `Off` are not scanned and have no incidents.
-- `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad SEK.
+- `GET /api/usage/export.csv?from=&to=` → CSV: ansvarskod, förvaltning, team, nyckel, requests, tokens, kostnad USD.
   Semicolon-separated; cells are quoted only when they contain a semicolon, a quote or a line break. A text cell a spreadsheet would run as
   a formula (starting with a tab or line break, or with `=`, `+`, `-` or `@` after any leading spaces) is prefixed with `'`;
   numbers such as `-1.5` are left as they are. The Data API's CSV (comma-separated) uses the same rule.
 
 ## Catalogue (developer portal, any authenticated user)
-- `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputSekPerMillion, outputSekPerMillion }], models: [{ name, kind, residency, capabilities, inputSekPerMillion, outputSekPerMillion }] }`
+- `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputUsdPerMillion, outputUsdPerMillion }], models: [{ name, kind, residency, capabilities, inputUsdPerMillion, outputUsdPerMillion }] }`
 
 ## Operations (gateway-admin)
 - `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures, journaledBatches }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50LatencyMs, p95LatencyMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; the latency percentiles leave out live audio sessions, whose `latencyMs` is their length)
