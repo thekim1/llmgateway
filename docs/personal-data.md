@@ -27,7 +27,7 @@ form.
 Detection is a safety net, not a guarantee that no personal data reaches a provider. The values themselves are never
 stored or logged, only the categories and counts (`Personnummer:2,Email:1`).
 
-**PII incidents** (admin UI, *Monitor > PII incidents*; `GET /api/usage/pii-incidents`) lists every request in which
+**PII incidents** (admin UI, *Cost & compliance > PII incidents*; `GET /api/usage/pii-incidents`) lists every request in which
 personal data was found, newest first: when, which key, team and department, endpoint and model, what was found and what
 the gateway did (detected and sent on, redacted, blocked, sent on-prem). Filter by period, department, team, key, category
 and action; tiles show the number of requests per category and per action for the period. Each row links to the request on

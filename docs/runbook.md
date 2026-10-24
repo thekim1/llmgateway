@@ -495,7 +495,7 @@ and restrict keys to approved on-prem targets. Preserve access/audit evidence un
 records policy; do not capture conversations to investigate. Coordinate municipal
 cybersecurity reporting and GDPR breach assessment with the incident owner/DPO.
 
-A routing rule that misroutes traffic: disable it (Routing > Routing rules > Disable, or `PUT /api/routing-rules/{id}` with `isEnabled: false`).
+A routing rule that misroutes traffic: disable it (Models & routing > Routing rules > Disable, or `PUT /api/routing-rules/{id}` with `isEnabled: false`).
 The change is audited and published to all gateway instances at once (the 30 s catalogue cache is only the fallback), and requests then go to the model they asked for.
 Find the affected requests by `RoutingRuleName` in the usage records or the `x-ume-rule` response header; do not capture conversations. Rules that are disabled or have no owner are never applied.
 

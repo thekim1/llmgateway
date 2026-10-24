@@ -3,49 +3,55 @@
 
 export const GH = 'https://github.com/thekim1/llmgateway'
 
-/** Documentation sidebar. `source` is relative to the repository root; `slug` is the page's URL under /docs/. */
+/**
+ * Documentation sidebar, grouped by what the reader came to do: try or install it, call it from an application, set it
+ * up, run it, check it, measure it, or look something up. `source` is relative to the repository root; `slug` is the
+ * page's URL under /docs/.
+ */
 export const DOCS = [
   { group: 'Get started', items: [
     { slug: '', title: 'Introduction', source: 'docs/introduction.md', lead: 'What the gateway does, what it stores and what it does not.' },
     { slug: 'local-development', title: 'Local development', source: 'docs/local-development.md', lead: 'Run the full stack on Windows with Aspire, demo data and a fake LLM, and run the tests.' },
     { slug: 'production-setup', title: 'Production setup', source: 'docs/production-setup.md', lead: 'Deploy a release bundle with Docker Compose on a Linux host, behind your own login.' },
     { slug: 'kubernetes', title: 'Kubernetes', source: 'docs/kubernetes.md', lead: 'Kustomize manifests with rolling updates, optional in-cluster Postgres and Redis, and the restricted Pod Security Standard.' },
+    { slug: 'identity-and-roles', title: 'Identity provider and roles', source: 'docs/identity-and-roles.md', lead: 'Sign in with Keycloak, Entra ID or AD FS, and what gateway admins, department admins and viewers may do.' },
   ] },
-  { group: 'Guides', items: [
-    { slug: 'routing-rules', title: 'Routing rules', source: 'docs/routing-rules.md', lead: 'Send requests to the right model based on headers, team, budget use or personal data, with weights and fallbacks.' },
-    { slug: 'personal-data', title: 'Personal data (PII)', source: 'docs/personal-data.md', lead: 'Detect personnummer, email addresses, phone numbers and IBANs, then record, redact, block or keep the request on-prem.' },
-    { slug: 'content-guard', title: 'Content guard', source: 'docs/content-guard.md', lead: 'Check requests and answers for prompt injection and harmful content with rules and an on-prem guard model.' },
+  { group: 'Build with the API', items: [
     { slug: 'attached-files', title: 'Attached files', source: 'docs/attached-files.md', lead: 'Images, PDFs, audio and video inline in the request body, and the per-key policy that limits them.' },
     { slug: 'speech-to-text', title: 'Speech to text', source: 'docs/speech-to-text.md', lead: 'Transcription and translation with Whisper-style models.' },
     { slug: 'image-generation', title: 'Image generation', source: 'docs/image-generation.md', lead: 'Generate and edit pictures with gpt-image-1, DALL·E, FLUX and other OpenAI-compatible models.' },
     { slug: 'live-audio', title: 'Live audio', source: 'docs/live-audio.md', lead: 'Realtime sessions, live transcription and interpreting over WebSockets.' },
+  ] },
+  { group: 'Set up the gateway', items: [
+    { slug: 'admin-ui', title: 'Admin UI', source: 'docs/admin-ui.md', lead: 'Find your way around the menu and search, then provider status, the usage dashboard and routing rules.' },
     { slug: 'providers-and-models', title: 'Providers and models', source: 'docs/providers-and-models.md', lead: 'Discover models from a provider, the same model from several providers, and suggested Azure prices.' },
-    { slug: 'admin-ui', title: 'Admin UI', source: 'docs/admin-ui.md', lead: 'Provider status, the usage dashboard and the routing rules page.' },
+    { slug: 'routing-rules', title: 'Routing rules', source: 'docs/routing-rules.md', lead: 'Send requests to the right model based on headers, team, budget use or personal data, with weights and fallbacks.' },
+    { slug: 'personal-data', title: 'Personal data (PII)', source: 'docs/personal-data.md', lead: 'Detect personnummer, email addresses, phone numbers and IBANs, then record, redact, block or keep the request on-prem.' },
+    { slug: 'content-guard', title: 'Content guard', source: 'docs/content-guard.md', lead: 'Check requests and answers for prompt injection and harmful content with rules and an on-prem guard model.' },
     { slug: 'client-addresses', title: 'Client addresses', source: 'docs/client-addresses.md', lead: 'Limit a key to the addresses it may be used from, also behind a reverse proxy.' },
   ] },
-  { group: 'Operate', items: [
-    { slug: 'identity-and-roles', title: 'Identity provider and roles', source: 'docs/identity-and-roles.md', lead: 'Sign in with Keycloak, Entra ID or AD FS, and what gateway admins, department admins and viewers may do.' },
+  { group: 'Run it', items: [
     { slug: 'runbook', title: 'Runbook', source: 'docs/runbook.md', lead: 'Deployment, identity provider, certificates, backups and incidents.' },
-    { slug: 'zero-downtime-updates', title: 'Updates without downtime', source: 'docs/zero-downtime-updates.md', lead: 'Two instances behind a load balancer, replaced one at a time: opt-in for Docker Compose, built in on Kubernetes.' },
     { slug: 'upgrade-guide', title: 'Upgrade guide', source: 'docs/upgrade-guide.md', lead: 'Migrations, rollback and certificates, per release.' },
+    { slug: 'zero-downtime-updates', title: 'Updates without downtime', source: 'docs/zero-downtime-updates.md', lead: 'Two instances behind a load balancer, replaced one at a time: opt-in for Docker Compose, built in on Kubernetes.' },
     { slug: 'data-retention', title: 'Data retention and logging', source: 'docs/data-retention.md', lead: 'How long request data is kept, and when successful requests are logged.' },
     { slug: 'security-events', title: 'Security events', source: 'docs/security-events.md', lead: 'Send security events to your SIEM with OpenTelemetry, and what the Data API offers.' },
     { slug: 'data-access', title: 'Data API', source: 'docs/data-access.md', lead: 'Read-only access to the gateway\'s data for BI, management and security teams.' },
+  ] },
+  { group: 'Security and compliance', items: [
+    { slug: 'security-and-compliance', title: 'Security and compliance', source: 'docs/security-and-compliance.md', lead: 'Controls, DPIA and processing-record inputs, release gates.' },
+    { slug: 'accessibility-statement', title: 'Accessibility statement', source: 'docs/accessibility-statement.md', lead: 'Automated evidence and outstanding manual checks (in Swedish).' },
+  ] },
+  { group: 'Performance', items: [
+    { slug: 'performance', title: 'Performance', source: 'docs/performance.md', lead: 'What a request costs, every benchmark result and how to measure it.' },
+    { slug: 'benchmark-2026-10-13', title: 'Gateway vs. eneo, 13 Oct', source: 'docs/benchmark-2026-10-13.md', lead: 'Instant and real-provider timing: time to first token, chunk gaps and stalls.' },
+    { slug: 'streaming-findings', title: 'Streaming findings', source: 'docs/streaming-findings.md', lead: 'Why streams fell behind, what was fixed and how to re-validate.' },
   ] },
   { group: 'Reference', items: [
     { slug: 'admin-api', title: 'Admin API', source: 'docs/admin-api.md', lead: 'The contract between the admin UI and the control plane, and the gateway\'s data plane.' },
     { slug: 'architecture', title: 'Architecture', source: 'docs/architecture.md', lead: 'Components, trust boundaries and tradeoffs.' },
     { slug: 'adr', title: 'Design decisions', source: 'docs/adr.md', lead: 'Architecture decision records.' },
     { slug: 'changelog', title: 'Changelog', source: 'CHANGELOG.md', lead: 'Changes per release.' },
-  ] },
-  { group: 'Benchmarks', items: [
-    { slug: 'performance', title: 'Performance', source: 'docs/performance.md', lead: 'What a request costs, every benchmark result and how to measure it.' },
-    { slug: 'benchmark-2026-10-13', title: 'Gateway vs. eneo, 13 Oct', source: 'docs/benchmark-2026-10-13.md', lead: 'Instant and real-provider timing: time to first token, chunk gaps and stalls.' },
-    { slug: 'streaming-findings', title: 'Streaming findings', source: 'docs/streaming-findings.md', lead: 'Why streams fell behind, what was fixed and how to re-validate.' },
-  ] },
-  { group: 'Compliance', items: [
-    { slug: 'security-and-compliance', title: 'Security and compliance', source: 'docs/security-and-compliance.md', lead: 'Controls, DPIA and processing-record inputs, release gates.' },
-    { slug: 'accessibility-statement', title: 'Accessibility statement', source: 'docs/accessibility-statement.md', lead: 'Automated evidence and outstanding manual checks (in Swedish).' },
   ] },
 ]
 

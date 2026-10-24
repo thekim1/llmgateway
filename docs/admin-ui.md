@@ -79,7 +79,7 @@ The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](admin-api.md))
 
 ## Routing rules page
 
-**Routing > Routing rules** (gateway-admin) manages [routing rules](routing-rules.md): rules are listed by
+**Models & routing > Routing rules** (gateway-admin) manages [routing rules](routing-rules.md): rules are listed by
 scope in the order the gateway checks them, each with its title, short description and an on/off switch, and the selected
 rule's owners, condition, weighted targets and fallbacks on the right. A rule can be shared by several keys, teams or
 departments, so the same rule does not have to be set up for each key. Four disabled **template** rules (personal data to a

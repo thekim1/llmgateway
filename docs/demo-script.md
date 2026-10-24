@@ -20,7 +20,7 @@ For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -
    counts in usage contain no matched value. Explain false positives/negatives.
 5. Set a zero budget and verify 402 `budget_exceeded`. Immediately rotate the key and
    verify the replacement is still blocked: rotation does not reset the budget.
-6. Routing rules: in **Routing > Routing rules** open *Premium via header* (demo data). Send a synthetic request to
+6. Routing rules: in **Models & routing > Routing rules** open *Premium via header* (demo data). Send a synthetic request to
    `ume/chat-standard` with the header `x-ume-tier: premium` and inspect only `x-ume-rule` and `x-ume-provider`; without the header
    no rule applies. Use **Test a request** with the same header to show why, and with a missing header to show "could not be
    evaluated". Create a team with a rule, then delete the team and show the question: deactivate the rule, find it under

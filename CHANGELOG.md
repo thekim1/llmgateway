@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Website: docs menu by task, and a working phone layout.** The documentation menu is grouped by what you came to do:
+Get started (now with Identity provider and roles), Build with the API, Set up the gateway, Run it, Security and
+compliance, Performance and Reference. On phones and tablets the page dropdown is replaced by a docs menu that shows where
+you are, plus an *On this page* list; the menu closes with Esc or a tap outside, and on narrow phones the theme switch
+moves into it so the header fits at 320px. Fixed sideways scrolling on narrow phones (the SDK sample on the home page and
+long code in headings). Admin UI menu paths in the docs follow the new menu (*Models & routing › Routing rules*). The
+manual test checklist is removed; manual testing is tracked elsewhere.
+
 **Fewer npm packages, and limits on what they can do.** The admin UI no longer uses Reka UI: dialogs, drawers, search
 and the phone menu use the browser's `<dialog>` element, which takes 17 packages out of the code that runs in the
 browser (and the unused `axe-core` out of the admin UI's dev tools). Each npm project has an `.npmrc` that turns off

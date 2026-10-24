@@ -83,5 +83,5 @@ Benchmarks: [Performance](docs/performance.md), [Gateway vs. eneo, 2026-10-13](d
 [platform comparison](docs/reports/platform-comparison.pdf).
 
 Changes per release: [Changelog](CHANGELOG.md). For maintainers (not on the website): [Handover](HANDOVER.md),
-[Manual test checklist](docs/manual-test-checklist.md), [Performance improvement plan](docs/performance-improvement-plan.md),
+[Performance improvement plan](docs/performance-improvement-plan.md),
 the [Demo script](docs/demo-script.md) and the [comparison with agentgateway](docs/agentgateway-comparison.md).
