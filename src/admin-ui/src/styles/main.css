@@ -41,6 +41,14 @@
     cursor: not-allowed;
     opacity: 0.55;
   }
+  /* iOS Safari zooms the page in when a field with text smaller than 16px gets focus, and stays zoomed. */
+  @supports (-webkit-touch-callout: none) {
+    input:not([type='checkbox'], [type='radio']),
+    select,
+    textarea {
+      font-size: max(16px, 1em) !important;
+    }
+  }
   input[type='checkbox'] {
     accent-color: var(--accent);
     width: 18px;

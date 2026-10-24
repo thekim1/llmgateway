@@ -37,7 +37,7 @@ function search(): void {
   <ModalDialog
     v-slot="{ titleId, descriptionId }"
     :open="open"
-    class="material-overlay inset-x-0 bottom-0 flex max-h-[92dvh] w-full flex-col rounded-t-sheet text-fg"
+    class="material-overlay inset-x-0 bottom-0 flex h-[92dvh] w-full flex-col rounded-t-sheet text-fg"
     @update:open="emit('update:open', $event)"
   >
     <header class="flex items-center justify-between gap-3 px-5 pb-2 pt-4">

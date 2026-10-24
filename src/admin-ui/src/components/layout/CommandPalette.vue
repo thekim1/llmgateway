@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { focusSection } from '@/router'
 import { filterEntries, navGroups, searchEntries, type SearchEntry } from '@/router/nav'
@@ -29,6 +29,25 @@ watch(() => props.open, (o) => {
 })
 watch(query, () => (active.value = 0))
 
+// On phones the panel fills the screen. The on-screen keyboard does not shrink 100dvh on iOS, so follow the visible
+// part of the page instead; otherwise the last results sit behind the keyboard and cannot be scrolled into view.
+const viewport = ref<{ height: number; top: number } | null>(null)
+function measure(): void {
+  const vv = window.visualViewport
+  viewport.value = vv ? { height: vv.height, top: vv.offsetTop } : null
+}
+function follow(on: boolean): void {
+  for (const type of ['resize', 'scroll'] as const) {
+    if (on) window.visualViewport?.addEventListener(type, measure)
+    else window.visualViewport?.removeEventListener(type, measure)
+  }
+}
+watch(() => props.open, (o) => {
+  if (o) measure()
+  follow(o)
+}, { immediate: true })
+onBeforeUnmount(() => follow(false))
+
 const optionId = (i: number) => `palette-opt-${i}`
 
 function move(step: number): void {
@@ -56,7 +75,8 @@ function showsHeading(i: number): boolean {
   <ModalDialog
     v-slot="{ titleId, descriptionId }"
     :open="open"
-    class="material-overlay flex flex-col overflow-hidden text-fg max-md:inset-0 max-md:h-dvh max-md:w-full md:inset-x-0 md:top-[12vh] md:mx-auto md:max-h-[76vh] md:w-[560px] md:rounded-dialog"
+    class="material-overlay flex flex-col overflow-hidden text-fg max-md:inset-x-0 max-md:top-[var(--vv-top,0px)] max-md:h-[var(--vv-height,100dvh)] max-md:w-full md:inset-x-0 md:top-[12vh] md:mx-auto md:max-h-[76vh] md:w-[560px] md:rounded-dialog"
+    :style="viewport ? { '--vv-height': `${viewport.height}px`, '--vv-top': `${viewport.top}px` } : undefined"
     @update:open="emit('update:open', $event)"
   >
     <h2 :id="titleId" class="sr-only">Search pages and settings</h2>
