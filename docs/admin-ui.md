@@ -1,9 +1,30 @@
 # Admin UI
 
+## Finding your way
+
+The side menu groups pages by the job you came to do. You only see the pages your role allows.
+
+| Group | Pages | Use it to |
+| --- | --- | --- |
+| Monitor | Overview, Usage, Health & operations | See spend, traffic and provider health; act on anything that needs a decision |
+| Access | Keys, Organisation, Data API access | Give applications and reporting tools access, and set up departments and teams |
+| Models & routing | Catalogue, Providers & models, Routes, Routing rules | See which models can be called, connect providers, and decide where requests go |
+| Cost & compliance | Budgets & alerts, PII incidents, Audit log | Limit spend, follow up personal data findings and see who changed what |
+| System | Settings | Exchange rate, trusted proxies, data retention, request logging and version |
+
+**Search** (the search box at the top, or **Ctrl K** / **⌘ K**) finds pages and the parts inside them, also by words
+that are not in the page name: *retention* opens **Settings › Data retention**, *circuit* opens **Health & operations**,
+*department* opens **Organisation**. Use the arrow keys and Enter, or click. Esc or Ctrl K again closes it.
+
+**On a phone** the bar at the bottom has Overview, Alerts, Keys and Health, plus **Menu**. Menu opens every page (same groups
+as the side menu), search, the theme switch, your session and **Sign out**. Close it with ×, Esc, a tap outside, or by
+choosing a page. Search opens full screen with the field at the top, so the keyboard never covers the results; **Cancel**
+closes it.
+
 ## Provider status and stability
 
-The **Providers** card on Overview and the provider table on **Operations** show each provider's status. The admin API
-computes it each time the page loads (Operations has *Refresh*; nothing is cached or stored):
+The **Providers** card on Overview and the provider table on **Health & operations** show each provider's status. The admin API
+computes it each time the page loads (Health & operations has *Refresh*; nothing is cached or stored):
 
 - **Circuit open** while the gateway's circuit breaker is open (by default 5 transient failures within 60 s open it for 30 s; an
   admin can open or close it for 15 minutes), **Disabled** for a disabled provider.
@@ -22,7 +43,7 @@ that answered (or failed last); a provider that failed and was replaced by a fal
 in the statistics (only its circuit breaker sees it); a request on which every provider failed (502/504
 `all_providers_failed`) is recorded on the last provider tried, so a provider that is down shows up as failing.
 
-**Operations > Provider stability** shows p95 latency and the provider error rate per provider over the last 24 hours or
+**Health & operations › Provider stability** shows p95 latency and the provider error rate per provider over the last 24 hours or
 7 days (per hour) or 30 days (per day, Swedish time), plus a ranking with the most stable provider first (availability,
 then p95). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
 ([docs/admin-api.md](admin-api.md)).

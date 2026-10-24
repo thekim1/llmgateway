@@ -8,7 +8,7 @@ const { toasts } = storeToRefs(ui)
 </script>
 
 <template>
-  <div role="status" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-6 z-toast flex flex-col items-center gap-2 max-md:bottom-20">
+  <div role="status" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-6 z-toast flex flex-col items-center gap-2 max-md:bottom-[calc(80px+env(safe-area-inset-bottom))]">
     <!-- Hover/focus only pauses the auto-dismiss timer; the toast itself is not interactive. -->
     <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
     <div

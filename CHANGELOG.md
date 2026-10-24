@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Admin UI: clearer menu, search into pages, and a working phone layout.** The side menu is grouped by task: Monitor,
+Access, Models & routing, Cost & compliance and System (Catalogue moved to Models & routing, PII incidents to Cost &
+compliance, Settings to System; *Operations* is now *Health & operations*, as on the page). Search (Ctrl K) also finds
+cards and tabs inside pages and everyday words (*retention*, *circuit*, *department*), works with the arrow keys and opens
+full screen on phones. On phones a **Menu** tab opens every page, the theme, the session and **Sign out**, and the end of
+a page is no longer hidden behind the bottom bar. Fixes: the session timer lost its hours ("h 34 min left"), the "Skip to
+main content" link showed over the header on phones, and the daily spend and provider stability charts had no height
+(Tailwind classes using spacing steps that did not exist produced no CSS). See [Admin UI](docs/admin-ui.md#finding-your-way).
+
 ## 0.7.1 - 2026-10-23
 
 Fix release: admin sign-in failed with a 500 on deployments with the shipped Redis ACL. Rolling update: yes (no

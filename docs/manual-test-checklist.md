@@ -3,6 +3,25 @@
 Things built since the last manual test round that only a person with the real deployment (Foundry, Keycloak, Redis ACL,
 real traffic) can confirm. Tick items off as you go; delete the file or empty the list when a round is done.
 
+## Admin UI menu, search and mobile layout (uncommitted)
+
+- [ ] **Menu groups:** as gateway-admin, the side menu reads Monitor (Overview, Usage, Health & operations), Access (Keys,
+  Organisation, Data API access), Models & routing (Catalogue, Providers & models, Routes, Routing rules), Cost & compliance
+  (Budgets & alerts, PII incidents, Audit log) and System (Settings). As department-admin and viewer, only allowed pages show
+  and no empty group heading is left.
+- [ ] **Small laptop:** at about 1280×800 the theme switch and your name stay visible at the bottom of the side menu; the
+  links scroll if they do not fit.
+- [ ] **Search:** Ctrl K opens search and Ctrl K again closes it; *retention* + Enter scrolls to the Data retention card on
+  Settings; *models* lists Providers & models › Models, which opens the Models list; arrow keys move the highlight.
+- [ ] **Session time:** the top bar shows e.g. "1 h 34 min left" (the hours were missing before).
+- [ ] **Phone, bottom of page:** on a real phone (iPhone with a home indicator, and Android), scroll to the end of Keys and Audit
+  log: the last row and the pagination are fully above the bottom bar.
+- [ ] **Phone, Menu:** Menu opens a sheet with every page, theme, session and Sign out; it closes with ×, a tap outside, Esc
+  and when you choose a page (also the page you are on). Menu is highlighted when you are on a page that is
+  not in the bottom bar.
+- [ ] **Phone, search:** the search button opens a full-screen search with the keyboard up and results visible; Cancel closes
+  it. The "Skip to main content" link is no longer shown over the header.
+
 ## Redis ACL: setex/psetex for admin sessions (uncommitted)
 
 - [ ] **Admin sign-in on Portainer:** redeploy the stack from the regenerated `deploy/compose.portainer.yaml`, sign in to the
@@ -61,7 +80,7 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 
 - [ ] **Audit context:** change something in the admin UI, then open *Audit log* and expand the entry: your name, roles,
   your own address (not the proxy's, once the proxy is a trusted proxy), a session id, request id and browser are shown.
-- [ ] **Exports:** export the configuration (*Operations*) and the usage CSV: both appear in the audit log as `export`.
+- [ ] **Exports:** export the configuration (*Health & operations*) and the usage CSV: both appear in the audit log as `export`.
 - [ ] **Sign-in and sign-out events:** sign in and out: the SIEM (or `docker logs` of the admin API) has `admin.signin`
   and `admin.signout` with the same session id as your audit entries.
 - [ ] **Stay signed in:** use *Stay signed in* in the expiry dialog: `admin.session.extended` with that session id.
@@ -132,7 +151,7 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
 ## Usage journal and token quotas (uncommitted)
 
 - [ ] **Database outage:** stop Postgres for a minute (`docker stop` the Postgres container) while sending a few requests: they
-  succeed without delay; the gateway logs "Failed to write … usage records"; *Operations > Health* shows `journaledBatches`
+  succeed without delay; the gateway logs "Failed to write … usage records"; *Health & operations* shows `journaledBatches`
   above 0. Start Postgres again: within seconds the log says "Wrote … journaled usage records" and the requests appear on
   the *Usage* page, each once.
 - [ ] **Instance stopped during an outage:** with Postgres stopped, send requests, then stop the gateway container; start
@@ -204,7 +223,7 @@ real traffic) can confirm. Tick items off as you go; delete the file or empty th
   *Provider errors (24 h)* stays at 0 while *All failed (24 h)* rises, and the status stays *Healthy*.
 - [ ] **Provider failures do count:** with at least 10 requests in the hour, make the provider fail (wrong port / stopped on-prem server with a
   single-target route); the status becomes *Degraded* or *Down* with the matching reason, and returns to *Healthy* about an hour later.
-- [ ] **Provider stability page:** *Operations > Provider stability over time* (or the link under the Overview providers card) shows p95 latency
+- [ ] **Provider stability page:** *Health & operations > Provider stability over time* (or the link under the Overview providers card) shows p95 latency
   and provider error rate per provider for 24 hours, 7 days and 30 days; hours and days match Swedish time; *View as table* lists the same values;
   the ranking puts the provider with the fewest provider errors first.
 

@@ -35,7 +35,8 @@ tar -xzf ume-llm-gateway-X.Y.Z.tar.gz && cd ume-llm-gateway-X.Y.Z
 docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 ```
 
-*Settings > Version* in the admin UI shows the running version and says when a newer release is out (the admin API checks
+In the admin UI, search (Ctrl K) finds any page or setting by name or topic, and on a phone **Menu** in the bottom bar opens
+every page ([Admin UI](docs/admin-ui.md#finding-your-way)). *Settings > Version* shows the running version and says when a newer release is out (the admin API checks
 GitHub; set `Admin__CheckForReleases=false` without internet access). Upgrades: [Upgrade guide](docs/upgrade-guide.md).
 
 ## Build and test

@@ -167,6 +167,12 @@ function openRequestsTab(): void {
   void load()
 }
 
+// Search links to /usage?tab=requests; follow it when already on the page.
+watch(() => route.query.tab, (value) => {
+  const next: Tab = value === 'requests' ? 'requests' : 'dashboard'
+  if (next !== tab.value) tab.value = next
+})
+
 watch(tab, (value) => {
   void router.replace({ query: { ...route.query, tab: value === 'dashboard' ? undefined : value } })
   if (value === 'requests') openRequestsTab()

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { Model, Provider } from '@/api/types'
 import { useSortedPage } from '@/composables/useTableView'
 import ModelFormDrawer from '@/components/providers/ModelFormDrawer.vue'
@@ -24,7 +25,14 @@ type Segment = 'providers' | 'models'
 const providers = useProvidersStore()
 const models = useModelsStore()
 
-const segment = ref<Segment>('providers')
+const route = useRoute()
+const router = useRouter()
+// ?show=models opens the models list, so search and bookmarks can link to it.
+const segment = ref<Segment>(route.query.show === 'models' ? 'models' : 'providers')
+watch(() => route.query.show, (value) => (segment.value = value === 'models' ? 'models' : 'providers'))
+watch(segment, (value) => {
+  if ((route.query.show === 'models') !== (value === 'models')) void router.replace({ query: { ...route.query, show: value === 'models' ? 'models' : undefined } })
+})
 const providerDrawer = ref(false)
 const modelDrawer = ref(false)
 const providerId = ref<string | null>(null)
