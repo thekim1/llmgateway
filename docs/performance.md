@@ -7,7 +7,7 @@ optimised the same way. This page describes what the gateway does per request, h
 ## What a request costs
 
 With warm caches a request makes **no Postgres calls on the request path**. Keys and the routing catalogue (providers,
-models, routes, budgets, rules, exchange rate) are cached in memory; usage records are written in batches by a
+models, routes, budgets, rules) are cached in memory; usage records are written in batches by a
 background writer.
 
 Redis is used for shared counters (rate limits, budgets, circuit state). Before the first byte reaches the client a

@@ -18,12 +18,10 @@ public sealed class CatalogSnapshot
         IReadOnlyList<ProviderAccount> providers,
         IReadOnlyList<RouteAlias> routes,
         IReadOnlyList<Budget> budgets,
-        decimal sekPerUsd,
         DateTimeOffset loadedAt,
         IReadOnlyDictionary<Guid, Guid>? keyReplacements = null,
         RoutingRuleSet? rules = null,
         IReadOnlyList<RuleBuildError>? ruleErrors = null,
-        bool usesFallbackRate = false,
         ImmutableArray<IPNetwork> trustedProxies = default,
         DateTimeOffset? logAllRequestsUntil = null)
     {
@@ -60,13 +58,11 @@ public sealed class CatalogSnapshot
         _ambiguous = ambiguous.ToDictionary(a => a.Key, a => (IReadOnlyList<string>)[.. a.Value.Order(StringComparer.OrdinalIgnoreCase)], StringComparer.OrdinalIgnoreCase);
         DuplicateNames = duplicates;
         Budgets = budgets.ToLookup(b => (b.Scope, b.ScopeId));
-        SekPerUsd = sekPerUsd;
         LoadedAt = loadedAt;
         KeyReplacements = keyReplacements ?? new Dictionary<Guid, Guid>();
         _previousKeys = KeyRotation.PreviousKeys(KeyReplacements);
         Rules = rules ?? RoutingRuleSet.Empty;
         RuleErrors = ruleErrors ?? [];
-        UsesFallbackRate = usesFallbackRate;
     }
 
     public IReadOnlyList<ProviderAccount> Providers { get; }
@@ -93,7 +89,6 @@ public sealed class CatalogSnapshot
     /// </summary>
     public IReadOnlyList<string>? AmbiguousChoices(string model) => Routes.ContainsKey(model) ? null : _ambiguous.GetValueOrDefault(model);
     public ILookup<(BudgetScope Scope, Guid ScopeId), Budget> Budgets { get; }
-    public decimal SekPerUsd { get; }
 
     /// <summary>Proxies whose <c>X-Forwarded-For</c> is believed (<see cref="ClientAddressMiddleware"/>). Empty = none.</summary>
     public ImmutableArray<IPNetwork> TrustedProxies { get; }
@@ -106,9 +101,6 @@ public sealed class CatalogSnapshot
     /// 24-hour switch ends on time even if the snapshot is older.
     /// </summary>
     public bool LogsAllRequests(DateTimeOffset now) => _logAllRequestsUntil is { } until && now < until;
-
-    /// <summary>No USD exchange rate was in effect: <see cref="SekPerUsd"/> is <c>Gateway:FallbackSekPerUsd</c>.</summary>
-    public bool UsesFallbackRate { get; }
 
     public DateTimeOffset LoadedAt { get; }
     public IReadOnlyDictionary<Guid, Guid> KeyReplacements { get; }
@@ -303,9 +295,6 @@ public sealed partial class GatewayCatalog : IDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "Background catalogue refresh failed; serving the previous snapshot")]
     private static partial void LogRefreshFailed(ILogger logger, Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "No {Currency} exchange rate is in effect; costs are calculated with Gateway:FallbackSekPerUsd = {SekPerUsd}. Enter a rate in the admin API.")]
-    private static partial void LogFallbackRate(ILogger logger, string currency, decimal sekPerUsd);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Model or route name '{Name}' differs only in case from another one and is ignored; rename it in the admin UI")]
     private static partial void LogDuplicateName(ILogger logger, string name);
 
@@ -326,11 +315,6 @@ public sealed partial class GatewayCatalog : IDisposable
         var replacements = await db.KeyRotationMapAsync(cancellationToken);
         var settings = await db.Settings.AsNoTracking().SingleOrDefaultAsync(cancellationToken) ?? new GatewaySettings();
         var now = _time.GetUtcNow();
-        var rate = (await db.CurrentRateAsync(now, cancellationToken))?.SekPerUnit;
-        if (rate is null)
-        {
-            LogFallbackRate(_logger, GatewayQueries.PriceCurrency, _options.CurrentValue.FallbackSekPerUsd);
-        }
 
         // Wire navigation properties across the separately loaded graphs.
         var deployments = new Dictionary<Guid, ModelDeployment>();
@@ -363,8 +347,8 @@ public sealed partial class GatewayCatalog : IDisposable
             LogRuleIgnored(_logger, error.RuleName, error.RuleId, error.Message);
         }
 
-        var snapshot = new CatalogSnapshot(providers, routes, budgets, rate ?? _options.CurrentValue.FallbackSekPerUsd, now, replacements, rules, ruleErrors,
-            usesFallbackRate: rate is null, trustedProxies: [.. NetworkRanges.ParseValid(settings.TrustedProxies)],
+        var snapshot = new CatalogSnapshot(providers, routes, budgets, now, replacements, rules, ruleErrors,
+            trustedProxies: [.. NetworkRanges.ParseValid(settings.TrustedProxies)],
             logAllRequestsUntil: settings.LogAllRequests ? settings.LogAllRequestsUntil ?? DateTimeOffset.MaxValue : null);
         foreach (var name in snapshot.DuplicateNames)
         {

@@ -161,12 +161,6 @@ export function lastDaysIso(count: number, now: Date = new Date()): string[] {
   return Array.from({ length: count }, (_, i) => new Date(Date.UTC(y, m - 1, d - (count - 1 - i))).toISOString().slice(0, 10))
 }
 
-/** Converts a USD amount to SEK using the given rate. */
-export function usdToSek(usd: number | null | undefined, sekPerUsd: number | null | undefined): number | null {
-  if (isMissing(usd) || isMissing(sekPerUsd)) return null
-  return usd * sekPerUsd
-}
-
 export function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(100, value))

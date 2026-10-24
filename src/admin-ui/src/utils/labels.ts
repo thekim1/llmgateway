@@ -44,7 +44,7 @@ export const DATA_PERMISSION: Record<DataPermission, { label: string; descriptio
   },
   'catalog.read': {
     label: 'Catalogue',
-    description: 'Departments, teams, keys (name and prefix only), providers, models, prices, budgets and exchange rates, for joining the other data.',
+    description: 'Departments, teams, keys (name and prefix only), providers, models, prices and budgets, for joining the other data.',
   },
 }
 

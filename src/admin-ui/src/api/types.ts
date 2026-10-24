@@ -1,6 +1,6 @@
 /**
  * Types for the admin API. Mirrors docs/admin-api.md exactly (camelCase, enums as strings,
- * ISO-8601 timestamps, money in USD unless the field name says Sek).
+ * ISO-8601 timestamps, money in USD).
  */
 
 // ---------- Enums ----------
@@ -518,12 +518,6 @@ export interface BudgetAlert {
   limitTokens?: number | null
 }
 
-export interface ExchangeRate {
-  currency: 'USD'
-  sekPerUnit: number
-  effectiveFrom: IsoDateTime
-}
-
 /** The connection the admin API saw for the settings request; helps find the reverse proxy's address. */
 export interface ObservedConnection {
   remoteAddress: string | null
@@ -584,10 +578,6 @@ export interface RetentionSettings {
   lastRunAt: IsoDateTime | null
   lastRunDeleted: number | null
   lastRunError: string | null
-}
-
-export interface UpdateExchangeRateRequest {
-  sekPerUnit: number
 }
 
 // ---------- Usage ----------

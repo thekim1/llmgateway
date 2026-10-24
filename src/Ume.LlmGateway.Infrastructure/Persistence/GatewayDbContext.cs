@@ -8,6 +8,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence;
 
 public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
+    /// <summary>The SEK cost column of usage records and monthly totals: no longer written, dropped in the release after 0.8.1.</summary>
+    public const string LegacyCostSek = "CostSek";
+
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<VirtualKey> VirtualKeys => Set<VirtualKey>();
@@ -20,7 +23,6 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
     public DbSet<RoutingRuleTarget> RoutingRuleTargets => Set<RoutingRuleTarget>();
     public DbSet<Budget> Budgets => Set<Budget>();
-    public DbSet<ExchangeRate> ExchangeRates => Set<ExchangeRate>();
     public DbSet<GatewaySettings> Settings => Set<GatewaySettings>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
     public DbSet<UsageMonthlyTotal> UsageMonthlyTotals => Set<UsageMonthlyTotal>();
@@ -168,8 +170,10 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.RetentionLastRunError).HasMaxLength(500);
         });
 
+        // Left over from SEK costs, see ExchangeRate. Dropped in the release after 0.8.1, with the CostSek columns.
         modelBuilder.Entity<ExchangeRate>(e =>
         {
+            e.ToTable("ExchangeRates");
             e.Property(x => x.Currency).HasMaxLength(3);
             e.Property(x => x.SekPerUnit).HasPrecision(18, 6);
             e.HasIndex(x => new { x.Currency, x.EffectiveFrom }).IsUnique();
@@ -182,7 +186,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.ProviderName).HasMaxLength(100);
             e.Property(x => x.UpstreamModel).HasMaxLength(200);
             e.Property(x => x.CostUsd).HasPrecision(18, 8);
-            e.Property(x => x.CostSek).HasPrecision(18, 6);
+            // Left over from SEK costs: no longer written (0 for new rows), kept for one release for a rolling update.
+            e.Property<decimal>(LegacyCostSek).HasPrecision(18, 6).HasDefaultValue(0m);
             e.Property(x => x.AudioSeconds).HasPrecision(12, 3);
             e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(30);
@@ -206,7 +211,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.RequestedModel).HasMaxLength(200);
             e.Property(x => x.ProviderName).HasMaxLength(100);
             e.Property(x => x.CostUsd).HasPrecision(18, 8);
-            e.Property(x => x.CostSek).HasPrecision(18, 6);
+            e.Property<decimal>(LegacyCostSek).HasPrecision(18, 6).HasDefaultValue(0m);
             e.Property(x => x.AudioSeconds).HasPrecision(14, 3);
             e.Property(x => x.Endpoint).HasConversion<string>().HasMaxLength(30);
             e.HasIndex(x => new { x.MonthStart, x.DepartmentId });

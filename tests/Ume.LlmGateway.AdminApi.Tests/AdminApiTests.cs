@@ -565,7 +565,7 @@ public sealed class AdminApiTests(AdminFixture fixture)
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
             db.UsageRecords.Add(new UsageRecord { RequestId = requestId, Timestamp = DateTimeOffset.UtcNow, VirtualKeyId = key,
                 TeamId = own.Team, DepartmentId = own.Department, Endpoint = GatewayEndpoint.ChatCompletions,
-                RequestedModel = "test/model", InputTokens = 10, OutputTokens = 20, CostUsd = 1.25m, CostSek = 12.5m, Outcome = RequestOutcome.Success, StatusCode = 200 });
+                RequestedModel = "test/model", InputTokens = 10, OutputTokens = 20, CostUsd = 1.25m, Outcome = RequestOutcome.Success, StatusCode = 200 });
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
         using var client = await fixture.ClientAsync("viewer", own.Code);
@@ -690,8 +690,9 @@ public sealed class AdminApiTests(AdminFixture fixture)
         cannotDeleteModel.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         using var cannotDeleteProvider = await client.DeleteAsync($"/api/providers/{providerId}", TestContext.Current.CancellationToken);
         cannotDeleteProvider.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        using var rate = await client.PutAsJsonAsync("/api/settings/exchange-rate", new { sekPerUnit = 10 }, TestContext.Current.CancellationToken);
-        (await AdminFixture.ReadAsync(rate))["sekPerUnit"]!.GetValue<decimal>().ShouldBe(10);
+        // Costs are USD only: there is no exchange rate to set any more.
+        using var rate = await client.GetAsync("/api/settings/exchange-rate", TestContext.Current.CancellationToken);
+        rate.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         using var catalog = await client.GetAsync("/api/catalog", TestContext.Current.CancellationToken);
         (await AdminFixture.ReadAsync(catalog))["routes"]!.AsArray().ShouldContain(r => r!["name"]!.GetValue<string>() == route["name"]!.GetValue<string>());
         var org = await fixture.OrganisationAsync(client);

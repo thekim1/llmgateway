@@ -47,7 +47,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 - **Where things live** (see *Code layout* in [docs/architecture.md](docs/architecture.md)):
   - Endpoint semantics (routing name, paths, capability, model kinds, audio/realtime/streaming flags) only in `GatewayEndpoints` (Domain); do not add endpoint switches.
   - Redis keys and channels only in `RedisKeys` (all under `ume:`; the ACL in `deploy/redis/users.acl.example` depends on it).
-  - Exchange rate, key rotation lineage and budget spend queries in `GatewayQueries` (Infrastructure), shared by gateway and admin API.
+  - Key rotation lineage and budget spend queries in `GatewayQueries` (Infrastructure), shared by gateway and admin API.
   - Data retention (ADR 016): usage before `GatewaySettings.UsageRetainedFrom` exists only in `UsageMonthlyTotals`. New code that sums
     usage must read totals before that boundary and records from it on (`GatewayQueries.CostsIn`, `ReportEndpoints.Facts`, the Data API
     aggregate SQL). Only the database function `ume_retention_step` deletes usage, refused-key, alert or audit rows; change it in a new
@@ -62,7 +62,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
   - A new gateway endpoint is one entry in `GatewayEndpoints` (Domain) plus its OpenAPI summary in `GatewayRoutes`; uploads go through
     `MultipartFormReader` with their own `MultipartRules`; provider adapters read complete answers with `ReadCompleteAsync`.
-  - Budgets, spend counters and reservations are in USD; SEK appears only as display amounts (usage records' `CostSek`, the `-sek` headers).
+  - Every cost, budget, spend counter and reservation is in USD; there is no other currency (SEK was removed in 0.8.1). The `CostSek` columns
+    and `ExchangeRates` table are left over for one release (rolling update) and dropped in the next; nothing reads or writes them.
   - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
   - Options are validated on start (DataAnnotations/`IValidatableObject`); add a range or `[Required]` with each new setting.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.

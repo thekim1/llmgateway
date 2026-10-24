@@ -233,7 +233,7 @@ public sealed class ControlPlaneTests(AdminFixture fixture)
         db.UsageRecords.Add(new UsageRecord
         {
             RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = at, VirtualKeyId = key, TeamId = org.Team, DepartmentId = org.Department,
-            Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", CostUsd = cost, CostSek = cost, Outcome = RequestOutcome.Success, StatusCode = 200,
+            Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", CostUsd = cost, Outcome = RequestOutcome.Success, StatusCode = 200,
         });
         await db.SaveChangesAsync(Ct);
     }

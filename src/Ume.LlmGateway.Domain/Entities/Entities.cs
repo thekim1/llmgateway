@@ -515,9 +515,12 @@ public sealed class UsageMonthlyTotal
     public long OutputTokens { get; set; }
     public decimal AudioSeconds { get; set; }
     public decimal CostUsd { get; set; }
-    public decimal CostSek { get; set; }
 }
 
+/// <summary>
+/// Left over from SEK costs (removed in 0.8.1): nothing reads or writes it. The table stays for one release so the
+/// previous version keeps working during a rolling update, and is dropped in the next.
+/// </summary>
 public sealed class ExchangeRate
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
@@ -552,7 +555,6 @@ public sealed class UsageRecord
     public decimal AudioSeconds { get; set; }
 
     public decimal CostUsd { get; set; }
-    public decimal CostSek { get; set; }
     /// <summary>End to end: from the gateway receiving the request until its answer was sent (a live session's length).</summary>
     public int LatencyMs { get; set; }
 

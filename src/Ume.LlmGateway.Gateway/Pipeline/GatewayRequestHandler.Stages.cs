@@ -216,7 +216,7 @@ public sealed partial class GatewayRequestHandler
         state.Reservation = reservation;
         if (reservation.RemainingUsd is { } remainingBefore)
         {
-            SetBudgetRemainingHeaders(http, remainingBefore, snapshot);
+            SetBudgetRemainingHeaders(http, remainingBefore);
         }
 
         if (reservation.Allowed)
@@ -316,16 +316,16 @@ public sealed partial class GatewayRequestHandler
     /// started, so the connection has to be aborted).
     /// </summary>
     private async Task<bool> AccountUnexpectedAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, Exception ex,
-        TokenUsage usage = default, Cost? cost = null)
+        TokenUsage usage = default, decimal? costUsd = null)
     {
         if (ex is OperationCanceledException && http.RequestAborted.IsCancellationRequested)
         {
-            await AccountAsync(state, state.Deployment, usage, 499, RequestOutcome.ClientCancelled, null, snapshot, cost);
+            await AccountAsync(state, state.Deployment, usage, 499, RequestOutcome.ClientCancelled, null, snapshot, costUsd);
             return true;
         }
 
         LogUnexpectedFailure(logger, ex, state.RequestId);
-        await AccountAsync(state, state.Deployment, usage, 500, RequestOutcome.ProviderError, GatewayErrorCodes.InternalError, snapshot, cost);
+        await AccountAsync(state, state.Deployment, usage, 500, RequestOutcome.ProviderError, GatewayErrorCodes.InternalError, snapshot, costUsd);
         if (http.Response.HasStarted)
         {
             return false;
@@ -414,12 +414,9 @@ public sealed partial class GatewayRequestHandler
         };
     }
 
-    /// <summary>The remaining budget in USD, and in SEK at the snapshot's rate for clients that still read the SEK header.</summary>
-    private static void SetBudgetRemainingHeaders(HttpContext http, decimal remainingUsd, CatalogSnapshot snapshot)
-    {
+    /// <summary>The remaining budget in USD.</summary>
+    private static void SetBudgetRemainingHeaders(HttpContext http, decimal remainingUsd) =>
         http.Response.Headers[GatewayHeaders.BudgetRemainingUsd] = remainingUsd.ToString("0.00", CultureInfo.InvariantCulture);
-        http.Response.Headers[GatewayHeaders.BudgetRemainingSek] = (remainingUsd * snapshot.SekPerUsd).ToString("0.00", CultureInfo.InvariantCulture);
-    }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Request {RequestId}: provider {Provider} failed with {Status} ({Reason}); trying next")]
     private static partial void LogProviderFailed(ILogger logger, string requestId, string provider, int status, string reason);

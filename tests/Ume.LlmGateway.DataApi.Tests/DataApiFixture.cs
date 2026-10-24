@@ -145,7 +145,7 @@ public sealed class DataApiFixture : IAsyncLifetime
         {
             RequestId = Guid.NewGuid().ToString("N"), Timestamp = at ?? DateTimeOffset.UtcNow, VirtualKeyId = key ?? Guid.NewGuid(),
             TeamId = Guid.NewGuid(), DepartmentId = department, Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "ume/chat",
-            InputTokens = 100, OutputTokens = 20, CostSek = 1.5m, CostUsd = 0.15m, StatusCode = 200, Outcome = RequestOutcome.Success,
+            InputTokens = 100, OutputTokens = 20, CostUsd = 0.15m, StatusCode = 200, Outcome = RequestOutcome.Success,
         };
         configure?.Invoke(record);
         return record;

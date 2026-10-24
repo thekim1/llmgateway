@@ -75,9 +75,7 @@ prompts below Anthropic's minimum (1 024 tokens, 2 048 for Haiku) are not cached
 *Cache write* is for providers that charge for writing the prompt cache:
 Anthropic bills `cache_creation_input_tokens` at 1.25 times the input price (2 times for the 1-hour cache), so enter
 that for Claude models; left empty, cache writes are billed at the input price (as before this field existed, which
-undercharged them). Prices are in USD, so also enter the USD exchange rate under **Settings**:
-until one is in effect the gateway uses `Gateway:FallbackSekPerUsd` (10 SEK), logs a warning and reports its readiness
-check `exchange-rate` as Degraded (visible under operations health). Audio, image-generation-only and moderation models
+undercharged them). Prices, costs and budgets are all in USD. Audio, image-generation-only and moderation models
 are left out of the list. Models added before this feature have no capabilities until you set
 them or re-add them through discovery. Database migration `ModelFeatures` adds the column and
 runs with the normal migration service.

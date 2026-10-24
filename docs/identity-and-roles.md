@@ -44,7 +44,7 @@ export.
 | Keys: choose allowed providers | Yes | Left unchanged | – |
 | Budgets and alerts | Yes | For own departments, teams and keys | – |
 | Providers, models, routes, routing rules | Yes | – | – |
-| Settings, exchange rates, request logging | Yes | – | – |
+| Settings, request logging | Yes | – | – |
 | Operations (provider health, circuits) | Yes | – | – |
 | Audit log | Yes | – | – |
 | Data API access (clients and keys) | Yes | – | – |

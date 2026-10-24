@@ -40,7 +40,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
         usage.Outcome.ShouldBe(RequestOutcome.ProviderError);
         usage.ErrorCode.ShouldBe(GatewayErrorCodes.InternalError);
         usage.ProviderName.ShouldBe("eu");
-        usage.CostSek.ShouldBe(0);
+        usage.CostUsd.ShouldBe(0);
 
         // The estimate reserved before the attempt is given back in full.
         (await gateway.Services.GetRequiredService<ISpendLedger>().GetAsync([SpendKey(key.Id)], Ct))[0].ShouldBe(0);
@@ -64,7 +64,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var usage = await UsageAsync(gateway, key.Id);
         usage.Outcome.ShouldBe(RequestOutcome.Success);
-        usage.CostSek.ShouldBe(0.00135m);
+        usage.CostUsd.ShouldBe(0.000135m);
         fixture.Logs.Text.ShouldContain("timed out in the shared store");
     }
 
@@ -87,7 +87,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
     }
 
     [Fact]
-    public async Task Alert_webhook_gets_the_amounts_in_USD_and_in_SEK_at_the_rate_when_the_alert_was_raised()
+    public async Task Alert_webhook_gets_the_amounts_in_USD()
     {
         var received = new TaskCompletionSource<JsonNode>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var gateway = fixture.Derive(services =>
@@ -100,14 +100,14 @@ public sealed class AccountingTests(GatewayFixture fixture)
         var window = BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow);
         var writer = gateway.Services.GetRequiredService<UsageWriter>();
 
-        await writer.EnqueueAsync(new UsageWork(Record(key), [new AlertCandidate(budget, window, 80, 8.5m) { SekPerUsd = 9.5m }]), Ct);
+        await writer.EnqueueAsync(new UsageWork(Record(key), [new AlertCandidate(budget, window, 80, 8.5m)]), Ct);
         await writer.FlushAsync(Ct);
 
         var payload = await received.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         payload["type"]!.GetValue<string>().ShouldBe("budget_threshold");
         payload["thresholdPercent"]!.GetValue<int>().ShouldBe(80);
         (payload["spentUsd"]!.GetValue<decimal>(), payload["limitUsd"]!.GetValue<decimal>()).ShouldBe((8.5m, 10m));
-        (payload["spentSek"]!.GetValue<decimal>(), payload["limitSek"]!.GetValue<decimal>()).ShouldBe((80.75m, 95m));
+        payload["spentSek"].ShouldBeNull();
     }
 
     private sealed class CapturingHandler(TaskCompletionSource<JsonNode> received) : HttpMessageHandler
@@ -197,7 +197,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
     {
         using var scope = fixture.Services.CreateScope();
         var entity = scope.ServiceProvider.GetRequiredService<GatewayDbContext>().Model.FindEntityType(typeof(UsageRecord))!;
-        var mapped = entity.GetProperties().Select(p => p.GetColumnName()).Except(["Id", "RecordedAt"]);
+        var mapped = entity.GetProperties().Select(p => p.GetColumnName()).Except(["Id", "RecordedAt", GatewayDbContext.LegacyCostSek]);
         UsageRecordCopy.Columns.Order().ShouldBe(mapped.Order());
     }
 
@@ -212,7 +212,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
             Timestamp = new DateTimeOffset(2026, 10, 14, 12, 30, 15, 123, TimeSpan.FromHours(2)),
             Endpoint = GatewayEndpoint.AudioTranscriptions, ProviderAccountId = (Guid?)Guid.NewGuid(), ProviderName = "eu",
             ModelDeploymentId = (Guid?)Guid.NewGuid(), UpstreamModel = "gpt-x", InputTokens = 12, CachedInputTokens = 3, OutputTokens = 45,
-            AudioSeconds = 61.5m, CostUsd = 0.00012345m, CostSek = 0.001234m, LatencyMs = 250, UpstreamMs = (int?)200, TimeToFirstTokenMs = (int?)90,
+            AudioSeconds = 61.5m, CostUsd = 0.00012345m, LatencyMs = 250, UpstreamMs = (int?)200, TimeToFirstTokenMs = (int?)90,
             Outcome = RequestOutcome.PiiBlocked, FallbackCount = 1, Streamed = true, PiiActionApplied = (PiiPolicy?)PiiPolicy.Redact,
             PiiCategories = "Email:1", ErrorCode = "x", RoutingRuleId = (Guid?)Guid.NewGuid(), RoutingRuleName = "rule",
         });

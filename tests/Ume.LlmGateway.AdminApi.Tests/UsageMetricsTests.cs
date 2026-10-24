@@ -141,7 +141,7 @@ public sealed class UsageMetricsTests(AdminFixture fixture)
             Endpoint = endpoint, RequestedModel = model, ProviderAccountId = provider, ProviderName = provider is null ? null : "metrics-test",
             Outcome = outcome, StatusCode = outcome == RequestOutcome.Success ? 200 : 502, LatencyMs = latency, UpstreamMs = upstream,
             TimeToFirstTokenMs = firstToken, Streamed = firstToken is not null, InputTokens = input, CachedInputTokens = cached, OutputTokens = output,
-            CostUsd = cost, CostSek = cost * 10, FallbackCount = fallbacks,
+            CostUsd = cost, FallbackCount = fallbacks,
         };
 
     private async Task SaveAsync(List<UsageRecord> records)

@@ -431,15 +431,15 @@ public sealed partial class UsageWriter : BackgroundService
         public static JournalBatch Of(List<UsageWork> batch) => new(
             [.. batch.Select(w => w.Record)],
             [.. batch.SelectMany((w, i) => w.Alerts.Select(a => new JournalAlert(i, a.Budget.Id, a.Budget.Scope, a.Budget.ScopeId, a.Budget.LimitUsd,
-                a.Window.Start, a.Window.End, a.ThresholdPercent, a.SpentUsd, a.SekPerUsd, a.Budget.Unit, a.Budget.LimitTokens)))]);
+                a.Window.Start, a.Window.End, a.ThresholdPercent, a.SpentUsd, a.Budget.Unit, a.Budget.LimitTokens)))]);
 
         public List<UsageWork> ToWork() => [.. Records.Select((r, i) => new UsageWork(r, [.. Alerts.Where(a => a.Record == i).Select(a =>
             new AlertCandidate(new Budget { Id = a.BudgetId, Scope = a.Scope, ScopeId = a.ScopeId, LimitUsd = a.LimitUsd, Unit = a.Unit, LimitTokens = a.LimitTokens },
-                new Domain.Services.PeriodWindow(a.Start, a.End), a.ThresholdPercent, a.SpentUsd) { SekPerUsd = a.SekPerUsd })]))];
+                new Domain.Services.PeriodWindow(a.Start, a.End), a.ThresholdPercent, a.SpentUsd))]))];
     }
 
     private sealed record JournalAlert(int Record, Guid BudgetId, BudgetScope Scope, Guid ScopeId, decimal LimitUsd, DateTimeOffset Start,
-        DateTimeOffset End, int ThresholdPercent, decimal SpentUsd, decimal SekPerUsd, BudgetUnit Unit = BudgetUnit.Usd, long LimitTokens = 0);
+        DateTimeOffset End, int ThresholdPercent, decimal SpentUsd, BudgetUnit Unit = BudgetUnit.Usd, long LimitTokens = 0);
 
     private async Task WriteBatchAsync(List<UsageWork> batch, bool retry, CancellationToken cancellationToken)
     {
@@ -494,17 +494,17 @@ public sealed partial class UsageWriter : BackgroundService
         PruneLastUsed(now);
 
         // Committed: notify now. A retry of a batch whose commit answer was lost finds these alerts stored and does not raise them again.
-        foreach (var (alert, sekPerUsd) in newAlerts)
+        foreach (var alert in newAlerts)
         {
             LogBudgetAlert(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
-            _alerts.Enqueue(alert, sekPerUsd);
+            _alerts.Enqueue(alert);
         }
     }
 
     /// <summary>Stores the batch's alerts not raised before: unique per (budget, period, threshold), one query for the whole batch.</summary>
-    private async Task<List<(AlertEvent Alert, decimal SekPerUsd)>> AddNewAlertsAsync(GatewayDbContext db, List<UsageWork> batch, CancellationToken cancellationToken)
+    private async Task<List<AlertEvent>> AddNewAlertsAsync(GatewayDbContext db, List<UsageWork> batch, CancellationToken cancellationToken)
     {
-        var newAlerts = new List<(AlertEvent Alert, decimal SekPerUsd)>();
+        var newAlerts = new List<AlertEvent>();
         var groups = batch.SelectMany(b => b.Alerts).GroupBy(a => (a.Budget.Id, a.Window.Start, a.ThresholdPercent)).ToList();
         if (groups.Count == 0)
         {
@@ -524,7 +524,7 @@ public sealed partial class UsageWriter : BackgroundService
             var (budgetId, start, threshold) = group.Key;
             var a = group.MaxBy(x => x.SpentUsd)!;
             var tokens = a.Budget.Unit == BudgetUnit.Tokens;
-            newAlerts.Add((new AlertEvent
+            newAlerts.Add(new AlertEvent
             {
                 BudgetId = budgetId,
                 Scope = a.Budget.Scope,
@@ -536,10 +536,10 @@ public sealed partial class UsageWriter : BackgroundService
                 SpentTokens = tokens ? (long)a.SpentUsd : null,
                 LimitTokens = tokens ? a.Budget.LimitTokens : null,
                 Timestamp = _time.GetUtcNow(),
-            }, a.SekPerUsd));
+            });
         }
 
-        db.AlertEvents.AddRange(newAlerts.Select(n => n.Alert));
+        db.AlertEvents.AddRange(newAlerts);
         await db.SaveChangesAsync(cancellationToken);
         return newAlerts;
     }
@@ -589,7 +589,6 @@ public sealed class GatewayMetrics
 {
     private readonly Counter<long> _requests;
     private readonly Counter<long> _tokens;
-    private readonly Counter<double> _costSek;
     private readonly Counter<long> _fallbacks;
     private readonly Counter<long> _ruleRouted;
     private readonly Histogram<double> _latency;
@@ -620,7 +619,6 @@ public sealed class GatewayMetrics
         _meter = meterFactory.Create(Extensions.TelemetryName);
         _requests = _meter.CreateCounter<long>("ume.gateway.requests", description: "Gateway requests by outcome");
         _tokens = _meter.CreateCounter<long>("ume.gateway.tokens", description: "Tokens processed");
-        _costSek = _meter.CreateCounter<double>("ume.gateway.cost", unit: "SEK", description: "Cost in SEK at the current exchange rate (to be removed with SEK; use ume.gateway.cost.usd)");
         _costUsd = _meter.CreateCounter<double>("ume.gateway.cost.usd", unit: "USD", description: "Cost in USD, the currency prices and budgets are in");
 
         _fallbacks = _meter.CreateCounter<long>("ume.gateway.fallbacks", description: "Fallback attempts");
@@ -728,7 +726,6 @@ public sealed class GatewayMetrics
 
         _tokens.Add(record.InputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "input" } });
         _tokens.Add(record.OutputTokens, new TagList { { "provider", record.ProviderName ?? "none" }, { "direction", "output" } });
-        _costSek.Add((double)record.CostSek, new TagList { { "provider", record.ProviderName ?? "none" } });
         _costUsd.Add((double)record.CostUsd, new TagList { { "provider", record.ProviderName ?? "none" } });
         if (_genAiTokens is not null && providerType is { } type && record.UpstreamModel is { } model && !GatewayEndpoints.Info(record.Endpoint).IsRealtime)
         {

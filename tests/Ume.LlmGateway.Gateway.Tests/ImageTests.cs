@@ -38,7 +38,6 @@ public sealed class ImageTests(GatewayFixture fixture)
         usage.Endpoint.ShouldBe(GatewayEndpoint.ImageGenerations);
         usage.Outcome.ShouldBe(RequestOutcome.Success);
         usage.CostUsd.ShouldBe(0.08m); // 2 pictures × 0.04, however many were asked for
-        usage.CostSek.ShouldBe(0.8m);
     }
 
     [Fact]

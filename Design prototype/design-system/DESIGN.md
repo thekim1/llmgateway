@@ -111,7 +111,7 @@ Use these verbatim. Icons: Material Symbols Rounded, 20 px (18 in buttons), `ari
 
 ## 7. Content style
 - Sentence case, plain English, active voice, no "please", no exclamation marks. Numbers: Swedish formatting (`48 210 kr`, NBSP thousands), dates `8 Oct 2026`, times 24 h Europe/Stockholm, relative times for < 7 days ("2 min ago").
-- Money is SEK with `kr` suffix; USD only on price configuration fields, labelled "USD per 1M tokens".
+- Money is USD (`US$`, Swedish number format); prices are labelled "USD per 1M tokens".
 - Domain terms: Department (förvaltning), Cost center (ansvarskod), Team, Key (not "virtual key" in buttons), Route, Provider, Residency.
 - Errors: say what happened + what to do. "Give the key a name so people can recognise it."
 

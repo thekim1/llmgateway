@@ -21,7 +21,7 @@ public sealed partial class GatewayRequestHandler
     /// from <paramref name="usage"/> at the deployment's price unless given (live sessions with two priced models).
     /// Runs once per request: later calls are ignored.
     /// </summary>
-    private async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot, Cost? knownCost = null)
+    private async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot, decimal? knownCostUsd = null)
     {
         if (state.Accounted)
         {
@@ -31,9 +31,9 @@ public sealed partial class GatewayRequestHandler
         state.Accounted = true;
         var key = state.Key!;
         var now = time.GetUtcNow();
-        var cost = knownCost ?? (deployment is not null && snapshot is not null
-            ? CostCalculator.Calculate(usage, deployment.PriceAt(now), snapshot.SekPerUsd)
-            : default);
+        var costUsd = knownCostUsd ?? (deployment is not null && snapshot is not null
+            ? CostCalculator.Calculate(usage, deployment.PriceAt(now))
+            : 0);
 
         // Accounting must complete even if the client disconnected, so it never uses the request's token.
         IReadOnlyList<AlertCandidate> alerts = [];
@@ -43,15 +43,11 @@ public sealed partial class GatewayRequestHandler
             {
                 // Issued together so a shared store pipelines them into a single round trip.
                 var commit = state.Reservation is { } reservation
-                    ? budgets.CommitAsync(reservation, cost.Usd, usage.InputTokens + usage.OutputTokens, deployment?.ProviderAccount?.Residency, stores.Token)
+                    ? budgets.CommitAsync(reservation, costUsd, usage.InputTokens + usage.OutputTokens, deployment?.ProviderAccount?.Residency, stores.Token)
                     : Task.FromResult(alerts);
                 var tokens = usage.Total > 0 ? rateLimiter.RecordTokensAsync(key.Id, usage.Total, stores.Token) : Task.CompletedTask;
                 await Task.WhenAll(commit, tokens);
                 alerts = await commit;
-                if (alerts.Count > 0 && snapshot is not null)
-                {
-                    alerts = [.. alerts.Select(a => a with { SekPerUsd = snapshot.SekPerUsd })];
-                }
             }
             catch (OperationCanceledException)
             {
@@ -81,8 +77,7 @@ public sealed partial class GatewayRequestHandler
             CachedInputTokens = usage.CachedInputTokens,
             OutputTokens = usage.OutputTokens,
             AudioSeconds = decimal.Round(usage.AudioSeconds, 3),
-            CostUsd = decimal.Round(cost.Usd, 6),
-            CostSek = decimal.Round(cost.Sek, 6),
+            CostUsd = decimal.Round(costUsd, 6),
             LatencyMs = Milliseconds(time.GetElapsedTime(state.StartTimestamp)),
             UpstreamMs = state.UpstreamTicks is { } upstream ? Milliseconds(time.GetElapsedTime(0, upstream)) : null,
             TimeToFirstTokenMs = state.FirstEventTimestamp != 0 ? Milliseconds(time.GetElapsedTime(state.StartTimestamp, state.FirstEventTimestamp)) : null,

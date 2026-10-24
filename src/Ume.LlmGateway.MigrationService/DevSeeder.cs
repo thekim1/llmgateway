@@ -289,8 +289,6 @@ public sealed partial class DevSeeder(
                 UpdatedAt = now,
             });
 
-        db.Add(new ExchangeRate { Currency = "USD", SekPerUnit = 9.50m, EffectiveFrom = priceDate });
-
         db.AddRange(
             new Budget { Scope = BudgetScope.Department, ScopeId = klk.Id, LimitUsd = 1_000m, Period = BudgetPeriod.Monthly, CreatedAt = now },
             new Budget { Scope = BudgetScope.Department, ScopeId = soc.Id, LimitUsd = 500m, Period = BudgetPeriod.Monthly, CreatedAt = now },

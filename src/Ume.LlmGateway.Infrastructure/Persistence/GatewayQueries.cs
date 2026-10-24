@@ -6,19 +6,12 @@ using Ume.LlmGateway.Domain.Services;
 namespace Ume.LlmGateway.Infrastructure.Persistence;
 
 /// <summary>
-/// Queries shared by the gateway and the admin API, so both read budgets, key lineage and exchange rates the same way.
+/// Queries shared by the gateway and the admin API, so both read budgets and key lineage the same way.
 /// </summary>
 public static class GatewayQueries
 {
     /// <summary>The currency provider prices are entered in.</summary>
     public const string PriceCurrency = "USD";
-
-    /// <summary>The exchange rate in effect at <paramref name="now"/>, or <c>null</c> when none has been entered.</summary>
-    public static Task<ExchangeRate?> CurrentRateAsync(this GatewayDbContext db, DateTimeOffset now, CancellationToken cancellationToken, string currency = PriceCurrency) =>
-        db.ExchangeRates.AsNoTracking()
-            .Where(r => r.Currency == currency && r.EffectiveFrom <= now)
-            .OrderByDescending(r => r.EffectiveFrom)
-            .FirstOrDefaultAsync(cancellationToken);
 
     /// <summary>Rotated key id → its replacement, for <see cref="KeyRotation"/>.</summary>
     public static Task<Dictionary<Guid, Guid>> KeyRotationMapAsync(this GatewayDbContext db, CancellationToken cancellationToken) =>

@@ -10,7 +10,7 @@ namespace Ume.LlmGateway.DataApi;
 public sealed record UsageRecordItem(
     long Id, string RequestId, DateTimeOffset Timestamp, Guid KeyId, Guid TeamId, Guid DepartmentId, GatewayEndpoint Endpoint,
     string RequestedModel, Guid? ProviderId, string? ProviderName, Guid? ModelId, string? UpstreamModel,
-    long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, decimal CostSek, int LatencyMs, int StatusCode,
+    long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, int LatencyMs, int StatusCode,
     RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiAction, string? PiiCategories, string? ErrorCode,
     Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds, int? UpstreamMs, int? TimeToFirstTokenMs) : IFeedItem;
 
@@ -36,7 +36,7 @@ public sealed record KeyInventoryItem(
 public sealed record AggregateItem(
     DateOnly Period, Guid? DepartmentId, string? CostCenterCode, string? DepartmentName, Guid? ModelId, string? ModelName, Guid? ProviderId,
     string? ProviderName, DataResidency? Residency, string Endpoint, long Requests, long SuccessfulRequests, long InputTokens,
-    long CachedInputTokens, long OutputTokens, decimal CostSek, decimal CostUsd, decimal AudioSeconds);
+    long CachedInputTokens, long OutputTokens, decimal CostUsd, decimal AudioSeconds);
 
 /// <summary>Raw result of the aggregate query; names are joined in afterwards.</summary>
 public sealed class AggregateRow
@@ -51,7 +51,6 @@ public sealed class AggregateRow
     public long InputTokens { get; set; }
     public long CachedInputTokens { get; set; }
     public long OutputTokens { get; set; }
-    public decimal CostSek { get; set; }
     public decimal CostUsd { get; set; }
     public decimal AudioSeconds { get; set; }
 }
@@ -72,7 +71,7 @@ public static class DataEndpoints
             var rows = await db.UsageRecords.AsNoTracking().Where(u => u.Id > cursor).OrderBy(u => u.Id).Take(size + 1)
                 .Select(u => new UsageRecordItem(u.Id, u.RequestId, u.Timestamp, u.VirtualKeyId, u.TeamId, u.DepartmentId, u.Endpoint,
                     u.RequestedModel, u.ProviderAccountId, u.ProviderName, u.ModelDeploymentId, u.UpstreamModel, u.InputTokens,
-                    u.CachedInputTokens, u.OutputTokens, u.CostUsd, u.CostSek, u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount,
+                    u.CachedInputTokens, u.OutputTokens, u.CostUsd, u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount,
                     u.Streamed, u.PiiActionApplied, pii ? u.PiiCategories : null, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName, u.RecordedAt, u.AudioSeconds,
                     u.UpstreamMs, u.TimeToFirstTokenMs))
                 .ToListAsync(ct);
@@ -155,22 +154,10 @@ public static class DataEndpoints
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
                 .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd, p.CacheWriteInputPerMillionUsd }).ToListAsync(ct)));
-        catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, TimeProvider time, CancellationToken ct) =>
-        {
-            // Cost budgets: limits in USD; LimitSek is the same limit at the current rate (null without one), kept for existing
-            // reports. Token budgets (Unit Tokens): LimitTokens, counting only Residency when set; their USD limit is 0.
-            var rate = (await db.CurrentRateAsync(time.GetUtcNow(), ct))?.SekPerUnit;
-            var budgets = await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
-                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, b.IsActive, b.Unit, b.LimitTokens, b.Residency }).ToListAsync(ct);
-            return DataResults.List(http, budgets.Select(b => new
-            {
-                b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, LimitSek = rate is { } r ? decimal.Round(b.LimitUsd * r, 2) : (decimal?)null, b.IsActive,
-                b.Unit, b.LimitTokens, b.Residency,
-            }).ToList());
-        });
-        catalog.MapGet("/exchange-rates", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
-            await db.ExchangeRates.AsNoTracking().OrderBy(r => r.EffectiveFrom)
-                .Select(r => new { r.Currency, r.SekPerUnit, r.EffectiveFrom }).ToListAsync(ct)));
+        // Cost budgets: limits in USD. Token budgets (Unit Tokens): LimitTokens, counting only Residency when set; their USD limit is 0.
+        catalog.MapGet("/budgets", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
+            await db.Budgets.AsNoTracking().OrderBy(b => b.Id)
+                .Select(b => new { b.Id, b.Scope, b.ScopeId, b.Period, b.LimitUsd, b.IsActive, b.Unit, b.LimitTokens, b.Residency }).ToListAsync(ct)));
     }
 
     /// <summary>
@@ -210,13 +197,13 @@ public static class DataEndpoints
                 SELECT date_trunc({unit}, "Timestamp" AT TIME ZONE {tz})::date AS "Period", "DepartmentId", "VirtualKeyId",
                        "ModelDeploymentId", "ProviderAccountId", "Endpoint", 1::bigint AS "Requests",
                        CASE WHEN "Outcome" = 'Success' THEN 1 ELSE 0 END::bigint AS "SuccessfulRequests", "InputTokens",
-                       "CachedInputTokens", "OutputTokens", "CostSek", "CostUsd", "AudioSeconds"
+                       "CachedInputTokens", "OutputTokens", "CostUsd", "AudioSeconds"
                 FROM "UsageRecords"
                 WHERE "Timestamp" >= {recordsFrom} AND "Timestamp" < {end}
                 UNION ALL
                 SELECT ("MonthStart" AT TIME ZONE 'Europe/Stockholm')::date, "DepartmentId", "VirtualKeyId",
                        "ModelDeploymentId", "ProviderAccountId", "Endpoint", "Requests", "SuccessfulRequests", "InputTokens",
-                       "CachedInputTokens", "OutputTokens", "CostSek", "CostUsd", "AudioSeconds"
+                       "CachedInputTokens", "OutputTokens", "CostUsd", "AudioSeconds"
                 FROM "UsageMonthlyTotals"
                 WHERE "MonthStart" >= {start} AND "MonthStart" < {totalsUntil}
             ), small AS (
@@ -230,7 +217,7 @@ public static class DataEndpoints
                    sum(u."Requests")::bigint AS "Requests",
                    sum(u."SuccessfulRequests")::bigint AS "SuccessfulRequests",
                    sum(u."InputTokens")::bigint AS "InputTokens", sum(u."CachedInputTokens")::bigint AS "CachedInputTokens",
-                   sum(u."OutputTokens")::bigint AS "OutputTokens", sum(u."CostSek") AS "CostSek", sum(u."CostUsd") AS "CostUsd",
+                   sum(u."OutputTokens")::bigint AS "OutputTokens", sum(u."CostUsd") AS "CostUsd",
                    sum(u."AudioSeconds") AS "AudioSeconds"
             FROM u LEFT JOIN small ON small."Period" = u."Period" AND small."DepartmentId" = u."DepartmentId"
             GROUP BY 1, 2, 3, 4, 5
@@ -246,7 +233,7 @@ public static class DataEndpoints
             var provider = r.ProviderId is { } p ? providers.GetValueOrDefault(p) : null;
             return new AggregateItem(r.Period, r.DepartmentId, department?.CostCenterCode, department?.Name, r.ModelId,
                 r.ModelId is { } m ? models.GetValueOrDefault(m) : null, r.ProviderId, provider?.Name, provider?.Residency, r.Endpoint,
-                r.Requests, r.SuccessfulRequests, r.InputTokens, r.CachedInputTokens, r.OutputTokens, r.CostSek, r.CostUsd, r.AudioSeconds);
+                r.Requests, r.SuccessfulRequests, r.InputTokens, r.CachedInputTokens, r.OutputTokens, r.CostUsd, r.AudioSeconds);
         })];
     }
 

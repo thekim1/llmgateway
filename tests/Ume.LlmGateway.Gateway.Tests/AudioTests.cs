@@ -37,7 +37,6 @@ public sealed class AudioTests(GatewayFixture fixture)
         usage.Outcome.ShouldBe(RequestOutcome.Success);
         usage.AudioSeconds.ShouldBe(90m); // as reported, not the file's 2 s
         usage.CostUsd.ShouldBe(0.009m); // 1.5 min × 0.006
-        usage.CostSek.ShouldBe(0.09m);
     }
 
     [Fact]

@@ -10,7 +10,7 @@ The side menu groups pages by the job you came to do. You only see the pages you
 | Access | Keys, Organisation, Data API access | Give applications and reporting tools access, and set up departments and teams |
 | Models & routing | Catalogue, Providers & models, Routes, Routing rules | See which models can be called, connect providers, and decide where requests go |
 | Cost & compliance | Budgets & alerts, PII incidents, Audit log | Limit spend, follow up personal data findings and see who changed what |
-| System | Settings | Exchange rate, trusted proxies, data retention, request logging and version |
+| System | Settings | Trusted proxies, data retention, request logging and version |
 
 **Search** (the search box at the top, or **Ctrl K** / **⌘ K**) finds pages and the parts inside them, also by words
 that are not in the page name: *retention* opens **Settings › Data retention**, *circuit* opens **Health & operations**,

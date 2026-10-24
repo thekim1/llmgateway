@@ -133,7 +133,8 @@ public sealed class DataApiTests(DataApiFixture fixture)
         largeRow.GetProperty("departmentId").GetGuid().ShouldBe(large.Id);
         largeRow.GetProperty("costCenterCode").GetString().ShouldBe(large.CostCenterCode);
         largeRow.GetProperty("requests").GetInt64().ShouldBe(3);
-        largeRow.GetProperty("costSek").GetDecimal().ShouldBe(4.5m);
+        largeRow.GetProperty("costUsd").GetDecimal().ShouldBe(0.45m);
+        largeRow.TryGetProperty("costSek", out _).ShouldBeFalse();
         largeRow.GetProperty("period").GetString().ShouldBe("2020-03-15");
         var other = rows.Single(r => r.GetProperty("departmentId").ValueKind == JsonValueKind.Null);
         other.GetProperty("requests").GetInt64().ShouldBe(1);
@@ -266,20 +267,19 @@ public sealed class DataApiTests(DataApiFixture fixture)
     }
 
     [Fact]
-    public async Task Budget_limits_are_in_USD_with_the_SEK_amount_at_the_current_rate()
+    public async Task Budget_limits_are_in_USD_only()
     {
         var budget = new Budget { Scope = BudgetScope.Team, ScopeId = Guid.NewGuid(), LimitUsd = 100m, Period = BudgetPeriod.Monthly, CreatedAt = DateTimeOffset.UtcNow };
         await fixture.DbAsync(db =>
         {
             db.Budgets.Add(budget);
-            db.ExchangeRates.Add(new ExchangeRate { Currency = "USD", SekPerUnit = 9.5m, EffectiveFrom = DateTimeOffset.UtcNow.AddMinutes(-1) });
             return db.SaveChangesAsync(Ct);
         });
 
         using var page = await ReadAsync(fixture.Client("catalog.read"), "/v1/catalog/budgets");
         var item = page.RootElement.GetProperty("items").EnumerateArray().Single(b => b.GetProperty("id").GetGuid() == budget.Id);
         item.GetProperty("limitUsd").GetDecimal().ShouldBe(100m);
-        item.GetProperty("limitSek").GetDecimal().ShouldBe(950m);
+        item.TryGetProperty("limitSek", out _).ShouldBeFalse();
     }
 
     private async Task<JsonDocument> ReadAsync(HttpClient client, string path)

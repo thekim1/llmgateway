@@ -118,7 +118,7 @@ public sealed partial class GatewayRequestHandler
 
         // Budget: a block of minutes is reserved now and topped up while the session runs.
         var block = CostCalculator.EstimateRealtime(settings.ReserveMinutes * 60m);
-        var estimate = candidates.Max(t => CostCalculator.Calculate(block, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
+        var estimate = candidates.Max(t => CostCalculator.Calculate(block, t.ModelDeployment!.PriceAt(now)));
         var applicable = BudgetService.ApplicableBudgets(snapshot, key);
         var reservation = await TryReserveAsync(http, state, snapshot, applicable, estimate, ct, 0,
             [.. candidates.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]);
@@ -219,8 +219,8 @@ public sealed partial class GatewayRequestHandler
             var sessionPrice = price = deployment.PriceAt(now);
             var started = time.GetTimestamp();
             var reservedUsd = estimate;
-            var blockUsd = CostCalculator.Calculate(block, sessionPrice, snapshot.SekPerUsd).Usd;
-            var intervalUsd = CostCalculator.Calculate(CostCalculator.EstimateRealtime(settings.BudgetCheckSeconds), sessionPrice, snapshot.SekPerUsd).Usd;
+            var blockUsd = CostCalculator.Calculate(block, sessionPrice);
+            var intervalUsd = CostCalculator.Calculate(CostCalculator.EstimateRealtime(settings.BudgetCheckSeconds), sessionPrice);
 
             async Task<RealtimeStop?> CheckAsync(CancellationToken token)
             {
@@ -238,7 +238,7 @@ public sealed partial class GatewayRequestHandler
                     return new RealtimeStop(RealtimeEndReason.TimeLimit, GatewayError.SessionTimeLimit(settings.MaxSessionMinutes), WebSocketCloseStatus.NormalClosure);
                 }
 
-                if (reservation.Checks.Count == 0 || SessionCost(sessionMeter, sessionPolicy, sessionPrice, snapshot).Usd + intervalUsd <= reservedUsd)
+                if (reservation.Checks.Count == 0 || SessionCostUsd(sessionMeter, sessionPolicy, sessionPrice) + intervalUsd <= reservedUsd)
                 {
                     return null;
                 }
@@ -293,15 +293,15 @@ public sealed partial class GatewayRequestHandler
             };
 
             await AccountAsync(state, deployment, SessionUsage(sessionMeter), status, outcome, errorCode, snapshot,
-                SessionCost(sessionMeter, sessionPolicy, sessionPrice, snapshot));
+                SessionCostUsd(sessionMeter, sessionPolicy, sessionPrice));
         }
         catch (Exception ex) when (!state.Accounted)
         {
             // Bill what the session used before it broke, then let the shared handling answer or abort.
             await ReleaseAsync(extra, state.RequestId);
             var used = meter is null ? default : SessionUsage(meter);
-            Cost? cost = meter is null || policy is null ? null : SessionCost(meter, policy, price, snapshot);
-            if (!await AccountUnexpectedAsync(http, state, snapshot, ex, used, cost))
+            decimal? costUsd = meter is null || policy is null ? null : SessionCostUsd(meter, policy, price);
+            if (!await AccountUnexpectedAsync(http, state, snapshot, ex, used, costUsd))
             {
                 throw;
             }
@@ -356,15 +356,14 @@ public sealed partial class GatewayRequestHandler
         return parameters;
     }
 
-    /// <summary>Cost so far: the session model at its price, plus a separately chosen input transcription model at its own.</summary>
-    private Cost SessionCost(RealtimeMeter meter, RealtimeEventPolicy policy, ModelPrice? price, CatalogSnapshot snapshot)
+    /// <summary>Cost so far in USD: the session model at its price, plus a separately chosen input transcription model at its own.</summary>
+    private decimal SessionCostUsd(RealtimeMeter meter, RealtimeEventPolicy policy, ModelPrice? price)
     {
         var (session, transcription) = meter.Snapshot();
-        var cost = CostCalculator.Calculate(session, price, snapshot.SekPerUsd);
+        var cost = CostCalculator.Calculate(session, price);
         if (policy.TranscriptionDeployment is { } other)
         {
-            var extra = CostCalculator.Calculate(transcription, other.PriceAt(time.GetUtcNow()), snapshot.SekPerUsd);
-            cost = new Cost(cost.Usd + extra.Usd, cost.Sek + extra.Sek);
+            cost += CostCalculator.Calculate(transcription, other.PriceAt(time.GetUtcNow()));
         }
 
         return cost;

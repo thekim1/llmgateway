@@ -67,12 +67,11 @@ constraint afterwards, so a rule can never widen a key's access. The matched rul
 visible to conditions. The admin API (`/api/routing-rules`) audits every change and offers validation and a dry run.
 
 Budgets are calendar-aligned in Europe/Stockholm; persisted timestamps are UTC. Limits, spend counters and
-reservations are in USD (micro-USD in Redis), the currency prices are in, so enforcement does not move with the
-exchange rate. Reservations atomically check every budget. Rotation shares predecessor budgets and
+reservations are in USD (micro-USD in Redis), the currency prices are in, so enforcement does not move with
+exchange rates. Reservations atomically check every budget. Rotation shares predecessor budgets and
 spend, including grace-period keys. Redis counters rebuild from persisted usage on a
-cold start. Pricing uses effective-date USD rates; SEK amounts (usage records, `x-ume-cost-sek`) use the SEK exchange rate. While no USD exchange rate is in effect the
-gateway prices with `Gateway:FallbackSekPerUsd` (10), logs a warning on each catalogue load and reports its readiness
-check `exchange-rate` as Degraded.
+cold start. Pricing uses effective-date USD rates, and every cost is recorded and reported in USD only (SEK was
+removed in 0.8.1).
 
 Usage records go from the request into a bounded in-memory queue; a background writer copies them to Postgres in batches,
 off the request path. **Usage journal** (`Gateway:UsageJournal`, `UsageWriter`/`IUsageJournal`): when Postgres refuses a
@@ -100,7 +99,7 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
   `ProviderAuth`/`ProviderTransport` hold provider authentication and HTTP details, and `FailureKind` decides fallback
   and circuit breaking. `/v1/models` and realtime input transcription models use the same eligibility rule as routing.
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
-  ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the exchange rate, key
+  ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.
 - **Admin API.** Endpoints are thin; logic sits in services (`RoutingRuleService`, `ProviderCatalogService`,
   `BudgetAdminService`, `ConfigTransferService`, `OwnerScopeResolver`) with typed request/response contracts and
@@ -127,8 +126,7 @@ ring makes existing provider credentials and BFF state unreadable.
 ## Operational surfaces
 
 `/health/live`, `/health/ready`, `/version` are metadata-only. OTel metrics use bounded
-labels for request outcomes, providers, endpoints, tokens, cost (`ume.gateway.cost.usd`; `ume.gateway.cost` in SEK until SEK
-is removed), duration and queue depth. With `Gateway:GenAiMetrics=true` (off by default: four more histogram
+labels for request outcomes, providers, endpoints, tokens, cost (`ume.gateway.cost.usd`), duration and queue depth. With `Gateway:GenAiMetrics=true` (off by default: four more histogram
 recordings per request) also the OpenTelemetry GenAI semantic-convention metrics (`gen_ai.client.token.usage`,
 `gen_ai.client.operation.duration`, `gen_ai.server.request.duration`, `gen_ai.server.time_to_first_token`, with the
 catalogue's upstream model name), so standard GenAI dashboards work.
@@ -148,7 +146,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Admin auth | Generic OIDC through a BFF; Keycloak in local run mode, an external HTTPS IdP in production |
 | Content logging | Metadata only; prompts and responses are never persisted |
 | PII guard | Optional, per key: Off / Allow / Redact / Block / Reroute to on-prem |
-| Currency | Prices, costs and budgets in USD; SEK amounts for display at a configurable USD to SEK rate |
+| Currency | Prices, costs and budgets in USD |
 | Client API | OpenAI `/v1/chat/completions` (SSE), `/v1/embeddings`, `/v1/models`, `/v1/responses`, `/v1/audio/transcriptions` and `/v1/audio/translations` (multipart, held in memory), `/v1/images/generations` and `/v1/images/edits` (JSON; multipart held in memory), live audio over WebSocket on `/v1/realtime` and `/v1/realtime/translations` (OpenAI Realtime protocol, relayed and metered); Anthropic `/v1/messages` |
 | Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
@@ -157,6 +155,6 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
 Out of scope for the POC: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
-an automated exchange-rate feed, and invoicing integration (CSV export per cost centre instead).
+other currencies than USD, and invoicing integration (CSV export per cost centre instead).
 
 See [ADRs](adr.md), [runbook](runbook.md) and the exact [API contract](admin-api.md).

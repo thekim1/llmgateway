@@ -218,7 +218,7 @@ public sealed partial class GatewayRequestHandler(
             : audio is not null ? audioEstimate
             : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
             : new TokenUsage(estimatedInputTokens, 0, maxOutput);
-        var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now), snapshot.SekPerUsd).Usd);
+        var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now)));
         var applicable = BudgetService.ApplicableBudgets(snapshot, key);
         // Token quotas limited to a residency need the candidates' residencies; without one, nothing extra is computed.
         HashSet<DataResidency>? residencies = BudgetService.HasTokenQuota(applicable)
@@ -337,13 +337,12 @@ public sealed partial class GatewayRequestHandler(
                             return;
                         }
 
-                        var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now), snapshot.SekPerUsd);
+                        var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now));
                         SetRoutingHeaders(http, deployment, state.Fallbacks);
-                        http.Response.Headers[GatewayHeaders.CostUsd] = cost.Usd.ToString("0.00000000", CultureInfo.InvariantCulture);
-                        http.Response.Headers[GatewayHeaders.CostSek] = cost.Sek.ToString("0.000000", CultureInfo.InvariantCulture);
+                        http.Response.Headers[GatewayHeaders.CostUsd] = cost.ToString("0.00000000", CultureInfo.InvariantCulture);
                         if (state.Reservation?.RemainingUsd is { } rem)
                         {
-                            SetBudgetRemainingHeaders(http, Math.Max(0, rem - cost.Usd), snapshot);
+                            SetBudgetRemainingHeaders(http, Math.Max(0, rem - cost));
                         }
 
                         // The answer goes out first (complete, thanks to Content-Length); accounting then runs off the
