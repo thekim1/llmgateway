@@ -23,7 +23,7 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: 'Provider stability', roles: GATEWAY_ADMIN },
   },
   { path: '/pii-incidents', name: 'pii-incidents', component: () => import('@/views/PiiIncidentsView.vue'), meta: { title: 'PII incidents' } },
-  { path: '/operations', name: 'ops', component: () => import('@/views/OpsView.vue'), meta: { title: 'Operations', roles: GATEWAY_ADMIN } },
+  { path: '/operations', name: 'ops', component: () => import('@/views/OpsView.vue'), meta: { title: 'Health & operations', roles: GATEWAY_ADMIN } },
   { path: '/keys', name: 'keys', component: () => import('@/views/KeysView.vue'), meta: { title: 'Keys', roles: ADMIN_ROLES } },
   { path: '/organisation', name: 'organisation', component: () => import('@/views/OrganisationView.vue'), meta: { title: 'Organisation', roles: ADMIN_ROLES } },
   { path: '/data-access', name: 'data-access', component: () => import('@/views/DataAccessView.vue'), meta: { title: 'Data API access', roles: GATEWAY_ADMIN } },
@@ -51,11 +51,33 @@ export function focusPageHeading(): void {
   })
 }
 
+/**
+ * Moves focus to a section heading linked with #id (search jumps to cards this way). Data loads
+ * after navigation, so the heading may appear a little later; falls back to the page heading.
+ */
+export function focusSection(hash: string): void {
+  const id = decodeURIComponent(hash.slice(1))
+  let tries = 0
+  const attempt = () => {
+    const target = document.getElementById(id)
+    if (target) {
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
+      target.classList.add('outline-none')
+      target.scrollIntoView({ block: 'start' })
+      target.focus({ preventScroll: true })
+    } else if (++tries < 20) window.setTimeout(attempt, 100)
+    else focusPageHeading()
+  }
+  void nextTick(() => window.setTimeout(attempt, 0))
+}
+
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
   const router = createRouter({
     history,
     routes,
-    scrollBehavior(_to, _from, saved) {
+    scrollBehavior(to, _from, saved) {
+      // Hash targets are scrolled by focusSection once the section has rendered.
+      if (to.hash) return false
       return saved ?? { top: 0 }
     },
   })
@@ -77,9 +99,11 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     document.title = `${to.meta.title ?? 'Admin'} · AI Gateway`
     if (firstNavigation) {
       firstNavigation = false
+      if (to.hash) focusSection(to.hash)
       return
     }
-    if (to.path !== from.path) focusPageHeading()
+    if (to.hash) focusSection(to.hash)
+    else if (to.path !== from.path) focusPageHeading()
   })
 
   return router

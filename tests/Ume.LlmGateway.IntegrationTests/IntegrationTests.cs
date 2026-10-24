@@ -31,7 +31,7 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
         using var usage = await admin.GetAsync("/api/usage/requests/" + requestId, Cancellation);
         var record = await IntegrationFixture.ReadAsync(usage);
         record["outcome"]!.GetValue<string>().ShouldBe("Success");
-        record["costSek"]!.GetValue<decimal>().ShouldBeGreaterThan(0);
+        record["costUsd"]!.GetValue<decimal>().ShouldBeGreaterThan(0);
         using var budget = await admin.PostAsJsonAsync("/api/budgets", new
         {
             scope = "VirtualKey", scopeId = key.Id, limitUsd = 0, period = "Monthly",

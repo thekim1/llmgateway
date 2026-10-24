@@ -4,6 +4,15 @@ Each release says whether it supports a **rolling update** ([Updates without dow
 previous version keeps running against the new schema while its instances are replaced. "No" means a planned stop: stop
 the gateway, admin API and Data API, migrate, start the new version.
 
+## Unreleased: admin UI costs in USD
+
+- **Rolling update: yes.** No migrations.
+- **Usage CSV export in USD.** The admin UI's export (`/api/usage/export.csv`) has the column `kostnad USD` instead of
+  `kostnad SEK`. Update spreadsheets or imports that read the column by name, and convert to SEK yourself where needed.
+  The Data API, gateway response headers and budget webhooks still carry SEK next to USD.
+- **Admin API:** usage summaries and the catalogue report USD (`totalCostUsd`, `costUsd`, `inputUsdPerMillion`,
+  `outputUsdPerMillion`); request rows no longer have `costSek`. The catalogue no longer needs an exchange rate.
+
 ## POC 0.1.0
 
 Initial demonstrator: .NET 10.0.12, Aspire 13.6, Vue 3, PostgreSQL 17 and Redis 8.6.

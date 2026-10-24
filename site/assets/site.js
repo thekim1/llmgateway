@@ -9,14 +9,23 @@
   themeButtons.forEach(b => b.addEventListener('click', () => { root.dataset.theme = b.dataset.themeSet; store('ume-site-theme', b.dataset.themeSet); showTheme() }))
   showTheme()
 
-  // Mobile menu
+  // Mobile menu: closes with Esc (focus back on the button), a tap outside it, or by following a link.
   const menu = document.querySelector('.menu-btn'), mnav = document.getElementById('mnav')
-  menu?.addEventListener('click', () => {
-    const open = menu.getAttribute('aria-expanded') !== 'true'
+  const setMenu = open => {
     menu.setAttribute('aria-expanded', String(open))
     mnav.hidden = !open
     menu.querySelector('.ms').textContent = open ? 'close' : 'menu'
+  }
+  menu?.addEventListener('click', () => setMenu(menu.getAttribute('aria-expanded') !== 'true'))
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return
+    if (menu && !mnav.hidden) { setMenu(false); menu.focus() }
+    const open = document.querySelector('details.doc-menu[open], details.toc-inline[open]')
+    if (open && open.contains(document.activeElement)) { open.open = false; open.querySelector('summary').focus() }
   })
+  document.addEventListener('click', e => { if (menu && !mnav.hidden && !e.target.closest('.top')) setMenu(false) })
+  // Following a link to a heading on the same page closes "On this page".
+  document.querySelectorAll('.toc-inline a').forEach(a => a.addEventListener('click', () => { a.closest('details').open = false }))
 
   // Tabs (WAI-ARIA tabs pattern, automatic activation)
   document.querySelectorAll('[data-tabs]').forEach(group => {
@@ -58,7 +67,7 @@
   document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copied(b, b.closest('.code').querySelector('pre').innerText)))
   document.querySelectorAll('[data-copy-active]').forEach(b => b.addEventListener('click', () => copied(b, b.closest('[data-tabs]').querySelector('[role="tabpanel"]:not([hidden])').innerText)))
 
-  // Docs: filter the sidebar, jump with the select on small screens, highlight the current section.
+  // Docs: filter the sidebar and highlight the current section.
   const filter = document.querySelector('[data-doc-filter]')
   filter?.addEventListener('input', () => {
     const q = filter.value.trim().toLowerCase()
@@ -68,7 +77,6 @@
       g.hidden = !any
     })
   })
-  document.querySelector('[data-nav]')?.addEventListener('change', e => { location.href = e.target.value })
   const tocLinks = [...document.querySelectorAll('.toc a')]
   if (tocLinks.length && 'IntersectionObserver' in window) {
     const visible = new Set()

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+**Admin UI costs in USD.** Overview (spend this month, daily spend, spend by department), Usage (totals, grouped tables,
+request details) and the Catalogue prices showed Swedish kronor; they now show US$, like budgets. The usage CSV export
+has `kostnad USD` instead of `kostnad SEK`, and the admin API's usage summaries and catalogue report USD. The Data API,
+gateway response headers and budget webhooks still include SEK. See the [upgrade guide](docs/upgrade-guide.md).
+The daily spend chart on Overview shows all 30 days, also those without spend (with one day of usage, that day's bar
+filled the whole card).
+
+**Website: docs menu by task, and a working phone layout.** The documentation menu is grouped by what you came to do:
+Get started (now with Identity provider and roles), Build with the API, Set up the gateway, Run it, Security and
+compliance, Performance and Reference. On phones and tablets the page dropdown is replaced by a docs menu that shows where
+you are, plus an *On this page* list; the menu closes with Esc or a tap outside, and on narrow phones the theme switch
+moves into it so the header fits at 320px. Fixed sideways scrolling on narrow phones (the SDK sample on the home page and
+long code in headings). Admin UI menu paths in the docs follow the new menu (*Models & routing › Routing rules*). The
+manual test checklist is removed; manual testing is tracked elsewhere.
+
+**Fewer npm packages, and limits on what they can do.** The admin UI no longer uses Reka UI: dialogs, drawers, search
+and the phone menu use the browser's `<dialog>` element, which takes 17 packages out of the code that runs in the
+browser (and the unused `axe-core` out of the admin UI's dev tools). Each npm project has an `.npmrc` that turns off
+install scripts, skips versions published in the last 7 days when packages are added or updated, and refuses
+dependencies from git; `npm ci` and the lockfiles are unchanged. `undici` (used by the unit tests) updated for
+GHSA-4qv8-2p9j-2685. See [npm packages](docs/security-and-compliance.md#npm-packages).
+
+**Admin UI: clearer menu, search into pages, and a working phone layout.** The side menu is grouped by task: Monitor,
+Access, Models & routing, Cost & compliance and System (Catalogue moved to Models & routing, PII incidents to Cost &
+compliance, Settings to System; *Operations* is now *Health & operations*, as on the page). Search (Ctrl K) also finds
+cards and tabs inside pages and everyday words (*retention*, *circuit*, *department*), works with the arrow keys and opens
+full screen on phones. On phones a **Menu** tab opens every page, the theme, the session and **Sign out**, and the end of
+a page is no longer hidden behind the bottom bar. Fixes: the session timer lost its hours ("h 34 min left"), the "Skip to
+main content" link showed over the header on phones, and the daily spend and provider stability charts had no height
+(Tailwind classes using spacing steps that did not exist produced no CSS). The time labels under narrow
+charts (the Usage cards) no longer run together, and the Overview circuit alert says *Open Health & operations*.
+Screenshots on the website and in `docs/images` are retaken with the new menu. See [Admin UI](docs/admin-ui.md#finding-your-way).
+
 ## 0.7.1 - 2026-10-23
 
 Fix release: admin sign-in failed with a 500 on deployments with the shipped Redis ACL. Rolling update: yes (no

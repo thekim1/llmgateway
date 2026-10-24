@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { navGroups, mobileTabs, type NavItem } from '@/router/nav'
+import { isNavItemActive, navGroups, mobileTabs, type NavItem } from '@/router/nav'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { useBudgetsStore } from '@/stores/budgets'
@@ -10,6 +10,7 @@ import AppIcon from '@/components/ui/AppIcon.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import ToastRegion from '@/components/ui/ToastRegion.vue'
 import CommandPalette from './CommandPalette.vue'
+import MobileMenu from './MobileMenu.vue'
 import SessionExpiryDialog from './SessionExpiryDialog.vue'
 import { initials } from '@/utils/format'
 
@@ -19,6 +20,7 @@ const budgets = useBudgetsStore()
 const ops = useOpsStore()
 const route = useRoute()
 const paletteOpen = ref(false)
+const menuOpen = ref(false)
 
 const visible = (item: NavItem) => auth.hasAnyRole(item.roles)
 const groups = computed(() =>
@@ -48,15 +50,19 @@ const sessionLeft = computed(() => {
   const at = auth.sessionExpiresAt?.getTime()
   if (!at) return null
   const mins = Math.max(0, Math.floor((at - now.value) / 60_000))
-  return mins >= 60 ? ` h ${mins % 60} min left` : ` min left`
+  return mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min left` : `${mins} min left`
 })
 
-const isActive = (name: string) => route.name === name
+const isActive = (item: NavItem) => isNavItemActive(item, route.name)
+/** On phones, Menu is highlighted when the open page is not one of the bottom tabs. */
+const menuActive = computed(() => !tabs.value.some(isActive))
+const menuBadge = computed(() => groups.value.some((g) => g.items.some((i) => !tabs.value.some((t) => t.name === i.name) && badgeCount(i) > 0)))
 
 function onKey(event: KeyboardEvent): void {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
-    paletteOpen.value = true
+    menuOpen.value = false
+    paletteOpen.value = !paletteOpen.value
   }
 }
 onMounted(() => {
@@ -83,12 +89,12 @@ async function signOut(): Promise<void> {
 <template>
   <a
     href="#main"
-    class="material-overlay fixed left-4 top-2 z-toast -translate-y-24 rounded-control px-4 py-2 text-small font-medium text-fg focus:translate-y-0 md:hidden"
+    class="material-overlay fixed left-4 top-2 z-toast -translate-y-24 rounded-control px-4 py-2 text-small font-medium text-fg focus:translate-y-0"
   >Skip to main content</a>
 
   <div class="flex min-h-screen">
     <aside
-      class="sticky top-0 hidden h-screen bg-sidebar [backdrop-filter:var(--blur)] shrink-0 flex-col gap-5 overflow-y-auto border-r border-border p-4 md:flex md:w-[72px] lg:w-sidebar lg:p-5"
+      class="sticky top-0 hidden h-screen bg-sidebar [backdrop-filter:var(--blur)] shrink-0 flex-col gap-4 overflow-hidden border-r border-border p-4 md:flex md:w-[72px] lg:w-sidebar lg:px-5"
     >
       <div class="flex items-center gap-3 px-1">
         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-fg text-on-fg" aria-hidden="true">
@@ -100,18 +106,24 @@ async function signOut(): Promise<void> {
         </span>
       </div>
 
-      <nav aria-label="Main" class="flex flex-1 flex-col gap-5">
-        <section v-for="g in groups" :key="g.id" :aria-labelledby="`nav-${g.id}`" class="flex flex-col gap-1">
-          <h2 :id="`nav-${g.id}`" class="hidden px-2 pb-1 text-caption font-medium uppercase tracking-wide text-fg-3 lg:block">{{ g.label }}</h2>
+      <nav aria-label="Main" class="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 max-lg:gap-3">
+        <section
+          v-for="(g, gi) in groups"
+          :key="g.id"
+          :aria-labelledby="`nav-${g.id}`"
+          class="flex flex-col gap-0.5"
+          :class="{ 'max-lg:border-t max-lg:border-border max-lg:pt-3': gi > 0 }"
+        >
+          <h2 :id="`nav-${g.id}`" class="px-2 pb-1 text-caption font-medium uppercase tracking-wide text-fg-3 max-lg:sr-only">{{ g.label }}</h2>
           <RouterLink
             v-for="item in g.items"
             :key="item.name"
             :to="{ name: item.name }"
-            :aria-current="isActive(item.name) ? 'page' : undefined"
-            :title="item.label"
+            :aria-current="isActive(item) ? 'page' : undefined"
+            :title="item.description ? `${item.label}: ${item.description}` : item.label"
             class="relative flex h-ctl items-center gap-3 rounded-control px-2.5 text-small text-fg-2 hover:bg-hover hover:text-fg aria-[current=page]:bg-surface aria-[current=page]:font-semibold aria-[current=page]:text-fg aria-[current=page]:shadow-1 max-lg:justify-center"
           >
-            <AppIcon :name="item.icon" :filled="isActive(item.name)" />
+            <AppIcon :name="item.icon" :filled="isActive(item)" />
             <span class="hidden flex-1 truncate lg:inline">{{ item.label }}</span>
             <span
               v-if="badgeCount(item) > 0"
@@ -169,13 +181,13 @@ async function signOut(): Promise<void> {
         </div>
         <button
           type="button"
-          class="ml-auto flex h-ctl items-center gap-2 rounded-control bg-surface px-3 text-small text-fg-3 shadow-1 hover:text-fg md:ml-0 md:w-80"
+          class="ml-auto flex h-ctl items-center gap-2 rounded-control bg-surface px-3 text-small text-fg-3 shadow-1 hover:text-fg max-md:size-10 max-md:justify-center max-md:px-0 md:ml-0 md:w-80"
           @click="paletteOpen = true"
         >
           <AppIcon name="search" />
-          <span class="hidden flex-1 text-left md:inline">Search pages and keys</span>
-          <kbd class="hidden rounded-chip px-1.5 text-caption md:inline">Ctrl K</kbd>
-          <span class="sr-only md:hidden">Search</span>
+          <span class="hidden flex-1 text-left md:inline">Search pages and settings</span>
+          <kbd class="hidden rounded-chip px-1.5 text-caption md:inline" aria-hidden="true">Ctrl K</kbd>
+          <span class="sr-only md:hidden">Search pages and settings</span>
         </button>
         <div class="ml-auto hidden items-center gap-3 md:flex">
           <span
@@ -186,31 +198,53 @@ async function signOut(): Promise<void> {
         </div>
       </header>
 
-      <main id="main" tabindex="-1" class="mx-auto w-full max-w-content px-4 pb-24 pt-6 outline-none md:px-10 md:pb-16 md:pt-9">
+      <main id="main" tabindex="-1" class="mx-auto w-full max-w-content px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-6 outline-none md:px-10 md:pb-16 md:pt-9">
         <slot />
       </main>
     </div>
   </div>
 
   <nav
-    v-if="tabs.length"
     aria-label="Quick access"
-    class="material fixed inset-x-0 bottom-0 z-topbar grid border-t border-border md:hidden"
-    :style="{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }"
+    class="material fixed inset-x-0 bottom-0 z-topbar grid border-t border-border pb-[env(safe-area-inset-bottom)] md:hidden"
+    :style="{ gridTemplateColumns: `repeat(${tabs.length + 1}, 1fr)` }"
   >
     <RouterLink
       v-for="item in tabs"
       :key="item.name"
       :to="{ name: item.name }"
-      :aria-current="isActive(item.name) ? 'page' : undefined"
-      class="relative flex h-16 flex-col items-center justify-center gap-0.5 text-caption text-fg-2 aria-[current=page]:text-fg"
+      :aria-current="isActive(item) ? 'page' : undefined"
+      class="relative flex h-16 flex-col items-center justify-center gap-0.5 text-caption text-fg-2 aria-[current=page]:font-semibold aria-[current=page]:text-fg"
     >
-      <AppIcon :name="item.icon" :filled="isActive(item.name)" />
+      <AppIcon :name="item.icon" :filled="isActive(item)" />
       {{ item.label }}
       <span v-if="badgeCount(item) > 0" class="absolute right-1/4 top-2 h-2 w-2 rounded-full bg-danger" aria-hidden="true" />
     </RouterLink>
+    <button
+      type="button"
+      class="relative flex h-16 flex-col items-center justify-center gap-0.5 text-caption text-fg-2 aria-expanded:text-fg"
+      :class="{ 'font-semibold text-fg': menuActive }"
+      aria-haspopup="dialog"
+      :aria-expanded="menuOpen"
+      @click="menuOpen = true"
+    >
+      <AppIcon name="menu" :filled="menuActive" />
+      Menu
+      <span v-if="menuBadge || updateAvailable" class="absolute right-1/4 top-2 h-2 w-2 rounded-full" :class="menuBadge ? 'bg-danger' : 'bg-accent'" aria-hidden="true" />
+    </button>
   </nav>
 
+  <MobileMenu
+    v-model:open="menuOpen"
+    :groups="groups"
+    :badge-count="badgeCount"
+    :update-available="updateAvailable"
+    :themes="themes"
+    :session-left="sessionLeft"
+    :signing-out="signingOut"
+    @search="paletteOpen = true"
+    @sign-out="signOut"
+  />
   <CommandPalette v-model:open="paletteOpen" />
   <SessionExpiryDialog />
   <ToastRegion />

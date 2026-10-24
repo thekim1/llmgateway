@@ -6,11 +6,11 @@ existing model aliases (see *Routes* in the admin UI) and are modelled on
 [Bifrost routing rules](https://docs.getbifrost.ai/providers/routing-rules).
 
 > **Status.** Rules are stored, compiled, **applied to live requests** and managed through the admin API and
-> the admin UI (**Routing > Routing rules**).
+> the admin UI (**Models & routing > Routing rules**).
 
 ## Worked examples
 
-Both examples are global rules created under **Routing > Routing rules** (gateway-admin) with the demo data. Your applications keep
+Both examples are global rules created under **Models & routing > Routing rules** (gateway-admin) with the demo data. Your applications keep
 asking for the same model name; the rules decide where the request goes. The screenshots were taken from the real UI.
 
 ### Example 1: use another model if the main model doesn't answer
@@ -119,7 +119,7 @@ how typical rules are written; nothing happens until an administrator switches o
 
 The targets are placeholder route aliases. **A disabled rule may name a model or route that does not exist yet, but it
 cannot be switched on until it does**: the switch answers "Regeln kan inte aktiveras. Okänd modell eller alias: local. …".
-Either create a route alias with that name under **Routing > Routes** (for example `local` pointing at your on-prem
+Either create a route alias with that name under **Models & routing > Routes** (for example `local` pointing at your on-prem
 model), or edit the rule to point at an existing one, then switch it on.
 
 Two ways to use a template:
@@ -207,7 +207,7 @@ applies to the model the client asks for.
 
 ## Managing rules in the admin UI
 
-Open **Routing > Routing rules** (gateway-admin only).
+Open **Models & routing > Routing rules** (gateway-admin only).
 
 - **List.** Rules are grouped by scope in the order the gateway checks them (key, team, department, global) and numbered
   in checking order. Each shows its title, its short description, a line that says where it sends traffic, who it applies to

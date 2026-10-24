@@ -172,7 +172,10 @@ const xLabels = computed(() => {
   const n = props.slots.length
   if (n === 0) return []
   const picks = n === 1 ? [0] : n < 5 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1]
-  return picks.map((i) => ({ i, left: (center(i) / width.value) * 100, text: props.formatSlot(props.slots[i]!) }))
+  const labels = picks.map((i) => ({ i, left: (center(i) / width.value) * 100, text: props.formatSlot(props.slots[i]!) }))
+  // A narrow chart (a card in a three-column row) has no room for the middle label: about 7 px per character plus a gap.
+  const needed = labels.reduce((sum, l) => sum + l.text.length * 7 + 16, 0)
+  return labels.length === 3 && needed > width.value ? [labels[0]!, labels[2]!] : labels
 })
 </script>
 

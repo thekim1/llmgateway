@@ -142,7 +142,7 @@ public sealed class RetentionTests(AdminFixture fixture)
             {
                 var dto = await AdminFixture.ReadAsync(summary);
                 dto["totalRequests"]!.GetValue<long>().ShouldBe(3);
-                dto["totalCostSek"]!.GetValue<decimal>().ShouldBe(8m);
+                dto["totalCostUsd"]!.GetValue<decimal>().ShouldBe(8m);
                 dto["totalErrors"]!.GetValue<long>().ShouldBe(1);
                 dto["monthlyTotalsBefore"].ShouldNotBeNull();
             }

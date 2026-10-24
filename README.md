@@ -35,7 +35,8 @@ tar -xzf ume-llm-gateway-X.Y.Z.tar.gz && cd ume-llm-gateway-X.Y.Z
 docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 ```
 
-*Settings > Version* in the admin UI shows the running version and says when a newer release is out (the admin API checks
+In the admin UI, search (Ctrl K) finds any page or setting by name or topic, and on a phone **Menu** in the bottom bar opens
+every page ([Admin UI](docs/admin-ui.md#finding-your-way)). *Settings > Version* shows the running version and says when a newer release is out (the admin API checks
 GitHub; set `Admin__CheckForReleases=false` without internet access). Upgrades: [Upgrade guide](docs/upgrade-guide.md).
 
 ## Build and test
@@ -51,6 +52,9 @@ npm run lint
 npm run typecheck
 npm test
 ```
+
+The npm projects (`src/admin-ui`, `site`, `tests/e2e`) do not run package install scripts and skip package versions
+younger than 7 days ([npm packages](docs/security-and-compliance.md#npm-packages)).
 
 Browser tests, benchmarks and the pre-commit hook: [Local development](docs/local-development.md#build-and-test) and
 [Performance](docs/performance.md#measuring).
@@ -79,5 +83,5 @@ Benchmarks: [Performance](docs/performance.md), [Gateway vs. eneo, 2026-10-13](d
 [platform comparison](docs/reports/platform-comparison.pdf).
 
 Changes per release: [Changelog](CHANGELOG.md). For maintainers (not on the website): [Handover](HANDOVER.md),
-[Manual test checklist](docs/manual-test-checklist.md), [Performance improvement plan](docs/performance-improvement-plan.md),
+[Performance improvement plan](docs/performance-improvement-plan.md),
 the [Demo script](docs/demo-script.md) and the [comparison with agentgateway](docs/agentgateway-comparison.md).

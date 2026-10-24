@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import TimeSeriesChart, { type ChartSeries } from './TimeSeriesChart.vue'
 
 const slots = [Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 2), Date.UTC(2026, 9, 3)]
@@ -45,5 +45,35 @@ describe('TimeSeriesChart', () => {
       ['2026-10-02', '0 req', '—'],
       ['2026-10-03', '30 req', '0 req'],
     ])
+  })
+  describe('time labels', () => {
+    const days = Array.from({ length: 24 }, (_, i) => Date.UTC(2026, 9, 23, 16) + i * 3_600_000)
+    const hourly = [{ ...series[0]!, values: days.map(() => 1) }]
+    const label = (ms: number) => new Date(ms).toISOString().slice(5, 16).replace('T', ' ')
+    const original = globalThis.ResizeObserver
+    // The test setup's stub never reports a size; this one reports the plot as `px` wide.
+    const plotWidth = (px: number) => {
+      globalThis.ResizeObserver = class {
+        constructor(private callback: ResizeObserverCallback) {}
+        observe() { this.callback([{ contentRect: { width: px } } as ResizeObserverEntry], this as unknown as ResizeObserver) }
+        unobserve() {}
+        disconnect() {}
+      }
+    }
+    const texts = async (px: number) => {
+      plotWidth(px)
+      const wrapper = render({ slots: days, series: hourly, formatSlot: label })
+      await flushPromises()
+      return wrapper.findAll('.ml-16 span').map((s) => s.text())
+    }
+    afterEach(() => { globalThis.ResizeObserver = original })
+
+    it('shows the first, middle and last time when there is room', async () => {
+      expect(await texts(600)).toEqual(['10-23 16:00', '10-24 03:00', '10-24 15:00'])
+    })
+
+    it('leaves out the middle time on a narrow chart, so the labels do not run together', async () => {
+      expect(await texts(200)).toEqual(['10-23 16:00', '10-24 15:00'])
+    })
   })
 })

@@ -31,8 +31,8 @@ test('routing example screenshots', async ({ page }) => {
 
   // 1. Fallback to another model when the main model does not answer.
   await ready(page, '/routing-rules')
-  await page.getByRole('button', { name: 'New rule' }).click()
-  let drawer = page.getByRole('dialog', { name: 'New rule' })
+  await page.getByRole('button', { name: 'New rule', exact: true }).click()
+  let drawer = page.getByRole('dialog', { name: 'New rule', exact: true })
   await drawer.getByLabel('Title', { exact: true }).fill(FALLBACK)
   await drawer.getByLabel('Description').fill('If ume/chat-advanced does not answer, use ume/chat-standard.')
   await drawer.locator('#rule-condition').fill('model == "ume/chat-advanced"')
@@ -51,8 +51,8 @@ test('routing example screenshots', async ({ page }) => {
   await page.screenshot({ path: `${images}/routing-fallback-rule.png`, clip: { x: 0, y: 0, width: 1280, height: 860 } })
 
   // 2. Personal data stays on-prem.
-  await page.getByRole('button', { name: 'New rule' }).click()
-  drawer = page.getByRole('dialog', { name: 'New rule' })
+  await page.getByRole('button', { name: 'New rule', exact: true }).click()
+  drawer = page.getByRole('dialog', { name: 'New rule', exact: true })
   await drawer.getByLabel('Title', { exact: true }).fill(PII)
   await drawer.getByLabel('Description').fill('Chats that contain personal data only go to our own servers. No fallbacks, so they never leave.')
   await drawer.locator('#rule-condition').fill('pii_detected && endpoint == "chat_completions"')

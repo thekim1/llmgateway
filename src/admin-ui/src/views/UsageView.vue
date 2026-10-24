@@ -8,7 +8,7 @@ import { useTeamsStore } from '@/stores/teams'
 import { useKeysStore } from '@/stores/keys'
 import { OUTCOME_LABEL } from '@/utils/labels'
 import { problemMessage } from '@/utils/problem'
-import { formatDate, formatDateTime, formatMs, formatNumber, formatSek, formatUsdCost, todayIso, toIsoDate } from '@/utils/format'
+import { formatDate, formatDateTime, formatMs, formatNumber, formatUsdCost, todayIso, toIsoDate } from '@/utils/format'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
@@ -150,14 +150,14 @@ const summaryColumns: Column[] = [
   { key: 'label', label: 'Name' },
   { key: 'requests', label: 'Requests', align: 'right' },
   { key: 'tokens', label: 'Tokens', align: 'right' },
-  { key: 'costSek', label: 'Cost', align: 'right' },
+  { key: 'costUsd', label: 'Cost', align: 'right' },
   { key: 'errors', label: 'Errors', align: 'right' },
 ]
 const requestColumns: Column[] = [
   { key: 'requestId', label: 'Request' },
   { key: 'timestamp', label: 'Time' },
   { key: 'keyName', label: 'Key' },
-  { key: 'costSek', label: 'Cost', align: 'right' },
+  { key: 'costUsd', label: 'Cost', align: 'right' },
   { key: 'outcome', label: 'Outcome' },
 ]
 
@@ -166,6 +166,12 @@ function openRequestsTab(): void {
   requestsLoaded = true
   void load()
 }
+
+// Search links to /usage?tab=requests; follow it when already on the page.
+watch(() => route.query.tab, (value) => {
+  const next: Tab = value === 'requests' ? 'requests' : 'dashboard'
+  if (next !== tab.value) tab.value = next
+})
 
 watch(tab, (value) => {
   void router.replace({ query: { ...route.query, tab: value === 'dashboard' ? undefined : value } })
@@ -212,7 +218,7 @@ onMounted(() => {
       <h2 id="summary-h" class="mb-3 text-heading">Summary by {{ GROUP_LABEL[group].toLowerCase() }}</h2>
       <AsyncState :loading="usage.summaryLoading" :error="usage.summaryError" :empty="false" @retry="load">
         <p v-if="usage.summary" class="mb-3 text-fg-2">
-          {{ formatSek(usage.summary.totalCostSek) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
+          {{ formatUsdCost(usage.summary.totalCostUsd) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
           {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens.
         </p>
         <p v-if="usage.summary?.monthlyTotalsBefore" class="mb-3 flex items-start gap-2 text-small text-fg-2">
@@ -223,7 +229,7 @@ onMounted(() => {
           <template #cell-label="{ row }"><span class="font-medium">{{ row.label }}</span></template>
           <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
           <template #cell-tokens="{ row }">{{ formatNumber(row.inputTokens + row.outputTokens) }}</template>
-          <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
+          <template #cell-costUsd="{ row }">{{ formatUsdCost(row.costUsd) }}</template>
           <template #cell-errors="{ row }">{{ formatNumber(row.errors) }}</template>
         </DataTable>
       </AsyncState>
@@ -247,7 +253,7 @@ onMounted(() => {
             <span class="font-medium">{{ row.keyName }}</span>
             <span class="block text-caption text-fg-3"><span lang="sv">{{ row.teamName }}</span> · <span lang="sv">{{ row.departmentName }}</span></span>
           </template>
-          <template #cell-costSek="{ row }">{{ formatSek(row.costSek) }}</template>
+          <template #cell-costUsd="{ row }">{{ formatUsdCost(row.costUsd) }}</template>
           <template #cell-outcome="{ row }">
             <UiBadge :tone="OUTCOME_LABEL[row.outcome].tone" :label="OUTCOME_LABEL[row.outcome].label" />
             <span class="ml-2 text-caption text-fg-3">{{ row.statusCode }}</span>
@@ -305,7 +311,7 @@ onMounted(() => {
         <DetailRow label="Input tokens">{{ formatNumber(selected.inputTokens) }}</DetailRow>
         <DetailRow label="Cached input">{{ formatNumber(selected.cachedInputTokens) }}</DetailRow>
         <DetailRow label="Output tokens">{{ formatNumber(selected.outputTokens) }}</DetailRow>
-        <DetailRow label="Cost">{{ formatUsdCost(selected.costUsd) }} <span class="text-fg-3">{{ formatSek(selected.costSek) }}</span></DetailRow>
+        <DetailRow label="Cost">{{ formatUsdCost(selected.costUsd) }}</DetailRow>
         <DetailRow label="Latency">{{ formatMs(selected.latencyMs) }}</DetailRow>
         <DetailRow v-if="selected.upstreamMs !== null" label="Provider time">{{ formatMs(selected.upstreamMs) }}</DetailRow>
         <DetailRow v-if="selected.upstreamMs !== null" label="Gateway overhead">{{ formatMs(Math.max(0, selected.latencyMs - selected.upstreamMs)) }}</DetailRow>

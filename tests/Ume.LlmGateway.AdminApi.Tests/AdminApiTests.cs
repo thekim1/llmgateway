@@ -565,16 +565,16 @@ public sealed class AdminApiTests(AdminFixture fixture)
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
             db.UsageRecords.Add(new UsageRecord { RequestId = requestId, Timestamp = DateTimeOffset.UtcNow, VirtualKeyId = key,
                 TeamId = own.Team, DepartmentId = own.Department, Endpoint = GatewayEndpoint.ChatCompletions,
-                RequestedModel = "test/model", InputTokens = 10, OutputTokens = 20, CostSek = 1.25m, Outcome = RequestOutcome.Success, StatusCode = 200 });
+                RequestedModel = "test/model", InputTokens = 10, OutputTokens = 20, CostUsd = 1.25m, CostSek = 12.5m, Outcome = RequestOutcome.Success, StatusCode = 200 });
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
         using var client = await fixture.ClientAsync("viewer", own.Code);
         using var lookup = await client.GetAsync($"/api/usage/requests/{requestId}", TestContext.Current.CancellationToken);
-        (await AdminFixture.ReadAsync(lookup))["costSek"]!.GetValue<decimal>().ShouldBe(1.25m);
+        (await AdminFixture.ReadAsync(lookup))["costUsd"]!.GetValue<decimal>().ShouldBe(1.25m);
         foreach (var group in new[] { "department", "team", "key", "model", "provider", "day" })
         {
             using var summary = await client.GetAsync("/api/usage/summary?groupBy=" + group, TestContext.Current.CancellationToken);
-            (await AdminFixture.ReadAsync(summary))["totalCostSek"]!.GetValue<decimal>().ShouldBe(1.25m);
+            (await AdminFixture.ReadAsync(summary))["totalCostUsd"]!.GetValue<decimal>().ShouldBe(1.25m);
         }
         using var requests = await client.GetAsync("/api/usage/requests", TestContext.Current.CancellationToken);
         (await AdminFixture.ReadAsync(requests))["total"]!.GetValue<int>().ShouldBe(1);

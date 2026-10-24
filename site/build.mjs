@@ -147,11 +147,14 @@ ${origin ? `<link rel="canonical" href="${esc(origin + url(path))}">\n` : ''}<li
     <a class="brand" href="${url('')}"><span class="logo" aria-hidden="true">U</span><span>Ume AI Gateway</span></a>
     <nav class="nav-main" aria-label="Main">${nav}</nav>
     <div class="spacer"></div>
-    <div class="seg" role="group" aria-label="Theme">${THEMES.map(([id, label, ic]) => `<button type="button" data-theme-set="${id}" aria-pressed="false" aria-label="${label} theme" title="${label}">${icon(ic)}</button>`).join('')}</div>
+    <div class="seg theme-top" role="group" aria-label="Theme">${THEMES.map(([id, label, ic]) => `<button type="button" data-theme-set="${id}" aria-pressed="false" aria-label="${label} theme" title="${label}">${icon(ic)}</button>`).join('')}</div>
     <a class="btn-dark gh" href="${C.GH}">${ghMark}GitHub</a>
     <button type="button" class="menu-btn" aria-expanded="false" aria-controls="mnav" aria-label="Menu">${icon('menu')}</button>
   </div>
-  <nav id="mnav" class="nav-mobile" aria-label="Main" hidden>${nav}<a href="${C.GH}">GitHub</a></nav>
+  <div id="mnav" class="nav-mobile" hidden>
+    <nav aria-label="Main">${nav}<a href="${C.GH}">GitHub</a></nav>
+    <div class="seg theme-menu" role="group" aria-label="Theme">${THEMES.map(([id, label, ic]) => `<button type="button" data-theme-set="${id}" aria-pressed="false">${icon(ic)}${label}</button>`).join('')}</div>
+  </div>
 </header>
 <main id="main">
 ${body}
@@ -273,7 +276,7 @@ function startPage() {
 
   <section class="stack-16" aria-labelledby="errors-h">
     <h2 id="errors-h" class="h-m">Common errors</h2>
-    <p>Errors use the OpenAI error shape with a stable <code>code</code>. To investigate a failed call, find it by request ID under <em>Monitor › Usage</em> in the admin UI.</p>
+    <p>Errors use the OpenAI error shape with a stable <code>code</code>. To investigate a failed call, find it by request ID under <em>Monitor › Usage › Requests and costs</em> in the admin UI.</p>
     <div class="table-card"><table><thead><tr><th scope="col">Code</th><th scope="col">Meaning</th></tr></thead><tbody>${C.ERROR_CODES.map(([c, m]) => `<tr><td><code>${c}</code></td><td>${esc(m)}</td></tr>`).join('')}</tbody></table></div>
   </section>
 
@@ -337,21 +340,24 @@ function benchPage() {
 function docPage(d, rendered) {
   const i = docs.indexOf(d)
   const prev = docs[i - 1], next = docs[i + 1]
-  const side = C.DOCS.map(g => `<div class="side-g"><span class="side-h">${g.group}</span>${g.items.map(x => { const dx = docs.find(y => y.source === x.source); return `<a href="${dx.href}"${dx === d ? ' aria-current="page"' : ''}>${x.title}</a>` }).join('')}</div>`).join('')
-  const select = `<label class="doc-pick">Page<select data-nav>${docs.map(x => `<option value="${x.href}"${x === d ? ' selected' : ''}>${x.group} · ${esc(x.title)}</option>`).join('')}</select></label>`
+  const links = C.DOCS.map(g => `<div class="side-g"><span class="side-h">${g.group}</span>${g.items.map(x => { const dx = docs.find(y => y.source === x.source); return `<a href="${dx.href}"${dx === d ? ' aria-current="page"' : ''}>${x.title}</a>` }).join('')}</div>`).join('')
+  // Phones and tablets get the same menu and "On this page" as collapsibles above the page, so they work without JavaScript.
+  const menu = `<details class="doc-menu"><summary><span class="k">${d.group}</span><span class="b">${esc(d.title)}</span>${icon('expand_more', 'chev')}<span class="sr"> – all documentation pages</span></summary><nav aria-label="Documentation">${links}</nav></details>`
   const toc = rendered.toc.length > 1 ? `<aside class="toc" aria-label="On this page"><span class="b">On this page</span>${rendered.toc.map(t => `<a href="#${t.id}">${esc(t.label)}</a>`).join('')}</aside>` : ''
+  const tocInline = toc ? `<details class="toc-inline"><summary>On this page${icon('expand_more', 'chev')}</summary><nav aria-label="On this page">${rendered.toc.map(t => `<a href="#${t.id}">${esc(t.label)}</a>`).join('')}</nav></details>` : ''
   return `
 <div class="docs${toc ? ' has-toc' : ''}">
   <nav class="side" aria-label="Documentation">
     <label class="search">${icon('search')}<span class="sr">Search documentation</span><input type="search" placeholder="Filter pages" data-doc-filter></label>
-    ${side}
+    ${links}
   </nav>
   <article class="doc">
-    ${select}
+    ${menu}
     <nav aria-label="Breadcrumb" class="crumbs"><a href="${url('docs/')}">Docs</a><span aria-hidden="true">/</span><span>${d.group}</span></nav>
     <h1>${esc(d.title)}</h1>
     <p class="doc-lead">${esc(d.lead)}</p>
     <div class="doc-meta"><span>${icon('description')}${d.source}</span><a href="${C.GH}/edit/main/${d.source}">${icon('edit')}Edit on GitHub</a></div>
+    ${tocInline}
     <div class="md">${rendered.html}</div>
     <nav aria-label="Previous and next" class="pager">${prev ? `<a href="${prev.href}"><span class="k">Previous</span><span class="b">${esc(prev.title)}</span></a>` : '<span></span>'}${next ? `<a class="nx" href="${next.href}"><span class="k">Next</span><span class="b">${esc(next.title)}</span></a>` : ''}</nav>
   </article>

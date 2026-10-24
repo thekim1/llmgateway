@@ -1,6 +1,6 @@
 /**
  * Types for the admin API. Mirrors docs/admin-api.md exactly (camelCase, enums as strings,
- * ISO-8601 timestamps, money in SEK unless the field name says Usd).
+ * ISO-8601 timestamps, money in USD unless the field name says Sek).
  */
 
 // ---------- Enums ----------
@@ -608,7 +608,7 @@ export interface UsageSummaryRow {
   requests: number
   inputTokens: number
   outputTokens: number
-  costSek: number
+  costUsd: number
   errors: number
   fallbacks: number
 }
@@ -616,7 +616,7 @@ export interface UsageSummaryRow {
 export interface UsageSummary {
   from: IsoDateTime
   to: IsoDateTime
-  totalCostSek: number
+  totalCostUsd: number
   totalRequests: number
   totalInputTokens: number
   totalOutputTokens: number
@@ -651,7 +651,6 @@ export interface UsageRequest {
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
-  costSek: number
   latencyMs: number
   statusCode: number
   outcome: RequestOutcome
@@ -838,8 +837,8 @@ export interface CatalogRoute {
   kind: ModelKind
   residencies: DataResidency[]
   capabilities: ProviderCapability[]
-  inputSekPerMillion: number | null
-  outputSekPerMillion: number | null
+  inputUsdPerMillion: number | null
+  outputUsdPerMillion: number | null
 }
 
 export interface CatalogModel {
@@ -847,8 +846,8 @@ export interface CatalogModel {
   kind: ModelKind
   residency: DataResidency
   capabilities: ProviderCapability[]
-  inputSekPerMillion: number | null
-  outputSekPerMillion: number | null
+  inputUsdPerMillion: number | null
+  outputUsdPerMillion: number | null
 }
 
 export interface Catalog {

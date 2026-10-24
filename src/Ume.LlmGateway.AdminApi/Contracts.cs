@@ -208,7 +208,7 @@ public sealed record UsageModelSeriesDto(string? Model, long Requests, decimal C
 public sealed record UsageRequestDto(
     string RequestId, DateTimeOffset Timestamp, string KeyPrefix, string KeyName, string TeamName, string DepartmentName, string Endpoint,
     string RequestedModel, string? ProviderName, string? UpstreamModel, long InputTokens, long CachedInputTokens, long OutputTokens,
-    decimal CostSek, int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
+    int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
     string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs,
     string? GuardFlags = null);
 
@@ -218,7 +218,7 @@ public sealed record UsageRequestDto(
 /// months as <c>yyyy-MM</c>.
 /// </summary>
 public sealed record UsageSummaryDto(
-    DateTimeOffset From, DateTimeOffset To, decimal TotalCostSek, long TotalRequests, long TotalInputTokens, long TotalOutputTokens,
+    DateTimeOffset From, DateTimeOffset To, decimal TotalCostUsd, long TotalRequests, long TotalInputTokens, long TotalOutputTokens,
     long TotalErrors, IReadOnlyList<UsageSummaryRow> Rows, DateTimeOffset? MonthlyTotalsBefore = null);
 
 /// <summary>A request in which PII was detected (any policy except <c>Off</c>: <c>Allow</c> counts as "detected and forwarded").</summary>
@@ -249,11 +249,11 @@ public sealed record AuditEntryDto(long Id, DateTimeOffset Timestamp, string Act
 public sealed record CatalogDto(string GatewayBaseUrl, IReadOnlyList<CatalogModelDto> Models, IReadOnlyList<CatalogRouteDto> Routes);
 
 public sealed record CatalogModelDto(
-    string Name, ModelKind Kind, DataResidency Residency, ProviderCapabilities[] Capabilities, decimal? InputSekPerMillion, decimal? OutputSekPerMillion);
+    string Name, ModelKind Kind, DataResidency Residency, ProviderCapabilities[] Capabilities, decimal? InputUsdPerMillion, decimal? OutputUsdPerMillion);
 
 public sealed record CatalogRouteDto(
     string Name, string? Description, ModelKind Kind, DataResidency[] Residencies, ProviderCapabilities[] Capabilities,
-    decimal? InputSekPerMillion, decimal? OutputSekPerMillion);
+    decimal? InputUsdPerMillion, decimal? OutputUsdPerMillion);
 
 public sealed record OpsHealthDto(
     DateTimeOffset CheckedAt, IReadOnlyList<ComponentHealthDto> Components, VersionsDto Versions, UsageWriterStatus? UsageWriter,

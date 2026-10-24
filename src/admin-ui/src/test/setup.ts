@@ -1,6 +1,6 @@
 import { afterEach, vi } from 'vitest'
 
-// jsdom lacks a few browser APIs used by the app and by Reka UI.
+// jsdom lacks a few browser APIs used by the app.
 if (!window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,

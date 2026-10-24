@@ -47,7 +47,7 @@ for (const theme of themes) {
       await trigger()
       const dialog = page.getByRole('dialog', { name: dialogName })
       await expect(dialog).toBeVisible()
-      await expect(page.locator('main .animate-spin, [role="dialog"] .animate-spin')).toHaveCount(0)
+      await expect(page.locator('main .animate-spin, dialog .animate-spin')).toHaveCount(0)
       await scan(page, `${theme}: ${label}`)
       await page.keyboard.press('Escape')
       await expect(dialog).toBeHidden()
