@@ -28,7 +28,7 @@ test('the scope filter counts match the rules', async ({ page }) => {
 test('condition helpers, an unreachable checker, and weight shares', async ({ page }) => {
   await login(page)
   await ready(page, '/routing-rules')
-  await page.getByRole('button', { name: 'New rule' }).click()
+  await page.getByRole('button', { name: 'New rule', exact: true }).click()
   const drawer = page.getByRole('dialog', { name: 'New rule' })
   const condition = drawer.locator('#rule-condition')
 

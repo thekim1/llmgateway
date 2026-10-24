@@ -17,7 +17,7 @@ test('create, validate, test, reorder, disable and delete a rule, and see it app
   let ruleId: string | undefined
   try {
     await ready(page, '/routing-rules')
-    await page.getByRole('button', { name: 'New rule' }).click()
+    await page.getByRole('button', { name: 'New rule', exact: true }).click()
     const drawer = page.getByRole('dialog', { name: 'New rule' })
     await drawer.getByLabel('Title', { exact: true }).fill(name)
 

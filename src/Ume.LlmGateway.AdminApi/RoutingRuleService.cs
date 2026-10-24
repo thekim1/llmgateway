@@ -183,7 +183,9 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         var deployments = await DeploymentNamesAsync(ct);
         ModelInfoView ModelInfo(string name) =>
             aliases.FirstOrDefault(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase)) is { } a ? new ModelInfoView(name, true, "alias", a.Kind.ToString(), a.IsEnabled)
-            : deployments.FirstOrDefault(d => d.Names.Contains(name, StringComparer.OrdinalIgnoreCase)) is { } d ? new ModelInfoView(name, true, "deployment", d.Kind.ToString(), d.IsEnabled)
+            // A list of tuples: FirstOrDefault would give a default tuple, not null, for a name no deployment has.
+            : deployments.FindIndex(d => d.Names.Contains(name, StringComparer.OrdinalIgnoreCase)) is >= 0 and var i
+                ? new ModelInfoView(name, true, "deployment", deployments[i].Kind.ToString(), deployments[i].IsEnabled)
             : new ModelInfoView(name, false, "unknown", null, false);
 
         return new RuleTestResult(

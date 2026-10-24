@@ -40,7 +40,7 @@ beforeEach(() => {
 describe('RequestLogCard', () => {
   it('explains that every request is recorded while off', async () => {
     const wrapper = await mountCard(settings())
-    expect(wrapper.text()).toContain('Off: only refused, failed and cancelled requests are logged')
+    expect(wrapper.text()).toContain('Off: problem requests only')
     expect(wrapper.text()).toContain('Every request is recorded either way.')
     expect(wrapper.text()).toContain('Monitor › Usage')
   })
@@ -82,6 +82,6 @@ describe('RequestLogCard', () => {
     await wrapper.findAll('button').find((b) => b.text() === 'Turn off')!.trigger('click')
     await flushPromises()
     expect(updateRequestLog).toHaveBeenCalledWith(false, false)
-    expect(wrapper.text()).toContain('Off: only refused')
+    expect(wrapper.text()).toContain('Off: problem requests only')
   })
 })
