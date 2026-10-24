@@ -59,7 +59,7 @@ public class RoutingBenchmarks
         };
         var replacements = Enumerable.Range(0, RotatedKeys).ToDictionary(_ => Guid.NewGuid(), _ => Guid.NewGuid());
 
-        _snapshot = new CatalogSnapshot(providers, [route], budgets, 10m, DateTimeOffset.UtcNow, replacements);
+        _snapshot = new CatalogSnapshot(providers, [route], budgets, DateTimeOffset.UtcNow, replacements);
         _router = new RouteResolver(new InMemoryCircuitBreakerStore(TimeProvider.System, Options.Create(new CircuitBreakerOptions())));
         _model = _snapshot.Resolve("ume/chat")!;
         _hasher = new VirtualKeyHasher(new byte[32]);

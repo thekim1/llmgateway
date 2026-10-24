@@ -76,7 +76,7 @@ describe('search', () => {
 
   it('finds sections inside a page', () => {
     expect(labels('retention')[0]).toBe('Settings › Data retention')
-    expect(labels('exchange')[0]).toBe('Settings › Exchange rate')
+    expect(labels('exchange')).toEqual([])
     expect(labels('stability')[0]).toBe('Health & operations › Provider stability')
   })
 

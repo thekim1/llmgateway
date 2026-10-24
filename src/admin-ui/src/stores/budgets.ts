@@ -1,14 +1,11 @@
-import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api'
-import type { Budget, BudgetAlert, BudgetFilter, BudgetRequest, ExchangeRate } from '@/api/types'
+import type { Budget, BudgetAlert, BudgetFilter, BudgetRequest } from '@/api/types'
 import { removeById, replaceById, useLoadable } from './loadable'
 
 export const useBudgetsStore = defineStore('budgets', () => {
   const { data: items, loading, error, loaded, run } = useLoadable<Budget[]>([])
   const alerts = useLoadable<BudgetAlert[]>([])
-  const exchangeRate = ref<ExchangeRate | null>(null)
-  const exchangeRateError = ref<unknown>(null)
 
   const load = (filter: BudgetFilter = {}) => run(() => api.budgets.list(filter))
 
@@ -36,21 +33,6 @@ export const useBudgetsStore = defineStore('budgets', () => {
     alerts.data.value = alerts.data.value.map((a) => (a.id === id ? { ...a, acknowledged: true } : a))
   }
 
-  async function loadExchangeRate(): Promise<ExchangeRate | null> {
-    exchangeRateError.value = null
-    try {
-      exchangeRate.value = await api.settings.exchangeRate()
-    } catch (e) {
-      exchangeRateError.value = e
-    }
-    return exchangeRate.value
-  }
-
-  async function updateExchangeRate(sekPerUnit: number): Promise<ExchangeRate> {
-    exchangeRate.value = await api.settings.updateExchangeRate(sekPerUnit)
-    return exchangeRate.value
-  }
-
   return {
     items,
     loading,
@@ -65,9 +47,5 @@ export const useBudgetsStore = defineStore('budgets', () => {
     alertsError: alerts.error,
     loadAlerts,
     acknowledge,
-    exchangeRate,
-    exchangeRateError,
-    loadExchangeRate,
-    updateExchangeRate,
   }
 })

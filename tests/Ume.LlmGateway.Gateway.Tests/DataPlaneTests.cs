@@ -2,10 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
@@ -239,32 +235,6 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
     }
 
     [Fact]
-    public async Task Missing_exchange_rate_uses_the_configured_fallback_and_degrades_readiness()
-    {
-        var scopes = fixture.Services.GetRequiredService<IServiceScopeFactory>();
-        var options = new StaticOptions(new GatewayOptions { CatalogCacheSeconds = 0, FallbackSekPerUsd = 12.5m });
-        // Before any rate in the test database took effect.
-        using var past = new GatewayCatalog(scopes, options, new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero)),
-            new InMemoryInvalidationBus(), NullLogger<GatewayCatalog>.Instance);
-        var snapshot = await past.GetAsync(Ct);
-        snapshot.UsesFallbackRate.ShouldBeTrue();
-        snapshot.SekPerUsd.ShouldBe(12.5m);
-        (await new ExchangeRateHealthCheck(past).CheckHealthAsync(new HealthCheckContext(), Ct)).Status.ShouldBe(HealthStatus.Degraded);
-
-        using var current = new GatewayCatalog(scopes, options, TimeProvider.System, new InMemoryInvalidationBus(), NullLogger<GatewayCatalog>.Instance);
-        (await current.GetAsync(Ct)).UsesFallbackRate.ShouldBeFalse();
-        (await new ExchangeRateHealthCheck(current).CheckHealthAsync(new HealthCheckContext(), Ct)).Status.ShouldBe(HealthStatus.Healthy);
-    }
-
-    [Fact]
-    public async Task Readiness_includes_the_exchange_rate_check()
-    {
-        var report = await fixture.Services.GetRequiredService<HealthCheckService>().CheckHealthAsync(Ct);
-        report.Entries.ShouldContainKey(ExchangeRateHealthCheck.Name);
-        report.Entries[ExchangeRateHealthCheck.Name].Status.ShouldBe(HealthStatus.Healthy);
-    }
-
-    [Fact]
     public async Task Models_list_hides_models_no_endpoint_can_reach()
     {
         var key = await fixture.CreateKeyAsync();
@@ -307,12 +277,5 @@ public sealed class DataPlaneTests(GatewayFixture fixture)
                 return inner.Unprotect(protectedData);
             }
         }
-    }
-
-    private sealed class StaticOptions(GatewayOptions value) : IOptionsMonitor<GatewayOptions>
-    {
-        public GatewayOptions CurrentValue => value;
-        public GatewayOptions Get(string? name) => value;
-        public IDisposable? OnChange(Action<GatewayOptions, string?> listener) => null;
     }
 }

@@ -23,12 +23,6 @@ public static class GatewayHeaders
     /// <summary>Smallest remaining amount over the budgets that apply, in USD.</summary>
     public const string BudgetRemainingUsd = "x-ume-budget-remaining-usd";
 
-    /// <summary><see cref="CostUsd"/> in SEK at the current exchange rate (display only; to be removed with SEK).</summary>
-    public const string CostSek = "x-ume-cost-sek";
-
-    /// <summary><see cref="BudgetRemainingUsd"/> in SEK at the current exchange rate (display only; to be removed with SEK).</summary>
-    public const string BudgetRemainingSek = "x-ume-budget-remaining-sek";
-
     /// <summary>Ids of the routing rules that decided where the request went, comma separated.</summary>
     public const string Rule = "x-ume-rule";
 

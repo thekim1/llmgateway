@@ -13,8 +13,8 @@ using Testcontainers.PostgreSql;
 using Ume.LlmGateway.TestKit;
 
 [assembly: AssemblyFixture(typeof(Ume.LlmGateway.AdminApi.Tests.AdminFixture))]
-// All tests share one database, and some act on all of it (configuration export and import, global routing rules,
-// the exchange rate). Running test classes in parallel made those tests overwrite or collide with each other.
+// All tests share one database, and some act on all of it (configuration export and import, global routing
+// rules). Running test classes in parallel made those tests overwrite or collide with each other.
 [assembly: CollectionBehavior(CollectionBehavior.CollectionPerAssembly)]
 
 namespace Ume.LlmGateway.AdminApi.Tests;

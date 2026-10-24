@@ -78,7 +78,6 @@ public sealed class GatewayFixture : IAsyncLifetime
             var department = new Department { Name = "Tests", CostCenterCode = "TEST", CreatedAt = DateTimeOffset.UtcNow };
             DepartmentId = department.Id;
             db.Departments.Add(department);
-            db.ExchangeRates.Add(new ExchangeRate { SekPerUnit = 10, EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1) });
             // The gateway creates no Data Protection keys (the admin API does), so the test makes the one it encrypts with.
             scope.ServiceProvider.GetRequiredService<IKeyManager>().CreateNewKey(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(90));
             var protector = scope.ServiceProvider.GetRequiredService<CredentialProtector>();

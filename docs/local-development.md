@@ -115,7 +115,7 @@ CPUs make every race wider. The rules that keep them stable:
 
 - **Make your own data.** Create the key, team or route the test needs, and find your requests by a unique marker
   (a `Guid` in the prompt), never by "the latest" or "the only" row. Do not assert on global state another class may
-  change (settings, exchange rates, global routing rules); if a test must change it, restore it in `finally`.
+  change (settings, global routing rules); if a test must change it, restore it in `finally`.
 - **Wait for asynchronous effects, do not sleep.** The mock provider logs a request only after answering it: read it
   with `fixture.UpstreamRequestsAsync` / `UpstreamBodyAsync`, never `Upstream.LogEntries`. Usage records:
   `fixture.UsageAsync` (flushes the writer). Changes that reach the gateway over Redis (revocation, rotation, budgets):

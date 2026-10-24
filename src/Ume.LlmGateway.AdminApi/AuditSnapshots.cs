@@ -44,7 +44,6 @@ public static class AuditEntities
     public const string RoutingRule = "RoutingRule";
     public const string Budget = "Budget";
     public const string Alert = "Alert";
-    public const string ExchangeRate = "ExchangeRate";
     public const string Settings = "Settings";
     public const string Config = "Config";
     public const string Keys = "Keys";

@@ -21,8 +21,6 @@ public readonly record struct TokenUsage(long InputTokens, long CachedInputToken
         a.CacheWriteInputTokens + b.CacheWriteInputTokens);
 }
 
-public readonly record struct Cost(decimal Usd, decimal Sek);
-
 public static class CostCalculator
 {
     private const decimal Million = 1_000_000m;
@@ -33,12 +31,13 @@ public static class CostCalculator
     /// set), the rest at the input rate. Reasoning tokens are part of
     /// output tokens. Audio tokens are billed at the audio token prices when those are set (otherwise as text), and
     /// audio duration per minute on top, for models priced that way.
+    /// The result is in USD, the currency provider prices are in.
     /// </summary>
-    public static Cost Calculate(TokenUsage usage, ModelPrice? price, decimal sekPerUsd)
+    public static decimal Calculate(TokenUsage usage, ModelPrice? price)
     {
         if (price is null)
         {
-            return new Cost(0, 0);
+            return 0;
         }
 
         var cached = Math.Clamp(usage.CachedInputTokens, 0, Math.Max(usage.InputTokens, 0));
@@ -55,9 +54,7 @@ public static class CostCalculator
                    + audioOut * price.AudioOutputPerMillionUsd) / Million
                   + Math.Max(usage.AudioSeconds, 0) / 60m * price.AudioPerMinuteUsd
                   + Math.Max(usage.Images, 0) * price.PerImageUsd;
-        usd = Math.Round(usd, 8, MidpointRounding.AwayFromZero);
-        var sek = Math.Round(usd * sekPerUsd, 6, MidpointRounding.AwayFromZero);
-        return new Cost(usd, sek);
+        return Math.Round(usd, 8, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>Very rough pre-flight token estimate (≈4 characters per token) used for reservations.</summary>

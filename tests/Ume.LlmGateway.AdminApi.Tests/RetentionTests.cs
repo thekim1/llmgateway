@@ -113,10 +113,10 @@ public sealed class RetentionTests(AdminFixture fixture)
             using (var scope = fixture.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-                (await db.UsageRecords.Where(u => u.VirtualKeyId == keyId).Select(u => u.CostSek).ToListAsync(Ct)).ShouldBe([4m]);
+                (await db.UsageRecords.Where(u => u.VirtualKeyId == keyId).Select(u => u.CostUsd).ToListAsync(Ct)).ShouldBe([4m]);
                 var total = await db.UsageMonthlyTotals.SingleAsync(t => t.VirtualKeyId == keyId, Ct);
                 total.MonthStart.ShouldBe(oldMonth);
-                (total.Requests, total.SuccessfulRequests, total.Fallbacks, total.CostSek).ShouldBe((2L, 1L, 1L, 4m));
+                (total.Requests, total.SuccessfulRequests, total.Fallbacks, total.CostUsd).ShouldBe((2L, 1L, 1L, 4m));
                 (await db.AuthFailures.AnyAsync(f => f.KeyPrefix == prefix, Ct)).ShouldBeFalse();
                 (await db.AlertEvents.AnyAsync(a => a.ScopeId == keyId, Ct)).ShouldBeFalse();
                 (await db.AuditLog.AnyAsync(a => a.EntityId == auditId, Ct)).ShouldBeFalse();
@@ -221,6 +221,6 @@ public sealed class RetentionTests(AdminFixture fixture)
     {
         RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = at, VirtualKeyId = key, TeamId = org.Team, DepartmentId = org.Department,
         Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "test/model", ProviderName = "test", InputTokens = 10, OutputTokens = 5,
-        CostUsd = cost, CostSek = cost, Outcome = outcome, StatusCode = outcome == RequestOutcome.Success ? 200 : 503, FallbackCount = fallbacks,
+        CostUsd = cost, Outcome = outcome, StatusCode = outcome == RequestOutcome.Success ? 200 : 503, FallbackCount = fallbacks,
     };
 }

@@ -36,16 +36,12 @@ public sealed class BudgetReservation
 }
 
 /// <summary>A crossed alert threshold. <c>SpentUsd</c> is the budget's use in its unit: USD, or tokens for a token budget.</summary>
-public sealed record AlertCandidate(Budget Budget, PeriodWindow Window, int ThresholdPercent, decimal SpentUsd)
-{
-    /// <summary>SEK per USD when the alert was raised, for the SEK amounts of the alert webhook (display only).</summary>
-    public decimal SekPerUsd { get; init; }
-}
+public sealed record AlertCandidate(Budget Budget, PeriodWindow Window, int ThresholdPercent, decimal SpentUsd);
 
 /// <summary>
 /// Hierarchical budget enforcement (key → team → förvaltning). Uses shared counters with
 /// reserve-then-reconcile so concurrent requests cannot all slip past a nearly exhausted budget. Cost budgets count USD,
-/// the currency provider prices are in, so enforcement does not move with the exchange rate (counters in micro-USD).
+/// the currency provider prices are in, so enforcement does not move with exchange rates (counters in micro-USD).
 /// Token budgets count input plus output tokens, optionally only of providers of one residency; they apply to a request
 /// when one of its candidate providers matches, and are charged only when the provider that served it does. Both kinds
 /// are reserved in the same ledger round trip.

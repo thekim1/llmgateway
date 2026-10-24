@@ -387,7 +387,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.HasIndex("Currency", "EffectiveFrom")
                         .IsUnique();
 
-                    b.ToTable("ExchangeRates");
+                    b.ToTable("ExchangeRates", (string)null);
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.GatewaySettings", b =>
@@ -793,8 +793,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<decimal>("CostSek")
+                        .ValueGeneratedOnAdd()
                         .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
+                        .HasColumnType("numeric(18,6)")
+                        .HasDefaultValue(0m);
 
                     b.Property<decimal>("CostUsd")
                         .HasPrecision(18, 8)
@@ -874,8 +876,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<decimal>("CostSek")
+                        .ValueGeneratedOnAdd()
                         .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
+                        .HasColumnType("numeric(18,6)")
+                        .HasDefaultValue(0m);
 
                     b.Property<decimal>("CostUsd")
                         .HasPrecision(18, 8)

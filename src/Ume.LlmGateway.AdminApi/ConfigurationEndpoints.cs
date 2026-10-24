@@ -112,7 +112,6 @@ public sealed record BudgetRequest(
         }
     }
 }
-public sealed record ExchangeRequest([property: Range(typeof(decimal), "0.000001", "1000000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)] decimal SekPerUnit) : AdminRequest;
 
 public static class ConfigurationEndpoints
 {
@@ -185,11 +184,6 @@ public static class ConfigurationEndpoints
         }).WithName("DeleteRoute");
 
         MapBudgets(api);
-        api.MapGet("/settings/exchange-rate", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.CurrentRateAsync(ct)))
-            .WithName("GetExchangeRate").WithSummary("SEK per USD now (empty when none has been entered)");
-        api.MapPut("/settings/exchange-rate", async (ExchangeRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
-            TypedResults.Ok(await catalog.SetRateAsync(input.SekPerUnit, ct)))
-            .RequireAuthorization(AdminPolicies.Admin).WithName("SetExchangeRate");
     }
 
     private static void MapBudgets(RouteGroupBuilder api)

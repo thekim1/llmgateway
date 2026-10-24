@@ -284,7 +284,7 @@ public sealed class HotPathTests(GatewayFixture fixture)
         foundry.Deployments.AddRange([shared, own]);
         ollama.Deployments.Add(sameName);
 
-        var snapshot = new CatalogSnapshot([foundry, ollama], [], [], 10m, DateTimeOffset.UtcNow);
+        var snapshot = new CatalogSnapshot([foundry, ollama], [], [], DateTimeOffset.UtcNow);
 
         snapshot.Resolve("deepseek-v3").ShouldBeNull();
         snapshot.AmbiguousChoices("DEEPSEEK-V3").ShouldBe(["foundry/DeepSeek-V3", "ollama/deepseek-v3"]);
@@ -299,7 +299,7 @@ public sealed class HotPathTests(GatewayFixture fixture)
         snapshot.Resolve("gpt-4.1")!.IsAllowedFor(key).ShouldBeFalse();
 
         var route = new RouteAlias { Name = "deepseek-v3", Kind = ModelKind.Chat, Targets = [new RouteTarget { ModelDeployment = sameName, ModelDeploymentId = sameName.Id }] };
-        var routed = new CatalogSnapshot([foundry, ollama], [route], [], 10m, DateTimeOffset.UtcNow);
+        var routed = new CatalogSnapshot([foundry, ollama], [route], [], DateTimeOffset.UtcNow);
         routed.Resolve("DeepSeek-V3")!.Targets.Single().ModelDeployment.ShouldBeSameAs(sameName); // an admin's route decides
         routed.AmbiguousChoices("DeepSeek-V3").ShouldBeNull();
 
@@ -312,7 +312,7 @@ public sealed class HotPathTests(GatewayFixture fixture)
     public void Key_lineage_follows_rotations_backwards()
     {
         Guid a = Guid.NewGuid(), b = Guid.NewGuid(), c = Guid.NewGuid(), other = Guid.NewGuid();
-        var snapshot = new CatalogSnapshot([], [], [], 10m, DateTimeOffset.UtcNow, new Dictionary<Guid, Guid> { [a] = b, [b] = c });
+        var snapshot = new CatalogSnapshot([], [], [], DateTimeOffset.UtcNow, new Dictionary<Guid, Guid> { [a] = b, [b] = c });
         snapshot.KeyLineage(c).ShouldBe([c, b, a], ignoreOrder: true);
         snapshot.KeyLineage(b).ShouldBe([b, a], ignoreOrder: true);
         snapshot.KeyLineage(other).ShouldBe([other]);

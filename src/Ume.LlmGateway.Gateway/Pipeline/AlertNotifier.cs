@@ -18,7 +18,7 @@ public sealed partial class AlertNotifier : BackgroundService
     public static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
     private const int Capacity = 1_000;
-    private readonly Channel<(AlertEvent Alert, decimal SekPerUsd)> _channel = Channel.CreateBounded<(AlertEvent, decimal)>(new BoundedChannelOptions(Capacity)
+    private readonly Channel<AlertEvent> _channel = Channel.CreateBounded<AlertEvent>(new BoundedChannelOptions(Capacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
@@ -35,14 +35,11 @@ public sealed partial class AlertNotifier : BackgroundService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Queues the alert for the webhook, if one is configured. Never waits. <paramref name="sekPerUsd"/> is the rate when it
-    /// was raised, for the SEK amounts kept in the payload (0: the configured fallback rate).
-    /// </summary>
-    public void Enqueue(AlertEvent alert, decimal sekPerUsd)
+    /// <summary>Queues the alert for the webhook, if one is configured. Never waits.</summary>
+    public void Enqueue(AlertEvent alert)
     {
         ArgumentNullException.ThrowIfNull(alert);
-        if (_options.CurrentValue.AlertWebhookUrl is not null && !_channel.Writer.TryWrite((alert, sekPerUsd)))
+        if (_options.CurrentValue.AlertWebhookUrl is not null && !_channel.Writer.TryWrite(alert))
         {
             LogDropped(_logger, alert.Scope.ToString(), alert.ScopeId, alert.ThresholdPercent);
         }
@@ -57,13 +54,13 @@ public sealed partial class AlertNotifier : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var (alert, sekPerUsd) in _channel.Reader.ReadAllAsync(CancellationToken.None))
+        await foreach (var alert in _channel.Reader.ReadAllAsync(CancellationToken.None))
         {
-            await SendAsync(alert, sekPerUsd > 0 ? sekPerUsd : _options.CurrentValue.FallbackSekPerUsd);
+            await SendAsync(alert);
         }
     }
 
-    private async Task SendAsync(AlertEvent alert, decimal sekPerUsd)
+    private async Task SendAsync(AlertEvent alert)
     {
         if (_options.CurrentValue.AlertWebhookUrl is not { } url)
         {
@@ -73,7 +70,6 @@ public sealed partial class AlertNotifier : BackgroundService
         using var timeout = new CancellationTokenSource(SendTimeout);
         try
         {
-            // Amounts are in USD; the SEK fields are the same amounts at the rate then, kept for existing receivers.
             using var client = _httpClients.CreateClient(HttpClientName);
             using var response = await client.PostAsJsonAsync(url, new
             {
@@ -83,9 +79,7 @@ public sealed partial class AlertNotifier : BackgroundService
                 thresholdPercent = alert.ThresholdPercent,
                 spentUsd = alert.SpentUsd,
                 limitUsd = alert.LimitUsd,
-                spentSek = decimal.Round(alert.SpentUsd * sekPerUsd, 2),
-                limitSek = decimal.Round(alert.LimitUsd * sekPerUsd, 2),
-                // Token quotas: the amounts in tokens (the USD and SEK fields are 0).
+                // Token quotas: the amounts in tokens (the USD fields are 0).
                 unit = alert.SpentTokens is null ? "Usd" : "Tokens",
                 spentTokens = alert.SpentTokens,
                 limitTokens = alert.LimitTokens,

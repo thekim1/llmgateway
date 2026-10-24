@@ -47,13 +47,6 @@ public sealed class GatewayOptions
     public long MaxImageRequestBodyBytes { get; set; } = 50 * 1024 * 1024;
 
     /// <summary>
-    /// SEK per USD used to price requests only while no USD exchange rate has been entered (admin API, exchange rates).
-    /// Each catalogue load that uses it logs a warning, and the readiness check reports Degraded.
-    /// </summary>
-    [Range(typeof(decimal), "0.01", "1000", ParseLimitsInInvariantCulture = true, ConvertValueInInvariantCulture = true)]
-    public decimal FallbackSekPerUsd { get; set; } = 10m;
-
-    /// <summary>
     /// How the first target among targets of the same priority is chosen: <c>Weighted</c> (default, shares follow the
     /// weights) or <c>LeastLoaded</c> (the faster, healthier, less busy of two drawn by weight; see docs/routing-rules.md).
     /// </summary>

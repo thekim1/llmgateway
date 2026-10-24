@@ -108,11 +108,6 @@ public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKi
 
 public sealed record RouteTargetDto(Guid ModelId, string? ModelName, string? ProviderName, DataResidency? Residency, int Priority, int Weight);
 
-public sealed record ExchangeRateDto(string Currency, decimal SekPerUnit, DateTimeOffset EffectiveFrom)
-{
-    public static ExchangeRateDto Of(ExchangeRate r) => new(r.Currency, r.SekPerUnit, r.EffectiveFrom);
-}
-
 // ---- budgets ---------------------------------------------------------------------------------------------
 
 /// <summary>A budget: cost budgets have <c>LimitUsd</c>/<c>SpentUsd</c>, token quotas <c>LimitTokens</c>/<c>SpentTokens</c> (their USD fields are 0).</summary>
@@ -185,7 +180,7 @@ public sealed record LatencyStatsDto(double? Avg, int? P50, int? P90, int? P95, 
 public sealed record FirstTokenStatsDto(double? Avg, int? P50, int? P95);
 
 /// <summary>
-/// <c>/api/usage/metrics</c>: the Usage dashboard. Cost is in USD (SEK is only a display currency). <c>RecordsFrom</c> is
+/// <c>/api/usage/metrics</c>: the Usage dashboard. Cost is in USD. <c>RecordsFrom</c> is
 /// set when the period reaches back before the oldest kept usage record; the figures start there.
 /// </summary>
 public sealed record UsageMetricsDto(

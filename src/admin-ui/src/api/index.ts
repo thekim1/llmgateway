@@ -23,7 +23,6 @@ import type {
   DataApiKeyRequest,
   Department,
   DiscoveredModel,
-  ExchangeRate,
   NetworkSettings,
   RequestLogSettings,
   RetentionSettings,
@@ -165,9 +164,6 @@ export const api = {
     acknowledge: (alertId: string) => http.post<void>(`/api/alerts/${id(alertId)}/acknowledge`),
   },
   settings: {
-    exchangeRate: () => http.get<ExchangeRate>('/api/settings/exchange-rate'),
-    updateExchangeRate: (sekPerUnit: number) =>
-      http.put<ExchangeRate>('/api/settings/exchange-rate', { sekPerUnit }),
     network: () => http.get<NetworkSettings>('/api/settings/network'),
     updateNetwork: (trustedProxies: string[]) => http.put<NetworkSettings>('/api/settings/network', { trustedProxies }),
     requestLog: () => http.get<RequestLogSettings>('/api/settings/request-log'),

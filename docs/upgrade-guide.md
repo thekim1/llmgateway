@@ -11,6 +11,24 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.1: costs in USD only, SEK removed
+
+- **Rolling update: yes.** The migration `SekNoLongerWritten` only gives the `CostSek` columns of `UsageRecords` and
+  `UsageMonthlyTotals` a default of 0, so 0.8.0 keeps writing them while its instances are replaced. Nothing reads them
+  any more; they and the `ExchangeRates` table are dropped in the next release (which will be **Rolling update: no**
+  from 0.8.0, so upgrade through 0.8.1).
+- **Breaking: SEK is gone from every interface.** Update whatever reads these before upgrading:
+  - Gateway response headers `x-ume-cost-sek` and `x-ume-budget-remaining-sek`: use `x-ume-cost-usd` and
+    `x-ume-budget-remaining-usd`.
+  - Budget alert webhook: `spentSek` and `limitSek` are gone; use `spentUsd` and `limitUsd`.
+  - Data API: `costSek` is gone from `/v1/usage/records` and `/v1/usage/aggregate` (use `costUsd`), `limitSek` from
+    `/v1/catalog/budgets` (use `limitUsd`), and `/v1/catalog/exchange-rates` is removed. Convert to SEK in your report
+    where needed.
+  - Metric `ume.gateway.cost` (SEK) is removed; use `ume.gateway.cost.usd`.
+  - Admin API: `GET`/`PUT /api/settings/exchange-rate` are removed (404), and so is the Settings card.
+- **Configuration:** `Gateway:FallbackSekPerUsd` (`Gateway__FallbackSekPerUsd`) is no longer read; remove it from your
+  settings. The gateway's readiness no longer has an `exchange-rate` check, so it is no longer Degraded without a rate.
+
 ## 0.8.0: admin UI menu and phone layout, costs in USD
 
 - **Rolling update: yes.** No migrations; 0.7.1 runs side by side while its instances are replaced.

@@ -1,8 +1,8 @@
 # Admin API contract (control plane)
 
 Base path: same origin as the admin UI (BFF pattern). JSON uses **camelCase**, enums are serialised as
-**strings** (e.g. `"RevokeImmediately"`), timestamps are ISO-8601 with offset, money is in the currency the field
-name says (`Usd` or `Sek`; budgets and alerts are in USD, SEK amounts are for display). Errors use RFC 9457 `application/problem+json`:
+**strings** (e.g. `"RevokeImmediately"`), timestamps are ISO-8601 with offset, money is in USD (field names end
+in `Usd`). Errors use RFC 9457 `application/problem+json`:
 `{ "type", "title", "status", "detail", "errors": { "field": ["message"] } }` (English messages).
 A malformed request (unreadable body) → 400; an unexpected failure → 500 with the detail "An internal error occurred."
 (the exception is only logged, by type). Every response, error responses included, carries `X-Content-Type-Options: nosniff`,
@@ -214,9 +214,6 @@ and invalidate the gateway catalogue.
 - `GET /api/alerts?acknowledged=false` → `[{ id, budgetId, scope, scopeName, thresholdPercent, spentUsd, limitUsd, periodStart, timestamp, acknowledged, spentTokens|null, limitTokens|null }]`
   (token quota alerts have `spentTokens`/`limitTokens` and USD amounts of 0; the alert webhook adds `unit`, `spentTokens`, `limitTokens`)
 - `POST /api/alerts/{id}/acknowledge` → 204
-- `GET /api/settings/exchange-rate` → `{ currency: "USD", sekPerUnit, effectiveFrom }`, or 200 with an empty body when no rate has been entered · `PUT /api/settings/exchange-rate` `{ sekPerUnit }`.
-  Until a rate is in effect the gateway prices with `Gateway:FallbackSekPerUsd` (default 10, 0.01–1000), logs a warning and
-  reports its `exchange-rate` readiness check (and so the gateway component in `/api/ops/health`) as Degraded.
 - `GET /api/settings/retention` *(gateway-admin)* → `{ usageRetentionDays, auditRetentionDays (null = kept for ever), usageRetainedFrom,
   nextUsageCutoff, nextAuditCutoff, enabled, nextRunAt, running, lastRunAt, lastRunDeleted, lastRunError }` · `PUT /api/settings/retention`
   `{ usageRetentionDays, auditRetentionDays }` (90–3 650; audited as `Settings`) · `POST /api/settings/retention/run` → 202 with the state
@@ -242,8 +239,7 @@ and invalidate the gateway catalogue.
 - Budget alerts are stored with the usage batch that crossed the threshold. With `Gateway:AlertWebhookUrl` set, the gateway
   also POSTs each alert once (metadata only, 5 s timeout, no retries) from its own queue of 1 000; when that queue is
   full the alert is stored but not sent (a warning is logged). Body: `{ type: "budget_threshold", scope, scopeId,
-  thresholdPercent, spentUsd, limitUsd, spentSek, limitSek, periodStart }`; the SEK amounts are the USD amounts at the
-  exchange rate when the alert was raised, kept for existing receivers until SEK is removed.
+  thresholdPercent, spentUsd, limitUsd, periodStart }`.
 
 ## Usage (metadata only – never prompt/response content)
 - `GET /api/usage/summary?from=&to=&groupBy=department|team|key|model|provider|day&departmentId=&teamId=`
@@ -354,8 +350,6 @@ and invalidate the gateway catalogue.
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-usd`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-usd`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
-  `x-ume-cost-sek` and `x-ume-budget-remaining-sek` carry the same amounts in SEK at the current exchange rate; they are
-  for display and will be removed with SEK.
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
   `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other

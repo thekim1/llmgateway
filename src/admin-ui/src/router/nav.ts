@@ -191,10 +191,9 @@ export const navGroups: NavGroup[] = [
         name: 'settings',
         label: 'Settings',
         icon: 'settings',
-        description: 'Exchange rate, retention, logging, proxies and version',
+        description: 'Proxies, retention, logging and version',
         keywords: ['configuration', 'update'],
         sections: [
-          { label: 'Exchange rate', to: { name: 'settings', hash: '#rate-h' }, keywords: ['usd', 'sek', 'currency'] },
           { label: 'Trusted proxies', to: { name: 'settings', hash: '#proxies-h' }, keywords: ['client address', 'ip', 'forwarded'] },
           { label: 'Data retention', to: { name: 'settings', hash: '#retention-h' }, keywords: ['delete', 'purge', 'gdpr', 'days'] },
           { label: 'Request logging', to: { name: 'settings', hash: '#request-log-h' }, keywords: ['log', 'prompts'] },

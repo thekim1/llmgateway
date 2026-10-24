@@ -2,13 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi;
 
-/// <summary>Providers, model deployments, their prices, route aliases and the exchange rate.</summary>
+/// <summary>Providers, model deployments, their prices and route aliases.</summary>
 public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService rules, CredentialProtector protector)
 {
     public static ProviderCapabilities[] Capabilities(ProviderCapabilities value) =>
@@ -261,19 +260,5 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         ctx.Db.RouteTargets.RemoveRange(r.Targets);
         r.Targets = [.. input.Targets.Select(t => new RouteTarget { ModelDeploymentId = t.ModelId, ModelDeployment = deployments[t.ModelId], Priority = t.Priority, Weight = t.Weight })];
         ctx.Db.RouteTargets.AddRange(r.Targets);
-    }
-
-    // ---- exchange rate -----------------------------------------------------------------------------------
-
-    public async Task<ExchangeRateDto?> CurrentRateAsync(CancellationToken ct) =>
-        await ctx.Db.CurrentRateAsync(ctx.Now, ct) is { } rate ? ExchangeRateDto.Of(rate) : null;
-
-    public async Task<ExchangeRateDto> SetRateAsync(decimal sekPerUnit, CancellationToken ct)
-    {
-        var before = await CurrentRateAsync(ct);
-        var rate = new ExchangeRate { Currency = GatewayQueries.PriceCurrency, SekPerUnit = sekPerUnit, EffectiveFrom = ctx.Now };
-        ctx.Db.ExchangeRates.Add(rate);
-        await ctx.SaveAsync(AuditActions.Update, AuditEntities.ExchangeRate, rate.Id, before, ExchangeRateDto.Of(rate), InvalidationKind.Config, ct);
-        return ExchangeRateDto.Of(rate);
     }
 }

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## 0.8.1 - 2026-10-24
+
+Costs in USD only: SEK and the exchange rate are removed from every interface (breaking for anything that reads the
+SEK headers, webhook fields or Data API fields; see the 0.8.1 section of `docs/upgrade-guide.md`). The admin UI works on
+iPhone again (menu, search), and the routing rule test says when a model does not exist. Rolling update: yes.
+
+**Costs in USD only; SEK and the exchange rate removed.** Prices were already in USD, and budgets and the admin UI
+already counted and showed USD; the exchange rate under Settings only fed SEK copies of the same amounts. It is gone,
+with every SEK output: the `x-ume-cost-sek` and `x-ume-budget-remaining-sek` response headers, `spentSek`/`limitSek` in
+budget alert webhooks, `costSek` in the Data API's usage records and aggregates, `limitSek` on its budgets and its
+`/v1/catalog/exchange-rates`, the `ume.gateway.cost` metric (SEK; `ume.gateway.cost.usd` stays), the admin API's
+`/api/settings/exchange-rate`, the gateway's `exchange-rate` readiness check and the `Gateway:FallbackSekPerUsd`
+setting. Breaking for anything that reads those; see the [upgrade guide](docs/upgrade-guide.md). Rolling update: yes.
+The database keeps the old `CostSek` columns (no longer written) and `ExchangeRates` table for one more release.
+
+**Admin UI on iPhone.** The phone menu opened as a strip showing only its title in Safari on iOS; it now opens at full
+height. Search no longer zooms the page in when it opens (iOS zooms into fields with text smaller than 16px, so fields
+use 16px there), and its results fit above the on-screen keyboard, so the last ones can be reached.
+
+**Fixes.** *Routing rules › Test a request* showed a model name that does not exist as a disabled model; it now says
+*Does not exist*. The *Request logging* status on Settings is shorter (*Off: problem requests only*), so it fits on a
+320px screen. The browser tests (`tests/e2e`) follow the current admin UI again: the *Requests* tab on Usage, the
+*New rule* button next to *New rule from template*, English error messages, target-size checks limited to the open
+dialog, and a new sign-in when an earlier test signed the cached session out.
+
 ## 0.8.0 - 2026-10-24
 
 A clearer admin UI with a menu grouped by task, search into pages and a working phone layout; costs in US$ throughout

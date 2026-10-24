@@ -68,9 +68,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("0");
         decimal.Parse(response.Headers.GetValues("x-ume-cost-usd").Single(), CultureInfo.InvariantCulture).ShouldBe(0.000135m);
         response.Headers.GetValues("x-ume-budget-remaining-usd").Single().ShouldBe("10.00");
-        // The SEK headers are the same amounts at the exchange rate (10 SEK per USD in the fixture).
-        decimal.Parse(response.Headers.GetValues("x-ume-cost-sek").Single(), CultureInfo.InvariantCulture).ShouldBe(0.00135m);
-        response.Headers.GetValues("x-ume-budget-remaining-sek").Single().ShouldBe("100.00");
+        response.Headers.Contains("x-ume-cost-sek").ShouldBeFalse();
         response.Headers.GetValues("x-ratelimit-remaining-requests").Single().ShouldBe("9");
         response.Headers.GetValues("X-Content-Type-Options").Single().ShouldBe("nosniff");
         response.Headers.GetValues("X-Frame-Options").Single().ShouldBe("DENY");
@@ -84,7 +82,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.InputTokens.ShouldBe(100);
         usage.CachedInputTokens.ShouldBe(10);
         usage.OutputTokens.ShouldBe(20);
-        usage.CostSek.ShouldBe(0.00135m);
+        usage.CostUsd.ShouldBe(0.000135m);
         usage.Outcome.ShouldBe(RequestOutcome.Success);
         usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
         usage.TimeToFirstTokenMs.ShouldBeNull(); // not streamed
@@ -303,7 +301,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.StatusCode.ShouldBe(502);
         usage.ProviderName.ShouldBeOneOf("eu", "external"); // the last candidate tried; an open circuit moves a provider last
         usage.FallbackCount.ShouldBe(1);
-        usage.CostSek.ShouldBe(0);
+        usage.CostUsd.ShouldBe(0);
     }
 
     [Theory]
@@ -324,7 +322,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.TimeToFirstTokenMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
         usage.InputTokens.ShouldBe(100);
         usage.OutputTokens.ShouldBe(20);
-        usage.CostSek.ShouldBe(0.00135m);
+        usage.CostUsd.ShouldBe(0.000135m);
     }
 
     [Theory]
@@ -502,7 +500,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
     {
         using var response = await fixture.SendAsync(await fixture.CreateKeyAsync(), model, endpoint);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await fixture.UsageAsync(response)).CostSek.ShouldBe(0.00135m);
+        (await fixture.UsageAsync(response)).CostUsd.ShouldBe(0.000135m);
     }
 
     [Fact]
@@ -598,7 +596,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         }
         using var response = await fixture.SendAsync(key);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await fixture.UsageAsync(response)).CostSek.ShouldBeGreaterThan(0);
+        (await fixture.UsageAsync(response)).CostUsd.ShouldBeGreaterThan(0);
     }
 
     [Fact]

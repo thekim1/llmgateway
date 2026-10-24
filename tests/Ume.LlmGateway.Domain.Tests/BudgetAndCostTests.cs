@@ -135,27 +135,23 @@ public class CostCalculatorTests
     };
 
     [Fact]
-    public void Calculates_usd_and_sek()
-    {
-        var cost = CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 100_000), Price, 10.5m);
-        cost.Usd.ShouldBe(3.5m);
-        cost.Sek.ShouldBe(36.75m);
-    }
+    public void Calculates_usd() =>
+        CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 100_000), Price).ShouldBe(3.5m);
 
     [Fact]
     public void Cached_tokens_are_billed_at_cached_rate()
     {
-        var cost = CostCalculator.Calculate(new TokenUsage(1_000_000, 400_000, 0), Price, 1m);
-        cost.Usd.ShouldBe((600_000 * 2.5m + 400_000 * 1.25m) / 1_000_000m);
+        var cost = CostCalculator.Calculate(new TokenUsage(1_000_000, 400_000, 0), Price);
+        cost.ShouldBe((600_000 * 2.5m + 400_000 * 1.25m) / 1_000_000m);
     }
 
     [Fact]
     public void Cached_tokens_cannot_exceed_input() =>
-        CostCalculator.Calculate(new TokenUsage(100, 500, 0), Price, 1m).Usd.ShouldBe(100 * 1.25m / 1_000_000m);
+        CostCalculator.Calculate(new TokenUsage(100, 500, 0), Price).ShouldBe(100 * 1.25m / 1_000_000m);
 
     [Fact]
     public void Missing_price_is_free() =>
-        CostCalculator.Calculate(new TokenUsage(1000, 0, 1000), null, 10m).ShouldBe(new Cost(0, 0));
+        CostCalculator.Calculate(new TokenUsage(1000, 0, 1000), null).ShouldBe(0m);
 
     [Fact]
     public void Price_history_picks_latest_effective_price()
@@ -188,8 +184,8 @@ public class CostCalculatorTests
     public void Audio_is_billed_per_minute_on_top_of_tokens()
     {
         var price = new ModelPrice { InputPerMillionUsd = 6, OutputPerMillionUsd = 10, AudioPerMinuteUsd = 0.006m };
-        CostCalculator.Calculate(new TokenUsage(0, 0, 0, 90), price, 10).ShouldBe(new Cost(0.009m, 0.09m));
-        CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 0, 60), price, 10).Usd.ShouldBe(6.006m);
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, 90), price).ShouldBe(0.009m);
+        CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 0, 60), price).ShouldBe(6.006m);
     }
 
     [Fact]
@@ -204,13 +200,13 @@ public class CostCalculatorTests
     public void Images_are_billed_per_picture_on_top_of_tokens()
     {
         var perPicture = new ModelPrice { PerImageUsd = 0.04m };
-        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: 3), perPicture, 10).ShouldBe(new Cost(0.12m, 1.2m));
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: 3), perPicture).ShouldBe(0.12m);
 
         // gpt-image-1 style: tokens only; a model with both prices is billed both ways.
         var perToken = new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40 };
-        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), perToken, 10).Usd.ShouldBe(0.0425m);
-        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40, PerImageUsd = 0.01m }, 10).Usd.ShouldBe(0.0525m);
-        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: -1), perPicture, 10).Usd.ShouldBe(0m);
+        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), perToken).ShouldBe(0.0425m);
+        CostCalculator.Calculate(new TokenUsage(500, 0, 1000, Images: 1), new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40, PerImageUsd = 0.01m }).ShouldBe(0.0525m);
+        CostCalculator.Calculate(new TokenUsage(0, 0, 0, Images: -1), perPicture).ShouldBe(0m);
     }
 
     [Fact]
@@ -221,8 +217,8 @@ public class CostCalculatorTests
 
         // The most a token-billed picture costs is within the estimate (6 240 tokens at 40 USD per million).
         var perToken = new ModelPrice { InputPerMillionUsd = 5, OutputPerMillionUsd = 40 };
-        CostCalculator.Calculate(estimate, perToken, 10).Usd.ShouldBeGreaterThanOrEqualTo(2 * 6_240 * 40m / 1_000_000m);
-        CostCalculator.Calculate(estimate, new ModelPrice { PerImageUsd = 0.17m }, 10).Usd.ShouldBe(0.34m);
+        CostCalculator.Calculate(estimate, perToken).ShouldBeGreaterThanOrEqualTo(2 * 6_240 * 40m / 1_000_000m);
+        CostCalculator.Calculate(estimate, new ModelPrice { PerImageUsd = 0.17m }).ShouldBe(0.34m);
     }
 
     [Fact]
@@ -237,13 +233,13 @@ public class CostCalculatorTests
         // gpt-realtime-like: text 4/16, audio 32/64 USD per million.
         var price = new ModelPrice { InputPerMillionUsd = 4, CachedInputPerMillionUsd = 0.4m, OutputPerMillionUsd = 16, AudioInputPerMillionUsd = 32, AudioOutputPerMillionUsd = 64 };
         var usage = new TokenUsage(1_000_000, 0, 1_000_000, AudioInputTokens: 750_000, AudioOutputTokens: 500_000);
-        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(1 + 24 + 8 + 32m);
+        CostCalculator.Calculate(usage, price).ShouldBe(1 + 24 + 8 + 32m);
 
         // Without audio prices the audio tokens are text tokens, as before.
-        CostCalculator.Calculate(usage, new ModelPrice { InputPerMillionUsd = 4, OutputPerMillionUsd = 16 }, 10).Usd.ShouldBe(20m);
+        CostCalculator.Calculate(usage, new ModelPrice { InputPerMillionUsd = 4, OutputPerMillionUsd = 16 }).ShouldBe(20m);
 
         // Audio tokens never exceed the uncached input: cached tokens keep their own rate.
-        CostCalculator.Calculate(new TokenUsage(100, 50, 0, AudioInputTokens: 100), price, 10).Usd.ShouldBe((50 * 32 + 50 * 0.4m) / 1_000_000);
+        CostCalculator.Calculate(new TokenUsage(100, 50, 0, AudioInputTokens: 100), price).ShouldBe((50 * 32 + 50 * 0.4m) / 1_000_000);
     }
 
     [Fact]
@@ -253,15 +249,15 @@ public class CostCalculatorTests
         var price = new ModelPrice { InputPerMillionUsd = 3, CachedInputPerMillionUsd = 0.30m, CacheWriteInputPerMillionUsd = 3.75m, OutputPerMillionUsd = 15 };
         // 1M input in total: 200k plain, 300k read from the cache, 500k written to it.
         var usage = new TokenUsage(1_000_000, 300_000, 0, CacheWriteInputTokens: 500_000);
-        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(0.6m + 0.09m + 1.875m);
+        CostCalculator.Calculate(usage, price).ShouldBe(0.6m + 0.09m + 1.875m);
 
         // Without a cache-write price, writes cost the input price, as before.
         price.CacheWriteInputPerMillionUsd = null;
-        CostCalculator.Calculate(usage, price, 10).Usd.ShouldBe(2.1m + 0.09m);
+        CostCalculator.Calculate(usage, price).ShouldBe(2.1m + 0.09m);
         price.CacheWriteInputPerMillionUsd = 3.75m;
 
         // Cache writes never exceed the uncached input.
-        CostCalculator.Calculate(new TokenUsage(100, 60, 0, CacheWriteInputTokens: 100), price, 10).Usd.ShouldBe((40 * 3.75m + 60 * 0.30m) / 1_000_000);
+        CostCalculator.Calculate(new TokenUsage(100, 60, 0, CacheWriteInputTokens: 100), price).ShouldBe((40 * 3.75m + 60 * 0.30m) / 1_000_000);
     }
 
     [Fact]
