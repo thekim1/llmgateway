@@ -33,6 +33,10 @@ export async function login(page: Page, role: Role = 'gateway-admin'): Promise<v
   const cached = sessions.get(role)
   if (cached) {
     await page.context().addCookies(cached)
+    // A test that signs out ends the cached session on the server: sign in again then.
+    if (!((await (await page.request.get('/bff/user')).json()).roles ?? []).includes(role)) sessions.delete(role)
+  }
+  if (sessions.has(role)) {
     await page.goto('/')
   } else {
     await page.goto('/')
@@ -161,7 +165,9 @@ export async function undersizedControls(page: Page, minimum = 24) {
       const style = getComputedStyle(element)
       return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && !element.closest('[aria-hidden="true"], [inert]')
     }
-    const all = [...document.querySelectorAll(selector)].filter(visible)
+    // A native modal dialog makes the page behind it inert without an inert attribute: only the topmost one counts.
+    const root = [...document.querySelectorAll('dialog[open]')].filter(d => d.matches(':modal')).pop() ?? document
+    const all = [...root.querySelectorAll(selector)].filter(visible)
     const rects = all.map(element => ({ element, rect: element.getBoundingClientRect() }))
     const failures: { id: string; text: string; width: number; height: number }[] = []
     for (const { element, rect } of rects) {

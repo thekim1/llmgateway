@@ -28,7 +28,7 @@ const durations = [
 
 const status = computed(() => {
   const s = settings.value
-  if (!s?.active) return { tone: 'neutral' as const, label: 'Off: only refused, failed and cancelled requests are logged' }
+  if (!s?.active) return { tone: 'neutral' as const, label: 'Off: problem requests only' }
   return { tone: 'warn' as const, label: s.until ? `On until ${formatDateTime(s.until)}` : 'On, no time limit' }
 })
 

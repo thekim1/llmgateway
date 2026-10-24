@@ -24,7 +24,7 @@ test('focus moves to the detail heading, back to the trigger, to the first error
     await expect(page.locator('#rule-title')).toBeFocused()
 
     // Drawer: Escape returns focus to the button that opened it.
-    const trigger = page.getByRole('button', { name: 'New rule' })
+    const trigger = page.getByRole('button', { name: 'New rule', exact: true })
     await trigger.click()
     const drawer = page.getByRole('dialog', { name: 'New rule' })
     await expect(drawer).toBeVisible()
@@ -96,7 +96,7 @@ test('move buttons stay focusable and say they are unavailable at the ends', asy
 test('model name inputs offer their suggestions as a datalist', async ({ page }) => {
   await login(page)
   await ready(page, '/routing-rules')
-  await page.getByRole('button', { name: 'New rule' }).click()
+  await page.getByRole('button', { name: 'New rule', exact: true }).click()
   const drawer = page.getByRole('dialog', { name: 'New rule' })
   const input = drawer.locator('#rule-target-0')
   await expect(input).toHaveAttribute('list', 'rule-model-names')

@@ -19,7 +19,7 @@ async function rulesNav(page: Page) {
 test('server errors land on the right fields', async ({ page }) => {
   await login(page)
   await ready(page, '/routing-rules')
-  await page.getByRole('button', { name: 'New rule' }).click()
+  await page.getByRole('button', { name: 'New rule', exact: true }).click()
   const drawer = page.getByRole('dialog', { name: 'New rule' })
   const create = drawer.getByRole('button', { name: 'Create rule' })
 
@@ -27,14 +27,14 @@ test('server errors land on the right fields', async ({ page }) => {
   await drawer.getByLabel('Title', { exact: true }).fill('Premium via header')
   await drawer.locator('#rule-target-0').fill('ume/chat-onprem')
   await create.click()
-  await expect(drawer.getByText('Det finns redan en regel med samma namn i detta omfång.')).toBeVisible()
+  await expect(drawer.getByText('There is already a global rule with the same name.')).toBeVisible()
   await expect(drawer).toBeVisible()
 
   // Unknown model: the targets field.
   await drawer.getByLabel('Title', { exact: true }).fill(`Browser rule ${suffix()}`)
   await drawer.locator('#rule-target-0').fill('no/such-model')
   await create.click()
-  await expect(drawer.getByText(/Okänd modell eller alias: no\/such-model/)).toBeVisible()
+  await expect(drawer.getByText(/Unknown model or alias: no\/such-model/)).toBeVisible()
 
   // A scope without an owner: the owner field.
   await drawer.locator('#rule-target-0').fill('ume/chat-onprem')
@@ -89,7 +89,7 @@ test('usage shows the rule that routed a request', async ({ page }) => {
     const response = await gatewayCall(page, key.secret, { 'x-e2e': s })
     const requestId = response.headers()['x-request-id']
     await expect.poll(async () => (await page.request.get(`/api/usage/requests/${requestId}`)).status()).toBe(200)
-    await ready(page, '/usage')
+    await ready(page, '/usage?tab=requests')
     await page.getByLabel('Request ID').fill(requestId)
     await page.getByRole('button', { name: 'Look up' }).click()
     const drawer = page.getByRole('dialog')

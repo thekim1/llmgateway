@@ -245,6 +245,12 @@ public sealed class RoutingRuleAdminTests(AdminFixture fixture)
         guard["applied"]![0]!["ruleId"]!.GetValue<string>().ShouldBe(budget);
         guard["evaluation"]!.AsArray().Single(e => e!["name"]!.GetValue<string>() == "Budget")!["trace"]![0]!["leftValue"]!.GetValue<string>().ShouldBe("95");
 
+        // A chained rule may point at a name nothing has: the result says so instead of calling it a disabled model.
+        var missing = $"no-such-model-{Guid.NewGuid():N}";
+        await CreateAsync(client, Body("Missing target", [missing], "headers['x-missing'] == '1'", scope: "Team", scopeId: org.Team, priority: 3, chain: true));
+        var gone = (await Test(new { model = "ume/chat", teamId = org.Team, headers = new Dictionary<string, string> { ["x-missing"] = "1" } }))["models"]![0]!;
+        (gone["name"]!.GetValue<string>(), gone["exists"]!.GetValue<bool>(), gone["type"]!.GetValue<string>()).ShouldBe((missing, false, "unknown"));
+
         // Another team is outside these rules' scope entirely.
         (await Test(new { model = "ume/chat", teamId = Guid.NewGuid(), budgetUsed = 95 }))["evaluation"]!.AsArray().Where(e => e!["name"]!.GetValue<string>() is "VIP" or "Budget").ShouldBeEmpty();
 

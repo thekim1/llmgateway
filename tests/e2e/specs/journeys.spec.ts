@@ -75,7 +75,7 @@ test('OIDC login, team and show-once key, rotation, usage, budget and audit', as
   const stored = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(JSON.stringify(stored).includes(secret)).toBe(false)
 
-  await ready(page, '/usage')
+  await ready(page, '/usage?tab=requests')
   await page.getByLabel('Request ID').fill(requestId)
   await page.getByRole('button', { name: 'Look up' }).click()
   await expect(page.getByRole('dialog', { name: keyName })).toContainText(requestId)
