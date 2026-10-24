@@ -24,7 +24,9 @@ cards and tabs inside pages and everyday words (*retention*, *circuit*, *departm
 full screen on phones. On phones a **Menu** tab opens every page, the theme, the session and **Sign out**, and the end of
 a page is no longer hidden behind the bottom bar. Fixes: the session timer lost its hours ("h 34 min left"), the "Skip to
 main content" link showed over the header on phones, and the daily spend and provider stability charts had no height
-(Tailwind classes using spacing steps that did not exist produced no CSS). See [Admin UI](docs/admin-ui.md#finding-your-way).
+(Tailwind classes using spacing steps that did not exist produced no CSS). The time labels under narrow
+charts (the Usage cards) no longer run together, and the Overview circuit alert says *Open Health & operations*.
+Screenshots on the website and in `docs/images` are retaken with the new menu. See [Admin UI](docs/admin-ui.md#finding-your-way).
 
 ## 0.7.1 - 2026-10-23
 

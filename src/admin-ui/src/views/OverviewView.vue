@@ -118,7 +118,7 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
           tone="danger"
           :title="provider.name"
           body="Requests are not sent to this provider until the circuit closes."
-          action="Open operations"
+          action="Open Health &amp; operations"
           @action="router.push({ name: 'ops' })"
         />
       </div>

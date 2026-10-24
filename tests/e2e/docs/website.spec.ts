@@ -65,7 +65,21 @@ test('website screenshots', async ({ page }) => {
     }, { timeout: 30_000 }).toBeGreaterThan(0)
     const limit = Math.max(0.01, Math.round(spent / 0.85 * 100) / 100)
     expect((await put(page, `/api/budgets/${budget.id}`, { ...budget, limitUsd: limit })).status()).toBe(200)
-    for (let i = 0; i < 4; i++) await chat(i * 2 + 1)
+    // The fake LLM is cheap, so the smallest limit (0.01 US$) can be more than 85 % of what was spent: send web chat
+    // requests until the budget is past its 80 % alert level, and stop well before it runs out.
+    const topUp = () => page.request.post(`${catalogue.gatewayBaseUrl}/v1/chat/completions`, {
+      headers: { Authorization: `Bearer ${keys[1].secret}` },
+      data: { model: 'ume/chat-standard', messages: [{ role: 'user', content: 'Sammanfatta ärendet' }], max_tokens: 256 },
+    })
+    for (let round = 0; round < 60 && spent < limit * 0.82; round++) {
+      const statuses = await Promise.all([0, 1, 2, 3].map(async () => (await topUp()).status()))
+      expect(statuses, 'top-up requests succeed').toEqual([200, 200, 200, 200])
+      await page.waitForTimeout(1200)
+      const budgets: Budget[] = await (await page.request.get('/api/budgets?scope=VirtualKey')).json()
+      spent = budgets.find(b => b.id === budget.id)?.spentUsd ?? spent
+    }
+    expect(spent).toBeGreaterThan(limit * 0.8)
+    expect(spent).toBeLessThan(limit)
 
     for (const theme of themes) {
       // Overview, 1440 x 900 (the hero image).
