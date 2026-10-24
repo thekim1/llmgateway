@@ -567,6 +567,13 @@ public sealed class UsageRecord
     /// <summary>Streamed answers: from the gateway receiving the request until the first event reached the client.</summary>
     public int? TimeToFirstTokenMs { get; set; }
 
+    /// <summary>
+    /// Streamed answers: from sending the request to the provider that answered until its first event arrived. Failed
+    /// fallback attempts, retries and the gateway's own time are left out, and the answer's length does not count, so
+    /// this is how quickly the provider responds.
+    /// </summary>
+    public int? ProviderFirstTokenMs { get; set; }
+
     public int StatusCode { get; set; }
     public RequestOutcome Outcome { get; set; }
     public int FallbackCount { get; set; }

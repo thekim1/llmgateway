@@ -7,8 +7,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useBudgetsStore } from '@/stores/budgets'
 import { useOpsStore } from '@/stores/ops'
 import { PROVIDER_STATUS, SCOPE_LABEL, plural } from '@/utils/labels'
-import { formatMs, formatNumber, formatPercent, formatUsdCost, lastDaysIso, startOfMonthIso } from '@/utils/format'
+import { formatMs, formatNumber, formatPercent, formatUsdCost, lastDaysIso, startOfMonthIso, todayIso, toIsoDate } from '@/utils/format'
 import { alertSpentOf } from '@/utils/budgets'
+import { requestsLink } from '@/utils/requestsLink'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import AttentionCard from '@/components/ui/AttentionCard.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
@@ -67,12 +68,14 @@ const budgetPercent = computed(() => {
   return (active.reduce((sum, b) => sum + b.spentUsd, 0) / limit) * 100
 })
 
+// The list works in whole days: yesterday and today cover the last 24 hours.
+const failedLast24h = computed(() => requestsLink({ from: toIsoDate(new Date(Date.now() - DAY_MS)), to: todayIso(), outcome: 'errors' }))
 const errorRate = computed(() => {
   const total = last24h.value?.totalRequests ?? 0
   return total > 0 ? ((last24h.value?.totalErrors ?? 0) / total) * 100 : null
 })
 const p95 = computed(() => {
-  const values = (ops.health?.providers ?? []).map((p) => p.p95LatencyMs).filter((v): v is number => v !== null)
+  const values = (ops.health?.providers ?? []).map((p) => p.p95FirstTokenMs).filter((v): v is number => v !== null)
   return values.length ? Math.max(...values) : null
 })
 // Every day of the period, also those without spend, so a new installation does not show one bar across the whole card.
@@ -95,7 +98,7 @@ const columns: Column[] = [
 const providerColumns: Column[] = [
   { key: 'name', label: 'Provider' },
   { key: 'status', label: 'Status' },
-  { key: 'p95', label: 'p95', align: 'right' },
+  { key: 'p95', label: 'First token p95', align: 'right' },
 ]
 const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnabled) ?? [])
 </script>
@@ -146,12 +149,27 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
           meter-label="Share of department budgets used"
           :context="budgetPercent === null ? 'Estimate, not an invoice' : `${formatPercent(budgetPercent)} of department budgets`"
         />
-        <MetricTile label="Requests, 24 h" :value="formatNumber(last24h?.totalRequests)" :context="`${formatNumber(last24h?.totalErrors)} errors`" />
-        <MetricTile label="Error rate, 24 h" :value="formatPercent(errorRate)" :context="errorRate === null ? 'No traffic in 24 h' : 'Failed requests of all requests'" />
+        <MetricTile label="Requests, 24 h" :value="formatNumber(last24h?.totalRequests)">
+          <template #context>
+            <router-link v-if="(last24h?.totalErrors ?? 0) > 0" :to="failedLast24h" class="font-medium text-accent-ink underline">
+              {{ formatNumber(last24h?.totalErrors) }} errors<span class="sr-only">: show the failed requests</span>
+            </router-link>
+            <template v-else>{{ formatNumber(last24h?.totalErrors) }} errors</template>
+          </template>
+        </MetricTile>
+        <MetricTile label="Error rate, 24 h" :value="formatPercent(errorRate)">
+          <template #context>
+            <template v-if="errorRate === null">No traffic in 24 h</template>
+            <template v-else>
+              Failed requests of all requests<template v-if="(last24h?.totalErrors ?? 0) > 0">.
+                <router-link :to="failedLast24h" class="font-medium text-accent-ink underline">Show them</router-link></template>
+            </template>
+          </template>
+        </MetricTile>
         <MetricTile
-          label="Latency p95"
+          label="Provider first token p95"
           :value="formatMs(p95)"
-          :context="auth.isGatewayAdmin ? (p95 === null ? 'No traffic in 24 h' : 'Slowest provider, 24 h') : 'Visible to gateway admins'"
+          :context="auth.isGatewayAdmin ? (p95 === null ? 'No streamed answers in 24 h' : 'Slowest provider, streamed answers, 24 h') : 'Visible to gateway admins'"
         />
       </div>
     </section>
@@ -160,7 +178,7 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
       <UiCard title="Daily spend" meta="Last 30 days" heading-id="daily-h">
         <DailySpendChart :points="points" />
       </UiCard>
-      <UiCard v-if="auth.isGatewayAdmin" title="Providers" meta="p95, 24 h" heading-id="providers-h">
+      <UiCard v-if="auth.isGatewayAdmin" title="Providers" meta="First token p95, 24 h" heading-id="providers-h">
         <AsyncState :loading="!ops.health" :error="ops.healthError" :empty="false" @retry="ops.loadHealth">
           <DataTable
             :columns="providerColumns"
@@ -177,11 +195,12 @@ const providerRows = computed(() => ops.health?.providers.filter((p) => p.isEnab
               </span>
             </template>
             <template #cell-p95="{ row }">
-              <span :title="row.p95LatencyMs === null ? 'No traffic in 24 h' : undefined">{{ formatMs(row.p95LatencyMs) }}</span>
+              <span :title="row.p95FirstTokenMs === null ? 'No streamed answers in 24 h' : undefined">{{ formatMs(row.p95FirstTokenMs) }}</span>
             </template>
           </DataTable>
           <p class="mt-2 text-small text-fg-3">
-            Status: provider failures in the last hour. p95: whole requests over 24 h.
+            Status: provider failures in the last hour. First token: how quickly the provider that answered started streaming, over 24 h, without
+            fallbacks or the length of the answer.
             <router-link :to="{ name: 'provider-stability' }" class="font-medium text-accent-ink underline">Provider stability</router-link>
           </p>
         </AsyncState>

@@ -622,7 +622,13 @@ export interface UsageRequestsQuery {
   keyId?: string
   teamId?: string
   departmentId?: string
+  /** The requested model. */
+  model?: string
+  /** The provider's name; `-` for requests no provider handled. */
+  provider?: string
   outcome?: RequestOutcome
+  /** Only requests that did not succeed. */
+  errors?: boolean
   page?: number
   pageSize?: number
 }
@@ -659,6 +665,8 @@ export interface UsageRequest {
   upstreamMs: number | null
   /** Streamed answers: time until the first event reached the client. */
   timeToFirstTokenMs: number | null
+  /** Streamed answers: from sending the request to the provider that answered until its first event (no fallbacks, no gateway time). */
+  providerFirstTokenMs: number | null
 }
 
 export const GATEWAY_ENDPOINTS = [
@@ -864,8 +872,9 @@ export interface OpsProviderHealth {
   requests24h: number
   errorRate24h: number
   fallbackRate24h: number
-  p50LatencyMs: number | null
-  p95LatencyMs: number | null
+  /** The provider's time to first token on streamed answers; null when it streamed none. */
+  p50FirstTokenMs: number | null
+  p95FirstTokenMs: number | null
   /** Share of the last 24 h's requests that failed at the provider (5xx, timeouts, broken streams). */
   providerErrorRate24h: number
   /** Computed by the admin API from the last hour; see `statusReason`. */
@@ -892,8 +901,8 @@ export interface ProviderRank {
   /** 1 − provider error rate over the period. */
   availability: number
   fallbackRate: number
-  p50LatencyMs: number | null
-  p95LatencyMs: number | null
+  p50FirstTokenMs: number | null
+  p95FirstTokenMs: number | null
 }
 
 export interface ProviderBucket {
@@ -903,8 +912,8 @@ export interface ProviderBucket {
   providerErrors: number
   errorRate: number
   fallbacks: number
-  p50LatencyMs: number | null
-  p95LatencyMs: number | null
+  p50FirstTokenMs: number | null
+  p95FirstTokenMs: number | null
 }
 
 export interface ProviderStability {

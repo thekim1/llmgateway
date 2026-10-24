@@ -20,7 +20,7 @@ public static class UsageRecordCopy
     [
         "RequestId", "Timestamp", "VirtualKeyId", "TeamId", "DepartmentId", "Endpoint", "RequestedModel", "ProviderAccountId",
         "ProviderName", "ModelDeploymentId", "UpstreamModel", "InputTokens", "CachedInputTokens", "OutputTokens", "AudioSeconds",
-        "CostUsd", "LatencyMs", "UpstreamMs", "TimeToFirstTokenMs", "StatusCode", "Outcome", "FallbackCount", "Streamed",
+        "CostUsd", "LatencyMs", "UpstreamMs", "TimeToFirstTokenMs", "ProviderFirstTokenMs", "StatusCode", "Outcome", "FallbackCount", "Streamed",
         "PiiActionApplied", "PiiCategories", "ErrorCode", "RoutingRuleId", "RoutingRuleName", "GuardFlags",
     ];
 
@@ -59,6 +59,7 @@ public static class UsageRecordCopy
                 await copy.WriteAsync(r.LatencyMs, NpgsqlDbType.Integer, cancellationToken);
                 await WriteAsync(copy, r.UpstreamMs, NpgsqlDbType.Integer, cancellationToken);
                 await WriteAsync(copy, r.TimeToFirstTokenMs, NpgsqlDbType.Integer, cancellationToken);
+                await WriteAsync(copy, r.ProviderFirstTokenMs, NpgsqlDbType.Integer, cancellationToken);
                 await copy.WriteAsync(r.StatusCode, NpgsqlDbType.Integer, cancellationToken);
                 await copy.WriteAsync(r.Outcome.ToString(), NpgsqlDbType.Varchar, cancellationToken);
                 await copy.WriteAsync(r.FallbackCount, NpgsqlDbType.Integer, cancellationToken);

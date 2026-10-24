@@ -86,6 +86,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.Outcome.ShouldBe(RequestOutcome.Success);
         usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
         usage.TimeToFirstTokenMs.ShouldBeNull(); // not streamed
+        usage.ProviderFirstTokenMs.ShouldBeNull();
         using var scope = fixture.Services.CreateScope();
         (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().VirtualKeys.SingleAsync(k => k.Id == key.Id, TestContext.Current.CancellationToken)).LastUsedAt.ShouldNotBeNull();
     }
@@ -106,6 +107,20 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.FallbackCount.ShouldBe(1);
         // The failed attempt is provider time too; the slow provider is given up on after its 1 s timeout.
         usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(failingModel == "slow/slow" ? 900 : 0, usage.LatencyMs);
+    }
+
+    [Fact]
+    public async Task Provider_time_to_first_token_leaves_out_the_failed_attempt()
+    {
+        // The slow provider is given up on after its 1 s timeout; that second is the client's wait, not onprem's.
+        var route = await fixture.CreateRouteAsync("slow/slow", "onprem/ok");
+        using var response = await fixture.SendAsync(await fixture.CreateKeyAsync(), route, stream: true);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var usage = await fixture.UsageAsync(response);
+        usage.ProviderName.ShouldBe("onprem");
+        usage.TimeToFirstTokenMs.ShouldNotBeNull().ShouldBeGreaterThanOrEqualTo(900);
+        usage.ProviderFirstTokenMs.ShouldNotBeNull().ShouldBeLessThan(900);
     }
 
     [Fact]
@@ -320,6 +335,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         usage.Streamed.ShouldBeTrue();
         usage.UpstreamMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
         usage.TimeToFirstTokenMs.ShouldNotBeNull().ShouldBeInRange(0, usage.LatencyMs);
+        usage.ProviderFirstTokenMs.ShouldNotBeNull().ShouldBeInRange(0, usage.TimeToFirstTokenMs!.Value);
         usage.InputTokens.ShouldBe(100);
         usage.OutputTokens.ShouldBe(20);
         usage.CostUsd.ShouldBe(0.000135m);
@@ -378,6 +394,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         var usage = await fixture.UsageAsync(response);
         usage.UpstreamMs.ShouldBeNull(); // refused before any provider was called
         usage.TimeToFirstTokenMs.ShouldBeNull();
+        usage.ProviderFirstTokenMs.ShouldBeNull();
     }
 
     [Theory]

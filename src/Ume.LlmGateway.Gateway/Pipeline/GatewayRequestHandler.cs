@@ -280,6 +280,7 @@ public sealed partial class GatewayRequestHandler(
             // In flight until the attempt ends (a relayed stream included); feeds least-loaded balancing.
             using var lease = load.Start(deployment.Id);
             var sent = time.GetTimestamp();
+            state.AttemptTimestamp = sent;
             try
             {
                 result = await _adapters.Resolve(provider.Type)
@@ -397,6 +398,10 @@ public sealed partial class GatewayRequestHandler(
                 if (state.FirstEventTimestamp != 0)
                 {
                     gaps.Upstream(arrived - written);
+                }
+                else
+                {
+                    state.ProviderFirstEventTimestamp = arrived;
                 }
 
                 // Encoded straight into the response pipe; one flush per event keeps tokens flowing immediately.

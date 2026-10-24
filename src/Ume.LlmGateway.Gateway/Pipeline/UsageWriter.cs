@@ -594,6 +594,7 @@ public sealed class GatewayMetrics
     private readonly Histogram<double> _latency;
     private readonly Histogram<double> _overhead;
     private readonly Histogram<double> _timeToFirstToken;
+    private readonly Histogram<double> _providerFirstToken;
     private readonly Histogram<double> _sessionDuration;
     private readonly UpDownCounter<long> _openSessions;
     private readonly Counter<double> _audioSeconds;
@@ -626,6 +627,7 @@ public sealed class GatewayMetrics
         _latency = _meter.CreateHistogram<double>("ume.gateway.request.duration", unit: "ms", description: "End-to-end latency");
         _overhead = _meter.CreateHistogram<double>("ume.gateway.overhead", unit: "ms", description: "The gateway's own time: end-to-end latency minus time spent waiting on providers");
         _timeToFirstToken = _meter.CreateHistogram<double>("ume.gateway.time_to_first_token", unit: "ms", description: "Streamed answers: time until the first event reached the client");
+        _providerFirstToken = _meter.CreateHistogram<double>("ume.gateway.provider.time_to_first_token", unit: "ms", description: "Streamed answers: time from sending the request to the provider that answered until its first event, without fallbacks or gateway time");
         _sessionDuration = _meter.CreateHistogram<double>("ume.gateway.realtime.session.duration", unit: "s", description: "Length of live audio sessions");
         _openSessions = _meter.CreateUpDownCounter<long>("ume.gateway.realtime.sessions", description: "Live audio sessions open on this instance");
         _audioSeconds = _meter.CreateCounter<double>("ume.gateway.audio", unit: "s", description: "Seconds of audio processed");
@@ -716,6 +718,11 @@ public sealed class GatewayMetrics
             if (record.TimeToFirstTokenMs is { } firstToken)
             {
                 _timeToFirstToken.Record(firstToken, tags);
+            }
+
+            if (record.ProviderFirstTokenMs is { } providerFirstToken)
+            {
+                _providerFirstToken.Record(providerFirstToken, tags);
             }
         }
 

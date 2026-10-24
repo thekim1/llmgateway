@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest } from '@/api/types'
+import { REQUEST_OUTCOMES, USAGE_GROUP_BY, type UsageGroupBy, type UsageRequest, type UsageSummaryRow } from '@/api/types'
+import { useAuthStore } from '@/stores/auth'
+import { useProvidersStore } from '@/stores/providers'
 import { useUsageStore } from '@/stores/usage'
 import { useDepartmentsStore } from '@/stores/departments'
 import { useTeamsStore } from '@/stores/teams'
 import { useKeysStore } from '@/stores/keys'
-import { OUTCOME_LABEL } from '@/utils/labels'
+import { useModelOptions } from '@/composables/useModelOptions'
+import { OUTCOME_LABEL, plural } from '@/utils/labels'
+import { readRequestsLink, withoutRequestsLink, type RequestsOutcomeFilter } from '@/utils/requestsLink'
 import { problemMessage } from '@/utils/problem'
 import { formatDate, formatDateTime, formatMs, formatNumber, formatUsdCost, todayIso, toIsoDate } from '@/utils/format'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -50,9 +54,15 @@ const usage = useUsageStore()
 const departments = useDepartmentsStore()
 const teams = useTeamsStore()
 const keys = useKeysStore()
+const auth = useAuthStore()
+const providers = useProvidersStore()
+const { options: modelOptions } = useModelOptions()
 const departmentId = ref('')
 const teamId = ref('')
 const keyId = ref('')
+const model = ref('')
+const provider = ref('')
+const outcome = ref<RequestsOutcomeFilter | ''>('')
 const from = ref(toIsoDate(new Date(Date.now() - 30 * 86_400_000)))
 const to = ref(todayIso())
 const group = ref<UsageGroupBy>('department')
@@ -82,6 +92,26 @@ const keyOptions = computed(() => [
     .filter((k) => (!departmentId.value || k.departmentId === departmentId.value) && (!teamId.value || k.teamId === teamId.value))
     .map((k) => ({ value: k.id, label: k.name })),
 ])
+const modelSelectOptions = computed(() => {
+  const names = new Set(modelOptions.value.map((m) => m.name))
+  if (model.value) names.add(model.value)
+  return [{ value: '', label: 'All models' }, ...[...names].sort((a, b) => a.localeCompare(b)).map((n) => ({ value: n, label: n }))]
+})
+// The summary groups requests no provider handled (refused by the gateway first) under "-".
+const providerSelectOptions = computed(() => {
+  const names = new Set(providers.items.map((p) => p.name))
+  if (provider.value && provider.value !== '-') names.add(provider.value)
+  return [
+    { value: '', label: 'All providers' },
+    ...[...names].sort((a, b) => a.localeCompare(b)).map((n) => ({ value: n, label: n })),
+    { value: '-', label: 'No provider (refused)' },
+  ]
+})
+const outcomeOptions = [
+  { value: '', label: 'All requests' },
+  { value: 'errors', label: 'All errors' },
+  ...REQUEST_OUTCOMES.map((o) => ({ value: o, label: OUTCOME_LABEL[o].label })),
+]
 function onDepartmentChange(): void {
   if (teamId.value && !teams.items.some((t) => t.id === teamId.value && t.departmentId === departmentId.value)) teamId.value = ''
   onTeamChange()
@@ -93,7 +123,14 @@ const scope = computed(() => ({
   ...(departmentId.value && { departmentId: departmentId.value }),
   ...(teamId.value && { teamId: teamId.value }),
 }))
-const requestScope = computed(() => ({ ...scope.value, ...(keyId.value && { keyId: keyId.value }) }))
+const requestScope = computed(() => ({
+  ...scope.value,
+  ...(keyId.value && { keyId: keyId.value }),
+  ...(model.value && { model: model.value }),
+  ...(provider.value && { provider: provider.value }),
+  ...(outcome.value === 'errors' ? { errors: true } : outcome.value ? { outcome: outcome.value } : {}),
+}))
+const showingErrors = computed(() => outcome.value !== '' && outcome.value !== 'Success')
 const exportUrl = computed(() => (from.value && to.value ? usage.exportCsvUrl(dates.value.from, dates.value.to) : undefined))
 const pageCount = computed(() => Math.max(1, Math.ceil(usage.requests.total / PAGE_SIZE)))
 
@@ -146,6 +183,56 @@ async function lookup(): Promise<void> {
   }
 }
 
+/** Summary rows by day before the oldest kept record are monthly totals (yyyy-mm): there are no requests to list. */
+const canListErrors = (row: UsageSummaryRow) => row.errors > 0 && !(group.value === 'day' && row.key.length === 7)
+
+/** Lists the failed requests of one summary row: its department, team, key, model, provider or day. */
+function showErrors(row: UsageSummaryRow): void {
+  if (group.value === 'department') {
+    departmentId.value = row.key
+    teamId.value = ''
+    keyId.value = ''
+  } else if (group.value === 'team') {
+    teamId.value = row.key
+    keyId.value = ''
+  } else if (group.value === 'key') {
+    keyId.value = row.key
+  } else if (group.value === 'model') {
+    model.value = row.key
+  } else if (group.value === 'provider') {
+    provider.value = row.key
+  } else {
+    from.value = row.key.slice(0, 10)
+    to.value = row.key.slice(0, 10)
+  }
+  showAllErrors()
+}
+
+function showAllErrors(): void {
+  outcome.value = 'errors'
+  apply()
+  document.getElementById('requests-h')?.scrollIntoView({ block: 'start' })
+}
+
+/** Other pages link here with filters (the failed requests of the last day, say); the address keeps only the tab. */
+function followLink(): void {
+  const link = readRequestsLink(route.query)
+  if (!link) return
+  if (link.from) from.value = link.from
+  if (link.to) to.value = link.to
+  departmentId.value = link.departmentId ?? ''
+  teamId.value = link.teamId ?? ''
+  keyId.value = link.keyId ?? ''
+  model.value = link.model ?? ''
+  provider.value = link.provider ?? ''
+  outcome.value = link.outcome ?? ''
+  page.value = 1
+  requestsLoaded = true
+  tab.value = 'requests'
+  void router.replace({ query: { ...withoutRequestsLink(route.query), tab: 'requests' } })
+  void load()
+}
+
 const summaryColumns: Column[] = [
   { key: 'label', label: 'Name' },
   { key: 'requests', label: 'Requests', align: 'right' },
@@ -168,13 +255,15 @@ function openRequestsTab(): void {
 }
 
 // Search links to /usage?tab=requests; follow it when already on the page.
+watch(() => route.query, followLink)
+
 watch(() => route.query.tab, (value) => {
   const next: Tab = value === 'requests' ? 'requests' : 'dashboard'
   if (next !== tab.value) tab.value = next
 })
 
 watch(tab, (value) => {
-  void router.replace({ query: { ...route.query, tab: value === 'dashboard' ? undefined : value } })
+  void router.replace({ query: { ...withoutRequestsLink(route.query), tab: value === 'dashboard' ? undefined : value } })
   if (value === 'requests') openRequestsTab()
 })
 
@@ -182,7 +271,9 @@ onMounted(() => {
   void departments.load()
   void teams.load()
   void keys.load()
-  if (tab.value === 'requests') openRequestsTab()
+  if (auth.isGatewayAdmin && !providers.loaded) void providers.load()
+  if (readRequestsLink(route.query)) followLink()
+  else if (tab.value === 'requests') openRequestsTab()
   if (typeof route.query.request === 'string' && route.query.request) {
     lookupId.value = route.query.request
     void lookup()
@@ -209,17 +300,24 @@ onMounted(() => {
       <SelectField v-model="departmentId" label="Department" :options="departmentOptions" @update:model-value="onDepartmentChange" />
       <SelectField v-model="teamId" label="Team" :options="teamOptions" @update:model-value="onTeamChange" />
       <SelectField v-model="keyId" label="Key" :options="keyOptions" />
+      <SelectField v-model="model" label="Model" :options="modelSelectOptions" />
+      <SelectField v-if="auth.isGatewayAdmin || provider" v-model="provider" label="Provider" :options="providerSelectOptions" />
+      <SelectField v-model="outcome" label="Outcome" :options="outcomeOptions" />
       <SelectField v-model="group" label="Group by" :options="groupOptions" />
       <UiButton type="submit" variant="primary">Apply</UiButton>
     </form>
     <InlineError v-if="rangeError" :message="rangeError" class="mb-6" />
+    <p v-if="model || provider || outcome" class="-mt-3 mb-6 text-small text-fg-3">Model, provider and outcome only filter the request list, not the summary.</p>
 
     <section aria-labelledby="summary-h" class="mb-8">
       <h2 id="summary-h" class="mb-3 text-heading">Summary by {{ GROUP_LABEL[group].toLowerCase() }}</h2>
       <AsyncState :loading="usage.summaryLoading" :error="usage.summaryError" :empty="false" @retry="load">
         <p v-if="usage.summary" class="mb-3 text-fg-2">
           {{ formatUsdCost(usage.summary.totalCostUsd) }} across {{ formatNumber(usage.summary.totalRequests) }} requests and
-          {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens.
+          {{ formatNumber(usage.summary.totalInputTokens + usage.summary.totalOutputTokens) }} tokens<template v-if="usage.summary.totalErrors > 0">,
+            {{ plural(usage.summary.totalErrors, 'error') }}.
+            <button v-if="!showingErrors" type="button" class="font-medium text-accent-ink underline" @click="showAllErrors">Show the failed requests</button>
+          </template><template v-else>.</template>
         </p>
         <p v-if="usage.summary?.monthlyTotalsBefore" class="mb-3 flex items-start gap-2 text-small text-fg-2">
           <AppIcon name="info" :size="18" class="mt-px shrink-0" />
@@ -230,20 +328,25 @@ onMounted(() => {
           <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
           <template #cell-tokens="{ row }">{{ formatNumber(row.inputTokens + row.outputTokens) }}</template>
           <template #cell-costUsd="{ row }">{{ formatUsdCost(row.costUsd) }}</template>
-          <template #cell-errors="{ row }">{{ formatNumber(row.errors) }}</template>
+          <template #cell-errors="{ row }">
+            <button v-if="canListErrors(row)" type="button" class="font-medium text-accent-ink underline" @click.stop="showErrors(row)">
+              {{ formatNumber(row.errors) }}<span class="sr-only"> failed requests for {{ row.label }}: show them</span>
+            </button>
+            <template v-else>{{ formatNumber(row.errors) }}</template>
+          </template>
         </DataTable>
       </AsyncState>
     </section>
 
     <section aria-labelledby="requests-h" class="mb-8">
-      <h2 id="requests-h" class="mb-3 text-heading">Requests</h2>
+      <h2 id="requests-h" class="mb-3 scroll-mt-4 text-heading">{{ showingErrors ? 'Failed requests' : 'Requests' }}</h2>
       <AsyncState :loading="usage.requestsLoading" :error="usage.requestsError" :empty="false" @retry="load">
         <DataTable
           :columns="requestColumns"
           :rows="usage.requests.items"
           :row-key="(r) => r.requestId"
           caption="Requests in this period"
-          empty-text="No requests in this period."
+          :empty-text="showingErrors ? 'No failed requests in this period.' : 'No requests in this period.'"
           clickable
           @row-click="openRequest"
         >
@@ -257,6 +360,7 @@ onMounted(() => {
           <template #cell-outcome="{ row }">
             <UiBadge :tone="OUTCOME_LABEL[row.outcome].tone" :label="OUTCOME_LABEL[row.outcome].label" />
             <span class="ml-2 text-caption text-fg-3">{{ row.statusCode }}</span>
+            <span v-if="row.errorCode" class="block font-mono text-caption text-fg-3">{{ row.errorCode }}</span>
           </template>
         </DataTable>
         <nav v-if="usage.requests.total > PAGE_SIZE" aria-label="Request pages" class="mt-3 flex items-center justify-between gap-3">
@@ -316,6 +420,7 @@ onMounted(() => {
         <DetailRow v-if="selected.upstreamMs !== null" label="Provider time">{{ formatMs(selected.upstreamMs) }}</DetailRow>
         <DetailRow v-if="selected.upstreamMs !== null" label="Gateway overhead">{{ formatMs(Math.max(0, selected.latencyMs - selected.upstreamMs)) }}</DetailRow>
         <DetailRow v-if="selected.timeToFirstTokenMs !== null" label="Time to first token">{{ formatMs(selected.timeToFirstTokenMs) }}</DetailRow>
+        <DetailRow v-if="selected.providerFirstTokenMs != null" label="Provider first token">{{ formatMs(selected.providerFirstTokenMs) }}</DetailRow>
       </DetailSection>
     </template>
   </UiDrawer>

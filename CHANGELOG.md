@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.8.2 - 2026-10-25
+
+Provider speed on Overview, Health & operations and Provider stability is now the provider's own time to first token,
+and failed requests can be listed from every error count. One admin API rename (`p50LatencyMs`/`p95LatencyMs` become
+`p50FirstTokenMs`/`p95FirstTokenMs`; see the 0.8.2 section of `docs/upgrade-guide.md`). Rolling update: yes.
+
+**Provider speed is the provider's time to first token.** The p50/p95 per provider on Overview, Health & operations and
+Provider stability was the whole request's latency, so long answers and failed attempts at other providers made a fast
+provider look slow. The gateway now records, for each streamed answer, the time from sending the request to the provider
+that answered until its first event (`ProviderFirstTokenMs`; Data API and request details `providerFirstTokenMs`, metric
+`ume.gateway.provider.time_to_first_token`), and the provider figures use it. Answers that are not streamed have no
+comparable figure and are not counted. The admin API fields are renamed `p50FirstTokenMs`/`p95FirstTokenMs` (see the
+upgrade guide). Rolling update: yes.
+
+**Failed requests are easy to find.** *Usage › Requests and costs* has an *Outcome* filter (*All errors* or one outcome),
+plus model and provider filters, and shows the error code under each outcome. Each *Errors* count in the summary lists
+that row's failed requests, and the Usage dashboard's Requests card and Overview's error figures link to them.
+`GET /api/usage/requests` takes `errors=true`, `model` and `provider`.
+
 ## 0.8.1 - 2026-10-24
 
 Costs in USD only: SEK and the exchange rate are removed from every interface (breaking for anything that reads the

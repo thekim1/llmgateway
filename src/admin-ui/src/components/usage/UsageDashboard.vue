@@ -9,6 +9,7 @@ import { useTeamsStore } from '@/stores/teams'
 import { useUsageStore } from '@/stores/usage'
 import { useModelOptions } from '@/composables/useModelOptions'
 import { OUTCOME_LABEL } from '@/utils/labels'
+import { requestsLink } from '@/utils/requestsLink'
 import {
   formatCompact,
   formatDate,
@@ -216,6 +217,21 @@ const errorShare = computed(() => {
   if (!t || t.requests === 0) return undefined
   return `${formatRatio((t.providerErrors + t.refused) / t.requests)} errors · ${formatRatio(t.fallbacks / t.requests)} fell back`
 })
+/** The failed requests behind the Requests card, with the dashboard's period and filters (not the endpoint: the list has no such filter). */
+const failedRequests = computed(() => {
+  const d = data.value
+  if (!d || d.totals.requests === d.totals.successes || outcome.value === 'Success') return null
+  return requestsLink({
+    from: toIsoDate(new Date(d.from)),
+    to: toIsoDate(new Date(d.to)),
+    departmentId: departmentId.value,
+    teamId: teamId.value,
+    keyId: keyId.value,
+    model: model.value,
+    provider: provider.value,
+    outcome: outcome.value || 'errors',
+  })
+})
 const modelCount = computed(() => {
   const named = data.value?.models.filter((m) => m.model !== null).length ?? 0
   return data.value?.models.some((m) => m.model === null) ? `top ${named} models and others` : `${named} ${named === 1 ? 'model' : 'models'}`
@@ -277,7 +293,12 @@ const percentiles = (s: { p95: number | null; p99?: number | null } | undefined)
           :format-tick="formatCompact"
           :format-slot="formatSlot"
           empty-text="No requests in this period."
-        />
+        >
+          <template #context>
+            {{ errorShare }}
+            <router-link v-if="failedRequests" :to="failedRequests" class="ml-1 whitespace-nowrap font-medium text-accent-ink underline">Show failed requests</router-link>
+          </template>
+        </MetricChartCard>
         <MetricChartCard
           title="Tokens"
           total-label="Total"

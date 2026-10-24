@@ -587,6 +587,47 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Usage_requests_filter_to_errors_model_and_provider()
+    {
+        using var admin = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(admin);
+        using var keyResponse = await admin.PostAsJsonAsync("/api/keys", KeyBody(org.Team), TestContext.Current.CancellationToken);
+        var key = (await AdminFixture.ReadAsync(keyResponse, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        var model = "errors-" + Guid.NewGuid().ToString("N")[..8];
+        UsageRecord Record(RequestOutcome outcome, int status, string? provider, int? providerFirstTokenMs = null) => new()
+        {
+            RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = DateTimeOffset.UtcNow, VirtualKeyId = key, TeamId = org.Team,
+            DepartmentId = org.Department, Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = model, ProviderName = provider,
+            Outcome = outcome, StatusCode = status, Streamed = providerFirstTokenMs is not null, ProviderFirstTokenMs = providerFirstTokenMs,
+        };
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            db.UsageRecords.AddRange(
+                Record(RequestOutcome.Success, 200, "eu", 120), Record(RequestOutcome.Success, 200, "eu"),
+                Record(RequestOutcome.ProviderError, 502, "eu"), Record(RequestOutcome.ProviderError, 502, "onprem"),
+                Record(RequestOutcome.BudgetExceeded, 429, null), Record(RequestOutcome.ClientCancelled, 499, "eu"));
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        async Task<JsonNode> ListAsync(string query)
+        {
+            using var response = await admin.GetAsync($"/api/usage/requests?departmentId={org.Department}&model={model}{query}", TestContext.Current.CancellationToken);
+            return await AdminFixture.ReadAsync(response);
+        }
+
+        (await ListAsync(""))["total"]!.GetValue<int>().ShouldBe(6);
+        var errors = await ListAsync("&errors=true");
+        errors["total"]!.GetValue<int>().ShouldBe(4); // everything that did not succeed: provider errors, refusals and cancellations
+        errors["items"]!.AsArray().ShouldAllBe(i => i!["outcome"]!.GetValue<string>() != "Success");
+        (await ListAsync("&errors=true&provider=eu"))["total"]!.GetValue<int>().ShouldBe(2);
+        (await ListAsync("&errors=true&provider=-"))["total"]!.GetValue<int>().ShouldBe(1); // refused before any provider
+        (await ListAsync("&outcome=ProviderError"))["total"]!.GetValue<int>().ShouldBe(2);
+        var streamed = (await ListAsync("&provider=eu"))["items"]!.AsArray().Where(i => i!["providerFirstTokenMs"] is not null).ToList();
+        streamed.Single()!["providerFirstTokenMs"]!.GetValue<int>().ShouldBe(120);
+    }
+
+    [Fact]
     public async Task Image_models_carry_a_per_picture_price_through_export_and_import()
     {
         using var client = await fixture.ClientAsync();

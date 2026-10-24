@@ -52,7 +52,7 @@ public static class ReportEndpoints
     public static void MapReports(this RouteGroupBuilder api)
     {
         var reports = api.MapGroup("").RequireAuthorization(AdminPolicies.Read).WithTags("Reports");
-        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, RequestOutcome? outcome, int? page, int? pageSize, AdminContext ctx, CancellationToken ct) =>
+        reports.MapGet("/usage/requests", async (DateTimeOffset? from, DateTimeOffset? to, Guid? keyId, Guid? teamId, Guid? departmentId, string? model, string? provider, RequestOutcome? outcome, bool? errors, int? page, int? pageSize, AdminContext ctx, CancellationToken ct) =>
         {
             var (skip, take) = Pagination(page, pageSize);
             var (start, end) = Range(from, to, ctx.Now);
@@ -60,11 +60,16 @@ public static class ReportEndpoints
             if (keyId is { } key) { query = query.Where(u => u.VirtualKeyId == key); }
             if (teamId is { } team) { query = query.Where(u => u.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(u => u.DepartmentId == department); }
+            if (!string.IsNullOrWhiteSpace(model)) { var name = model.Trim(); query = query.Where(u => u.RequestedModel == name); }
+            // "-" is how the summary groups requests no provider handled (refused by the gateway first).
+            if (provider?.Trim() is "-") { query = query.Where(u => u.ProviderName == null); }
+            else if (!string.IsNullOrWhiteSpace(provider)) { var name = provider.Trim(); query = query.Where(u => u.ProviderName == name); }
             if (outcome is { } result) { query = query.Where(u => u.Outcome == result); }
+            if (errors == true) { query = query.Where(u => u.Outcome != RequestOutcome.Success); }
             var total = await query.CountAsync(ct);
             var rows = await WithNames(query.OrderByDescending(u => u.Timestamp).ThenByDescending(u => u.Id).Skip(skip).Take(take), ctx.Db).ToListAsync(ct);
             return TypedResults.Ok(new PageDto<UsageRequestDto>([.. rows.Select(UsageDto)], total));
-        }).WithName("ListUsageRequests").WithSummary("Requests in the user's departments, newest first");
+        }).WithName("ListUsageRequests").WithSummary("Requests in the user's departments, newest first; errors=true keeps only those that did not succeed");
         reports.MapGet("/usage/requests/{requestId}", async (string requestId, AdminContext ctx, CancellationToken ct) =>
         {
             if (requestId.Length > 64) { throw new ApiFaultException(400, "The request id is too long."); }
@@ -257,7 +262,7 @@ public static class ReportEndpoints
         return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
-            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags);
+            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags, u.ProviderFirstTokenMs);
     }
 
     internal static (int Skip, int Take) Pagination(int? page, int? pageSize)

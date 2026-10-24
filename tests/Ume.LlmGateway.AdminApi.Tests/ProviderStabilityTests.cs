@@ -94,8 +94,10 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
         var records = new List<UsageRecord>();
         for (var i = 1; i <= 20; i++)
         {
-            records.AddRange(Records(stable, lateSaturday, 1, RequestOutcome.Success, 200, latencyMs: i * 100));
+            // Long answers: the whole request takes far longer than the provider needs to start answering.
+            records.AddRange(Records(stable, lateSaturday, 1, RequestOutcome.Success, 200, latencyMs: 30_000 + i, firstTokenMs: i * 100));
         }
+        records.AddRange(Records(stable, lateSaturday, 1, RequestOutcome.Success, 200, latencyMs: 60_000)); // not streamed
         records.AddRange(Records(stable, lateSaturday, 1, RequestOutcome.Success, 200, latencyMs: 3_600_000, endpoint: GatewayEndpoint.Realtime));
         records.AddRange(Records(flaky, earlySunday, 8, RequestOutcome.Success, 200, latencyMs: 50, fallbacks: 1));
         records.AddRange(Records(flaky, earlySunday, 2, RequestOutcome.ProviderError, 502, latencyMs: 50));
@@ -109,9 +111,10 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
         hours["bucket"]!.GetValue<string>().ShouldBe("Hour");
         var stableHour = hours["buckets"]!.AsArray().Single(b => b!["providerId"]!.GetValue<Guid>() == stable)!;
         stableHour["start"]!.GetValue<DateTimeOffset>().ShouldBe(new DateTimeOffset(2025, 3, 29, 22, 0, 0, TimeSpan.Zero));
-        stableHour["requests"]!.GetValue<long>().ShouldBe(21);
-        stableHour["p50LatencyMs"]!.GetValue<int>().ShouldBe(1000); // the realtime session's hour-long "latency" is left out
-        stableHour["p95LatencyMs"]!.GetValue<int>().ShouldBe(1900);
+        stableHour["requests"]!.GetValue<long>().ShouldBe(22);
+        // The provider's time to first token: end-to-end latency, the answer that was not streamed and the session are left out.
+        stableHour["p50FirstTokenMs"]!.GetValue<int>().ShouldBe(1000);
+        stableHour["p95FirstTokenMs"]!.GetValue<int>().ShouldBe(1900);
         var flakyHour = hours["buckets"]!.AsArray().Single(b => b!["providerId"]!.GetValue<Guid>() == flaky)!;
         flakyHour["start"]!.GetValue<DateTimeOffset>().ShouldBe(new DateTimeOffset(2025, 3, 29, 23, 0, 0, TimeSpan.Zero));
         flakyHour["providerErrors"]!.GetValue<long>().ShouldBe(2);
@@ -172,13 +175,13 @@ public sealed class ProviderStabilityTests(AdminFixture fixture)
     }
 
     private static IEnumerable<UsageRecord> Records(Guid provider, DateTimeOffset at, int count, RequestOutcome outcome, int status,
-        string? errorCode = null, int latencyMs = 100, GatewayEndpoint endpoint = GatewayEndpoint.ChatCompletions, int fallbacks = 0) =>
+        string? errorCode = null, int latencyMs = 100, GatewayEndpoint endpoint = GatewayEndpoint.ChatCompletions, int fallbacks = 0, int? firstTokenMs = null) =>
         Enumerable.Range(0, count).Select(_ => new UsageRecord
         {
             RequestId = "req_" + Guid.NewGuid().ToString("N"), Timestamp = at, VirtualKeyId = Guid.NewGuid(), TeamId = Guid.NewGuid(),
             DepartmentId = Guid.NewGuid(), Endpoint = endpoint, RequestedModel = "test/model", ProviderAccountId = provider,
             ProviderName = "stability-test", Outcome = outcome, StatusCode = status, ErrorCode = errorCode, LatencyMs = latencyMs,
-            FallbackCount = fallbacks,
+            FallbackCount = fallbacks, Streamed = firstTokenMs is not null, ProviderFirstTokenMs = firstTokenMs,
         });
 
     private async Task SaveAsync(List<UsageRecord> records)

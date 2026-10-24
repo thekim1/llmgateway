@@ -35,17 +35,21 @@ computes it each time the page loads (Health & operations has *Refresh*; nothing
   (4xx), cancelled requests, the gateway's own internal errors and requests the gateway refused (budget, rate limit, PII)
   do not. A burst of failures therefore stops affecting the status an hour later.
 
-The 24-hour columns (requests, provider errors, all failed requests, p50, p95) come from the same usage records. Every
-request's latency is stored (`UsageRecords.LatencyMs`): the whole request as the client saw it, from acceptance to the
-last byte, so it includes failed fallback attempts and the full length of a streamed answer (a p95 of several seconds
-usually means long streamed answers, not a slow first token). The gateway writes one record per request, on the provider
+The 24-hour columns (requests, provider errors, all failed requests, first token p50 and p95) come from the same usage
+records. Speed is the **provider's time to first token** (`UsageRecords.ProviderFirstTokenMs`): on a streamed answer, from
+sending the request to the provider that answered until its first event arrived. It measures how quickly the provider
+responds, not how long the prompt or the answer is: failed attempts at other providers, retries and the gateway's own time
+are left out, and so is the rest of the stream. The whole request's latency (`LatencyMs`) is not used here because it
+grows with the length of the answer and includes fallback attempts. Answers that are not streamed only arrive once
+complete, so they have no comparable figure and are not counted; a provider that streamed nothing in the period shows
+*—*. Requests recorded before 0.8.2 have no provider first token. The gateway writes one record per request, on the provider
 that answered (or failed last); a provider that failed and was replaced by a fallback is not charged with that failure
 in the statistics (only its circuit breaker sees it); a request on which every provider failed (502/504
 `all_providers_failed`) is recorded on the last provider tried, so a provider that is down shows up as failing.
 
-**Health & operations › Provider stability** shows p95 latency and the provider error rate per provider over the last 24 hours or
-7 days (per hour) or 30 days (per day, Swedish time), plus a ranking with the most stable provider first (availability,
-then p95). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
+**Health & operations › Provider stability** shows the p95 time to first token and the provider error rate per provider over the
+last 24 hours or 7 days (per hour) or 30 days (per day, Swedish time), plus a ranking with the most stable provider first
+(availability, then p95 time to first token). Each chart has a text summary and a table view. The data comes from `GET /api/ops/providers/stats`
 ([docs/admin-api.md](admin-api.md)).
 
 ## Usage dashboard
@@ -60,7 +64,7 @@ view:
 | Card | Shows |
 |---|---|
 | Cost | Cost in **USD** per bucket, stacked by requested model (the 8 busiest models, the rest as *Other models*) |
-| Requests | Success, provider error, refused by the gateway (budget, rate limit, PII, invalid) and cancelled; error and fallback share |
+| Requests | Success, provider error, refused by the gateway (budget, rate limit, PII, invalid) and cancelled; error and fallback share, and *Show failed requests*, which opens the request list with the dashboard's period and filters (not the endpoint) |
 | Tokens | Uncached input, cached input and output tokens |
 | Provider cache hit rate | Cached ÷ input tokens over the period (prompt caching at the provider) |
 | Requests by model | Requests per requested model, same colours as the cost card |
@@ -76,6 +80,18 @@ called. Requests recorded before the upgrade have no overhead or time to first t
 period is only kept as monthly totals without timings, so the charts start at the oldest kept record (the page says so).
 The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](admin-api.md)); the dashboard's query takes about
 0.1 s for 24 hours and 1.8 s for 30 days of 2 million requests (see [docs/performance.md](performance.md)).
+
+### Finding failed requests
+
+The **Requests and costs** tab filters the request list by model, provider (gateway-admin, plus *No provider (refused)* for
+requests the gateway refused before calling one) and **outcome**: *All errors* lists every request that did not succeed,
+or pick one outcome (provider error, over budget, rate limited, PII blocked, rejected, cancelled). The error code is shown
+under each outcome. In the summary table each **Errors** count is a link that lists that row's failed requests (its
+department, team, key, model, provider or day); *Show the failed requests* under the summary lists all of them. Model,
+provider and outcome only filter the request list, not the summary. On **Overview**, the error count and error rate of
+the last 24 hours link to the failed requests of yesterday and today. Other pages can link to the list with
+`/usage?tab=requests&outcome=errors&from=yyyy-mm-dd&to=yyyy-mm-dd` (also `departmentId`, `teamId`, `keyId`, `model`,
+`provider`); the filters are applied once and dropped from the address.
 
 ## Routing rules page
 

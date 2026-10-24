@@ -212,7 +212,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
             Timestamp = new DateTimeOffset(2026, 10, 14, 12, 30, 15, 123, TimeSpan.FromHours(2)),
             Endpoint = GatewayEndpoint.AudioTranscriptions, ProviderAccountId = (Guid?)Guid.NewGuid(), ProviderName = "eu",
             ModelDeploymentId = (Guid?)Guid.NewGuid(), UpstreamModel = "gpt-x", InputTokens = 12, CachedInputTokens = 3, OutputTokens = 45,
-            AudioSeconds = 61.5m, CostUsd = 0.00012345m, LatencyMs = 250, UpstreamMs = (int?)200, TimeToFirstTokenMs = (int?)90,
+            AudioSeconds = 61.5m, CostUsd = 0.00012345m, LatencyMs = 250, UpstreamMs = (int?)200, TimeToFirstTokenMs = (int?)90, ProviderFirstTokenMs = (int?)70,
             Outcome = RequestOutcome.PiiBlocked, FallbackCount = 1, Streamed = true, PiiActionApplied = (PiiPolicy?)PiiPolicy.Redact,
             PiiCategories = "Email:1", ErrorCode = "x", RoutingRuleId = (Guid?)Guid.NewGuid(), RoutingRuleName = "rule",
         });

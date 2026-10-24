@@ -88,7 +88,7 @@ function series(pick: (b: ProviderStability['buckets'][number]) => number | null
     return { id: provider.providerId, name: provider.name, color, values }
   })
 }
-const latencySeries = computed(() => series((b) => b.p95LatencyMs))
+const firstTokenSeries = computed(() => series((b) => b.p95FirstTokenMs))
 const errorSeries = computed(() => series((b) => b.errorRate))
 
 const columns: Column[] = [
@@ -97,8 +97,8 @@ const columns: Column[] = [
   { key: 'availability', label: 'Availability', align: 'right' },
   { key: 'providerErrors', label: 'Provider errors', align: 'right' },
   { key: 'requests', label: 'Requests', align: 'right' },
-  { key: 'p50', label: 'p50', align: 'right' },
-  { key: 'p95', label: 'p95', align: 'right' },
+  { key: 'p50', label: 'First token p50', align: 'right' },
+  { key: 'p95', label: 'First token p95', align: 'right' },
   { key: 'fallbackRate', label: 'Fallback rate', align: 'right' },
 ]
 const ranking = computed(() => (data.value?.providers ?? []).map((p, i) => ({ ...p, rank: i + 1 })))
@@ -118,15 +118,17 @@ const rankLabel = (p: ProviderRank) => (p.exists ? p.name : `${p.name} (deleted)
   <AsyncState :loading="loading" :error="error" :empty="!data" empty-text="No statistics yet." @retry="load">
     <div v-if="data" class="flex flex-col gap-6">
       <p class="text-small text-fg-2">
-        Showing the {{ PERIOD_TEXT[period] }}<template v-if="data.bucket === 'Day'"> (days in Swedish time)</template>. Latency is the whole request as the client saw it,
-        including fallback attempts and the full length of a stream; live audio sessions are left out. Provider errors are 5xx answers, timeouts and broken
+        Showing the {{ PERIOD_TEXT[period] }}<template v-if="data.bucket === 'Day'"> (days in Swedish time)</template>. Speed is the provider's time to first token: on streamed
+        answers, from sending the request to the provider that answered until its first token arrived. It does not grow with the length of the answer and
+        leaves out failed attempts at other providers and the gateway's own time. Answers that are not streamed only arrive once complete, so they are not
+        counted. Provider errors are 5xx answers, timeouts and broken
         streams; client errors, cancellations and requests the gateway refused are not counted.
         <template v-if="hidden > 0"> The charts show the {{ MAX_SERIES }} busiest providers; the table lists all {{ data.providers.length }}.</template>
       </p>
 
       <div class="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))]">
-        <UiCard title="Latency p95" meta="Per provider" heading-id="stability-latency">
-          <ProviderLineChart label="p95 latency" :slots="slots" :series="latencySeries" :format="formatMs" :format-slot="formatSlot" />
+        <UiCard title="Time to first token p95" meta="Per provider, streamed answers" heading-id="stability-first-token">
+          <ProviderLineChart label="p95 time to first token" :slots="slots" :series="firstTokenSeries" :format="formatMs" :format-slot="formatSlot" />
         </UiCard>
         <UiCard title="Provider error rate" meta="Share of requests" heading-id="stability-errors">
           <ProviderLineChart label="Provider error rate" :slots="slots" :series="errorSeries" :format="formatRatio" :format-slot="formatSlot" :min-max="0.05" />
@@ -139,7 +141,7 @@ const rankLabel = (p: ProviderRank) => (p.exists ? p.name : `${p.name} (deleted)
           :columns="columns"
           :rows="ranking"
           :row-key="(r) => r.providerId"
-          caption="Providers ranked by availability, then p95 latency"
+          caption="Providers ranked by availability, then p95 time to first token"
           empty-text="No provider traffic in this period."
         >
           <template #cell-rank="{ row }">{{ row.rank }}</template>
@@ -147,8 +149,14 @@ const rankLabel = (p: ProviderRank) => (p.exists ? p.name : `${p.name} (deleted)
           <template #cell-availability="{ row }">{{ formatRatio(row.availability) }}</template>
           <template #cell-providerErrors="{ row }">{{ formatNumber(row.providerErrors) }}</template>
           <template #cell-requests="{ row }">{{ formatNumber(row.requests) }}</template>
-          <template #cell-p50="{ row }">{{ formatMs(row.p50LatencyMs) }}</template>
-          <template #cell-p95="{ row }">{{ formatMs(row.p95LatencyMs) }}</template>
+          <template #cell-p50="{ row }">
+            <span v-if="row.p50FirstTokenMs !== null">{{ formatMs(row.p50FirstTokenMs) }}</span>
+            <span v-else title="No streamed answers">— <span class="sr-only">No streamed answers</span></span>
+          </template>
+          <template #cell-p95="{ row }">
+            <span v-if="row.p95FirstTokenMs !== null">{{ formatMs(row.p95FirstTokenMs) }}</span>
+            <span v-else title="No streamed answers">— <span class="sr-only">No streamed answers</span></span>
+          </template>
           <template #cell-fallbackRate="{ row }">{{ formatRatio(row.fallbackRate) }}</template>
         </DataTable>
         <p class="text-small text-fg-3">

@@ -41,7 +41,7 @@ public static class OperationsEndpoints
                     return new ProviderHealthDto(
                         p.Id, p.Name, p.Type, p.Residency, p.IsEnabled, p.IsDrained, circuit,
                         requests, requests == 0 ? 0 : s!.Errors / (double)requests, requests == 0 ? 0 : s!.Fallbacks / (double)requests,
-                        s?.P50LatencyMs, s?.P95LatencyMs, requests == 0 ? 0 : s!.ProviderErrors / (double)requests, status, reason,
+                        s?.P50FirstTokenMs, s?.P95FirstTokenMs, requests == 0 ? 0 : s!.ProviderErrors / (double)requests, status, reason,
                         s?.RecentRequests ?? 0, s?.RecentProviderErrors ?? 0);
                 })]));
         }).WithName("GetOperationsHealth").WithSummary("Component health, versions, usage writer state, each provider's status (last hour) and last 24 hours");

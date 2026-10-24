@@ -42,7 +42,7 @@ const views = [
         <p class="mt-1 text-small text-fg-2">
           {{ totalLabel }} <span class="text-body-lg font-semibold text-fg">{{ total }}</span>
         </p>
-        <p class="min-h-[18px] text-small text-fg-3">{{ context }}</p>
+        <p class="min-h-[18px] text-small text-fg-3"><slot name="context">{{ context }}</slot></p>
       </div>
       <div role="group" :aria-label="`${title} view`" class="flex shrink-0 gap-0.5 rounded-control bg-sunken p-[3px]">
         <button

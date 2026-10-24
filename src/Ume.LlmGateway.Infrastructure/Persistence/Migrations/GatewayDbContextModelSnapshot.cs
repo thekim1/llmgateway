@@ -932,6 +932,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ProviderAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("ProviderFirstTokenMs")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ProviderName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

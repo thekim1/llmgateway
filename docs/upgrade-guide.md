@@ -11,6 +11,21 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.2: provider time to first token, failed requests in Usage
+
+- **Rolling update: yes.** The migration `ProviderFirstToken` adds a nullable `ProviderFirstTokenMs` column to
+  `UsageRecords`; older instances keep writing records without it while they are replaced.
+- **Changed figures:** provider p50/p95 on Overview, Health & operations and Provider stability are now the provider's
+  time to first token on streamed answers, not the whole request's latency, so they are much lower and no longer grow with
+  the length of the answers. Requests recorded before the upgrade have no such figure, so right after it the columns show
+  *—* until streamed traffic arrives.
+- **Admin API rename:** `p50LatencyMs`/`p95LatencyMs` on `GET /api/ops/health` and `GET /api/ops/providers/stats` are now
+  `p50FirstTokenMs`/`p95FirstTokenMs`. Update scripts that read them.
+- **New fields and filters** (additive): `providerFirstTokenMs` on `GET /api/usage/requests` and the Data API's
+  `/v1/usage/records`; `GET /api/usage/requests` takes `errors=true`, `model` and `provider`; metric
+  `ume.gateway.provider.time_to_first_token`.
+- The old `CostSek` columns and the `ExchangeRates` table are still kept in this release; they are dropped in a later one.
+
 ## 0.8.1: costs in USD only, SEK removed
 
 - **Rolling update: yes.** The migration `SekNoLongerWritten` only gives the `CostSek` columns of `UsageRecords` and

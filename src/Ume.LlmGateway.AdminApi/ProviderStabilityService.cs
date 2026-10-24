@@ -39,8 +39,8 @@ public sealed class ProviderUsageStats
     public long ProviderErrors { get; set; }
 
     public long Fallbacks { get; set; }
-    public int? P50LatencyMs { get; set; }
-    public int? P95LatencyMs { get; set; }
+    public int? P50FirstTokenMs { get; set; }
+    public int? P95FirstTokenMs { get; set; }
     public long RecentRequests { get; set; }
     public long RecentProviderErrors { get; set; }
 }
@@ -53,14 +53,19 @@ public sealed class ProviderBucketStats
     public long Requests { get; set; }
     public long ProviderErrors { get; set; }
     public long Fallbacks { get; set; }
-    public int? P50LatencyMs { get; set; }
-    public int? P95LatencyMs { get; set; }
+    public int? P50FirstTokenMs { get; set; }
+    public int? P95FirstTokenMs { get; set; }
 }
 
 /// <summary>
 /// Provider status and stability figures from the usage records. The gateway writes one record per request (not per
-/// attempt), attributed to the provider that answered or failed last; its <c>LatencyMs</c> is the whole request, failed
-/// fallback attempts and the full length of a stream included.
+/// attempt), attributed to the provider that answered or failed last.
+/// <para>
+/// Speed is the <b>provider's time to first token</b> (<c>ProviderFirstTokenMs</c>): on streamed answers, from sending the
+/// request to the provider that answered until its first event. A request's end-to-end <c>LatencyMs</c> would not do: it
+/// grows with the length of the answer and includes failed fallback attempts on other providers and the gateway's own
+/// time. Answers that are not streamed only arrive once complete, so they have no comparable figure and are left out.
+/// </para>
 /// <para>
 /// A <b>provider error</b> is a request with outcome <c>ProviderError</c> and a 5xx status: the provider failed, timed out
 /// or broke off a stream. Client errors the provider rejected (4xx, outcome <c>ProviderError</c> too), cancellations,
@@ -87,15 +92,13 @@ public sealed class ProviderStabilityService(GatewayDbContext db)
     private const string InternalErrorCode = "internal_error";
     private static readonly string ProviderError = nameof(RequestOutcome.ProviderError);
     private static readonly string Success = nameof(RequestOutcome.Success);
-    private static readonly string Realtime = nameof(GatewayEndpoint.Realtime);
-    private static readonly string RealtimeTranslations = nameof(GatewayEndpoint.RealtimeTranslations);
 
     /// <summary>
-    /// Requests, errors, provider errors, fallbacks and latency percentiles per provider in [<paramref name="from"/>,
+    /// Requests, errors, provider errors, fallbacks and time-to-first-token percentiles per provider in [<paramref name="from"/>,
     /// <paramref name="to"/>), plus requests and provider errors since <paramref name="recentSince"/>, aggregated in SQL.
-    /// A live audio session's "latency" is its length; it would swamp the percentiles of ordinary requests, so realtime
-    /// sessions count as requests but not in the percentiles. <c>percentile_disc</c> picks the smallest latency at or above
-    /// the percentile, as the nearest-rank method does.
+    /// Only streamed answers have a time to first token (live audio sessions and answers that were not streamed have
+    /// none); <c>percentile_disc</c> skips the others and picks the smallest value at or above the percentile, as the
+    /// nearest-rank method does.
     /// </summary>
     public Task<List<ProviderUsageStats>> PeriodAsync(DateTimeOffset from, DateTimeOffset to, DateTimeOffset recentSince, CancellationToken ct) =>
         db.Database.SqlQuery<ProviderUsageStats>($"""
@@ -105,8 +108,8 @@ public sealed class ProviderStabilityService(GatewayDbContext db)
                    count(*) FILTER (WHERE "Outcome" <> {Success}) AS "Errors",
                    count(*) FILTER (WHERE "Outcome" = {ProviderError} AND "StatusCode" >= 500 AND "ErrorCode" IS DISTINCT FROM {InternalErrorCode}) AS "ProviderErrors",
                    count(*) FILTER (WHERE "FallbackCount" > 0) AS "Fallbacks",
-                   percentile_disc(0.5) WITHIN GROUP (ORDER BY "LatencyMs") FILTER (WHERE "Endpoint" NOT IN ({Realtime}, {RealtimeTranslations})) AS "P50LatencyMs",
-                   percentile_disc(0.95) WITHIN GROUP (ORDER BY "LatencyMs") FILTER (WHERE "Endpoint" NOT IN ({Realtime}, {RealtimeTranslations})) AS "P95LatencyMs",
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY "ProviderFirstTokenMs") AS "P50FirstTokenMs",
+                   percentile_disc(0.95) WITHIN GROUP (ORDER BY "ProviderFirstTokenMs") AS "P95FirstTokenMs",
                    count(*) FILTER (WHERE "Timestamp" >= {recentSince}) AS "RecentRequests",
                    count(*) FILTER (WHERE "Timestamp" >= {recentSince} AND "Outcome" = {ProviderError} AND "StatusCode" >= 500 AND "ErrorCode" IS DISTINCT FROM {InternalErrorCode}) AS "RecentProviderErrors"
             FROM "UsageRecords"
@@ -127,8 +130,8 @@ public sealed class ProviderStabilityService(GatewayDbContext db)
                    count(*) AS "Requests",
                    count(*) FILTER (WHERE "Outcome" = {ProviderError} AND "StatusCode" >= 500 AND "ErrorCode" IS DISTINCT FROM {InternalErrorCode}) AS "ProviderErrors",
                    count(*) FILTER (WHERE "FallbackCount" > 0) AS "Fallbacks",
-                   percentile_disc(0.5) WITHIN GROUP (ORDER BY "LatencyMs") FILTER (WHERE "Endpoint" NOT IN ({Realtime}, {RealtimeTranslations})) AS "P50LatencyMs",
-                   percentile_disc(0.95) WITHIN GROUP (ORDER BY "LatencyMs") FILTER (WHERE "Endpoint" NOT IN ({Realtime}, {RealtimeTranslations})) AS "P95LatencyMs"
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY "ProviderFirstTokenMs") AS "P50FirstTokenMs",
+                   percentile_disc(0.95) WITHIN GROUP (ORDER BY "ProviderFirstTokenMs") AS "P95FirstTokenMs"
             FROM "UsageRecords"
             WHERE "Timestamp" >= {from} AND "Timestamp" < {to} AND "ProviderAccountId" IS NOT NULL
             GROUP BY 1, 2
@@ -164,15 +167,15 @@ public sealed class ProviderStabilityService(GatewayDbContext db)
         [
             .. totals.Select(s => new ProviderRankDto(
                     s.ProviderId, names.GetValueOrDefault(s.ProviderId) ?? s.ProviderName ?? "Deleted provider", names.ContainsKey(s.ProviderId),
-                    s.Requests, s.ProviderErrors, 1 - Rate(s.ProviderErrors, s.Requests), Rate(s.Fallbacks, s.Requests), s.P50LatencyMs, s.P95LatencyMs))
+                    s.Requests, s.ProviderErrors, 1 - Rate(s.ProviderErrors, s.Requests), Rate(s.Fallbacks, s.Requests), s.P50FirstTokenMs, s.P95FirstTokenMs))
                 .OrderByDescending(r => r.Availability)
-                .ThenBy(r => r.P95LatencyMs ?? int.MaxValue)
+                .ThenBy(r => r.P95FirstTokenMs ?? int.MaxValue)
                 .ThenByDescending(r => r.Requests)
                 .ThenBy(r => r.Name, StringComparer.Ordinal),
         ];
         return new ProviderStabilityDto(start, end, size, size == StatsBucket.Hour ? "UTC" : TimeZone, ranking,
             [.. buckets.Select(b => new ProviderBucketDto(b.ProviderId, b.BucketStart.ToUniversalTime(), b.Requests, b.ProviderErrors,
-                Rate(b.ProviderErrors, b.Requests), b.Fallbacks, b.P50LatencyMs, b.P95LatencyMs))]);
+                Rate(b.ProviderErrors, b.Requests), b.Fallbacks, b.P50FirstTokenMs, b.P95FirstTokenMs))]);
     }
 
     /// <summary>

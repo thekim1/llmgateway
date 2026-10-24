@@ -81,6 +81,7 @@ public sealed partial class GatewayRequestHandler
             LatencyMs = Milliseconds(time.GetElapsedTime(state.StartTimestamp)),
             UpstreamMs = state.UpstreamTicks is { } upstream ? Milliseconds(time.GetElapsedTime(0, upstream)) : null,
             TimeToFirstTokenMs = state.FirstEventTimestamp != 0 ? Milliseconds(time.GetElapsedTime(state.StartTimestamp, state.FirstEventTimestamp)) : null,
+            ProviderFirstTokenMs = state.ProviderFirstEventTimestamp != 0 ? Milliseconds(time.GetElapsedTime(state.AttemptTimestamp, state.ProviderFirstEventTimestamp)) : null,
             StatusCode = status,
             Outcome = outcome,
             FallbackCount = state.Fallbacks,
@@ -176,6 +177,12 @@ public sealed partial class GatewayRequestHandler
 
         /// <summary>When the first stream event was sent to the client; 0 when none was (not streamed, or failed first).</summary>
         public long FirstEventTimestamp { get; set; }
+
+        /// <summary>When the current (or last) attempt was sent to its provider.</summary>
+        public long AttemptTimestamp { get; set; }
+
+        /// <summary>When the first stream event arrived from the provider that answered; 0 when none did.</summary>
+        public long ProviderFirstEventTimestamp { get; set; }
 
         public void AddUpstreamTime(long ticks) => UpstreamTicks = (UpstreamTicks ?? 0) + ticks;
     }

@@ -16,6 +16,7 @@ public sealed class GatewayMetricsTests
         var off = Measure(genAiMetrics: false);
         off.ShouldNotContain(m => m.Name.StartsWith("gen_ai.", StringComparison.Ordinal)); // the default: no extra work per request
         off.ShouldContain(m => m.Name == "ume.gateway.cost.usd" && m.Value == 0.25);
+        off.ShouldContain(m => m.Name == "ume.gateway.provider.time_to_first_token" && m.Value == 250 && Equals(m.Tags["provider"], "claude"));
 
         var on = Measure(genAiMetrics: true);
         on.ShouldContain(m => m.Name == "gen_ai.client.token.usage" && m.Value == 100 && Equals(m.Tags["gen_ai.token.type"], "input")
@@ -51,7 +52,7 @@ public sealed class GatewayMetricsTests
         {
             RequestId = "r", Endpoint = GatewayEndpoint.ChatCompletions, RequestedModel = "ume/chat", ProviderName = "claude",
             UpstreamModel = "claude-upstream", InputTokens = 100, OutputTokens = 20, CostUsd = 0.25m, LatencyMs = 1500,
-            UpstreamMs = 1200, TimeToFirstTokenMs = 300, StatusCode = 200, Outcome = RequestOutcome.Success,
+            UpstreamMs = 1200, TimeToFirstTokenMs = 300, ProviderFirstTokenMs = 250, StatusCode = 200, Outcome = RequestOutcome.Success,
         }, ProviderType.Anthropic);
         return [.. seen];
     }

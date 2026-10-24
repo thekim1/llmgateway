@@ -12,7 +12,8 @@ public sealed record UsageRecordItem(
     string RequestedModel, Guid? ProviderId, string? ProviderName, Guid? ModelId, string? UpstreamModel,
     long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, int LatencyMs, int StatusCode,
     RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiAction, string? PiiCategories, string? ErrorCode,
-    Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds, int? UpstreamMs, int? TimeToFirstTokenMs) : IFeedItem;
+    Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds, int? UpstreamMs, int? TimeToFirstTokenMs,
+    int? ProviderFirstTokenMs) : IFeedItem;
 
 public sealed record SecurityRequestItem(
     long Id, string RequestId, DateTimeOffset Timestamp, Guid KeyId, Guid TeamId, Guid DepartmentId, GatewayEndpoint Endpoint,
@@ -73,7 +74,7 @@ public static class DataEndpoints
                     u.RequestedModel, u.ProviderAccountId, u.ProviderName, u.ModelDeploymentId, u.UpstreamModel, u.InputTokens,
                     u.CachedInputTokens, u.OutputTokens, u.CostUsd, u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount,
                     u.Streamed, u.PiiActionApplied, pii ? u.PiiCategories : null, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName, u.RecordedAt, u.AudioSeconds,
-                    u.UpstreamMs, u.TimeToFirstTokenMs))
+                    u.UpstreamMs, u.TimeToFirstTokenMs, u.ProviderFirstTokenMs))
                 .ToListAsync(ct);
             return DataResults.Feed(http, Feeds.Page(rows, cursor, size, Feeds.Cutoff(time, settings)));
         }).RequireAuthorization(DataPermissions.UsageDetail)

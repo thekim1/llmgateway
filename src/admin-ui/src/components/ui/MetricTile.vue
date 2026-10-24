@@ -16,6 +16,6 @@ defineProps<{
     <span class="text-small font-medium text-fg-2">{{ label }}</span>
     <span class="tabular text-metric">{{ value }}</span>
     <UiMeter v-if="meter != null" :value="meter" :label="meterLabel ?? `${label} used`" thin class="my-1" />
-    <span v-if="context" class="text-small text-fg-3">{{ context }}</span>
+    <span v-if="context || $slots.context" class="text-small text-fg-3"><slot name="context">{{ context }}</slot></span>
   </div>
 </template>
