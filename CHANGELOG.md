@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-10-24
+
+A clearer admin UI with a menu grouped by task, search into pages and a working phone layout; costs in US$ throughout
+the admin UI; a regrouped, phone-friendly website; and fewer npm packages with limits on what they can do. Rolling update:
+yes (no migrations). One format change: the usage CSV export has `kostnad USD` instead of `kostnad SEK` (see the 0.8.0
+section of `docs/upgrade-guide.md`).
+
 **Admin UI costs in USD.** Overview (spend this month, daily spend, spend by department), Usage (totals, grouped tables,
 request details) and the Catalogue prices showed Swedish kronor; they now show US$, like budgets. The usage CSV export
 has `kostnad USD` instead of `kostnad SEK`, and the admin API's usage summaries and catalogue report USD. The Data API,
