@@ -50,6 +50,20 @@ Tick *Responses* on the Foundry provider for GPT-5/GPT-6 and other models used t
 (o-series, GPT-5 and later) are added with the reasoning parameter profile, which sends `max_completion_tokens` and drops
 the sampling parameters they reject.
 
+**Tool calls on gpt-5.6 and GPT-6 through Chat Completions.** These models cannot combine reasoning with function tools on
+`/v1/chat/completions` (*"Function tools with reasoning_effort are not supported … use /v1/responses"*), and leaving
+`reasoning_effort` out does not help: they reason by default. Some (gpt-6-astra, gpt-6.1-sol) also reject
+`reasoning_effort: "none"`. The gateway therefore sends a Chat Completions request that has `tools` and does not set
+`reasoning_effort: "none"` to the provider's `/v1/responses` instead, and turns the answer, or the stream, back into Chat
+Completions form: clients and agents keep using Chat Completions and keep their reasoning. Nothing needs configuring. It
+applies to models with the reasoning profile whose upstream name is gpt-5.6 or later or GPT-6 or later. A deployment with
+a name of its own (`prod-chat`) is bridged the first time the provider answers with that error; the gateway resends the
+request through the Responses API and remembers the deployment until it restarts. Requests without tools, and requests
+with `reasoning_effort: "none"`, stay on Chat Completions. The bridged request is sent with `store: false` (Chat
+Completions' default) and non-strict function schemas unless the client asked otherwise. `stop`, `logit_bias`, `logprobs`
+and `seed` have no Responses equivalent and are left out; `n` above 1, audio output and audio input are refused with a
+400 that says why.
+
 **Suggested Foundry prices.** Azure's deployment list has no prices, so discovery looks the model up in Azure's public
 retail price list (`https://prices.azure.com`, no key; the admin API needs outbound HTTPS to it) for the region in
 `Admin:AzurePriceRegion` (default `swedencentral`, i.e. `Admin__AzurePriceRegion`). The list names meters in free text

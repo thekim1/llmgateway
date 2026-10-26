@@ -12,6 +12,9 @@ namespace Ume.LlmGateway.Infrastructure.Providers;
 /// </summary>
 public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderAdapterBase(http)
 {
+    /// <summary>Deployments the provider told to use the Responses API for tool calls (<see cref="ResponsesBridge.IsHint"/>).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> _bridged = new();
+
     public override bool CanHandle(ProviderType type) => type is not ProviderType.Anthropic;
 
     public override async Task<ProviderResult> SendAsync(ProviderCall call, CancellationToken cancellationToken)
@@ -32,11 +35,24 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
             return await SendImageAsync(call, cancellationToken);
         }
 
+        var chat = call.Endpoint == GatewayEndpoint.ChatCompletions;
+        if (chat && ResponsesBridge.Wants(call.Body) && (ResponsesBridge.IsKnownModel(call.Deployment) || _bridged.ContainsKey(call.Deployment.Id)))
+        {
+            return await SendThroughResponsesAsync(call, cancellationToken);
+        }
+
         // The timeout covers the headers and a complete answer; a stream lives as long as the client is connected.
         using var timeout = CreateTimeout(call, cancellationToken);
         var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(call.Endpoint)), call.Body, call, timeout, cancellationToken);
         if (failure is not null)
         {
+            // A deployment whose name did not tell us it needs the bridge: the provider says so. Remembered until restart.
+            if (chat && ResponsesBridge.HasTools(call.Body) && ResponsesBridge.IsHint(failure))
+            {
+                _bridged.TryAdd(call.Deployment.Id, 0);
+                return await SendThroughResponsesAsync(call, cancellationToken);
+            }
+
             return failure;
         }
 
@@ -51,6 +67,53 @@ public sealed class OpenAICompatibleAdapter(ProviderHttpClient http) : ProviderA
         var acc = new UsageAccumulator();
         var events = StreamEvents(response!, evt => TransformChunk(evt, acc, call.ClientRequestedStreamUsage), cancellationToken);
         return new ProviderStreamResult(events, acc, response);
+    }
+
+    /// <summary>
+    /// A Chat Completions request sent as a Responses API request (see <see cref="ResponsesBridge"/>); the answer or
+    /// stream comes back in Chat Completions form, so the client never sees the difference.
+    /// </summary>
+    private async Task<ProviderResult> SendThroughResponsesAsync(ProviderCall call, CancellationToken cancellationToken)
+    {
+        JsonObject body;
+        try
+        {
+            body = ResponsesBridge.ToResponsesRequest(call.Body);
+        }
+        catch (NotSupportedException ex)
+        {
+            return UnsupportedContent(ex);
+        }
+
+        using var timeout = CreateTimeout(call, cancellationToken);
+        var (response, failure) = await SendRawAsync(ProviderTransport.BuildUri(call.Provider.BaseUrl, ProviderTransport.UpstreamPath(GatewayEndpoint.Responses)), body, call, timeout, cancellationToken);
+        if (failure is not null)
+        {
+            return failure;
+        }
+
+        if (call.Stream)
+        {
+            var acc = new UsageAccumulator();
+            var translator = new ResponsesStreamTranslator(acc, call.ClientRequestedStreamUsage);
+            return new ProviderStreamResult(StreamEvents(response!, translator.Translate, cancellationToken), acc, response);
+        }
+
+        using (response)
+        {
+            var result = await ReadJsonResultAsync(response!, timeout.Token, cancellationToken);
+            if (result is not ProviderJsonResult raw)
+            {
+                return result;
+            }
+
+            using (raw)
+            {
+                return JsonNode.Parse(raw.Body.Span) is JsonObject answer
+                    ? new ProviderJsonResult(raw.StatusCode, JsonSerializer.SerializeToUtf8Bytes(ResponsesBridge.ToChatCompletion(answer), Compact), raw.Usage)
+                    : new ProviderJsonResult(raw.StatusCode, raw.Body.ToArray(), raw.Usage);
+            }
+        }
     }
 
     /// <summary>

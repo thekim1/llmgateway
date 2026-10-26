@@ -36,9 +36,7 @@ public sealed class AnthropicAdapter(ProviderHttpClient http, TimeProvider time)
         }
         catch (NotSupportedException ex)
         {
-            // The client's content, not the provider, is the problem: answer 400 without touching circuit health.
-            var error = new JsonObject { ["error"] = new JsonObject { ["message"] = ex.Message, ["type"] = "invalid_request_error", ["code"] = "unsupported_content" } };
-            return new ProviderFailure(400, FailureKind.ClientError, "unsupported_content", error.ToJsonString(), "application/json");
+            return UnsupportedContent(ex);
         }
 
         // The timeout covers the headers and a complete answer; a stream lives as long as the client is connected.
