@@ -165,4 +165,15 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
         };
 
     protected static string Serialize(JsonNode node) => node.ToJsonString(Compact);
+
+    /// <summary>
+    /// The client's content cannot be translated for the provider: answer 400 without touching circuit health, another
+    /// provider would refuse it too.
+    /// </summary>
+    protected static ProviderFailure UnsupportedContent(NotSupportedException ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        var error = new JsonObject { ["error"] = new JsonObject { ["message"] = ex.Message, ["type"] = "invalid_request_error", ["code"] = "unsupported_content" } };
+        return new ProviderFailure(400, FailureKind.ClientError, "unsupported_content", error.ToJsonString(), "application/json");
+    }
 }

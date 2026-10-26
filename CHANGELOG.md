@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.8.3 - 2026-10-26
+
+Agents that call tools through Chat Completions work on gpt-5.6 and GPT-6 (gpt-6-astra, -sol, -luna, gpt-6.1) again:
+the gateway bridges those requests to the Responses API. No configuration, no schema change. Rolling update: yes.
+
+**Tool calls work on gpt-5.6 and GPT-6 through Chat Completions.** On these models a Chat Completions request with
+function tools failed with *"Function tools with reasoning_effort are not supported … use /v1/responses"*, whatever the
+client sent: they reason by default, and gpt-6-astra and gpt-6.1-sol also reject `reasoning_effort: "none"`. The gateway
+now serves such a request through the provider's Responses API and returns the answer, or the stream, in Chat Completions
+form, as LiteLLM and Bifrost do, so agents keep working with reasoning on and nothing needs configuring. Known model names
+(gpt-5.6 and later, GPT-6 and later) are bridged at once; a deployment with a name of its own is bridged when the provider
+first answers with that error, and remembered until restart. Requests without tools and requests with
+`reasoning_effort: "none"` are unchanged. See *Tool calls on gpt-5.6 and GPT-6* in `docs/providers-and-models.md`.
+Rolling update: yes.
+
 ## 0.8.2 - 2026-10-25
 
 Provider speed on Overview, Health & operations and Provider stability is now the provider's own time to first token,

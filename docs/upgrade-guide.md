@@ -11,6 +11,17 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.3: tool calls on gpt-5.6 and GPT-6 through Chat Completions
+
+- **Rolling update: yes.** No migration and no configuration change.
+- **Changed behaviour:** a Chat Completions request with `tools` to gpt-5.6 or GPT-6 (reasoning profile), and not setting
+  `reasoning_effort: "none"`, is now sent to the provider's `/v1/responses` and answered in Chat Completions form. Before,
+  the provider refused it with a 400. The provider must serve `/v1/responses` (Azure OpenAI and Foundry v1 do; the
+  provider's *Responses* tick is not needed for this). See [Providers and models](providers-and-models.md).
+- **Remove workarounds:** a team or key policy that forces `reasoning_effort: "none"` for these models is no longer
+  needed, and on gpt-6-astra and gpt-6.1-sol it makes every request fail (they reject `none`). Clients set to
+  `api_mode: responses` only for these models can go back to Chat Completions.
+
 ## 0.8.2: provider time to first token, failed requests in Usage
 
 - **Rolling update: yes.** The migration `ProviderFirstToken` adds a nullable `ProviderFirstTokenMs` column to
