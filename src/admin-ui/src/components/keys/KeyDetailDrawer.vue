@@ -144,7 +144,8 @@ const reason = computed(() => {
         <DetailRow label="Requests at once"><span class="tabular">{{ keyData.maxConcurrentRequests == null ? 'No limit' : formatNumber(keyData.maxConcurrentRequests) }}</span></DetailRow>
         <DetailRow label="Expires">{{ keyData.expiresAt ? formatDateTime(keyData.expiresAt) : 'Never' }}</DetailRow>
       </DetailSection>
-      <DetailSection title="Budgets" :list="false">
+      <!-- Budgets are for department and gateway admins; a team admin's API calls for them are refused. -->
+      <DetailSection v-if="auth.canManage" title="Budgets" :list="false">
         <KeyBudgets :key-id="keyData.id" :editable="auth.canManage && keyData.status !== 'Revoked'" />
       </DetailSection>
       <DetailSection title="Lifecycle">

@@ -11,6 +11,17 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: teams manage their own keys
+
+- **Rolling update: yes.** Migration `TeamCodes` adds the nullable `Teams.Code` column and a unique index on it; the
+  previous version ignores both. While old admin API instances still run, a team admin's calls to them get 403.
+- **Nothing changes until you opt in.** No team has a code after the upgrade, so no one is a team admin. To start: give
+  a team a **Team code** in *Organisation*, then give its members the `team-admin` role and that code in the `teamCodes`
+  claim, or map groups (`UME_OIDC_TEAM_CLAIM`, `UME_OIDC_GROUPS_TEAM_ADMIN`; add both to `deploy/.env` and the compose
+  file you deploy with, as in `deploy/compose.prod.yaml`). See [Identity provider and roles](identity-and-roles.md#team-scope).
+- **Admin API:** `Team` has a new `code` field, and `POST`/`PUT /api/teams` take it; `/bff/user` returns `teamCodes`.
+  Existing clients that do not send `code` leave it unchanged.
+
 ## Unreleased: input audio priced per second, minute or hour
 
 - **Rolling update: yes.** Migration `AudioDurationPrecision` widens `ModelPrices.AudioPerMinuteUsd` from

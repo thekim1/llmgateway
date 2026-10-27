@@ -186,6 +186,113 @@ public sealed class AdminApiTests(AdminFixture fixture)
         budget.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    /// <summary>Sets a team code (as a gateway admin) and returns it.</summary>
+    private static async Task<string> SetTeamCodeAsync(HttpClient admin, (Guid Department, Guid Team, string Code) org)
+    {
+        var code = "team-" + Guid.NewGuid().ToString("N");
+        using var update = await admin.PutAsJsonAsync($"/api/teams/{org.Team}", new { departmentId = org.Department, name = "Team", isActive = true, code }, TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(update))["code"]!.GetValue<string>().ShouldBe(code);
+        return code;
+    }
+
+    [Fact]
+    public async Task Team_admin_manages_the_keys_of_their_own_teams_only()
+    {
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        var other = await fixture.OrganisationAsync(admin);
+        var code = await SetTeamCodeAsync(admin, own);
+        using var otherCreate = await admin.PostAsJsonAsync("/api/keys", KeyBody(other.Team), TestContext.Current.CancellationToken);
+        var otherKey = (await AdminFixture.ReadAsync(otherCreate, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        var ct = TestContext.Current.CancellationToken;
+
+        // The department code of the team is not enough: the team admin's rights come from the team code alone.
+        using var client = await fixture.ClientAsync("team-admin", other.Code, teams: code);
+        using var teams = await client.GetAsync("/api/teams", ct);
+        (await AdminFixture.ReadAsync(teams)).AsArray().Select(t => t!["id"]!.GetValue<Guid>()).ShouldBe([own.Team]);
+
+        using var create = await client.PostAsJsonAsync("/api/keys", KeyBody(own.Team), ct);
+        var created = await AdminFixture.ReadAsync(create, HttpStatusCode.Created);
+        var keyId = created["key"]!["id"]!.GetValue<Guid>();
+        created["secret"]!.GetValue<string>().ShouldStartWith("ume-sk-");
+        using var update = await client.PutAsJsonAsync($"/api/keys/{keyId}",
+            new { teamId = own.Team, name = "Renamed", allowedModels = Array.Empty<string>(), allowedResidencies = Array.Empty<string>(), piiPolicy = "Redact", contentGuardPolicy = "Record" }, ct);
+        var updated = await AdminFixture.ReadAsync(update);
+        updated["piiPolicy"]!.GetValue<string>().ShouldBe("Redact");
+        using var rotate = await client.PostAsJsonAsync($"/api/keys/{keyId}/rotate", new { mode = "RevokeImmediately" }, ct);
+        var replacement = (await AdminFixture.ReadAsync(rotate))["key"]!["id"]!.GetValue<Guid>();
+        using var revoke = await client.PostAsync($"/api/keys/{replacement}/revoke", null, ct);
+        (await AdminFixture.ReadAsync(revoke))["status"]!.GetValue<string>().ShouldBe("Revoked");
+        using var list = await client.GetAsync("/api/keys", ct);
+        (await AdminFixture.ReadAsync(list)).AsArray().ShouldAllBe(k => k!["teamId"]!.GetValue<Guid>() == own.Team);
+
+        using var foreignCreate = await client.PostAsJsonAsync("/api/keys", KeyBody(other.Team), ct);
+        foreignCreate.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        using var foreignGet = await client.GetAsync($"/api/keys/{otherKey}", ct);
+        foreignGet.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        using var foreignRotate = await client.PostAsJsonAsync($"/api/keys/{otherKey}/rotate", new { mode = "RevokeImmediately" }, ct);
+        foreignRotate.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        using var foreignRevoke = await client.PostAsync($"/api/keys/{otherKey}/revoke", null, ct);
+        foreignRevoke.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        // Nothing else: no reveal, no team or budget changes, no usage.
+        using var reveal = await client.PostAsJsonAsync($"/api/keys/{keyId}/reveal", new { purpose = "Reveal" }, ct);
+        reveal.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        using var editTeam = await client.PutAsJsonAsync($"/api/teams/{own.Team}", new { departmentId = own.Department, name = "Mine", isActive = true }, ct);
+        editTeam.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        using var departments = await client.GetAsync("/api/departments", ct);
+        departments.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        using var budgets = await client.GetAsync("/api/budgets", ct);
+        budgets.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_viewer_who_is_also_team_admin_manages_only_their_team_but_still_reads_their_departments()
+    {
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        var viewed = await fixture.OrganisationAsync(admin);
+        var code = await SetTeamCodeAsync(admin, own);
+        var ct = TestContext.Current.CancellationToken;
+
+        using var client = await fixture.ClientAsync("viewer,team-admin", viewed.Code, teams: code);
+        using var teams = await client.GetAsync("/api/teams", ct);
+        (await AdminFixture.ReadAsync(teams)).AsArray().Select(t => t!["id"]!.GetValue<Guid>()).ShouldBe([own.Team, viewed.Team], ignoreOrder: true);
+        using var mine = await client.PostAsJsonAsync("/api/keys", KeyBody(own.Team), ct);
+        mine.StatusCode.ShouldBe(HttpStatusCode.Created);
+        using var viewedOnly = await client.PostAsJsonAsync("/api/keys", KeyBody(viewed.Team), ct);
+        viewedOnly.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        // A department admin keeps their departments and gains the team.
+        using var departmentAdmin = await fixture.ClientAsync("department-admin,team-admin", viewed.Code, teams: code);
+        using var both = await departmentAdmin.GetAsync("/api/keys", ct);
+        (await AdminFixture.ReadAsync(both)).AsArray().ShouldContain(k => k!["teamId"]!.GetValue<Guid>() == own.Team);
+        using var departmentKey = await departmentAdmin.PostAsJsonAsync("/api/keys", KeyBody(viewed.Team), ct);
+        departmentKey.StatusCode.ShouldBe(HttpStatusCode.Created);
+        // The team code grants its keys, not the team: its settings stay with its department's admins.
+        using var editTeam = await departmentAdmin.PutAsJsonAsync($"/api/teams/{own.Team}", new { departmentId = own.Department, name = "Mine", isActive = true }, ct);
+        editTeam.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Team_codes_are_unique_and_an_empty_code_clears_it()
+    {
+        using var admin = await fixture.ClientAsync();
+        var first = await fixture.OrganisationAsync(admin);
+        var second = await fixture.OrganisationAsync(admin);
+        var code = await SetTeamCodeAsync(admin, first);
+        var ct = TestContext.Current.CancellationToken;
+
+        using var duplicate = await admin.PutAsJsonAsync($"/api/teams/{second.Team}", new { departmentId = second.Department, name = "Team", isActive = true, code = " " + code + " " }, ct);
+        duplicate.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        using var omitted = await admin.PutAsJsonAsync($"/api/teams/{first.Team}", new { departmentId = first.Department, name = "Team", isActive = true }, ct);
+        (await AdminFixture.ReadAsync(omitted))["code"]!.GetValue<string>().ShouldBe(code);
+        using var cleared = await admin.PutAsJsonAsync($"/api/teams/{first.Team}", new { departmentId = first.Department, name = "Team", isActive = true, code = "" }, ct);
+        (await AdminFixture.ReadAsync(cleared))["code"].ShouldBeNull();
+        using var reused = await admin.PutAsJsonAsync($"/api/teams/{second.Team}", new { departmentId = second.Department, name = "Team", isActive = true, code }, ct);
+        reused.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     [Theory]
     [InlineData("RevokeImmediately", "Revoked")]
     [InlineData("Grace24Hours", "InGracePeriod")]

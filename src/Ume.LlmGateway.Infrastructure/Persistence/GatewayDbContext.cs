@@ -53,6 +53,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Description).HasMaxLength(1000);
             e.HasIndex(x => new { x.DepartmentId, x.Name }).IsUnique();
+            e.Property(x => x.Code).HasMaxLength(100);
+            e.HasIndex(x => x.Code).IsUnique();
             e.HasMany(x => x.VirtualKeys).WithOne(x => x.Team).HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.Restrict);
             PolicyColumn(e.Property(x => x.RequestPolicy));
         });

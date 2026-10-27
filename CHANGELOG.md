@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**Teams manage their own keys.** A new role, `team-admin`, lets team members create, change, rotate and revoke their
+team's keys themselves, with every key setting a department admin has, without access to the rest of the department.
+Which teams comes from a new `teamCodes` claim (`Oidc:TeamClaim`, `UME_OIDC_TEAM_CLAIM`), matched against a new
+**Team code** on each team (*Organisation › Edit team*, `code` on `/api/teams`, unique, migration `TeamCodes`). With one
+AD group per team, set the team claim to the group claim and use the group names as team codes; the role itself can
+come from a group too (`UME_OIDC_GROUPS_TEAM_ADMIN`). Team admins see Keys and the Catalogue only: no stored secrets,
+team settings, budgets or usage. A team code grants its keys only: a viewer or department admin who is also a team
+admin gets the team's keys on top of what they had, nothing more. The dev Keycloak realm has a `team-admin` user for the
+seeded team *Digitalisering & AI*. See *Team scope* in `docs/identity-and-roles.md`. Rolling update: yes.
+
 **Input audio can be priced per second, minute or hour.** Providers price audio by duration in different units
 (Whisper per minute, Azure speech and on-prem servers often per hour, some per second), and the price form only took USD
 per minute. *Audio input by duration* in the price form now has a unit (second, minute or hour); the gateway still

@@ -82,7 +82,7 @@ export type HealthStatus = (typeof HEALTH_STATUSES)[number]
 export const PROVIDER_STATUSES = ['Healthy', 'Degraded', 'Unhealthy', 'CircuitOpen', 'NoRecentTraffic', 'Disabled'] as const
 export type ProviderStatus = (typeof PROVIDER_STATUSES)[number]
 
-export const ROLES = ['gateway-admin', 'department-admin', 'viewer'] as const
+export const ROLES = ['gateway-admin', 'department-admin', 'viewer', 'team-admin'] as const
 export type Role = (typeof ROLES)[number]
 
 /** ISO-8601 timestamp with offset. */
@@ -108,6 +108,8 @@ export interface BffUser {
   email: string | null
   roles: string[]
   departmentCodes: string[]
+  /** Team codes of a team admin: the teams whose keys they manage. */
+  teamCodes?: string[]
   sessionExpiresAt: IsoDateTime | null
   /** The session's absolute end (Admin:MaxSessionHours after sign-in); extending never goes past it. */
   sessionLimitAt?: IsoDateTime | null
@@ -152,6 +154,8 @@ export interface Team {
   keyCount: number
   createdAt: IsoDateTime
   requestPolicy?: RequestPolicy | null
+  /** Matched against team admins' teamCodes claim; null = the team has no team admins. */
+  code?: string | null
 }
 export interface CreateTeamRequest {
   departmentId: string
@@ -159,6 +163,7 @@ export interface CreateTeamRequest {
   description?: string | null
   /** Omitted = none; {} = none. */
   requestPolicy?: RequestPolicy
+  code?: string | null
 }
 export interface UpdateTeamRequest {
   name: string
@@ -166,6 +171,8 @@ export interface UpdateTeamRequest {
   isActive: boolean
   /** Omitted = unchanged; {} clears it. */
   requestPolicy?: RequestPolicy
+  /** Omitted = unchanged; '' clears it. */
+  code?: string
 }
 
 // ---------- Virtual keys ----------

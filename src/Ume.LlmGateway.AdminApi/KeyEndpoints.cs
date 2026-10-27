@@ -63,21 +63,22 @@ public static class KeyEndpoints
 {
     public static void MapKeys(this RouteGroupBuilder api)
     {
-        var keys = api.MapGroup("/keys").RequireAuthorization(AdminPolicies.Manage).WithTags("Keys");
+        // Team admins manage their own teams' keys like a department admin does their departments' (AdminContext.KeyTeams).
+        var keys = api.MapGroup("/keys").RequireAuthorization(AdminPolicies.ManageKeys).WithTags("Keys");
         keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, AdminContext ctx, CancellationToken ct) =>
         {
-            var query = ctx.Keys();
+            var query = ctx.ManagedKeys();
             if (teamId is { } team) { query = query.Where(k => k.TeamId == team); }
             if (departmentId is { } department) { query = query.Where(k => k.Team!.DepartmentId == department); }
             var items = await query.OrderBy(k => k.Name).ToListAsync(ct);
             return TypedResults.Ok(items.Where(k => status is null || k.GetStatus(ctx.Now) == status).Select(k => KeyDto.Of(k, ctx.Now)).ToList());
-        }).WithName("ListKeys").WithSummary("Keys in the user's departments; never their secrets");
+        }).WithName("ListKeys").WithSummary("Keys the user manages (their departments, or their teams for a team admin); never their secrets");
         keys.MapGet("/{id:guid}", async (Guid id, AdminContext ctx, CancellationToken ct) =>
             TypedResults.Ok(KeyDto.Of(await FindAsync(id, ctx, ct), ctx.Now)))
             .WithName("GetKey");
         keys.MapPost("", async (KeyRequest input, AdminContext ctx, VirtualKeyHasher hasher, CredentialProtector protector, CancellationToken ct) =>
         {
-            var team = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
+            var team = await ctx.KeyTeams().SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
             var generated = hasher.Generate();
             var key = new VirtualKey
             {
@@ -133,7 +134,7 @@ public static class KeyEndpoints
     }
 
     private static async Task<VirtualKey> FindAsync(Guid id, AdminContext ctx, CancellationToken ct) =>
-        await ctx.Keys().SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "The key does not exist.");
+        await ctx.ManagedKeys().SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "The key does not exist.");
     private static void Apply(VirtualKey key, KeyRequest input)
     {
         key.Name = input.Name.Trim(); key.Description = input.Description; key.ExpiresAt = input.ExpiresAt?.ToUniversalTime();

@@ -2,7 +2,7 @@ import { nextTick } from 'vue'
 import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory } from 'vue-router'
 import type { Role } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
-import { ADMIN_ROLES, GATEWAY_ADMIN } from './nav'
+import { ADMIN_ROLES, GATEWAY_ADMIN, KEY_ROLES } from './nav'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -10,21 +10,23 @@ declare module 'vue-router' {
     title?: string
     /** Roles allowed to open the page. Empty/undefined = any signed-in user. */
     roles?: Role[]
+    /** Shows usage data: closed to a team admin without a reading role. */
+    readsUsage?: boolean
   }
 }
 
 export const routes: RouteRecordRaw[] = [
-  { path: '/', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: 'Overview' } },
-  { path: '/usage', name: 'usage', component: () => import('@/views/UsageView.vue'), meta: { title: 'Usage' } },
+  { path: '/', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: 'Overview', readsUsage: true } },
+  { path: '/usage', name: 'usage', component: () => import('@/views/UsageView.vue'), meta: { title: 'Usage', readsUsage: true } },
   {
     path: '/operations/stability',
     name: 'provider-stability',
     component: () => import('@/views/ProviderStabilityView.vue'),
     meta: { title: 'Provider stability', roles: GATEWAY_ADMIN },
   },
-  { path: '/pii-incidents', name: 'pii-incidents', component: () => import('@/views/PiiIncidentsView.vue'), meta: { title: 'PII incidents' } },
+  { path: '/pii-incidents', name: 'pii-incidents', component: () => import('@/views/PiiIncidentsView.vue'), meta: { title: 'PII incidents', readsUsage: true } },
   { path: '/operations', name: 'ops', component: () => import('@/views/OpsView.vue'), meta: { title: 'Health & operations', roles: GATEWAY_ADMIN } },
-  { path: '/keys', name: 'keys', component: () => import('@/views/KeysView.vue'), meta: { title: 'Keys', roles: ADMIN_ROLES } },
+  { path: '/keys', name: 'keys', component: () => import('@/views/KeysView.vue'), meta: { title: 'Keys', roles: KEY_ROLES } },
   { path: '/organisation', name: 'organisation', component: () => import('@/views/OrganisationView.vue'), meta: { title: 'Organisation', roles: ADMIN_ROLES } },
   { path: '/data-access', name: 'data-access', component: () => import('@/views/DataAccessView.vue'), meta: { title: 'Data API access', roles: GATEWAY_ADMIN } },
   { path: '/catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Catalogue' } },
@@ -87,7 +89,9 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     await auth.ensureLoaded()
     // Signed-out users see the sign-in page rendered by App.vue regardless of route.
     if (!auth.isAuthenticated) return true
-    if (to.meta.roles && !auth.hasAnyRole(to.meta.roles)) {
+    // A team admin's start page is their keys.
+    if (to.name === 'overview' && auth.isTeamAdminOnly) return { name: 'keys', replace: true }
+    if (!auth.canOpen(to.meta)) {
       return { name: 'forbidden', query: { from: to.fullPath }, replace: true }
     }
     return true

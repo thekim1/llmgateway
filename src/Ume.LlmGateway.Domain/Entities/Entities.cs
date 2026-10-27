@@ -25,6 +25,12 @@ public sealed class Team
     public Department? Department { get; set; }
     public required string Name { get; set; }
     public string? Description { get; set; }
+
+    /// <summary>
+    /// Matched against the <c>teamCodes</c> claim of team admins, who manage this team's keys. Unique; null = no team admins.
+    /// </summary>
+    public string? Code { get; set; }
+
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
     public List<VirtualKey> VirtualKeys { get; set; } = [];

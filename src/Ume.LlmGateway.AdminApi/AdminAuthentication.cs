@@ -12,7 +12,7 @@ namespace Ume.LlmGateway.AdminApi;
 public static class AdminAuthentication
 {
     /// <summary>
-    /// Normalises identity-provider claims to the names the API authorises on ("roles", "departmentCodes"):
+    /// Normalises identity-provider claims to the names the API authorises on ("roles", "departmentCodes", "teamCodes"):
     /// expands JSON-array claims, copies differently named claims, and derives roles from group membership.
     /// </summary>
     public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcOptions options)
@@ -21,7 +21,7 @@ public static class AdminAuthentication
         {
             return;
         }
-        var sources = new[] { options.RoleClaim, options.DepartmentClaim, options.GroupClaim };
+        var sources = new[] { options.RoleClaim, options.DepartmentClaim, options.TeamClaim, options.GroupClaim };
         foreach (var claim in identity.Claims.Where(c => sources.Contains(c.Type) && c.Value.StartsWith('[')).ToArray())
         {
             using var json = JsonDocument.Parse(claim.Value);
@@ -36,6 +36,7 @@ public static class AdminAuthentication
         }
         CopyClaims(identity, options.RoleClaim, AdminClaims.Roles);
         CopyClaims(identity, options.DepartmentClaim, AdminClaims.DepartmentCodes);
+        CopyClaims(identity, options.TeamClaim, AdminClaims.TeamCodes);
         var groups = identity.FindAll(options.GroupClaim).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (role, mapped) in options.RoleGroups)
         {
@@ -55,7 +56,11 @@ public static class AdminAuthentication
         }
         foreach (var claim in identity.FindAll(from).ToArray())
         {
-            identity.AddClaim(new Claim(to, claim.Value));
+            // The group claim may serve as the team claim too; a group is then copied once however many settings name it.
+            if (!identity.HasClaim(to, claim.Value))
+            {
+                identity.AddClaim(new Claim(to, claim.Value));
+            }
         }
     }
 
@@ -148,6 +153,8 @@ public static class AdminAuthentication
             o.AddPolicy(AdminPolicies.Admin, p => p.RequireRole(AdminRoles.GatewayAdmin));
             o.AddPolicy(AdminPolicies.Manage, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin));
             o.AddPolicy(AdminPolicies.Read, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
+            o.AddPolicy(AdminPolicies.ManageKeys, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.TeamAdmin));
+            o.AddPolicy(AdminPolicies.ListTeams, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer, AdminRoles.TeamAdmin));
         });
         // Sessions live on the server: the cookie only names one, and signing out deletes it (a copied cookie stops working).
         builder.Services.AddSingleton<ITicketStore, AdminTicketStore>();
@@ -194,6 +201,7 @@ public static class AdminAuthentication
                 email = http.User.FindFirstValue("email"),
                 roles = http.User.FindAll(AdminClaims.Roles).Select(c => c.Value).ToArray(),
                 departmentCodes = http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value).ToArray(),
+                teamCodes = http.User.FindAll(AdminClaims.TeamCodes).Select(c => c.Value).ToArray(),
                 sessionExpiresAt = auth.Properties?.ExpiresUtc,
                 sessionLimitAt = AdminSessionLimit.LimitOf(auth.Properties, TimeSpan.FromHours(admin.Value.MaxSessionHours)),
             });
@@ -231,6 +239,9 @@ public static class AdminRoles
     public const string GatewayAdmin = "gateway-admin";
     public const string DepartmentAdmin = "department-admin";
     public const string Viewer = "viewer";
+
+    /// <summary>Manages the keys of the teams in the user's <see cref="AdminClaims.TeamCodes"/>, and nothing else.</summary>
+    public const string TeamAdmin = "team-admin";
 }
 
 /// <summary>Claims the admin API reads from the signed-in user, after <see cref="AdminAuthentication.ApplyClaimMapping"/>.</summary>
@@ -239,6 +250,7 @@ public static class AdminClaims
     public const string Subject = "sub";
     public const string Roles = "roles";
     public const string DepartmentCodes = "departmentCodes";
+    public const string TeamCodes = "teamCodes";
 
     /// <summary>A random id given at sign-in and kept while the session lasts (audit entries and security events).</summary>
     public const string Session = "ume_session";
@@ -253,8 +265,14 @@ public static class AdminPolicies
     /// <summary>Gateway and department admins (department admins within their departments).</summary>
     public const string Manage = "manage";
 
-    /// <summary>Every admin console role, viewers included.</summary>
+    /// <summary>Every admin console role except team admin, viewers included.</summary>
     public const string Read = "read";
+
+    /// <summary>Key management: gateway admins, department admins in their departments, team admins in their teams.</summary>
+    public const string ManageKeys = "manage-keys";
+
+    /// <summary>Listing teams: every role that reads or manages keys.</summary>
+    public const string ListTeams = "list-teams";
 
     /// <summary>The per-user fixed-window rate limit on <c>/api</c> (<see cref="AdminOptions.RequestsPerMinute"/>).</summary>
     public const string PerUserRateLimit = "per-user";

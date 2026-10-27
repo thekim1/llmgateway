@@ -17,8 +17,9 @@ public sealed class HeaderAuthenticationOptions : AuthenticationSchemeOptions
 }
 
 /// <summary>
-/// Signs requests in as the user their headers describe: <see cref="RoleHeader"/> (one role) and <see cref="DepartmentHeader"/>
-/// (comma-separated department codes), with the same claim types the OIDC mapping produces.
+/// Signs requests in as the user their headers describe: <see cref="RoleHeader"/> (comma-separated roles),
+/// <see cref="DepartmentHeader"/> (comma-separated department codes) and <see cref="TeamHeader"/> (comma-separated team codes),
+/// with the same claim types the OIDC mapping produces.
 /// </summary>
 public sealed class HeaderAuthenticationHandler(IOptionsMonitor<HeaderAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<HeaderAuthenticationOptions>(options, logger, encoder)
@@ -26,6 +27,7 @@ public sealed class HeaderAuthenticationHandler(IOptionsMonitor<HeaderAuthentica
     public const string SchemeName = "Test";
     public const string RoleHeader = "X-Test-Role";
     public const string DepartmentHeader = "X-Test-Department";
+    public const string TeamHeader = "X-Test-Team";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -40,10 +42,15 @@ public sealed class HeaderAuthenticationHandler(IOptionsMonitor<HeaderAuthentica
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var claims = new List<Claim> { new("sub", Options.Subject), new("name", Options.Name), new("roles", role) };
+        var claims = new List<Claim> { new("sub", Options.Subject), new("name", Options.Name) };
+        claims.AddRange(role.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(r => new Claim("roles", r)));
         foreach (var code in Request.Headers[DepartmentHeader].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             claims.Add(new Claim("departmentCodes", code));
+        }
+        foreach (var code in Request.Headers[TeamHeader].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            claims.Add(new Claim("teamCodes", code));
         }
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name, "name", "roles"));

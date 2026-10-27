@@ -10,6 +10,7 @@
       { "name": "gateway-admin" },
       { "name": "department-admin" },
       { "name": "viewer" },
+      { "name": "team-admin" },
       { "name": "usage.aggregate", "description": "Data API permission (docs/data-access.md)" },
       { "name": "usage.detail", "description": "Data API permission (docs/data-access.md)" },
       { "name": "security.read", "description": "Data API permission (docs/data-access.md)" },
@@ -56,6 +57,20 @@
           "config": {
             "user.attribute": "departmentCodes",
             "claim.name": "departmentCodes",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "team-codes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "teamCodes",
+            "claim.name": "teamCodes",
             "multivalued": "true",
             "jsonType.label": "String",
             "id.token.claim": "true",
@@ -123,6 +138,17 @@
       "enabled": true,
       "realmRoles": [ "viewer" ],
       "attributes": { "departmentCodes": [ "1000" ] },
+      "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    },
+    {
+      "username": "team-admin",
+      "firstName": "Team",
+      "lastName": "Administrator",
+      "email": "team-admin@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [ "team-admin" ],
+      "attributes": { "teamCodes": [ "digitalisering-ai" ] },
       "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
     },
     {

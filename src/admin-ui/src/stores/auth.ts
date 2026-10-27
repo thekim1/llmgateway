@@ -6,11 +6,12 @@ import type { BffUser, Role } from '@/api/types'
 
 export type AuthStatus = 'unknown' | 'loading' | 'authenticated' | 'unauthenticated' | 'error'
 
-/** Role hierarchy: gateway-admin ⊇ department-admin ⊇ viewer. */
+/** Role hierarchy: gateway-admin ⊇ department-admin ⊇ viewer. team-admin stands apart: the keys of their own teams only. */
 const IMPLIED_ROLES: Record<Role, Role[]> = {
   'gateway-admin': ['gateway-admin', 'department-admin', 'viewer'],
   'department-admin': ['department-admin', 'viewer'],
   viewer: ['viewer'],
+  'team-admin': ['team-admin'],
 }
 
 export function effectiveRoles(roles: readonly string[]): Set<Role> {
@@ -52,6 +53,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isGatewayAdmin = computed(() => hasRole('gateway-admin'))
   const canManage = computed(() => hasRole('department-admin'))
+  /** A team admin with no other role: sees keys and the catalogue, not usage (the API refuses it). */
+  const isTeamAdminOnly = computed(() => hasRole('team-admin') && !hasRole('viewer'))
+
+  /** Whether a page is open to the user: its roles, and for pages of usage data, not to a team admin without a reading role. */
+  function canOpen(page: { roles?: readonly Role[]; readsUsage?: boolean }): boolean {
+    return hasAnyRole(page.roles) && !(page.readsUsage && isTeamAdminOnly.value)
+  }
 
   /** gateway-admin manages everything; department-admin only the departments in their claim. */
   function canManageDepartment(costCenterCode: string | null | undefined): boolean {
@@ -119,6 +127,8 @@ export const useAuthStore = defineStore('auth', () => {
     isDevelopment,
     isGatewayAdmin,
     canManage,
+    isTeamAdminOnly,
+    canOpen,
     hasRole,
     hasAnyRole,
     canManageDepartment,

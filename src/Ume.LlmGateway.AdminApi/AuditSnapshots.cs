@@ -67,9 +67,9 @@ public sealed record DepartmentAudit(Guid Id, string Name, string CostCenterCode
     public static DepartmentAudit Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive);
 }
 
-public sealed record TeamAudit(Guid Id, Guid DepartmentId, string Name, string? Description, bool IsActive, RequestPolicy? RequestPolicy = null)
+public sealed record TeamAudit(Guid Id, Guid DepartmentId, string Name, string? Description, bool IsActive, RequestPolicy? RequestPolicy = null, string? Code = null)
 {
-    public static TeamAudit Of(Team t) => new(t.Id, t.DepartmentId, t.Name, t.Description, t.IsActive, t.RequestPolicy);
+    public static TeamAudit Of(Team t) => new(t.Id, t.DepartmentId, t.Name, t.Description, t.IsActive, t.RequestPolicy, t.Code);
 }
 
 public sealed record KeyAudit(

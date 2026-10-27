@@ -267,12 +267,14 @@ UME_DATA_PORT=10443
 # Claims from an existing IdP (Keycloak, AD FS, Entra ID); see docs/runbook.md, "Identity provider".
 # UME_OIDC_ROLE_CLAIM=roles
 # UME_OIDC_DEPARTMENT_CLAIM=departmentCodes
+# UME_OIDC_TEAM_CLAIM=teamCodes   (or groups: team codes are then the group names)
 # UME_OIDC_GROUP_CLAIM=groups
 # UME_OIDC_EXTRA_SCOPE=groups
 # Groups (names as in the token, separated by ';') that grant each role without IdP-side roles:
 # UME_OIDC_GROUPS_GATEWAY_ADMIN=GG-Llm-Admins
 # UME_OIDC_GROUPS_DEPARTMENT_ADMIN=
 # UME_OIDC_GROUPS_VIEWER=
+# UME_OIDC_GROUPS_TEAM_ADMIN=
 # Pin images by digest once pushed to your registry, for example:
 # GATEWAY_IMAGE=registry.example.se/ume/gateway@sha256:...
 # ADMINAPI_IMAGE=registry.example.se/ume/adminapi@sha256:...

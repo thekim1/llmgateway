@@ -21,9 +21,9 @@ public sealed record DepartmentDto(Guid Id, string Name, string CostCenterCode, 
 }
 
 public sealed record TeamDto(Guid Id, Guid DepartmentId, string? DepartmentName, string Name, string? Description, bool IsActive, int KeyCount, DateTimeOffset CreatedAt,
-    RequestPolicy? RequestPolicy = null)
+    RequestPolicy? RequestPolicy = null, string? Code = null)
 {
-    public static TeamDto Of(Team t) => new(t.Id, t.DepartmentId, t.Department?.Name, t.Name, t.Description, t.IsActive, t.VirtualKeys.Count, t.CreatedAt, t.RequestPolicy);
+    public static TeamDto Of(Team t) => new(t.Id, t.DepartmentId, t.Department?.Name, t.Name, t.Description, t.IsActive, t.VirtualKeys.Count, t.CreatedAt, t.RequestPolicy, t.Code);
 }
 
 public sealed record KeyDto(

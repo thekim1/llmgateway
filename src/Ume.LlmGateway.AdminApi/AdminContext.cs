@@ -67,7 +67,10 @@ public sealed partial class AdminContext
         ?? throw new InvalidOperationException("AdminContext is only available while handling an HTTP request.");
 
     public bool IsAdmin => User.IsInRole(AdminRoles.GatewayAdmin);
+    private bool IsDepartmentAdmin => User.IsInRole(AdminRoles.DepartmentAdmin);
+    private bool IsTeamAdmin => User.IsInRole(AdminRoles.TeamAdmin);
     private string[] DepartmentCodes => [.. User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value)];
+    private string[] TeamCodes => [.. User.FindAll(AdminClaims.TeamCodes).Select(c => c.Value)];
 
     /// <summary>The user's OIDC subject, or null when the identity has none (recorded as a key's creator).</summary>
     public string? Subject => User.FindFirstValue(AdminClaims.Subject);
@@ -90,6 +93,42 @@ public sealed partial class AdminContext
         Db.Teams.Include(t => t.Department).Where(t => Departments().Any(d => d.Id == t.DepartmentId));
     public IQueryable<VirtualKey> Keys() =>
         Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => Teams().Any(t => t.Id == k.TeamId));
+
+    /// <summary>
+    /// Teams whose keys the user may manage: every team for a gateway admin, the teams of their departments for a department
+    /// admin, the teams in their team codes for a team admin. A viewer's departments do not count, so a viewer who is also
+    /// a team admin manages only their own teams.
+    /// </summary>
+    public IQueryable<Team> KeyTeams()
+    {
+        var teams = Db.Teams.Include(t => t.Department);
+        if (IsAdmin)
+        {
+            return teams;
+        }
+
+        string[] departments = IsDepartmentAdmin ? DepartmentCodes : [];
+        string[] codes = IsTeamAdmin ? TeamCodes : [];
+        return teams.Where(t => departments.Contains(t.Department!.CostCenterCode) || (t.Code != null && codes.Contains(t.Code)));
+    }
+
+    /// <summary>Keys of <see cref="KeyTeams"/>: the keys the user may create, change, rotate and revoke.</summary>
+    public IQueryable<VirtualKey> ManagedKeys() =>
+        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => KeyTeams().Any(t => t.Id == k.TeamId));
+
+    /// <summary>Teams the user may list: those of <see cref="Teams"/> (by department, for the roles that read) and of <see cref="KeyTeams"/>.</summary>
+    public IQueryable<Team> VisibleTeams()
+    {
+        if (IsAdmin)
+        {
+            return Db.Teams.Include(t => t.Department);
+        }
+
+        string[] departments = IsDepartmentAdmin || User.IsInRole(AdminRoles.Viewer) ? DepartmentCodes : [];
+        string[] codes = IsTeamAdmin ? TeamCodes : [];
+        return Db.Teams.Include(t => t.Department).Where(t => departments.Contains(t.Department!.CostCenterCode) || (t.Code != null && codes.Contains(t.Code)));
+    }
+
     public IQueryable<UsageRecord> Usage() =>
         Db.UsageRecords.Where(u => Departments().Any(d => d.Id == u.DepartmentId));
     public IQueryable<UsageMonthlyTotal> UsageTotals() =>
