@@ -115,7 +115,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.CachedInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.CacheWriteInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.OutputPerMillionUsd).HasPrecision(18, 6);
-            e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 6);
+            // Ten decimals: a price entered per second or per hour is stored per minute without rounding it.
+            e.Property(x => x.AudioPerMinuteUsd).HasPrecision(18, 10);
             e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioOutputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.PerImageUsd).HasPrecision(18, 6);

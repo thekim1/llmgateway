@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Input audio can be priced per second, minute or hour.** Providers price audio by duration in different units
+(Whisper per minute, Azure speech and on-prem servers often per hour, some per second), and the price form only took USD
+per minute. *Audio input by duration* in the price form now has a unit (second, minute or hour); the gateway still
+stores the price per minute (`audioPerMinuteUsd`, now with ten decimals so a price per hour or second is kept exactly),
+and the price history and model list show it in the unit it reads best in. A model with a duration price and no audio
+input token price no longer also bills its audio input tokens as text tokens: before, a realtime model priced per hour
+was charged for the duration and for the audio tokens at the text input price. Migration `AudioDurationPrecision`.
+Rolling update: yes.
+
 ## 0.8.3 - 2026-10-26
 
 Agents that call tools through Chat Completions work on gpt-5.6 and GPT-6 (gpt-6-astra, -sol, -luna, gpt-6.1) again:

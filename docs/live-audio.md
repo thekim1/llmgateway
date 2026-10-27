@@ -31,7 +31,8 @@ before the upgrade. During the session the gateway passes events through and onl
   and is billed at its own price.
 - **Metering.** Audio seconds are counted from the appended audio (the session's input format gives the rate), and
   token usage is read from `response.done` and transcription events. Audio tokens are billed at the model's audio token
-  prices when set, duration at its per-minute price. Interpreting is billed by the counted duration.
+  prices when set, duration at its duration price (entered per second, minute or hour). A model with a duration price
+  and no audio token price bills its audio input by duration only. Interpreting is billed by the counted duration.
 - **Budgets.** Five minutes of audio are reserved at connect and again whenever the reservation runs low; when a budget
   runs out the client gets an `error` event (`budget_exceeded`) and the session is closed.
 - **PII.** Text in `session.update`, `conversation.item.create` and `response.create` goes through the key's PII

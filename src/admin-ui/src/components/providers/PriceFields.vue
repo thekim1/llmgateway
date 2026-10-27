@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import type { PriceDraft, PriceErrors } from './priceDraft'
+import { AUDIO_UNIT_LABEL, type AudioUnit, type PriceDraft, type PriceErrors } from './priceDraft'
+import SelectField from '../ui/SelectField.vue'
 import TextField from '../ui/TextField.vue'
 
 defineProps<{ errors: PriceErrors; idPrefix: string; optionalFrom?: boolean }>()
 const draft = defineModel<PriceDraft>({ required: true })
+
+const audioUnits = (Object.keys(AUDIO_UNIT_LABEL) as AudioUnit[]).map((value) => ({ value, label: AUDIO_UNIT_LABEL[value] }))
 
 function set(key: keyof PriceDraft, value: string): void {
   draft.value = { ...draft.value, [key]: value }
@@ -24,15 +27,19 @@ function set(key: keyof PriceDraft, value: string): void {
       @update:model-value="set('cacheWrite', $event)"
     />
     <TextField :id="`${idPrefix}-output`" :model-value="draft.output" label="Output (USD per 1M tokens)" inputmode="decimal" :error="errors.output" @update:model-value="set('output', $event)" />
-    <TextField
-      :id="`${idPrefix}-audio`"
-      :model-value="draft.audio"
-      label="Audio (USD per minute)"
-      inputmode="decimal"
-      hint="Optional. For speech-to-text models billed by duration, such as Whisper. Leave the token prices at 0 for those."
-      :error="errors.audio"
-      @update:model-value="set('audio', $event)"
-    />
+    <div class="flex items-start gap-3">
+      <TextField
+        :id="`${idPrefix}-audio`"
+        class="min-w-0 flex-1"
+        :model-value="draft.audio"
+        label="Audio input by duration (USD)"
+        inputmode="decimal"
+        hint="Optional. For models billed by the length of the input audio, such as Whisper per minute or a server billed per hour. The audio's tokens are then not billed as text; set an audio input token price as well only if the provider charges both."
+        :error="errors.audio"
+        @update:model-value="set('audio', $event)"
+      />
+      <SelectField :id="`${idPrefix}-audio-unit`" class="w-36 shrink-0" :model-value="draft.audioUnit" label="Unit" :options="audioUnits" @update:model-value="set('audioUnit', $event)" />
+    </div>
     <TextField
       :id="`${idPrefix}-audio-in`"
       :model-value="draft.audioIn"

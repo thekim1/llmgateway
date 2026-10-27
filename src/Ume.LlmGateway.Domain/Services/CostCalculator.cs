@@ -30,7 +30,8 @@ public static class CostCalculator
     /// cached tokens are billed at the cached rate, cache writes at the cache-write rate (the input rate when none is
     /// set), the rest at the input rate. Reasoning tokens are part of
     /// output tokens. Audio tokens are billed at the audio token prices when those are set (otherwise as text), and
-    /// audio duration per minute on top, for models priced that way.
+    /// audio duration per minute on top, for models priced that way. A model with a duration price and no audio input
+    /// token price bills its audio input by duration only.
     /// The result is in USD, the currency provider prices are in.
     /// </summary>
     public static decimal Calculate(TokenUsage usage, ModelPrice? price)
@@ -43,7 +44,9 @@ public static class CostCalculator
         var cached = Math.Clamp(usage.CachedInputTokens, 0, Math.Max(usage.InputTokens, 0));
         var uncached = Math.Max(usage.InputTokens - cached, 0);
         var output = Math.Max(usage.OutputTokens, 0);
-        var audioIn = price.AudioInputPerMillionUsd > 0 ? Math.Clamp(usage.AudioInputTokens, 0, uncached) : 0;
+        // Audio input with a duration price and no audio token price is paid for by the duration, not again as text tokens.
+        var audioByDuration = price.AudioPerMinuteUsd > 0 && price.AudioInputPerMillionUsd == 0;
+        var audioIn = price.AudioInputPerMillionUsd > 0 || audioByDuration ? Math.Clamp(usage.AudioInputTokens, 0, uncached) : 0;
         var cacheWrite = Math.Clamp(usage.CacheWriteInputTokens, 0, uncached - audioIn);
         var audioOut = price.AudioOutputPerMillionUsd > 0 ? Math.Clamp(usage.AudioOutputTokens, 0, output) : 0;
         var usd = ((uncached - audioIn - cacheWrite) * price.InputPerMillionUsd

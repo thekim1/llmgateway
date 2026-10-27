@@ -189,6 +189,19 @@ public class CostCalculatorTests
     }
 
     [Fact]
+    public void Audio_priced_by_duration_is_not_billed_again_as_text_tokens()
+    {
+        // A realtime model billed 0.40 USD per hour of input audio: its audio tokens are covered by the duration.
+        var perHour = new ModelPrice { InputPerMillionUsd = 4, OutputPerMillionUsd = 16, AudioPerMinuteUsd = 0.0066666667m };
+        var usage = new TokenUsage(1_000_100, 0, 0, 3600, AudioInputTokens: 1_000_000);
+        CostCalculator.Calculate(usage, perHour).ShouldBe(0.40m + 100 * 4m / 1_000_000);
+
+        // With an audio token price as well, the provider charges both.
+        var both = new ModelPrice { InputPerMillionUsd = 4, AudioInputPerMillionUsd = 32, AudioPerMinuteUsd = 0.01m };
+        CostCalculator.Calculate(new TokenUsage(1_000_000, 0, 0, 60, AudioInputTokens: 1_000_000), both).ShouldBe(32.01m);
+    }
+
+    [Fact]
     public void Transcription_estimate_covers_both_pricing_models()
     {
         var estimate = CostCalculator.EstimateTranscription(60);
