@@ -22,7 +22,7 @@ const route = useRoute()
 const paletteOpen = ref(false)
 const menuOpen = ref(false)
 
-const visible = (item: NavItem) => auth.hasAnyRole(item.roles)
+const visible = (item: NavItem) => auth.canOpen(item)
 const groups = computed(() =>
   navGroups.map((g) => ({ ...g, items: g.items.filter(visible) })).filter((g) => g.items.length > 0),
 )

@@ -20,6 +20,8 @@ export interface NavItem {
   /** Other route names that belong to this page, so it stays highlighted on them. */
   children?: string[]
   roles?: Role[]
+  /** Shows usage data, which a team admin without a reading role cannot see. */
+  readsUsage?: boolean
   badge?: 'alerts' | 'circuits' | 'update'
 }
 
@@ -31,6 +33,8 @@ export interface NavGroup {
 
 export const ADMIN_ROLES: Role[] = ['gateway-admin', 'department-admin']
 export const GATEWAY_ADMIN: Role[] = ['gateway-admin']
+/** Team admins manage their own teams' keys, so they see the Keys page too. */
+export const KEY_ROLES: Role[] = [...ADMIN_ROLES, 'team-admin']
 
 /**
  * Grouped by the job people come to do: watch traffic, give out access, set up models,
@@ -47,6 +51,7 @@ export const navGroups: NavGroup[] = [
         icon: 'space_dashboard',
         description: 'Spend, traffic and anything that needs a decision',
         keywords: ['home', 'dashboard', 'attention'],
+        readsUsage: true,
       },
       {
         name: 'usage',
@@ -58,6 +63,7 @@ export const navGroups: NavGroup[] = [
           { label: 'Dashboard', to: { name: 'usage' }, keywords: ['charts', 'cache'] },
           { label: 'Requests and costs', to: { name: 'usage', query: { tab: 'requests' } }, keywords: ['request id', 'log', 'cost per request'] },
         ],
+        readsUsage: true,
       },
       {
         name: 'ops',
@@ -84,7 +90,7 @@ export const navGroups: NavGroup[] = [
         icon: 'key',
         description: 'API keys for applications, with limits and policies',
         keywords: ['api key', 'virtual key', 'rotate', 'revoke', 'token', 'secret'],
-        roles: ADMIN_ROLES,
+        roles: KEY_ROLES,
       },
       {
         name: 'organisation',
@@ -172,6 +178,7 @@ export const navGroups: NavGroup[] = [
         icon: 'visibility_off',
         description: 'Requests that contained personal data, and what was done',
         keywords: ['personal data', 'gdpr', 'personnummer', 'masking', 'privacy'],
+        readsUsage: true,
       },
       {
         name: 'audit',
@@ -208,9 +215,9 @@ export const navGroups: NavGroup[] = [
 
 /** Bottom bar on phones: monitoring and urgent actions. Everything else is under Menu. */
 export const mobileTabs: NavItem[] = [
-  { name: 'overview', label: 'Overview', icon: 'space_dashboard' },
+  { name: 'overview', label: 'Overview', icon: 'space_dashboard', readsUsage: true },
   { name: 'budgets', label: 'Alerts', icon: 'notifications', roles: ADMIN_ROLES, badge: 'alerts' },
-  { name: 'keys', label: 'Keys', icon: 'key', roles: ADMIN_ROLES },
+  { name: 'keys', label: 'Keys', icon: 'key', roles: KEY_ROLES },
   { name: 'ops', label: 'Health', icon: 'monitor_heart', roles: GATEWAY_ADMIN, badge: 'circuits', children: ['provider-stability'] },
 ]
 

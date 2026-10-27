@@ -54,7 +54,8 @@ public sealed class AdminFixture : IAsyncLifetime
         });
     }
 
-    public async Task<HttpClient> ClientAsync(string? role = "gateway-admin", string? code = null)
+    /// <summary><paramref name="role"/> may name several roles, comma-separated; <paramref name="teams"/> are team codes.</summary>
+    public async Task<HttpClient> ClientAsync(string? role = "gateway-admin", string? code = null, string? teams = null)
     {
         await TestClock.InOneBudgetDayAsync(); // reports and budgets count from midnight in Stockholm
         var client = _factory.CreateHttpsClient();
@@ -62,6 +63,7 @@ public sealed class AdminFixture : IAsyncLifetime
         {
             client.DefaultRequestHeaders.Add(HeaderAuthenticationHandler.RoleHeader, role);
             if (code is not null) { client.DefaultRequestHeaders.Add(HeaderAuthenticationHandler.DepartmentHeader, code); }
+            if (teams is not null) { client.DefaultRequestHeaders.Add(HeaderAuthenticationHandler.TeamHeader, teams); }
         }
         return await client.WithXsrfTokenAsync();
     }

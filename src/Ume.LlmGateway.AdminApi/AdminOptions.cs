@@ -106,8 +106,12 @@ public sealed class OidcOptions
 
     public string RoleClaim { get; set; } = "roles";
     public string DepartmentClaim { get; set; } = "departmentCodes";
+
+    /// <summary>Claim holding the codes of the teams a team admin manages. Set it to the group claim to use group names as team codes.</summary>
+    public string TeamClaim { get; set; } = "teamCodes";
+
     public string GroupClaim { get; set; } = "groups";
-    /// <summary>Role name (gateway-admin, department-admin, viewer) to the group names that grant it, separated by ';'.</summary>
+    /// <summary>Role name (gateway-admin, department-admin, viewer, team-admin) to the group names that grant it, separated by ';'.</summary>
     public Dictionary<string, string> RoleGroups { get; set; } = [];
     /// <summary>Extra scopes to request, for example "groups".</summary>
     public string[] ExtraScopes { get; set; } = [];

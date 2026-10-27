@@ -86,8 +86,9 @@ If the provider cannot emit those names or values, remap them instead of changin
 | Setting | Env variable | Purpose |
 |---|---|---|
 | `Oidc:RoleClaim` / `DepartmentClaim` | `UME_OIDC_ROLE_CLAIM` / `UME_OIDC_DEPARTMENT_CLAIM` | Read roles/department codes from a differently named claim (`role`, `department`) |
+| `Oidc:TeamClaim` | `UME_OIDC_TEAM_CLAIM` | Claim holding team admins' team codes (default `teamCodes`; `groups` uses group names as team codes) |
 | `Oidc:GroupClaim` | `UME_OIDC_GROUP_CLAIM` | Claim holding group names (default `groups`) |
-| `Oidc:RoleGroups:<role>` | `UME_OIDC_GROUPS_GATEWAY_ADMIN`, `_DEPARTMENT_ADMIN`, `_VIEWER` | Groups (`;`-separated, case-insensitive) that grant a role, so no IdP-side roles are needed |
+| `Oidc:RoleGroups:<role>` | `UME_OIDC_GROUPS_GATEWAY_ADMIN`, `_DEPARTMENT_ADMIN`, `_VIEWER`, `_TEAM_ADMIN` | Groups (`;`-separated, case-insensitive) that grant a role, so no IdP-side roles are needed |
 | `Oidc:ExtraScopes:0` | `UME_OIDC_EXTRA_SCOPE` | Additional scope to request (`groups`) |
 | `Oidc:ClientSecret` | `--oidc-client-secret-file` (init script) | Confidential client; stored as the `Oidc__ClientSecret` secret file |
 

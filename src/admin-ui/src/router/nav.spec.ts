@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveRoles } from '@/stores/auth'
+import { createPinia, setActivePinia } from 'pinia'
+import { effectiveRoles, useAuthStore } from '@/stores/auth'
 import { routes } from '.'
-import { GATEWAY_ADMIN, filterEntries, isNavItemActive, mobileTabs, navGroups, searchEntries } from './nav'
+import { GATEWAY_ADMIN, KEY_ROLES, filterEntries, isNavItemActive, mobileTabs, navGroups, searchEntries } from './nav'
 
 describe('routing rules navigation', () => {
   const item = navGroups.flatMap((g) => g.items).find((i) => i.name === 'routing-rules')
@@ -83,5 +84,29 @@ describe('search', () => {
   it('needs every word to match', () => {
     expect(labels('providers models')).toEqual(['Providers & models', 'Providers & models › Providers', 'Providers & models › Models'])
     expect(labels('catalogue providers')).toEqual([])
+  })
+})
+
+describe('team admin navigation', () => {
+  function signedIn(roles: string[]) {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = { isAuthenticated: true, name: 'Team', email: null, roles, departmentCodes: [], teamCodes: ['AI'], sessionExpiresAt: null }
+    auth.status = 'authenticated'
+    return auth
+  }
+  const pages = (roles: string[]) => {
+    const auth = signedIn(roles)
+    return navGroups.flatMap((g) => g.items).filter((i) => auth.canOpen(i)).map((i) => i.name)
+  }
+
+  it('shows a team admin the keys and the catalogue, not usage or organisation', () => {
+    expect(pages(['team-admin'])).toEqual(['keys', 'catalog'])
+    expect(routes.find((r) => r.name === 'keys')?.meta?.roles).toEqual(KEY_ROLES)
+  })
+
+  it('keeps usage for a team admin who is also a viewer, and adds keys', () => {
+    expect(pages(['viewer', 'team-admin'])).toEqual(['overview', 'usage', 'keys', 'catalog', 'pii-incidents'])
+    expect(pages(['viewer'])).not.toContain('keys')
   })
 })

@@ -15,7 +15,7 @@ const query = ref('')
 const active = ref(0)
 
 const entries = computed(() =>
-  searchEntries(navGroups.map((g) => ({ ...g, items: g.items.filter((i) => auth.hasAnyRole(i.roles)) }))),
+  searchEntries(navGroups.map((g) => ({ ...g, items: g.items.filter((i) => auth.canOpen(i)) }))),
 )
 const results = computed(() => filterEntries(entries.value, query.value))
 /** Without a query the list is the menu, so show its section headings. */

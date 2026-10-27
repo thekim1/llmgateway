@@ -2,7 +2,7 @@
 
 **Website and documentation: <https://thekim1.github.io/llmgateway/>**
 
-One gateway between an organisation's applications and every language model: virtual keys, department/team/key budgets (in USD, or token quotas for on-prem capacity),
+One gateway between an organisation's applications and every language model: virtual keys that teams can manage themselves, department/team/key budgets (in USD, or token quotas for on-prem capacity),
 routing rules that keep personal data on-prem, residency restrictions, provider fallback and retries, request policies
 (output caps, system prompts) per team and key, prompt caching and a per-key policy for attached files. Applications keep the OpenAI or Anthropic SDK they already use: the gateway translates where a model needs another API
 (Claude through Chat Completions, tool calls on gpt-5.6/GPT-6 through the Responses API). The gateway stores usage metadata, **never prompt

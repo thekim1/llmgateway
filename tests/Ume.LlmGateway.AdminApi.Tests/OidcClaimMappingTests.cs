@@ -40,6 +40,19 @@ public sealed class OidcClaimMappingTests
     }
 
     [Fact]
+    public void Team_codes_come_from_their_claim_or_from_group_names()
+    {
+        var user = Principal(("teamCodes", "[\"AI\",\"KC\"]"));
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions());
+        Values(user, "teamCodes").ShouldBe(["AI", "KC"]);
+
+        var grouped = Principal(("groups", "[\"GG-Llm-TeamAdmins\",\"GG-Team-AI\"]"));
+        AdminAuthentication.ApplyClaimMapping(grouped, new OidcOptions { TeamClaim = "groups", RoleGroups = new() { ["team-admin"] = "GG-Llm-TeamAdmins" } });
+        Values(grouped, "roles").ShouldBe(["team-admin"]);
+        Values(grouped, "teamCodes").ShouldBe(["GG-Llm-TeamAdmins", "GG-Team-AI"]);
+    }
+
+    [Fact]
     public void A_user_without_matching_claims_gets_no_roles()
     {
         var user = Principal(("groups", "GG-Other"));

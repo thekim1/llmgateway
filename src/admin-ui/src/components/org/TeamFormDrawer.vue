@@ -34,6 +34,7 @@ const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   departmentId: 'team-dept',
   name: 'team-name',
   description: 'team-desc',
+  code: 'team-code',
   budget: 'team-budget',
   requestPolicy: 'team-policy-max-output',
 })
@@ -42,6 +43,7 @@ const step = ref<'form' | 'done'>('form')
 const departmentId = ref('')
 const name = ref('')
 const description = ref('')
+const code = ref('')
 const isActive = ref(true)
 const budget = ref('')
 const policy = ref(emptyPolicyDraft())
@@ -66,6 +68,7 @@ watch(
     departmentId.value = props.team?.departmentId ?? props.defaultDepartmentId ?? props.departments[0]?.id ?? ''
     name.value = props.team?.name ?? ''
     description.value = props.team?.description ?? ''
+    code.value = props.team?.code ?? ''
     isActive.value = props.team?.isActive ?? true
     budget.value = ''
     policy.value = toPolicyDraft(props.team?.requestPolicy)
@@ -94,13 +97,13 @@ async function submit(): Promise<void> {
   try {
     const desc = description.value.trim() || null
     if (props.team) {
-      const saved = await teams.update(props.team.id, { name: name.value.trim(), description: desc, isActive: isActive.value, requestPolicy: parsed.policy })
+      const saved = await teams.update(props.team.id, { name: name.value.trim(), description: desc, isActive: isActive.value, requestPolicy: parsed.policy, code: code.value.trim() })
       ui.notify('Team saved')
       emit('saved', saved)
       emit('update:open', false)
       return
     }
-    const team = await teams.create({ departmentId: departmentId.value, name: name.value.trim(), description: desc, requestPolicy: parsed.policy })
+    const team = await teams.create({ departmentId: departmentId.value, name: name.value.trim(), description: desc, requestPolicy: parsed.policy, code: code.value.trim() || null })
     created.value = team
     emit('saved', team)
     ui.notify('Team created')
@@ -142,6 +145,14 @@ function go(name: 'keys' | 'budgets'): void {
       />
       <TextField id="team-name" v-model="name" label="Name" :error="errors.name" />
       <TextField id="team-desc" v-model="description" label="Description" hint="Optional. What the team uses the gateway for." :error="errors.description" />
+      <TextField
+        id="team-code"
+        v-model="code"
+        label="Team code"
+        mono
+        hint="Optional. Team admins with this code in their teamCodes claim manage this team's keys themselves. Exact match, unique across teams."
+        :error="errors.code"
+      />
       <TextField
         v-if="!team"
         id="team-budget"

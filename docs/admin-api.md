@@ -22,7 +22,7 @@ shows this as a notice.
 - `POST /bff/session/extend` → `{ sessionExpiresAt, sessionLimitAt }`, renews an authenticated session for eight
   hours (but not past `sessionLimitAt`) without losing unsaved forms. At the limit it answers `409`: sign in again.
   Requires the same CSRF headers as other mutations.
-- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], sessionExpiresAt, sessionLimitAt }`
+- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], teamCodes: string[], sessionExpiresAt, sessionLimitAt }`
   (always 200; `isAuthenticated=false` when not signed in). `sessionLimitAt` is the absolute end of the session.
 - Session cookie: `__Host-ume-admin`, HttpOnly, Secure, SameSite=Lax (compatible with OIDC redirects).
   No tokens reach the browser. The cookie only holds a session id; the session itself is stored encrypted in Redis
@@ -50,6 +50,7 @@ Roles (OIDC `roles` claim):
 | `gateway-admin` | everything |
 | `department-admin` | manage teams, keys and budgets in own förvaltning(ar) (`departmentCodes` claim = ansvarskod), read usage for them |
 | `viewer` | read-only: catalogue, own department usage |
+| `team-admin` | `/api/keys` for the teams whose team code is in the `teamCodes` claim (create, update, rotate, revoke; not reveal), `GET /api/teams` for those teams, the catalogue; everything else 403. See [identity-and-roles.md](identity-and-roles.md#team-scope) |
 
 ## Enums
 - `DataResidency`: `OnPrem`, `Eu`, `External`
@@ -70,9 +71,12 @@ Roles (OIDC `roles` claim):
 - `POST /api/departments` `{ name, costCenterCode }` → 201 `Department` *(gateway-admin)*
 - `PUT /api/departments/{id}` `{ name, costCenterCode, isActive }` → `Department`
 - `DELETE /api/departments/{id}` → 204 (409 if it has teams)
-- `GET /api/teams?departmentId=` → `Team[]` where `Team = { id, departmentId, departmentName, name, description, isActive, keyCount, createdAt, requestPolicy: RequestPolicy|null }`
-- `POST /api/teams` `{ departmentId, name, description?, requestPolicy? }` → 201 `Team`
-- `PUT /api/teams/{id}` `{ name, description?, isActive, requestPolicy? }` → `Team` (`requestPolicy` omitted = unchanged, `{}` clears it)
+- `GET /api/teams?departmentId=` → `Team[]` where `Team = { id, departmentId, departmentName, name, description, isActive, keyCount, createdAt, requestPolicy: RequestPolicy|null, code: string|null }`
+  (team admins get their own teams; every other role the teams of its departments)
+- `POST /api/teams` `{ departmentId, name, description?, requestPolicy?, code? }` → 201 `Team`
+- `PUT /api/teams/{id}` `{ name, description?, isActive, requestPolicy?, code? }` → `Team` (`requestPolicy` omitted = unchanged, `{}` clears it;
+  `code` is the team code matched against team admins' `teamCodes` claim, trimmed, at most 100 characters, omitted = unchanged,
+  `""` clears it, 409 when another team has it)
 - `RequestPolicy = { maxOutputTokens?, systemPrompt?, defaults?: object, overrides?: object }`: applied by the gateway to
   every request of the team's keys, after the PII policy and routing rules. `maxOutputTokens` (1–1 000 000) lowers
   `max_tokens` / `max_completion_tokens` / `max_output_tokens` to it, or sets it when the request has none; `systemPrompt`
@@ -104,7 +108,7 @@ unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 [provider tools and storage](#gateway-data-plane--for-the-developer-portal-snippets))
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
-- `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]`
+- `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]` (the keys the user manages: own departments, or own teams for a team admin)
 - `GET /api/keys/{id}` → `VirtualKey`
 - `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**

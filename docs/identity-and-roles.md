@@ -2,7 +2,7 @@
 
 The admin UI and admin API sign people in through your existing OpenID Connect provider: Keycloak, AD FS or Entra ID.
 The gateway itself never sees those users; applications call it with virtual keys. This page explains the access levels,
-then how to set up each identity provider so the admin API gets the roles and departments it needs.
+then how to set up each identity provider so the admin API gets the roles, departments and teams it needs.
 
 The bundled Keycloak realm in `dev/keycloak` is for local runs only. In production, `UME_OIDC_AUTHORITY` in `deploy/.env`
 points at your own provider. The settings below are also in the [runbook](runbook.md), *Identity provider*.
@@ -14,12 +14,14 @@ points at your own provider. The settings below are also in the [runbook](runboo
 | **Gateway admin** (`gateway-admin`) | The identity provider | Everything, in every department |
 | **Department admin** (`department-admin`) | The identity provider | Manage teams, keys and budgets in their own departments |
 | **Viewer** (`viewer`) | The identity provider | Read usage, PII incidents and the catalogue in their own departments |
+| **Team admin** (`team-admin`) | The identity provider | Create, change, rotate and revoke the keys of their own teams |
 | Signed in, no role | The identity provider | Only the catalogue; every other page and API call is refused with 403 |
 | Application | A virtual key (`Authorization: Bearer`) | Call the gateway's `/v1` API within the key's policies |
 | Integration (BI, SIEM) | A client-credentials token or a Data API key | Read the [Data API](data-access.md) with the permissions it was given |
 
-The three admin roles come from the `roles` claim (or a group, see [Claim mapping](#claim-mapping)). There is no default
-role. A user can have several roles; the highest one counts.
+The four admin roles come from the `roles` claim (or a group, see [Claim mapping](#claim-mapping)). There is no default
+role. A user can have several roles; the highest one counts, except team admin, which adds its teams' keys to whatever
+the other roles give.
 
 ### Department scope
 
@@ -30,6 +32,22 @@ every department whatever their codes are.
 
 Scoping applies to departments and everything under them: teams, keys, budgets, alerts, usage, PII incidents and the CSV
 export.
+
+### Team scope
+
+Team admins manage the keys of the teams listed in their `teamCodes` claim. Each value is matched exactly against a
+team's **team code**, which a gateway admin or the department's admin sets on the team (*Organisation › Edit team*).
+A team without a code has no team admins. Codes are unique across all teams.
+
+A team admin can do everything with those keys that a department admin can: create them (the secret is shown once),
+change every setting (models, residencies, PII policy, attachments, provider tools and storage, content guard, request
+policy, limits, IP ranges, expiry), rotate and revoke them. They cannot reveal a stored secret, edit the team, set
+budgets or read usage; the admin UI shows them **Keys** and the **Catalogue** only.
+
+The team code alone decides: a team admin's department codes do not give them other teams' keys. A user who is both
+viewer of a department and team admin of a team elsewhere reads the department's usage and manages only the team's keys.
+A department admin who is also team admin manages the keys of their departments and of their teams, but edits only the
+teams of their own departments.
 
 ### What each role can do
 
@@ -42,6 +60,7 @@ export.
 | Keys: create, edit, rotate, revoke | Yes | In own departments | – |
 | Keys: reveal a stored secret (audited) | Yes | – | – |
 | Keys: choose allowed providers | Yes | Left unchanged | – |
+| Team codes (who are a team's team admins) | Yes | For teams in own departments | – |
 | Budgets and alerts | Yes | For own departments, teams and keys | – |
 | Providers, models, routes, routing rules | Yes | – | – |
 | Settings, request logging | Yes | – | – |
@@ -50,13 +69,16 @@ export.
 | Data API access (clients and keys) | Yes | – | – |
 | API reference (`/openapi`, `/scalar`) | Yes | – | – |
 
+A **team admin** has a column of their own: keys of their own teams (create, edit, rotate, revoke; allowed providers
+left unchanged, as for department admins) and the catalogue. Every other row is –.
+
 Every change is written to the audit log with the user's `sub` claim (or name) as the actor.
 
 ### Sessions
 
 A sign-in lasts 8 hours (a secure, HttpOnly cookie; no sliding expiry). The UI offers to extend it before it runs out,
 but a session never lasts more than `Admin:MaxSessionHours` (12) from sign-in: then the user signs in at the identity
-provider again. Roles and department codes are read at sign-in, so a role change in the identity provider applies at the
+provider again. Roles, department codes and team codes are read at sign-in, so a role change in the identity provider applies at the
 latest after that limit, or at once when the user signs out and in again. Sessions are stored on the server (Redis): signing
 out ends the session, also for a copied cookie.
 
@@ -75,8 +97,9 @@ And these claims **in the ID token** (not only in the access token):
 
 | Claim | Value |
 |---|---|
-| `roles` | `gateway-admin`, `department-admin` and/or `viewer` |
+| `roles` | `gateway-admin`, `department-admin`, `viewer` and/or `team-admin` |
 | `departmentCodes` | The cost-centre codes the user may see; repeated claims, a JSON array or a single string |
+| `teamCodes` | Team admins only: the team codes whose keys they manage; same formats |
 | `name`, `email` | Shown in the UI |
 | `sub` | The actor in the audit log |
 
@@ -89,14 +112,22 @@ provider. Set them in `deploy/.env` (for local runs, the same keys as `Oidc:<Set
 |---|---|---|---|
 | `UME_OIDC_ROLE_CLAIM` | `Oidc:RoleClaim` | `roles` | Claim holding the role names |
 | `UME_OIDC_DEPARTMENT_CLAIM` | `Oidc:DepartmentClaim` | `departmentCodes` | Claim holding the department codes |
+| `UME_OIDC_TEAM_CLAIM` | `Oidc:TeamClaim` | `teamCodes` | Claim holding the team codes; set it to the group claim to use group names as team codes |
 | `UME_OIDC_GROUP_CLAIM` | `Oidc:GroupClaim` | `groups` | Claim holding group names |
 | `UME_OIDC_GROUPS_GATEWAY_ADMIN` | `Oidc:RoleGroups:gateway-admin` | | Groups that grant the role, `;`-separated, case-insensitive |
 | `UME_OIDC_GROUPS_DEPARTMENT_ADMIN` | `Oidc:RoleGroups:department-admin` | | As above |
 | `UME_OIDC_GROUPS_VIEWER` | `Oidc:RoleGroups:viewer` | | As above |
+| `UME_OIDC_GROUPS_TEAM_ADMIN` | `Oidc:RoleGroups:team-admin` | | As above |
 | `UME_OIDC_EXTRA_SCOPE` | `Oidc:ExtraScopes:0` | `email` | One more scope to request, for example `groups` or `allatclaims` |
 
 Group mapping means you do not need roles in the identity provider at all: put people in AD groups and list the groups.
 For example, `UME_OIDC_GROUPS_GATEWAY_ADMIN=GG-Llm-Admins` and `UME_OIDC_GROUPS_VIEWER=GG-Llm-Readers;GG-Economy`.
+
+**Teams from AD groups.** With one AD group per team, team codes need no attribute in the identity provider: set
+`UME_OIDC_TEAM_CLAIM=groups` (the group claim), give each team its group name as team code (for example
+`GG-Llm-Team-Kontaktcenter`) and list the groups whose members are team admins in `UME_OIDC_GROUPS_TEAM_ADMIN`, or
+list the team groups themselves there to make every member a team admin. Every group then counts as a team code, but
+only codes that a team has grant anything.
 
 ## Keycloak
 
@@ -108,7 +139,7 @@ Use a realm you already have (for example one federated to Active Directory). Th
    *Advanced → Proof Key for Code Exchange Code Challenge Method*, choose `S256`.
    Set *Valid redirect URIs* to `https://<admin host>/signin-oidc`, *Valid post logout redirect URIs* to
    `https://<admin host>/signout-callback-oidc` and *Web origins* to `https://<admin host>`.
-2. **Roles.** Create realm roles `gateway-admin`, `department-admin` and `viewer`, and give them to users or groups.
+2. **Roles.** Create realm roles `gateway-admin`, `department-admin`, `viewer` and `team-admin`, and give them to users or groups.
    With AD federation, the LDAP provider's *role-ldap-mapper* can create these roles straight from AD groups.
 3. **Role claim.** In the client's dedicated scope (*Client scopes → ume-admin-dedicated*), add a *User Realm Role* mapper:
    token claim name `roles`, multivalued, *Add to ID token* on.
@@ -118,6 +149,8 @@ Use a realm you already have (for example one federated to Active Directory). Th
    *Realm settings → User profile*, or Keycloak drops it. With AD, an LDAP *user-attribute-mapper* can fill it from an AD
    attribute that holds the cost-centre code. Then add a *User Attribute* mapper: user attribute and token claim name
    `departmentCodes`, multivalued, *Add to ID token* on.
+   **Team codes** work the same way: a user attribute `teamCodes` (declared in the user profile) and a *User Attribute*
+   mapper to the claim `teamCodes`. Or use groups, see [Claim mapping](#claim-mapping).
 5. **Gateway.**
    ```bash
    UME_OIDC_AUTHORITY=https://keycloak.example.se/realms/<realm>
@@ -130,7 +163,7 @@ Use a realm you already have (for example one federated to Active Directory). Th
    *Web* platform with both redirect URIs: `https://<admin host>/signin-oidc` and
    `https://<admin host>/signout-callback-oidc`. Under *Certificates & secrets*, create a client secret (the Web platform
    needs one).
-2. **App roles.** Under *App roles*, create three roles with the values `gateway-admin`, `department-admin` and `viewer`
+2. **App roles.** Under *App roles*, create four roles with the values `gateway-admin`, `department-admin`, `viewer` and `team-admin`
    (allowed member types *Users/Groups*). Assign users or groups to them in *Enterprise applications → (the app) → Users
    and groups*; assigning groups needs Entra ID P1 or P2. The roles arrive in the `roles` claim of the ID token, so no
    mapping is needed. To make sure only assigned users can sign in, set *Assignment required?* to *Yes* on the enterprise
@@ -190,7 +223,9 @@ against your own provider:
    received after mapping, without the tokens.
 2. Sign in once as each role and check what you can see and change against the table above.
 3. Sign in as a department admin and check that other departments' usage and keys are not visible.
-4. A user who can sign in but sees nothing has no role (or no department codes); an error on sign-in is usually a redirect
+4. Sign in as a team admin and check that only the keys of the teams with their team codes are listed. In local runs the
+   Keycloak user `team-admin` manages the seeded team *Digitalisering & AI* (team code `digitalisering-ai`).
+5. A user who can sign in but sees nothing has no role (or no department codes); an error on sign-in is usually a redirect
    URI or the authority URL. *Health and troubleshooting* in the [runbook](runbook.md#health-and-troubleshooting) has more.
 
 **Local development against your provider.** Set `Oidc:Authority`, `Oidc:ClientId`, `Oidc:ClientSecret` and any mapping
