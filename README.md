@@ -27,7 +27,9 @@ Set-Location ..\..
 Open `https://localhost:5173` and sign in as `gateway-admin`. Details, Visual Studio, the fake LLM and the tests:
 [Local development](docs/local-development.md).
 
-Production, on a Linux Docker host with an OIDC client for the admin UI ([Production setup](docs/production-setup.md)):
+Production, on a Linux Docker host with an OIDC client for the admin UI ([Production setup](docs/production-setup.md)).
+Up to about 50 messages/s, one host with 2 vCPU, 4 GB RAM and 20 GB disk plus usage data runs everything
+([Sizing](docs/production-setup.md#sizing)):
 
 ```bash
 curl -fsSLO https://github.com/thekim1/llmgateway/releases/download/vX.Y.Z/ume-llm-gateway-X.Y.Z.tar.gz

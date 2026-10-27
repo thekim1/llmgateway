@@ -1,0 +1,52 @@
+# Sizing test: the gateway on a tight budget with PII (Allow) and content guard (Record) on.
+name: compare-sizing
+services:
+  fake-llm:
+    image: ume-llm-gateway/fake-llm:compare
+    cpuset: "0-3"
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Logging__LogLevel__Default: Warning
+      OTEL_SDK_DISABLED: "true"
+      # A real provider's timing: 400 ms to the first token, 200 words at 25 ms ±30 %.
+      FakeLlm__Latency__FirstTokenMs: "400"
+      FakeLlm__Latency__TokenIntervalMs: "25"
+      FakeLlm__Latency__JitterPercent: "30"
+      FakeLlm__Latency__AnswerWords: "200"
+  db:
+    image: postgres:17-alpine
+    cpuset: "12-13"
+    cpus: 1
+    mem_limit: 1g
+    shm_size: 128m
+    environment: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: gatewaydb}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:25432:5432"]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U postgres -d gatewaydb"], interval: 2s, retries: 30}
+  redis:
+    image: redis:7.4-alpine
+    cpuset: "14-15"
+    cpus: 0.25
+    mem_limit: 256m
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+  gateway:
+    image: ume-llm-gateway/gateway:compare
+    cpuset: "8-11"
+    cpus: 0.5
+    mem_limit: 512m
+    depends_on: {db: {condition: service_healthy}, redis: {condition: service_started}}
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__gatewaydb: Host=db;Database=gatewaydb;Username=postgres;Password=postgres
+      ConnectionStrings__redis: redis:6379
+      Security__KeyPepper: compare-only-pepper-0123456789abcdef0123456789abcdef
+      Gateway__ContentGuard__CheckAnswers: "true"
+    ports: ["127.0.0.1:28080:8080"]
+  k6:
+    profiles: [tools]
+    image: grafana/k6:1.3.0
+    cpuset: "4-7"
+    volumes: [./k6:/scripts:ro, ../results/sizing:/results]
+volumes:
+  pgdata:

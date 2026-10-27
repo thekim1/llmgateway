@@ -51,8 +51,7 @@ three timestamp reads per request. The OpenTelemetry GenAI metrics are off by de
 add four histogram recordings per request, and `ume.gateway.*` already covers tokens, cost and latency.
 
 Streaming: each upstream SSE event is parsed only as far as needed (a forward-only scan for the text length; the usage
-chunk is parsed fully, and the `"usage":null` that OpenAI and Azure put in every chunk does not count as one — see
-[streaming-findings.md](streaming-findings.md)) and written straight into the response pipe with one flush per event, so tokens reach the client
+chunk is parsed fully, and the `"usage":null` that OpenAI and Azure put in every chunk does not count as one) and written straight into the response pipe with one flush per event, so tokens reach the client
 as soon as they arrive. Non-streaming answers are passed through as the bytes the provider sent: usage is read with a
 forward-only scan instead of building and re-serialising a JSON tree, which matters most for embeddings. A chat
 completion routed to an Anthropic provider is translated with `Utf8JsonReader` for the text and tool-argument deltas and
@@ -191,6 +190,30 @@ gateway sits in a realistic stream. Measured with the stream probe, 30 s per loa
 The ±30 % jitter on the first token is larger than anything the gateway adds, so the differences go both ways (−16 to
 +39 ms with one sample stream at 1 client); the pace of the stream and its total length are unchanged. No gap of 250 ms
 or more at any load.
+
+### A small host (`benchmarks/compare/sizing/run.sh`)
+
+How much hardware a quiet installation needs. Gateway limited to **0.5 vCPU and 512 MB**, Postgres to 1 vCPU and 1 GB
+(on a disk volume), Redis to 0.25 vCPU and 256 MB. The key has PII policy *Allow* and content guard *Record* (rules
+only, no guard model; `CheckAnswers` on). Real-provider timing as above. Mixed traffic at a fixed arrival rate: 80 %
+streamed, 25 % of messages with a personnummer, email address and phone number, 5 % with a prompt injection, 10 % long
+conversations (12 turns). 55 000 messages, 0 failed checks.
+
+| | Idle | 10 msg/s | 50 msg/s | 100 msg/s |
+|---|---:|---:|---:|---:|
+| Gateway CPU, cores (average / highest sample) | 0.00 | 0.17 / 0.35 | 0.39 / 0.50 | 0.46 / 0.50 |
+| Gateway memory | 96 MB | 144–161 MB | 181–197 MB | 201–236 MB |
+| Postgres CPU / memory | 0.01 / 56 MB | 0.02 / 53 MB | 0.03 / 57 MB | 0.04 / 65 MB |
+| Redis CPU / memory | 0.00 / 4 MB | 0.01 / 4 MB | 0.02 / 4 MB | 0.02 / 4 MB |
+| Whole message p50 / p95 / p99 | | | 5.57 / 5.96 / 6.74 s | 5.58 / 6.02 / 6.78 s |
+
+Straight to the fake LLM at 50/s the same mix takes 5.56 / 5.92 / 6.75 s, so the gateway added nothing measurable, also
+at 100/s, where it used its whole 0.5 vCPU and was throttled in about a quarter of the CPU periods. A realistic stream is
+about 200 events, so a message costs about 6.5–7 ms of gateway CPU here (59 % of it kernel time writing the events),
+much more than the short answers in the scaling runs. About 560 streams were open at once at 100/s.
+
+A usage record takes **563 bytes** in Postgres including indexes (34 000 rows). Recommended sizes based on this run are
+in [Production setup](production-setup.md#sizing).
 
 ### Per-request work (`audit`, in-process, Redis, sequential, 500 requests per scenario)
 
