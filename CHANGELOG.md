@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Sizing.** *Production setup* has a *Sizing* section, and the website's Benchmarks page a *What to run it on* section:
+for up to about 50 messages/s, one host with 2 vCPU, 4 GB RAM and 20 GB disk plus usage data (about 560 bytes per
+request kept), or 1–1.5 vCPU and 1.5 GB for the gateway and admin API with your own Postgres and Redis. Measured with
+the new `benchmarks/compare/sizing/run.sh`: the gateway limited to 0.5 vCPU and 512 MB, PII detection and the content
+guard on, real-provider timing and mixed traffic; it carried 100 streamed messages/s at 236 MB without adding latency.
+The website no longer publishes *Streaming findings* (it stays in `docs/`), and the start page says how the headline
+figures were measured: in a Docker container limited to 4 vCPUs.
+
 **One benchmark baseline.** Every performance figure in the docs and on the website now comes from one run (2026-10-27,
 *Results (baseline 2026-10-27)* in `docs/performance.md`). Older measurements are no longer quoted anywhere:
 `docs/benchmark-2026-10-13.md` is removed, and `docs/performance.md`, `docs/streaming-findings.md` and the improvement
@@ -432,7 +440,7 @@ WireMock.Net 2.19). This fixes the build, which failed NuGet's audit on known vu
 
 **Fake LLM with real-provider timing, and a streaming latency benchmark.** The fake LLM has an optional `FakeLlm:Latency` section (time to first token, pace per word, jitter, answer length, occasional stalls; all off by default, passed through from the AppHost user secrets), and its chat chunks carry `"usage":null` like OpenAI's when `include_usage` is set. `benchmarks/compare/latency.sh` measures time to first token, chunk gaps and whole answers per platform with a new stream probe (`stream-probe` in the benchmark project). `FakeLlm:Latency:PrefillMsPer1kInputTokens` makes time to first token grow with the prompt, and `PROBE_PAYLOAD=document` sends a ten-page document in a five-message conversation (about 10 000 tokens; eneo's seeded model now allows 128 000 input tokens). The comparison seed now retries while Docker's port forward comes up. 
 
-**Streaming: faster relay of real OpenAI/Azure chunks, no compressed SSE, chunk-gap metrics** ([docs/streaming-findings.md](docs/streaming-findings.md)). OpenAI and Azure send `"usage":null` in every chunk when `include_usage` is set (the gateway always sets it), which sent every chunk down the full-JSON-parse path. Null usage now takes the fast path, so real OpenAI and Azure streams are relayed with far less work per chunk. Streamed provider calls no longer send `Accept-Encoding`, so a provider or proxy cannot hold tokens back in compression blocks; a stream that arrives compressed anyway is still decoded. New OpenTelemetry metrics per stream: `ume.gateway.stream.max_upstream_gap`, `ume.gateway.stream.max_write` (ms) and `ume.gateway.stream.stalls` (waits ≥ 1 s), tagged by provider and endpoint, plus an Information log line for streams that stalled. New benchmark row with the real OpenAI wire format.
+**Streaming: faster relay of real OpenAI/Azure chunks, no compressed SSE, chunk-gap metrics**. OpenAI and Azure send `"usage":null` in every chunk when `include_usage` is set (the gateway always sets it), which sent every chunk down the full-JSON-parse path. Null usage now takes the fast path, so real OpenAI and Azure streams are relayed with far less work per chunk. Streamed provider calls no longer send `Accept-Encoding`, so a provider or proxy cannot hold tokens back in compression blocks; a stream that arrives compressed anyway is still decoded. New OpenTelemetry metrics per stream: `ume.gateway.stream.max_upstream_gap`, `ume.gateway.stream.max_write` (ms) and `ume.gateway.stream.stalls` (waits ≥ 1 s), tagged by provider and endpoint, plus an Information log line for streams that stalled. New benchmark row with the real OpenAI wire format.
 
 ## 0.4.0 - 2026-10-13
 

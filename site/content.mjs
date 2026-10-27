@@ -44,7 +44,6 @@ export const DOCS = [
   ] },
   { group: 'Performance', items: [
     { slug: 'performance', title: 'Performance', source: 'docs/performance.md', lead: 'What a request costs, every benchmark result and how to measure it.' },
-    { slug: 'streaming-findings', title: 'Streaming findings', source: 'docs/streaming-findings.md', lead: 'Why streams fell behind, what was fixed and how to check it again.' },
   ] },
   { group: 'Reference', items: [
     { slug: 'admin-api', title: 'Admin API', source: 'docs/admin-api.md', lead: 'The contract between the admin UI and the control plane, and the gateway\'s data plane.' },
@@ -144,7 +143,7 @@ Set-Location ..\\..` },
   -d '{"model":"ume/chat-standard","messages":[{"role":"user","content":"Hej"}]}'` },
     ] },
   { id: 'production', title: 'Deploy to production', body: 'A Linux Docker host with your own login provider.', icon: 'dns',
-    prereqs: ['Linux + Docker 28+', 'Compose v2.24+', 'An OIDC client', 'Two hostnames'],
+    prereqs: ['Linux + Docker 28+', 'Compose v2.24+', '2 vCPU, 4 GB RAM', 'An OIDC client', 'Two hostnames'],
     steps: [
       { title: 'Download a release', body: 'Each release bundle has Compose files that point at its images on GHCR, pinned by digest.', shell: 'bash', code: `curl -fsSLO ${GH}/releases/download/vX.Y.Z/ume-llm-gateway-X.Y.Z.tar.gz
 tar -xzf ume-llm-gateway-X.Y.Z.tar.gz && cd ume-llm-gateway-X.Y.Z` },
@@ -201,6 +200,27 @@ export const SCALE = [
   { id: 'vcpu', tab: 'By vCPUs', label: 'vCPUs (peak)', x: ['1', '2', '4', '6'], v: [4751, 9616, 17772, 20550] },
 ]
 
+/** docs/production-setup.md, Sizing; measured in docs/performance.md, A small host (2026-10-27). */
+export const SIZING = {
+  measured: [
+    { label: 'Gateway CPU at 50 msg/s', value: '0.39', sub: 'vCPU on average, limit 0.5' },
+    { label: 'Gateway memory', value: '236 MB', sub: 'Highest, 100 msg/s, ~560 open streams' },
+    { label: 'Added latency', value: 'None', sub: 'Measurable at 50 and 100 msg/s' },
+    { label: 'Per usage record', value: '563 B', sub: 'Postgres, with indexes' },
+  ],
+  rows: [
+    ['Gateway', '0.5 vCPU, up to 1', '256 MB, up to 512 MB', '–'],
+    ['Admin API and UI', '0.25 vCPU', '256 MB, up to 512 MB', '–'],
+    ['Postgres', '0.5 vCPU, up to 1', '512 MB, up to 1–2 GB', 'Usage data'],
+    ['Redis', '0.1 vCPU', '64 MB, up to 256 MB', 'None'],
+  ],
+  totals: [
+    ['One host for everything', '2 vCPU', '4 GB', '20 GB + usage data'],
+    ['Gateway and admin API only', '1–1.5 vCPU', '1.5 GB', '5 GB'],
+  ],
+  disk: [['5 msg/s average', '≈ 90 GB'], ['10 msg/s average', '≈ 180 GB'], ['50 msg/s around the clock', '≈ 890 GB']],
+}
+
 export const COST_ROWS = [
   { step: 'Key and catalogue lookup', when: 'Before first byte', rt: '0', how: 'In memory; refreshed in the background' },
   { step: 'Rate limit + circuit state', when: 'Before first byte', rt: '1', how: 'One Lua script and one MGET, pipelined' },
@@ -227,6 +247,5 @@ cd benchmarks/compare && PLATFORMS="fake ume" ./run.sh && PLATFORMS="fake ume" .
 
 export const REPORTS = [
   { title: 'Performance', body: 'Every benchmark result, what a request costs and how to measure it.', href: 'docs/performance/' },
-  { title: 'Streaming findings', body: 'Why streams fell behind, what was fixed and how to re-validate.', href: 'docs/streaming-findings/' },
   { title: 'Platform comparison (slides)', body: 'The eneo comparison for non-technical readers. Step with the arrow keys.', href: 'reports/platform-comparison.html', meta: 'HTML · PDF', alt: 'reports/platform-comparison.pdf' },
 ]

@@ -23,6 +23,39 @@ It is safe to re-run: existing secrets are never overwritten. All options are av
 non-interactively (`--help`); `--renew-certs` re-issues the service certificates. Back up
 `deploy/secrets/.pepper` and `deploy/certs/data-protection.pfx` separately from database dumps.
 
+## Sizing
+
+For a quiet installation, up to about 50 messages per second with room for bursts. Measured with PII detection and the
+content guard on ([performance](performance.md#a-small-host-benchmarkscomparesizingrunsh)): the gateway carried
+100 streamed messages/s in 0.5 vCPU and 236 MB without adding latency.
+
+| | CPU | Memory | Disk |
+|---|---|---|---|
+| Gateway | 0.5 vCPU, up to 1 | 256 MB, up to 512 MB | – |
+| Admin API and UI | 0.25 vCPU | 256 MB, up to 512 MB | – |
+| Postgres | 0.5 vCPU, up to 1 | 512 MB, up to 1–2 GB | Usage data, below |
+| Redis | 0.1 vCPU | 64 MB, up to 256 MB | None (no persistence needed) |
+| **One host for everything** | **2 vCPU** | **4 GB** (with the OS) | **20 GB + usage data** |
+| **Gateway and admin API only** (your own Postgres and Redis) | **1–1.5 vCPU** | **1.5 GB** | **5 GB** |
+
+At 50 messages/s your own Postgres gets about 50 inserts per second (in batches, from a background writer) and your
+own Redis about 450 commands per second, using a few MB.
+
+Disk grows with usage records: about 560 bytes per request, kept for the retention period (365 days by default,
+*Settings > Data retention*). Size by the average rate over the day, not the peak:
+
+| Average rate | Per year |
+|---|---|
+| 5 messages/s (peaks of 50 in office hours) | about 90 GB |
+| 10 messages/s | about 180 GB |
+| 50 messages/s around the clock | about 890 GB |
+
+The admin API was not measured under load; its figures are estimates. A guard model for the content guard runs on your
+own inference server and is not included. For two gateway instances ([updates without downtime](zero-downtime-updates.md)),
+add one gateway row.
+
+## Other set-ups
+
 No shell access (**Portainer**)? Use `compose.portainer.yaml` (attached to each release, image references
 already pinned): the same stack configured only through environment variables, with certificates and secrets generated automatically in Docker volumes on
 first start. See the runbook, *Portainer and other hosts without shell access*.

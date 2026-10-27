@@ -198,7 +198,7 @@ function homePage() {
 <div class="wrap pt-64"><div class="frame frame-lg">${shot('overview-desktop', 'The admin UI overview: needs attention, key figures, daily spend and provider health', 'r-20')}</div></div>
 <section class="wrap pt-80" aria-label="Performance at a glance">
   <div class="proof">${C.PROOF.map(p => `<div><span class="big">${p.value}</span><span class="b">${p.label}</span><span class="sub">${p.sub}</span></div>`).join('')}</div>
-  <p class="fine">Measured ${C.BENCH_DATE} with an instant fake LLM on a 16-thread laptop. <a href="${url('benchmarks/')}">How we measure</a></p>
+  <p class="fine">Measured ${C.BENCH_DATE}: the gateway in a Docker container limited to 4 vCPUs, against a fake LLM that answers instantly. <a href="${url('benchmarks/')}">How we measure</a></p>
 </section>
 <section class="wrap pt-120 stack-40" aria-labelledby="pillars-h">
   <div class="intro">${eyebrow('Made for the public sector')}<h2 id="pillars-h" class="h-xl">Control over AI that you can explain to a data protection officer.</h2></div>
@@ -321,6 +321,14 @@ function benchPage() {
     <div class="stack-6 measure"><h2 id="cmp-h" class="h-m">Next to eneo, on the same fake LLM</h2><p class="muted">Same four pinned cores for each platform. Both are called the way an external application calls them: the gateway with a virtual key, eneo with a service API key. These are different kinds of product: eneo is a chat application that stores every conversation; the gateway is a stateless proxy. The numbers show what each adds on top of the model call, not which is better.</p></div>
     <div class="card panel stack-24">${C.COMPARE.map(c => `<div class="stack-10"><span class="b">${c.label}</span>${c.rows.map(([n, v, l], j) => `<div class="hbar"><span class="muted">${n}</span><div class="track"><div class="fill${j ? ' other' : ''}" style="width:${Math.max(0.6, v / c.max * 100).toFixed(2)}%"></div></div><span class="b num">${l}</span></div>`).join('')}</div>`).join('')}
       <span class="fine">Lower is better. eneo v2.2.3, its latest release, measured in the same ${C.BENCH_DATE} run as the gateway, streaming, 30 s per point, 0 failed checks. Peak on the same four cores: 17 888 messages/s for the gateway, 51 for eneo.</span></div>
+  </section>
+
+  <section class="stack-20" aria-labelledby="size-h">
+    <div class="stack-6 measure"><h2 id="size-h" class="h-m">What to run it on</h2><p class="muted">For a quiet installation, up to about 50 messages per second with room for bursts. Measured with the gateway limited to 0.5 vCPU and 512 MB, PII detection and the content guard on, a fake LLM with a real provider's timing (about 5.6 s per streamed answer) and mixed traffic: 55 000 messages, 0 failed.</p></div>
+    <div class="grid-220">${C.SIZING.measured.map(b => `<div class="card stat"><span class="l">${b.label}</span><span class="v">${b.value}</span><span class="s">${b.sub}</span></div>`).join('')}</div>
+    <div class="table-card"><table><thead><tr><th scope="col">Recommended</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Disk</th></tr></thead><tbody>${C.SIZING.rows.map(([n, ...c]) => `<tr><th scope="row">${n}</th>${c.map(x => `<td class="muted">${x}</td>`).join('')}</tr>`).join('')}${C.SIZING.totals.map(([n, ...c]) => `<tr><th scope="row">${n}</th>${c.map(x => `<td class="b">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <div class="table-card"><table><thead><tr><th scope="col">Usage data in Postgres, 365 days kept</th><th scope="col" class="num">Per year</th></tr></thead><tbody>${C.SIZING.disk.map(([n, v]) => `<tr><th scope="row">${n}</th><td class="num b">${v}</td></tr>`).join('')}</tbody></table></div>
+    <p class="fine">About 560 bytes per request, kept for the retention period (90–3 650 days). Size disk by the average rate over the day, not the peak. With your own Postgres and Redis, 50 messages/s is about 50 batched inserts and 450 Redis commands per second. The admin API was not measured under load. <a href="${url('docs/production-setup/#sizing')}">Sizing in Production setup</a></p>
   </section>
 
   <section class="stack-20" aria-labelledby="reports-h">

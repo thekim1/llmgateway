@@ -137,6 +137,17 @@ PROFILE=stalls FAKE_STALL_P=0.01 FAKE_STALL_MS=1500 VUS="16" benchmarks/compare/
 
 It writes `results/latency/<PROFILE>/report.md`.
 
+**Sizing** (`sizing/run.sh`, about 10 minutes): is a small host enough? Its own stack (`sizing/compose.yaml`) limits the
+gateway to 0.5 vCPU and 512 MB, Postgres to 1 vCPU and 1 GB on a disk volume and Redis to 0.25 vCPU and 256 MB, turns on
+PII detection (*Allow*) and the content guard (*Record*), gives the fake LLM real-provider timing and sends mixed traffic
+(`sizing/k6/mix.js`) at fixed rates. It reports CPU, memory, CPU throttling, latency against the fake LLM directly and
+bytes per usage record in `results/sizing/report.txt`.
+
+```bash
+benchmarks/compare/sizing/run.sh
+RATES="50" DURATION=5m benchmarks/compare/sizing/run.sh
+```
+
 The report is written to `results/report.md` (raw k6 summaries and CPU samples next to it). Per scenario it shows
 requests/s, median/p95/p99 latency and overhead over the fake LLM, time to first byte, container CPU per request
 (platform and its Postgres + Redis), Postgres statements and Redis commands per request (including background
@@ -150,6 +161,7 @@ the fake LLM's answer, so an error can never pass as a fast response.
 | `compose.yaml` | Fake LLM, both platforms (profiles `ume`, `eneo`) and k6 (profile `tools`) |
 | `run.sh` | Starts each platform on fresh databases, seeds it, warms up, runs the scenarios, samples CPU and query counts |
 | `scale.sh` | Load and resource scaling (see above) |
+| `sizing/` | A small host with PII and content guard on (see above) |
 | `latency.sh`, `latency_report.py` | Streaming latency with real-provider timing (see above), via the stream probe |
 | `lib.sh` | Shared shell helpers (start/seed platforms, k6, CPU and query sampling) |
 | `k6/chat.js` | One chat message per iteration for `TARGET=ume|eneo|fake`, streaming or not |
