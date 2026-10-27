@@ -1,4 +1,12 @@
 import type { NewPrice } from '@/api/types'
+import { formatUsd } from '@/utils/format'
+
+/** The unit an audio duration price is typed in. The API stores it per minute. */
+export type AudioUnit = 'second' | 'minute' | 'hour'
+
+const MINUTES: Record<AudioUnit, number> = { second: 1 / 60, minute: 1, hour: 60 }
+export const AUDIO_UNIT_LABEL: Record<AudioUnit, string> = { second: 'per second', minute: 'per minute', hour: 'per hour' }
+const AUDIO_UNIT_SHORT: Record<AudioUnit, string> = { second: 'per s', minute: 'per min', hour: 'per hour' }
 
 export interface PriceDraft {
   input: string
@@ -6,8 +14,9 @@ export interface PriceDraft {
   /** USD per 1M input tokens written to the prompt cache (Anthropic). Empty bills them at the input price. */
   cacheWrite: string
   output: string
-  /** USD per minute of audio, for speech-to-text models billed by duration. Empty means 0. */
+  /** USD per {@link audioUnit} of input audio, for models billed by duration. Empty means 0. */
   audio: string
+  audioUnit: AudioUnit
   /** USD per 1M audio input/output tokens (realtime, gpt-4o-transcribe). Empty means 0: billed as text tokens. */
   audioIn: string
   audioOut: string
@@ -18,7 +27,7 @@ export interface PriceDraft {
 
 export type PriceErrors = Partial<Record<keyof PriceDraft, string>>
 
-export const emptyPriceDraft = (): PriceDraft => ({ input: '', cached: '', cacheWrite: '', output: '', audio: '', audioIn: '', audioOut: '', image: '', from: '' })
+export const emptyPriceDraft = (): PriceDraft => ({ input: '', cached: '', cacheWrite: '', output: '', audio: '', audioUnit: 'minute', audioIn: '', audioOut: '', image: '', from: '' })
 
 export const isPriceDraftEmpty = (d: PriceDraft): boolean =>
   !d.input.trim() && !d.cached.trim() && !d.cacheWrite.trim() && !d.output.trim() && !d.audio.trim() && !d.audioIn.trim() && !d.audioOut.trim() && !d.image.trim() && !d.from.trim()
@@ -41,12 +50,27 @@ export function validatePrice(d: PriceDraft): PriceErrors {
   return errors
 }
 
+/** A price per second or hour as the price per minute the API stores (ten decimals, so per hour round-trips). */
+export const perMinute = (usd: number, unit: AudioUnit): number => Number((usd / MINUTES[unit]).toFixed(10))
+
+/**
+ * A stored per-minute price in the unit it reads best in: the first of minute, hour and second that needs at most
+ * four decimals, e.g. `0,006 per min`, `0,40 per hour`. Falls back to per minute with up to eight decimals.
+ */
+export function formatAudioPrice(usdPerMinute: number): string {
+  const unit = (['minute', 'hour', 'second'] as const).find((u) => {
+    const value = usdPerMinute * MINUTES[u]
+    return Math.abs(value - Number(value.toFixed(4))) < 1e-8 && value >= 0.0001
+  })
+  return unit ? `${formatUsd(usdPerMinute * MINUTES[unit])} ${AUDIO_UNIT_SHORT[unit]}` : `${usdPerMinute.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 8 })} ${AUDIO_UNIT_SHORT.minute}`
+}
+
 export function toNewPrice(d: PriceDraft): NewPrice {
   return {
     inputPerMillionUsd: parse(d.input),
     cachedInputPerMillionUsd: parse(d.cached),
     outputPerMillionUsd: parse(d.output),
-    audioPerMinuteUsd: d.audio.trim() ? parse(d.audio) : 0,
+    audioPerMinuteUsd: d.audio.trim() ? perMinute(parse(d.audio), d.audioUnit) : 0,
     audioInputPerMillionUsd: d.audioIn.trim() ? parse(d.audioIn) : 0,
     audioOutputPerMillionUsd: d.audioOut.trim() ? parse(d.audioOut) : 0,
     perImageUsd: d.image.trim() ? parse(d.image) : 0,

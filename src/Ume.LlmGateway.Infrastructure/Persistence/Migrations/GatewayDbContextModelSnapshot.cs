@@ -503,8 +503,8 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,6)");
 
                     b.Property<decimal>("AudioPerMinuteUsd")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
+                        .HasPrecision(18, 10)
+                        .HasColumnType("numeric(18,10)");
 
                     b.Property<decimal?>("CacheWriteInputPerMillionUsd")
                         .HasPrecision(18, 6)

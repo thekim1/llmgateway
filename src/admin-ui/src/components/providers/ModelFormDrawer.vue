@@ -21,7 +21,7 @@ import UiButton from '../ui/UiButton.vue'
 import UiDrawer from '../ui/UiDrawer.vue'
 import AddPriceDialog from './AddPriceDialog.vue'
 import PriceFields from './PriceFields.vue'
-import { emptyPriceDraft, isPriceDraftEmpty, toNewPrice, validatePrice, type PriceErrors } from './priceDraft'
+import { emptyPriceDraft, formatAudioPrice, isPriceDraftEmpty, toNewPrice, validatePrice, type PriceErrors } from './priceDraft'
 
 const props = defineProps<{ open: boolean; model: Model | null; providers: Provider[] }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'deleted'): void }>()
@@ -67,7 +67,7 @@ const priceColumns: Column[] = [
   { key: 'cached', label: 'Cached', align: 'right' },
   { key: 'cacheWrite', label: 'Cache write', align: 'right' },
   { key: 'output', label: 'Output', align: 'right' },
-  { key: 'audio', label: 'Audio / min', align: 'right' },
+  { key: 'audio', label: 'Audio duration', align: 'right' },
   { key: 'audioTokens', label: 'Audio tokens in / out', align: 'right' },
   { key: 'image', label: 'Image', align: 'right' },
 ]
@@ -188,7 +188,7 @@ async function priceAdded(): Promise<void> {
         <h3 id="model-prices" class="text-heading">Price history</h3>
         <UiButton size="sm" icon="add" @click="addPrice = true">Add price</UiButton>
       </div>
-      <p class="text-small text-fg-3">USD per 1M tokens; audio in USD per minute; images in USD per picture. A dash means cache writes are billed at the input price, audio tokens as text tokens, or images per token.</p>
+      <p class="text-small text-fg-3">USD per 1M tokens; audio duration in USD per second, minute or hour; images in USD per picture. A dash means cache writes are billed at the input price, audio tokens as text tokens, or images per token.</p>
       <AsyncState :loading="pricesLoading" :error="pricesError" :empty="prices.length === 0" empty-text="No price yet. Usage of this model is not costed." @retry="loadPrices">
         <DataTable :columns="priceColumns" :rows="prices" :row-key="(p) => p.effectiveFrom" caption="Price history">
           <template #cell-from="{ row }">{{ formatDateTime(row.effectiveFrom) }}</template>
@@ -196,7 +196,7 @@ async function priceAdded(): Promise<void> {
           <template #cell-cached="{ row }">{{ formatUsd(row.cachedInputPerMillionUsd) }}</template>
           <template #cell-cacheWrite="{ row }">{{ row.cacheWriteInputPerMillionUsd != null ? formatUsd(row.cacheWriteInputPerMillionUsd) : '—' }}</template>
           <template #cell-output="{ row }">{{ formatUsd(row.outputPerMillionUsd) }}</template>
-          <template #cell-audio="{ row }">{{ row.audioPerMinuteUsd ? formatUsd(row.audioPerMinuteUsd) : '—' }}</template>
+          <template #cell-audio="{ row }">{{ row.audioPerMinuteUsd ? formatAudioPrice(row.audioPerMinuteUsd) : '—' }}</template>
           <template #cell-image="{ row }">{{ row.perImageUsd ? formatUsd(row.perImageUsd) : '—' }}</template>
           <template #cell-audioTokens="{ row }">
             {{ row.audioInputPerMillionUsd ? formatUsd(row.audioInputPerMillionUsd) : '—' }} / {{ row.audioOutputPerMillionUsd ? formatUsd(row.audioOutputPerMillionUsd) : '—' }}

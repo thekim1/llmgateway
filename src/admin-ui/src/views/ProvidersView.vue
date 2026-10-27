@@ -5,6 +5,7 @@ import type { Model, Provider } from '@/api/types'
 import { useSortedPage } from '@/composables/useTableView'
 import ModelFormDrawer from '@/components/providers/ModelFormDrawer.vue'
 import ProviderFormDrawer from '@/components/providers/ProviderFormDrawer.vue'
+import { formatAudioPrice } from '@/components/providers/priceDraft'
 import AsyncState from '@/components/ui/AsyncState.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
@@ -304,7 +305,7 @@ onMounted(load)
         </template>
         <template #cell-context="{ row }">{{ row.contextWindow == null ? '—' : formatNumber(row.contextWindow) }}</template>
         <template #cell-price="{ row }">
-          <span v-if="row.currentPrice?.audioPerMinuteUsd">{{ formatUsd(row.currentPrice.audioPerMinuteUsd) }} per min</span>
+          <span v-if="row.currentPrice?.audioPerMinuteUsd">{{ formatAudioPrice(row.currentPrice.audioPerMinuteUsd) }}</span>
           <span v-else-if="row.currentPrice?.perImageUsd">{{ formatUsd(row.currentPrice.perImageUsd) }} per image</span>
           <span v-else-if="row.currentPrice">{{ formatUsd(row.currentPrice.inputPerMillionUsd) }} / {{ formatUsd(row.currentPrice.outputPerMillionUsd) }}</span>
           <span v-else class="text-fg-3">No price</span>

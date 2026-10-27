@@ -142,7 +142,9 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
 - `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
 - `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
-  (`audioPerMinuteUsd` is for models billed by duration, such as Whisper and gpt-realtime-translate; `audioInputPerMillionUsd`
+  (`audioPerMinuteUsd` is for models billed by the duration of the input audio, such as Whisper and gpt-realtime-translate,
+  up to ten decimals: a price per hour is sent divided by 60, one per second multiplied by 60; with it set and
+  `audioInputPerMillionUsd` at 0, audio input tokens are covered by the duration and not billed as text; `audioInputPerMillionUsd`
   and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
   as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0;
   `cacheWriteInputPerMillionUsd` prices prompt-cache writes (Anthropic `cache_creation_input_tokens`), omitted or null =

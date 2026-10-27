@@ -11,6 +11,18 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: input audio priced per second, minute or hour
+
+- **Rolling update: yes.** Migration `AudioDurationPrecision` widens `ModelPrices.AudioPerMinuteUsd` from
+  `numeric(18,6)` to `numeric(18,10)`; the old version reads and writes the wider column unchanged. `ModelPrices` is
+  small, so the rewrite is instant.
+- **Changed behaviour:** a model with `audioPerMinuteUsd` above 0 and `audioInputPerMillionUsd` at 0 bills its audio
+  input tokens by the duration only, no longer also at `inputPerMillionUsd`. Whisper-style models report no audio tokens
+  and cost the same as before. A model whose provider charges both duration and audio tokens needs an audio input token
+  price.
+- The admin API is unchanged: prices are still sent per minute. To enter a price per hour, divide it by 60 (or use the
+  unit in the admin UI price form).
+
 ## 0.8.3: tool calls on gpt-5.6 and GPT-6 through Chat Completions
 
 - **Rolling update: yes.** No migration and no configuration change.

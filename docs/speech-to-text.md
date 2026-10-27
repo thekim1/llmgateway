@@ -14,8 +14,9 @@ curl https://<gateway>/v1/audio/transcriptions -H "Authorization: Bearer $UME_AP
 alias with the same kind. Fallback, residency, provider allow-lists, rate limits, budgets and routing rules
 (`endpoint == "audio_transcriptions"`) work as for chat. The dev seed has `ume/transcribe` on FakeLlm.
 
-**Prices.** Whisper-style models are priced per minute of audio (*Audio (USD per minute)* in the price form,
-`audioPerMinuteUsd`); gpt-4o-transcribe per token, with audio tokens dearer than text tokens (*Audio input (USD per 1M
+**Prices.** Whisper-style models are priced by the duration of the audio (*Audio input by duration (USD)* in the price
+form, with the unit second, minute or hour; stored per minute as `audioPerMinuteUsd`). Such a model's audio tokens, if
+the provider reports any, are not billed again as text. gpt-4o-transcribe per token, with audio tokens dearer than text tokens (*Audio input (USD per 1M
 tokens)*, `audioInputPerMillionUsd`; empty bills them at the input price). The duration comes from the provider
 (`usage.seconds`, or `duration` in `verbose_json`); when it is not reported, the gateway reads it from the file (exact
 for WAV and FLAC, from the bitrate for MP3, assumed 32 kbps otherwise, which over-estimates). Usage records and the
