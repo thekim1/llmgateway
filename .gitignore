@@ -30,3 +30,6 @@ deploy/generated/.env*
 deploy/secrets/
 deploy/certs/
 .claude/worktrees/
+
+# playwright-cli page snapshots
+.playwright-cli/

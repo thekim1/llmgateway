@@ -1,11 +1,12 @@
 """Builds the scaling report (Markdown, plus scale-data.json for charts) from the results written by scale.sh."""
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-NAMES = {"fake": "Fake LLM (floor)", "ume": "Ume gateway", "eneo": "eneo v2.2.1"}
+NAMES = {"fake": "Fake LLM (floor)", "ume": "Ume gateway", "eneo": f"eneo {os.environ.get('ENEO_VERSION', 'v2.2.3')}"}
 APP = {"ume": ["ume-gateway"], "eneo": ["eneo-backend", "eneo-worker"]}  # the worker writes eneo's audit events
 
 
@@ -21,6 +22,8 @@ def read_runs(folder: Path):
         run.update(kind=m[1], platform=m[2], x=int(m[3]), clients=int(m[4]) if m[1] == "cores" else int(m[3]))
         app_ns = sum(run["cpu"].get(s, {}).get("cpu_ns", 0) for s in APP.get(m[2], []))
         run["cpu_ms_per_req"] = app_ns / 1e6 / run["requests"] if run["requests"] and app_ns else None
+        seconds = float(str(run.get("duration", "20s")).rstrip("s"))
+        run["busy"] = {s: v["cpu_ns"] / 1e9 / seconds for s, v in run["cpu"].items() if isinstance(v, dict)}
         runs.append(run)
     return runs
 
@@ -30,7 +33,7 @@ def summary(run):
     return {
         "rps": run["rps"], "median": d["med"], "p95": d["p(95)"], "p99": d["p(99)"],
         "ttfb": run["ttfb_ms"]["med"], "errors": run.get("errorRate", 0), "cpu_ms_per_req": run["cpu_ms_per_req"],
-        "clients": run["clients"],
+        "clients": run["clients"], "busy": run["busy"],
     }
 
 
@@ -88,6 +91,21 @@ def main(folder: Path) -> None:
                       f"{s['cpu_ms_per_req']:.2f}" if s["cpu_ms_per_req"] is not None else "–", fmt_ms(s["median"])]
         print("| " + " | ".join(cells) + " |")
     print()
+
+    # The gateway, not the harness, must be the limit: show how busy the fake LLM, Postgres and Redis were.
+    ume = [(f"{c} clients", s) for c, s in sorted(load.get("ume", {}).items())]
+    ume += [(f"{n} vCPU peak ({s['clients']} clients)", s) for n, s in sorted(cores.get("ume", {}).items())]
+    if ume:
+        print("## Harness check (Ume gateway runs)\n")
+        print("Hardware threads each container kept busy on average, against its CPU set (lib.sh). Redis runs commands on")
+        print("one thread, so 1.0 is its limit. The fake LLM's own load curve above is the ceiling of fake LLM + k6.\n")
+        print("| Run | Req/s | Gateway | Fake LLM (of 4) | Postgres (of 2) | Redis (of 1) |")
+        print("|---|---:|---:|---:|---:|---:|")
+        for label, s in ume:
+            b = s["busy"]
+            cells = [label, f"{s['rps']:.0f}"] + [f"{b[c]:.2f}" if c in b else "–" for c in ("ume-gateway", "fake-llm", "ume-db", "ume-redis")]
+            print("| " + " | ".join(cells) + " |")
+        print()
 
 
 if __name__ == "__main__":

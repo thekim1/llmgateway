@@ -80,8 +80,7 @@ Every page below is also on the [website](https://thekim1.github.io/llmgateway/d
 | | [Client addresses](docs/client-addresses.md) | [Security and compliance](docs/security-and-compliance.md) |
 | | | [Accessibility statement](docs/accessibility-statement.md) |
 
-Benchmarks: [Performance](docs/performance.md), [Gateway vs. eneo, 2026-10-13](docs/benchmark-2026-10-13.md),
-[Streaming findings](docs/streaming-findings.md) and the
+Benchmarks: [Performance](docs/performance.md), [Streaming findings](docs/streaming-findings.md) and the
 [platform comparison](docs/reports/platform-comparison.pdf).
 
 Changes per release: [Changelog](CHANGELOG.md). For maintainers (not on the website): [Handover](HANDOVER.md),

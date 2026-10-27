@@ -10,9 +10,9 @@
 #   CORES="1 2 4" LOAD_VUS="1 16 128" DURATION=30s ./scale.sh
 #   PLATFORMS="ume eneo" LOAD_VUS="" ./scale.sh      # resources only
 #
-# CPU sets follow the physical cores (this machine: 8 cores, 16 hardware threads, siblings 2k/2k+1): fake LLM 0-1,
-# k6 2-5, application from 6 (CORES counts hardware threads, i.e. cloud-style vCPUs), Postgres + Redis 12-15, so
-# neither the harness nor the database limits the application. Results go to results/scale/ and
+# CPU sets are the shared layout in lib.sh (application from 8, CORES counts its hardware threads, i.e. cloud-style
+# vCPUs), so neither the harness nor the database limits the application. 6 vCPUs borrow one thread each from the fake
+# LLM and Postgres (checked 2026-10-27: the 4-vCPU peak on that smaller harness was the same within run-to-run noise). Results go to results/scale/ and
 # results/scale-report.md.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -24,13 +24,12 @@ PEAK_FACTORS="${PEAK_FACTORS:-2 4 8 32 64}"
 STREAM="${STREAM:-true}"
 DURATION="${DURATION:-20s}"
 WARMUP="${WARMUP:-10s}"
-export DATA_CPUS="${DATA_CPUS:-12-15}" K6_CPUS="${K6_CPUS:-2-5}"
 source ./lib.sh
 
 for platform in $PLATFORMS; do
   if [[ -n "${LOAD_VUS// }" ]]; then
     log "$platform: load scaling (4 hardware threads)"
-    export APP_CPUS="6-9" NUM_WORKERS=4
+    export APP_CPUS="8-11" NUM_WORKERS=4
     start_platform "$platform"
     warm_up "$platform"
     for vus in $LOAD_VUS; do
@@ -42,7 +41,9 @@ for platform in $PLATFORMS; do
 
   for cores in $CORES; do
     log "$platform: $cores hardware thread(s), fresh stack"
-    export APP_CPUS="6-$((5 + cores))" NUM_WORKERS="$cores"
+    export APP_CPUS="8-$((7 + cores))" NUM_WORKERS="$cores"
+    # 6 vCPUs borrow one thread from the fake LLM (3) and one from Postgres (12); both use well under what remains.
+    [[ $cores == 6 ]] && export APP_CPUS="3,8-12" FAKE_CPUS="0-2" PG_CPUS="13"
     start_platform "$platform"
     warm_up "$platform"
     for factor in $PEAK_FACTORS; do

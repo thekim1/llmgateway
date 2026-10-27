@@ -1,10 +1,11 @@
 """Builds a Markdown comparison from the k6 summaries and container CPU samples written by run.sh."""
 
 import json
+import os
 import sys
 from pathlib import Path
 
-NAMES = {"fake": "Fake LLM directly (floor)", "ume": "Ume LLM gateway", "eneo": "eneo v2.2.1"}
+NAMES = {"fake": "Fake LLM directly (floor)", "ume": "Ume LLM gateway", "eneo": f"eneo {os.environ.get('ENEO_VERSION', 'v2.2.3')}"}
 APP = {"ume": ["ume-gateway"], "eneo": ["eneo-backend", "eneo-worker"], "fake": []}
 DATA = {"ume": ["ume-db", "ume-redis"], "eneo": ["eneo-db", "eneo-redis"], "fake": []}
 
@@ -31,6 +32,29 @@ def per_request(run, key):
 def cpu_ms_per_request(run, services):
     total = sum(run["cpu"].get(s, {}).get("cpu_ns", 0) for s in services)
     return total / 1e6 / run["requests"] if run["requests"] else 0
+
+
+def busy(run, service):
+    """Hardware threads the service kept busy on average during the scenario."""
+    seconds = float(str(run.get("duration", "30s")).rstrip("s"))
+    ns = run["cpu"].get(service, {}).get("cpu_ns")
+    return f"{ns / 1e9 / seconds:.2f}" if ns is not None else "–"
+
+
+def print_harness_check(runs) -> None:
+    """Shows that the fake LLM, Postgres and Redis had room to spare, so the gateway is what was measured."""
+    ume = [r for r in runs if r["target"] == "ume"]
+    if not ume:
+        return
+    print("## Harness check (Ume gateway runs)\n")
+    print("Hardware threads each container kept busy on average, against its CPU set (lib.sh). Redis runs commands on one")
+    print("thread, so 1.0 is its limit. The fake LLM's own row in the tables above is the ceiling of fake LLM + k6.\n")
+    print("| Stream | Clients | Requests/s | Gateway (of 4) | Fake LLM (of 4) | Postgres (of 2) | Redis (of 1) |")
+    print("|---|---:|---:|---:|---:|---:|---:|")
+    for run in sorted(ume, key=lambda r: (r["stream"], r["vus"])):
+        print(f"| {'yes' if run['stream'] else 'no'} | {run['vus']} | {run['rps']:.0f} | {busy(run, 'ume-gateway')} "
+              f"| {busy(run, 'fake-llm')} | {busy(run, 'ume-db')} | {busy(run, 'ume-redis')} |")
+    print()
 
 
 def main(folder: Path) -> None:
@@ -65,6 +89,7 @@ def main(folder: Path) -> None:
                     f"| {app_mem:.0f} | {run['checksFailed']} |"
                 )
         print()
+    print_harness_check(runs)
 
 
 if __name__ == "__main__":

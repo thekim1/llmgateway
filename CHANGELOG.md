@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+**One benchmark baseline.** Every performance figure in the docs and on the website now comes from one run (2026-10-27,
+*Results (baseline 2026-10-27)* in `docs/performance.md`). Older measurements are no longer quoted anywhere:
+`docs/benchmark-2026-10-13.md` is removed, and `docs/performance.md`, `docs/streaming-findings.md` and the improvement
+plan are rewritten around the new run. `benchmarks/compare` uses one CPU layout for `run.sh`, `scale.sh` and
+`latency.sh`, gives the fake LLM four threads without telemetry and Redis its own core without disk snapshots, and every
+report ends with a harness check showing how busy the fake LLM, Postgres and Redis were, so a run limited by the harness
+is visible. For 6 vCPUs `scale.sh` borrows one thread each from the fake LLM and Postgres (checked not to limit the
+gateway). Gateway, 4 vCPUs: 0.97 ms added latency at one client, 17 888 streamed and 16 805 non-streamed requests/s at
+the peak, 0.21 ms CPU per message; 20 550 streamed requests/s on 6 vCPUs. The eneo comparison now uses eneo's latest
+release, v2.2.3, through a service API key, measured on the same harness the same day (`ENEO_VERSION` picks the image;
+the stream probe can use the API key too): eneo peaks at 51 streamed messages/s on 4 vCPUs at 79 ms CPU per message. The
+website and the platform comparison slides (HTML and PDF) use these numbers. Rolling update: not affected (benchmarks
+and docs only).
+
 **Teams manage their own keys.** A new role, `team-admin`, lets team members create, change, rotate and revoke their
 team's keys themselves, with every key setting a department admin has, without access to the rest of the department.
 Which teams comes from a new `teamCodes` claim (`Oidc:TeamClaim`, `UME_OIDC_TEAM_CLAIM`), matched against a new
@@ -209,8 +223,8 @@ parallel test classes are marked `[Trait(TestCategory.Name, TestCategory.Flaky)]
 locally, and the weekly *Flake hunt* runs them too; *Verify POC* runs with `--filter-not-trait "Category=Flaky"`. Four
 tests are marked, each with the reason (see *Tests that do not flake* in the local development guide).
 
-**Faster Claude streams through the OpenAI API.** The translated stream writes its chunks with `Utf8JsonWriter`: 683 → 291
-µs and 1 270 → 379 KB per 300-chunk stream.
+**Faster Claude streams through the OpenAI API.** The translated stream writes its chunks with `Utf8JsonWriter`, so it takes
+less time and allocates less per chunk.
 
 **Cache-write prices.** A model price can set *Cache write* (USD per 1M tokens) for providers that charge for writing
 the prompt cache. Anthropic `cache_creation_input_tokens` were billed at the input price; with a cache-write price
@@ -335,7 +349,7 @@ entries no longer depend on every endpoint passing the user along; role, claim a
 **Gateway internals.** The `/v1` routes are mapped from the endpoint table (`GatewayRoutes`); audio and image uploads share
 one multipart reader (`MultipartFormReader`; a cancelled audio upload now returns its pooled buffer); provider adapters read
 complete answers through one `ReadCompleteAsync` and no longer dispose their timeouts by hand. Provider benchmarks are
-unchanged (same allocations; chat JSON 3.1 µs, embeddings 448 µs, 300-chunk stream 223 µs).
+unchanged.
 
 **Updates without downtime (opt-in).** Every service now fails `/health/ready` as soon as it is told to stop and, for the
 new setting `Shutdown__DrainSeconds` (default 0), keeps answering with `Connection: close` before it closes its listener,
@@ -387,8 +401,8 @@ With the switch off, the gateway's speed is unchanged: it reads the setting from
 
 **Successful requests are no longer logged one by one.** The per-request line "Request … key … model … status … in … ms"
 is now written at Debug for successful requests; refused, failed and cancelled requests still log it at Information.
-Every request is still in the usage records and the metrics. Writing that line for every request cost 9–16 % of peak
-throughput and about 13 % of the gateway's CPU per request. To get the old behaviour, set
+Every request is still in the usage records and the metrics. Writing that line for every request cost a noticeable share of
+peak throughput and of the gateway's CPU per request. To get the old behaviour, set
 `Logging__LogLevel__Ume.LlmGateway.Gateway.Pipeline.GatewayRequestHandler=Debug` (see the runbook). The compare benchmark
 takes `GATEWAY_LOG_LEVEL` to measure the gateway at another log level.
 
@@ -397,7 +411,7 @@ EF `INSERT` per row, in batches of up to 5 000 (was 500), and sets `VirtualKeys.
 statement instead of one per key. Records, budget alerts and `LastUsedAt` are written in one transaction. A batch that is
 retried after its commit answer was lost skips the records already stored by request id, so it cannot write them twice
 (rows were matched by row id before, which a lost commit leaves unset). No migration or new database grant is needed.
-Measurements: [docs/performance.md](docs/performance.md#usage-writer-copy-2026-10-14).
+
 
 ## 0.4.1 - 2026-10-14
 
@@ -416,9 +430,9 @@ Microsoft.Extensions.Http.Resilience and ServiceDiscovery 10.11, Scalar 2.18, xU
 WireMock.Net 2.19). This fixes the build, which failed NuGet's audit on known vulnerabilities in the transitive
 `System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 10.0.12.
 
-**Fake LLM with real-provider timing, and a streaming latency benchmark.** The fake LLM has an optional `FakeLlm:Latency` section (time to first token, pace per word, jitter, answer length, occasional stalls; all off by default, passed through from the AppHost user secrets), and its chat chunks carry `"usage":null` like OpenAI's when `include_usage` is set. `benchmarks/compare/latency.sh` measures time to first token, chunk gaps and whole answers per platform with a new stream probe (`stream-probe` in the benchmark project). `FakeLlm:Latency:PrefillMsPer1kInputTokens` makes time to first token grow with the prompt, and `PROBE_PAYLOAD=document` sends a ten-page document in a five-message conversation (about 10 000 tokens; eneo's seeded model now allows 128 000 input tokens). The comparison seed now retries while Docker's port forward comes up. Results of a full run against eneo: [docs/benchmark-2026-10-13.md](docs/benchmark-2026-10-13.md).
+**Fake LLM with real-provider timing, and a streaming latency benchmark.** The fake LLM has an optional `FakeLlm:Latency` section (time to first token, pace per word, jitter, answer length, occasional stalls; all off by default, passed through from the AppHost user secrets), and its chat chunks carry `"usage":null` like OpenAI's when `include_usage` is set. `benchmarks/compare/latency.sh` measures time to first token, chunk gaps and whole answers per platform with a new stream probe (`stream-probe` in the benchmark project). `FakeLlm:Latency:PrefillMsPer1kInputTokens` makes time to first token grow with the prompt, and `PROBE_PAYLOAD=document` sends a ten-page document in a five-message conversation (about 10 000 tokens; eneo's seeded model now allows 128 000 input tokens). The comparison seed now retries while Docker's port forward comes up. 
 
-**Streaming: faster relay of real OpenAI/Azure chunks, no compressed SSE, chunk-gap metrics** ([docs/streaming-findings.md](docs/streaming-findings.md)). OpenAI and Azure send `"usage":null` in every chunk when `include_usage` is set (the gateway always sets it), which sent every chunk down the full-JSON-parse path. Null usage now takes the fast path: 300 chunks 672 → 258 µs and 1 580 → 433 KB allocated. Streamed provider calls no longer send `Accept-Encoding`, so a provider or proxy cannot hold tokens back in compression blocks; a stream that arrives compressed anyway is still decoded. New OpenTelemetry metrics per stream: `ume.gateway.stream.max_upstream_gap`, `ume.gateway.stream.max_write` (ms) and `ume.gateway.stream.stalls` (waits ≥ 1 s), tagged by provider and endpoint, plus an Information log line for streams that stalled. New benchmark row with the real OpenAI wire format.
+**Streaming: faster relay of real OpenAI/Azure chunks, no compressed SSE, chunk-gap metrics** ([docs/streaming-findings.md](docs/streaming-findings.md)). OpenAI and Azure send `"usage":null` in every chunk when `include_usage` is set (the gateway always sets it), which sent every chunk down the full-JSON-parse path. Null usage now takes the fast path, so real OpenAI and Azure streams are relayed with far less work per chunk. Streamed provider calls no longer send `Accept-Encoding`, so a provider or proxy cannot hold tokens back in compression blocks; a stream that arrives compressed anyway is still decoded. New OpenTelemetry metrics per stream: `ume.gateway.stream.max_upstream_gap`, `ume.gateway.stream.max_write` (ms) and `ume.gateway.stream.stalls` (waits ≥ 1 s), tagged by provider and endpoint, plus an Information log line for streams that stalled. New benchmark row with the real OpenAI wire format.
 
 ## 0.4.0 - 2026-10-13
 
@@ -538,7 +552,7 @@ Attached files: video and large images. **Fix:** video parts (`video_url`, used 
 
 Data API (phase 2 of `docs/data-access.md`): new optional service `Ume.LlmGateway.DataApi` with read-only, versioned endpoints for BI, management and security integrations. **Access:** OAuth 2.0 client-credentials tokens from the organisation's IdP (`DataApi:Authority`, audience `ume-data-api`). Permissions `usage.aggregate`, `usage.detail`, `security.read` and `catalog.read` are read from `scope`, `scp` or `roles` (Keycloak, AD FS, Entra ID). There is a per-client rate limit, and every read is logged as the security event `data.read`. **Endpoints:** `/v1/usage/records`, `/v1/usage/aggregate` (day or month, in `DataApi:TimeZone`), `/v1/security/auth-failures`, `/requests`, `/audit` and `/keys`, and `/v1/catalog/*`; JSON, CSV or NDJSON (`?format=`). **Feeds:** cursor feeds hand out only rows older than `DataApi:SettleSeconds` (60) and stop at the first unsettled row, so rows committed out of id order by concurrent writers are never skipped. Migration `FeedRecordedAt` adds a database-set `RecordedAt` column to `UsageRecords`, `AuthFailures` and `AuditLog`. **Privacy:** aggregates fold departments with fewer than `DataApi:MinimumGroupSize` (5) keys per period, and `usage.detail` omits PII categories unless `DataApi:Detail:IncludePiiCategories`. **Database:** it connects as a new role `ume_data` (`init.sql` on new installs; `deploy/postgres/add-data-role.sql` for existing ones, see the upgrade guide). The role has `SELECT` only, granted column by column on `VirtualKeys` and `ProviderAccounts`, so it cannot read key hashes, encrypted secrets or provider credentials; the tests run as this role. **Deployment:** Compose profile `data` in `compose.prod.yaml` and `compose.portainer.yaml` (`DATAAPI_IMAGE`, `UME_DATA_*`). `init-deployment.sh` (`--data-host`) and the Portainer bootstrap create its certificate, password and connection string. The AppHost runs it locally, with a `ume-data-dev` client-credentials client in the dev Keycloak realm, but leaves it out of `aspire publish` unless `DataApi:Enabled=true`. Verified end to end with a real Keycloak token, and with `compose.prod.yaml` plus the `data` profile, including the upgrade procedure for an existing database.
 
-Unknown virtual keys are cached (`KeyAuthenticator`): a well-formed key that is not in the database is remembered for `Gateway:KeyCacheSeconds` in a separate cache capped at 10 000 entries, so made-up keys cannot evict real ones. A client retrying with a deleted or mistyped key no longer costs one Postgres query per request. In the `audit` benchmark, which gains an "unknown key (401)" scenario, a refused request goes from 0.99 ms with 1 query to 0.12 ms with none. Creating, rotating or re-enabling a key publishes a key invalidation, which clears the cache, so new keys work immediately. **Fix:** refused keys on `GET /v1/models` were recorded as `ChatCompletions`; they now use the new `GatewayEndpoint.Models` (no migration: the column is a string).
+Unknown virtual keys are cached (`KeyAuthenticator`): a well-formed key that is not in the database is remembered for `Gateway:KeyCacheSeconds` in a separate cache capped at 10 000 entries, so made-up keys cannot evict real ones. A client retrying with a deleted or mistyped key no longer costs one Postgres query per request. The `audit` benchmark gains an "unknown key (401)" scenario, in which a refused request makes no query. Creating, rotating or re-enabling a key publishes a key invalidation, which clears the cache, so new keys work immediately. **Fix:** refused keys on `GET /v1/models` were recorded as `ChatCompletions`; they now use the new `GatewayEndpoint.Models` (no migration: the column is a string).
 
 No manual screen reader testing is planned (no resources); `HANDOVER.md` and the accessibility statement say so, and the statement still does not claim a screen reader pass.
 
@@ -546,7 +560,7 @@ Security events and recorded refused keys (phase 1 of `docs/data-access.md`, the
 
 Per-key policy for attached files: `VirtualKey.AttachmentPolicy` (`Allowed` default, `ImagesOnly`, `None`), set in the admin UI (key form, *Attached files*) and via `attachmentPolicy` on `POST`/`PUT /api/keys` (omitted = unchanged on update; copied on rotation). The gateway finds image, document and audio parts in Chat Completions, Responses and Anthropic Messages bodies (including parts nested in tool results) and rejects refused ones with 400 `attachment_not_allowed` before rate limiting. Migration `KeyAttachmentPolicy` sets existing keys to `Allowed`. **Fix:** the OpenAI → Anthropic translator silently dropped `file` and `input_audio` parts (and any unknown part type); PDF and plain-text files are now sent as `document` blocks, and parts Claude cannot take return 400 `unsupported_content`. See the README, *Attached files*.
 
-Data protection and resilience comparison with eneo (PII scanning, model restrictions, provider fallback, eneo running behind the gateway; `ENEO_LLM_ENDPOINT`/`ENEO_LLM_MODEL`/`ENEO_LLM_API_KEY` in the compare stack), in `docs/performance.md` and three new report sections. Management report `docs/reports/platform-comparison.html` (offline, animated, keyboard-stepped; prints one section per A4 page) and `.pdf`, and the performance work list `docs/performance-improvement-plan.md`. Platform comparison with eneo v2.2.1: `benchmarks/compare` (Docker Compose, k6, both platforms against the same fake LLM with pinned CPUs; reports latency, throughput, time to first byte, CPU, Postgres statements and Redis commands per message). `compare-seed` mode in the benchmark project seeds a standalone gateway database. Results in `docs/performance.md`, *Comparison with eneo*. `benchmarks/compare/scale.sh` adds load scaling (1–256 clients) and resource scaling (1–6 vCPUs, peak per size) with CPU sets aligned to physical cores; findings in *Scaling* (eneo: database pool starvation under load; gateway: usage writer caps one instance at about 11 000 msg/s).
+Data protection and resilience comparison with eneo (PII scanning, model restrictions, provider fallback, eneo running behind the gateway; `ENEO_LLM_ENDPOINT`/`ENEO_LLM_MODEL`/`ENEO_LLM_API_KEY` in the compare stack), in `docs/performance.md` and three new report sections. Management report `docs/reports/platform-comparison.html` (offline, animated, keyboard-stepped; prints one section per A4 page) and `.pdf`, and the performance work list `docs/performance-improvement-plan.md`. Platform comparison with eneo v2.2.1: `benchmarks/compare` (Docker Compose, k6, both platforms against the same fake LLM with pinned CPUs; reports latency, throughput, time to first byte, CPU, Postgres statements and Redis commands per message). `compare-seed` mode in the benchmark project seeds a standalone gateway database. Results in `docs/performance.md`, *Comparison with eneo*. `benchmarks/compare/scale.sh` adds load scaling (1–256 clients) and resource scaling (1–6 vCPUs, peak per size) with CPU sets aligned to physical cores.
 
 Gateway performance (see `docs/performance.md`). New `benchmarks/Ume.LlmGateway.Benchmarks` (BenchmarkDotNet end-to-end, provider/streaming, request and routing benchmarks, plus an `audit` mode that counts Postgres and Redis calls per request and runs a load test). Changes to the data plane, all covered by new tests in `HotPathTests`:
 
@@ -554,7 +568,7 @@ Gateway performance (see `docs/performance.md`). New `benchmarks/Ume.LlmGateway.
 - Non-streaming answers are written to the client before accounting runs (with `Content-Length`), and passed through as the provider's bytes instead of being parsed into a JSON tree and re-serialised (large gain for embeddings). `UsageWriter.TrackPending` keeps `FlushAsync` exact.
 - Streaming: SSE events are written straight into the response pipe (`SseEvent.WriteTo`), the reader allocates less, and content chunks are scanned for their text length instead of being parsed into a JSON tree (OpenAI-compatible and Anthropic passthrough).
 - Key and catalogue caches serve an expired entry while one background query refreshes it, so expiry never blocks requests; concurrent misses share one query. Admin invalidations still apply immediately, and a load that started before an invalidation is no longer cached (this also fixes a narrow race where a just-revoked key could be cached again). The last catalogue snapshot is served if Postgres is down.
-- Key-rotation lineage is precomputed per catalogue snapshot (was rebuilt from all rotated keys on every request: about 1 ms and 1.3 MB per request with 10 000 rotations).
+- Key-rotation lineage is precomputed per catalogue snapshot (was rebuilt from all rotated keys on every request).
 - Cold budget counters are seeded once per counter, not once per concurrent request.
 - Usage writer: the duplicate check only runs when a batch is retried, and `VirtualKeys.LastUsedAt` is updated at most once per key and minute (was once per batch). **Behaviour change:** `LastUsedAt` has minute resolution.
 - PII detection skips the regexes for strings without digits or `@` (same result); request bodies are read into pooled buffers; the request body is no longer cloned for the last (usually only) provider attempt.

@@ -31,7 +31,7 @@ url_of() { case $1 in fake) echo http://fake-llm:8080 ;; ume) echo http://ume-ga
 
 # The probe runs as a container on the compose network, on the load generator's cores (like k6).
 probe() { # platform vus seconds out-file
-  docker run --rm --network platform-compare_default --cpuset-cpus "${K6_CPUS:-2-3}" -e PROBE_PAYLOAD \
+  docker run --rm --network platform-compare_default --cpuset-cpus "$K6_CPUS" -e PROBE_PAYLOAD -e ENEO_KEY="${ENEO_KEY:-}" -e ENEO_ASSISTANT="${ENEO_ASSISTANT:-}" \
     -v "$BIN:/probe:ro" -v "$PWD/$OUT:/out" --entrypoint /usr/share/dotnet/dotnet \
     mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra \
     /probe/Ume.LlmGateway.Benchmarks.dll stream-probe "$1" "$(url_of "$1")" "$2" "$3" "/out/$4" "${KEY:-}"

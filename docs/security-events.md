@@ -33,8 +33,8 @@ and the reasons are in [data-access.md](data-access.md). What exists today:
   - `admin.session.extended` many times for one `SessionId` (a session kept alive unattended);
   - an audit entry (Data API `security/audit` feed) whose `sessionId` never had an `admin.signin`.
 - **Unknown keys are cached.** A key the gateway does not know is remembered for `Gateway:KeyCacheSeconds` (30 s), so a
-  client retrying with a deleted or mistyped key costs no database query (0.99 → 0.12 ms per refused request in the
-  `audit` benchmark). Creating a key in the admin API clears the cache at once.
+  client retrying with a deleted or mistyped key costs no database query (0.12 ms per refused request in the `audit`
+  benchmark). Creating a key in the admin API clears the cache at once.
 
 Settings (`Gateway:Security:*`):
 

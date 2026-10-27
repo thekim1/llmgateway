@@ -42,7 +42,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private GatewayHost(StoreKind store, IReadOnlyDictionary<string, string>? settings)
     {
         _settings = settings ?? new Dictionary<string, string>();
-        _redis = store == StoreKind.Redis ? new RedisBuilder("redis:7.4-alpine").Build() : null;
+        // No snapshots: the image saves to disk (a fork) every minute once 10 000 keys have changed, which adds noise.
+        _redis = store == StoreKind.Redis
+            ? new RedisBuilder("redis:7.4-alpine").WithCommand("--save", "", "--appendonly", "no").Build()
+            : null;
     }
 
     public HttpClient Client { get; private set; } = null!;

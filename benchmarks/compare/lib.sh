@@ -3,6 +3,14 @@
 REPO="$(cd ../.. && pwd)"
 PEPPER="compare-only-pepper-0123456789abcdef0123456789abcdef"
 COMPOSE=(docker compose)
+
+# One CPU layout for run.sh, scale.sh and latency.sh, so their numbers can be compared. This machine has 8 cores /
+# 16 hardware threads (siblings 2k/2k+1); every component gets whole physical cores of its own:
+#   fake LLM 0-3, load generator (k6, stream probe) 4-7, application 8-11, Postgres 12-13, Redis 14-15.
+# The fake LLM and the load generator get as many threads as the application, so they stay below their limit when the
+# application is at its peak; report.py and scale_report.py show how busy each one was.
+export FAKE_CPUS="${FAKE_CPUS:-0-3}" K6_CPUS="${K6_CPUS:-4-7}" APP_CPUS="${APP_CPUS:-8-11}"
+export PG_CPUS="${PG_CPUS:-12-13}" REDIS_CPUS="${REDIS_CPUS:-14-15}"
 mkdir -p results
 
 log() { printf '\n== %s\n' "$*"; }

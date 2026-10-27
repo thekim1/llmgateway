@@ -83,8 +83,8 @@ To make overhead and time to first token possible the gateway records two more t
 Timings leave out live audio sessions (their latency is the session length) and requests refused before a provider was
 called. Requests recorded before the upgrade have no overhead or time to first token. Usage older than the retention
 period is only kept as monthly totals without timings, so the charts start at the oldest kept record (the page says so).
-The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](admin-api.md)); the dashboard's query takes about
-0.1 s for 24 hours and 1.8 s for 30 days of 2 million requests (see [docs/performance.md](performance.md)).
+The data comes from `GET /api/usage/metrics` ([docs/admin-api.md](admin-api.md)); the query grows with the number of
+requests in the period, so long periods on a busy gateway take a few seconds (see [docs/performance.md](performance.md)).
 
 ### Finding failed requests
 
