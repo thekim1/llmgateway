@@ -198,7 +198,7 @@ function homePage() {
 <div class="wrap pt-64"><div class="frame frame-lg">${shot('overview-desktop', 'The admin UI overview: needs attention, key figures, daily spend and provider health', 'r-20')}</div></div>
 <section class="wrap pt-80" aria-label="Performance at a glance">
   <div class="proof">${C.PROOF.map(p => `<div><span class="big">${p.value}</span><span class="b">${p.label}</span><span class="sub">${p.sub}</span></div>`).join('')}</div>
-  <p class="fine">Measured with an instant fake LLM on a 16-thread laptop, October 2026. <a href="${url('benchmarks/')}">How we measure</a></p>
+  <p class="fine">Measured ${C.BENCH_DATE} with an instant fake LLM on a 16-thread laptop. <a href="${url('benchmarks/')}">How we measure</a></p>
 </section>
 <section class="wrap pt-120 stack-40" aria-labelledby="pillars-h">
   <div class="intro">${eyebrow('Made for the public sector')}<h2 id="pillars-h" class="h-xl">Control over AI that you can explain to a data protection officer.</h2></div>
@@ -291,24 +291,24 @@ function startPage() {
 
 function benchPage() {
   const chart = C.SCALE.map((sc, i) => {
-    const max = Math.max(...sc.a, ...sc.b) * 1.12
+    const max = Math.max(...sc.v) * 1.12
     const pct = v => (v / max * 100).toFixed(1) + '%'
-    const alt = `Messages per second by ${sc.label.toLowerCase()}. ` + sc.x.map((x, j) => `${x}: ${nf(sc.a[j])} on 9 October, ${nf(sc.b[j])} on 15 October`).join('; ') + '.'
+    const alt = `Messages per second by ${sc.label.toLowerCase()}. ` + sc.x.map((x, j) => `${x}: ${nf(sc.v[j])}`).join('; ') + '.'
     return `<div role="tabpanel" id="chart-${sc.id}" aria-labelledby="chart-tab-${sc.id}"${i ? ' hidden' : ''}>
-      <div class="bars" role="img" aria-label="${esc(alt)}" style="--n:${sc.x.length}">${sc.x.map((x, j) => `<div class="bar-g"><div class="bar a" style="height:${pct(sc.a[j])}" title="9 Oct: ${nf(sc.a[j])} msg/s"></div><div class="bar b" style="height:${pct(sc.b[j])}" title="15 Oct: ${nf(sc.b[j])} msg/s"><span>${nf(sc.b[j])}</span></div></div>`).join('')}</div>
+      <div class="bars" role="img" aria-label="${esc(alt)}" style="--n:${sc.x.length}">${sc.x.map((x, j) => `<div class="bar-g"><div class="bar b" style="height:${pct(sc.v[j])}" title="${nf(sc.v[j])} msg/s"><span>${nf(sc.v[j])}</span></div></div>`).join('')}</div>
       <div class="bar-x" style="--n:${sc.x.length}" aria-hidden="true">${sc.x.map(x => `<span>${x}</span>`).join('')}</div>
       <p class="axis" aria-hidden="true">${sc.label}</p>
     </div>`
   }).join('')
   return `
 <div class="wrap-1100 pt-64 stack-56">
-  <header class="stack-12 measure">${eyebrow('Benchmarks')}<h1 class="h-page">Close to zero added latency.</h1><p class="lead-s">The gateway sits on the path of every LLM call, so it's built to add as little as possible. These runs use a fake LLM that answers instantly, so only the gateway's own work is measured.</p></header>
+  <header class="stack-12 measure">${eyebrow('Benchmarks')}<h1 class="h-page">Close to zero added latency.</h1><p class="lead-s">The gateway sits on the path of every LLM call, so it's built to add as little as possible. These runs use a fake LLM that answers instantly, so only the gateway's own work is measured. Every gateway figure on this page comes from one run (${C.BENCH_DATE}); the fake LLM, Postgres and Redis had cores of their own and stayed well below their limits.</p></header>
   <div class="grid-220">${C.BENCH_STATS.map(b => `<div class="card stat"><span class="l">${b.label}</span><span class="v">${b.value}</span><span class="s">${b.sub}</span></div>`).join('')}</div>
 
   <section class="card panel stack-20" aria-labelledby="scale-h" data-tabs>
     <div class="panel-head"><div class="stack-4"><h2 id="scale-h" class="h-s">Throughput as load grows</h2><span class="muted">Streaming chat, messages per second, 4 vCPUs unless noted</span></div>
       <div class="seg" role="tablist" aria-label="Chart">${C.SCALE.map((sc, i) => `<button type="button" role="tab" id="chart-tab-${sc.id}" aria-controls="chart-${sc.id}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${sc.tab}</button>`).join('')}</div></div>
-    <div class="legend"><span><i class="sw a"></i>9 Oct 2026</span><span><i class="sw b"></i>15 Oct 2026 (COPY writer)</span></div>
+    <div class="legend"><span><i class="sw b"></i>Ume gateway, ${C.BENCH_DATE}</span></div>
     ${chart}
   </section>
 
@@ -320,7 +320,7 @@ function benchPage() {
   <section class="stack-20" aria-labelledby="cmp-h">
     <div class="stack-6 measure"><h2 id="cmp-h" class="h-m">Next to eneo, on the same fake LLM</h2><p class="muted">Same four pinned cores for each platform. Both are called the way an external application calls them: the gateway with a virtual key, eneo with a service API key. These are different kinds of product: eneo is a chat application that stores every conversation; the gateway is a stateless proxy. The numbers show what each adds on top of the model call, not which is better.</p></div>
     <div class="card panel stack-24">${C.COMPARE.map(c => `<div class="stack-10"><span class="b">${c.label}</span>${c.rows.map(([n, v, l], j) => `<div class="hbar"><span class="muted">${n}</span><div class="track"><div class="fill${j ? ' other' : ''}" style="width:${Math.max(0.6, v / c.max * 100).toFixed(2)}%"></div></div><span class="b num">${l}</span></div>`).join('')}</div>`).join('')}
-      <span class="fine">Lower is better. Measured 20 Oct 2026, streaming, 30 s per point, 0 failed checks. Peak on the same four cores: 16 180 messages/s for the gateway, 49 for eneo.</span></div>
+      <span class="fine">Lower is better. eneo v2.2.3, its latest release, measured in the same ${C.BENCH_DATE} run as the gateway, streaming, 30 s per point, 0 failed checks. Peak on the same four cores: 17 888 messages/s for the gateway, 51 for eneo.</span></div>
   </section>
 
   <section class="stack-20" aria-labelledby="reports-h">

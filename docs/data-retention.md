@@ -19,8 +19,8 @@ cost, latency, status, outcome, PII categories and routing rule), whatever the l
 latency are on **Monitor > Usage**, in the Data API and in the `ume.gateway.requests` metric. Requests refused before a key is
 recognised are counted as refused credentials. Message content is never logged or stored.
 
-The gateway log only has a line for refused, failed and cancelled requests: writing one for every request costs 6–14 % of
-peak throughput ([performance](performance.md)). To follow successful requests in the log too, a gateway admin turns on
+The gateway log only has a line for refused, failed and cancelled requests: writing one for every request costs a noticeable
+share of peak throughput ([performance](performance.md)). To follow successful requests in the log too, a gateway admin turns on
 **Settings > Request logging**, for 24 hours (it then switches itself off) or without a time limit. It reaches every gateway
 instance within seconds, without a restart, and is audited.
 

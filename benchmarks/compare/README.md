@@ -1,23 +1,36 @@
 # Platform comparison: Ume LLM gateway vs. eneo
 
-Runs the Ume LLM gateway and [eneo](https://github.com/eneo-ai/eneo) (v2.2.1) against **the same fake LLM**
+Runs the Ume LLM gateway and [eneo](https://github.com/eneo-ai/eneo) (latest release, v2.2.3; `ENEO_VERSION` picks another) against **the same fake LLM**
 (`src/Ume.LlmGateway.FakeLlm`, which answers instantly), so the numbers are the platforms' own cost per chat message.
 A third target sends the same requests straight to the fake LLM: that is the floor, and everything above it is
 platform overhead. Results and interpretation: [docs/performance.md](../../docs/performance.md#comparison-with-eneo).
 
 ## What is compared
 
-| | Ume LLM gateway | eneo v2.2.1 |
+| | Ume LLM gateway | eneo v2.2.3 |
 |---|---|---|
 | Request | `POST /v1/chat/completions` (`ume/chat` alias), virtual key | `POST /api/v1/conversations/`: with a service API key (`ENEO_AUTH=apikey`, the fair comparison) or as a signed-in user (default). See *The eneo message* below |
-| Image | `dotnet publish /t:PublishContainer` (Release, chiseled) | `backend/Dockerfile` from the v2.2.1 tag (production image, gunicorn + uvicorn workers) |
+| Image | `dotnet publish /t:PublishContainer` (Release, chiseled) | `backend/Dockerfile` from the v2.2.3 tag (production image, gunicorn + uvicorn workers) |
 | Concurrency model | One process (all cores) | `NUM_WORKERS=4` gunicorn workers (default 3), one per core, plus eneo's background worker container on the same cores |
 | Data | Postgres 17, Redis 7.4 | pgvector/pg13, Redis (as eneo's own compose files) |
 | Features on the path | Key auth, rate limits, key/team/department budgets, routing, usage records | Auth, assistant/space resolution and permissions, conversation and message persistence, prompt assembly, token counting, litellm |
 | Logging | Information (production default) | `LOGLEVEL=INFO` |
 
-Both run with the same CPU allowance, pinned so nothing competes: platform process cores 4–7, its Postgres + Redis
-8–9, fake LLM 0–1, load generator ([k6](https://k6.io/)) 2–3. One platform runs at a time on fresh, in-memory databases.
+Both run with the same CPU allowance, pinned so nothing competes. `run.sh`, `scale.sh` and `latency.sh` share one
+layout (set in `lib.sh`; hardware threads on an 8-core / 16-thread machine, siblings 2k/2k+1):
+
+| Component | Hardware threads | Why |
+|---|---|---|
+| Platform process | 8–11 (`APP_CPUS`) | 4 vCPUs; `scale.sh` varies it from 1 to 6 |
+| Postgres | 12–13 (`PG_CPUS`) | Its own physical core |
+| Redis | 14–15 (`REDIS_CPUS`) | Its own physical core; snapshots to disk off (`--save ""`), so no fork every minute under load |
+| Fake LLM | 0–3 (`FAKE_CPUS`) | As many threads as the platform, telemetry off (`OTEL_SDK_DISABLED`), so it is never the limit |
+| Load generator ([k6](https://k6.io/), stream probe) | 4–7 (`K6_CPUS`) | As many threads as the platform |
+
+Straight to the fake LLM (the `fake` target) this harness serves about 55 000 streamed requests/s (2026-10-27), three
+times what the gateway reaches on 4 vCPUs. Each report ends with a *harness check*: how many threads the fake LLM,
+Postgres and Redis kept busy in every gateway scenario, so a run where one of them was the limit is visible. One
+platform runs at a time on fresh, in-memory databases.
 
 ### The eneo message
 
@@ -35,7 +48,7 @@ Every eneo message is one `POST /api/v1/conversations/` with `{assistant_id, que
 
 How the message is authenticated is the important choice, because the two paths cost different amounts:
 
-| | **Service API key** (`ENEO_AUTH=apikey`) | **Signed-in user** (default, all runs before 2026-10-20) |
+| | **Service API key** (`ENEO_AUTH=apikey`) | **Signed-in user** (default) |
 |---|---|---|
 | Who sends this in practice | External applications and integrations: the counterpart of a gateway virtual key | eneo's own web app (browser) |
 | Header | `X-API-Key: sk_…` | `Authorization: Bearer <JWT>` from one password login per k6 run |
@@ -61,27 +74,33 @@ Needs Docker, the .NET SDK, python3 and bash (Linux, macOS or WSL). Build the th
 dotnet publish src/Ume.LlmGateway.Gateway -c Release /t:PublishContainer -p:ContainerImageTag=compare
 dotnet publish src/Ume.LlmGateway.FakeLlm -c Release /t:PublishContainer -p:ContainerImageTag=compare
 
-# eneo v2.2.1, in a separate worktree/clone of https://github.com/eneo-ai/eneo
-git fetch origin tag v2.2.1 --no-tags && git worktree add --detach ../eneo-v2.2.1 v2.2.1
-docker build --build-arg OTEL_SERVICE_VERSION=v2.2.1 -t eneo-backend:v2.2.1 ../eneo-v2.2.1/backend
+# eneo, from a clone of https://github.com/eneo-ai/eneo. Export with LF line endings: a Windows checkout
+# (core.autocrlf) gives run.sh CRLF endings and the container exits with "./run.sh: not found".
+git fetch origin tag v2.2.3 --no-tags
+mkdir -p /tmp/eneo-v2.2.3 && git -c core.autocrlf=false archive v2.2.3 backend | tar -x -C /tmp/eneo-v2.2.3
+docker build --build-arg OTEL_SERVICE_VERSION=v2.2.3 -t eneo-backend:v2.2.3 /tmp/eneo-v2.2.3/backend
 ```
+
+`ENEO_VERSION=v2.2.1` (with an `eneo-backend:v2.2.1` image) runs an older release.
 
 Then:
 
 ```bash
-benchmarks/compare/run.sh                               # 1, 16 and 64 clients; 30 s per scenario (~20 min)
+benchmarks/compare/run.sh                               # 1, 16 and 64 clients; 30 s per scenario (~12 min)
 VUS="1 32" DURATION=60s benchmarks/compare/run.sh       # other loads
 PLATFORMS="ume" benchmarks/compare/run.sh               # re-run one platform; other results are kept
 ENEO_AUTH=apikey PLATFORMS=eneo benchmarks/compare/run.sh  # eneo through a service API key
 ```
 
-**Scaling** (`scale.sh`, about 25 minutes) measures two things, for streaming chat by default:
+**Scaling** (`scale.sh`, about 35 minutes for all three targets) measures two things, for streaming chat by default:
 
 - *Load:* concurrent clients 1, 2, 4 … 256 on fixed resources (4 application cores each). Shows where each platform
   saturates and what happens to latency and errors beyond that point.
-- *Resources:* 1, 2, 4 and 8 application cores (eneo: one gunicorn worker per core; .NET follows the container's CPU
-  set) under 128 clients. Shows whether more hardware buys proportionally more throughput. Postgres + Redis get four
-  cores throughout so the database never limits the application.
+- *Resources:* 1, 2, 4 and 6 application vCPUs (eneo: one gunicorn worker per vCPU; .NET follows the container's CPU
+  set), each on a fresh stack at several client counts; the report uses the best throughput. Shows whether more
+  hardware buys proportionally more throughput. Postgres, Redis, the fake LLM and k6 keep their own cores. For 6 vCPUs
+  the application borrows thread 3 from the fake LLM (left with 0–2) and thread 12 from Postgres (left with 13); on
+  that smaller harness the 4-vCPU peak was the same within run-to-run noise (±3 %), so it is not a limit.
 
 ```bash
 benchmarks/compare/scale.sh
@@ -90,24 +109,21 @@ CORES="1 2 4" LOAD_VUS="1 16 128" STREAM=false benchmarks/compare/scale.sh
 
 It writes `results/scale-report.md` and `results/scale/scale-data.json` (for charts).
 
-The fake LLM runs on hardware threads 0–1. At high rates it can become the limit (above about 18 000 streaming msg/s
-through the gateway): `FAKE_CPUS="0-1,12-13" DATA_CPUS="14-15"` gives it two more threads, taken from Postgres and Redis.
-
 k6 keeps one connection per client open. eneo's gunicorn workers share one listening socket and each accepts a burst of
 new connections at once, so with many workers (12 in one container) a few of them can end up with every client while
-the rest stay idle. `NO_REUSE=true` makes k6 open a new connection per message; with 1–6 workers it made no difference
-to the peaks (2026-10-20). Production traffic reaches eneo over kept-alive connections too (Traefik, frontend SSR).
+the rest stay idle. `NO_REUSE=true` makes k6 open a new connection per message, to check whether that affects a run.
+Production traffic reaches eneo over kept-alive connections too (Traefik, frontend SSR).
 
 eneo starts with one user. `eneo/seed_users.py` adds realistic data: USERS users (default 10 000) as an admin would
-create them, then each opens their personal space and sends QUESTIONS messages (default 1) through eneo's API, about
-17 minutes on 4 vCPUs:
+create them, then each opens their personal space and sends QUESTIONS messages (default 1) through eneo's API (it takes
+a while: every user goes through eneo's own endpoints):
 
 ```bash
 docker compose cp eneo/seed_users.py eneo-backend:/tmp/seed_users.py
 docker compose exec -T -e USERS=10000 eneo-backend python /tmp/seed_users.py
 ```
 
-**Streaming latency with real-provider timing** (`latency.sh`, about 12 minutes). The fake LLM is given a real
+**Streaming latency with real-provider timing** (`latency.sh`, about 10 minutes). The fake LLM is given a real
 provider's timing: by default 400 ms to the first token, 25 ms ±30 % per word and 200-word answers (`FAKE_*` variables,
 see the script). k6 cannot see inside a stream, so a small probe (`stream-probe` in the benchmark project, run as a
 container on the k6 cores) measures what the user experiences: time to first token, gaps between events, and the whole

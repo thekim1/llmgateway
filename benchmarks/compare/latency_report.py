@@ -1,10 +1,11 @@
 """Builds a Markdown table from the stream probe summaries written by latency.sh."""
 
 import json
+import os
 import sys
 from pathlib import Path
 
-NAMES = {"fake": "Fake LLM directly (floor)", "ume": "Ume LLM gateway", "eneo": "eneo v2.2.1"}
+NAMES = {"fake": "Fake LLM directly (floor)", "ume": "Ume LLM gateway", "eneo": f"eneo {os.environ.get('ENEO_VERSION', 'v2.2.3')}"}
 APP = {"ume": "ume-gateway", "eneo": "eneo-backend"}
 
 

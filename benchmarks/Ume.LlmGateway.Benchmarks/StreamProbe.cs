@@ -15,6 +15,7 @@ namespace Ume.LlmGateway.Benchmarks;
 /// (the same requests as <c>benchmarks/compare/k6/chat.js</c>), and the summary is written as JSON.
 /// <code>stream-probe &lt;fake|ume|eneo&gt; &lt;base url&gt; &lt;vus&gt; &lt;seconds&gt; &lt;out.json&gt; [ume key]</code>
 /// <c>PROBE_PAYLOAD=document</c> sends a realistic long conversation instead of one question (see <see cref="Document"/>).
+/// For eneo, <c>ENEO_KEY</c> and <c>ENEO_ASSISTANT</c> send messages through a service API key, as k6/chat.js does.
 /// </summary>
 public static class StreamProbe
 {
@@ -78,7 +79,7 @@ public static class StreamProbe
         return 0;
     }
 
-    private static async Task<(string Path, string Body, AuthenticationHeaderValue? Auth)> PrepareAsync(HttpClient http, string target, string? key,
+    private static async Task<(string Path, string Body, Action<HttpRequestHeaders>? Auth)> PrepareAsync(HttpClient http, string target, string? key,
         bool document)
     {
         switch (target)
@@ -91,7 +92,14 @@ public static class StreamProbe
                     ["max_tokens"] = document ? 1500 : 400,
                     ["stream"] = true,
                 };
-                return ("v1/chat/completions", chat.ToJsonString(), target == "ume" ? new AuthenticationHeaderValue("Bearer", key) : null);
+                return ("v1/chat/completions", chat.ToJsonString(), target == "ume" ? h => h.Authorization = new AuthenticationHeaderValue("Bearer", key) : null);
+            case "eneo" when Environment.GetEnvironmentVariable("ENEO_KEY") is { Length: > 0 } eneoKey:
+                return ("conversations/", new JsonObject
+                {
+                    ["assistant_id"] = Environment.GetEnvironmentVariable("ENEO_ASSISTANT"),
+                    ["question"] = document ? Document.AsOneQuestion() : Question,
+                    ["stream"] = true,
+                }.ToJsonString(), h => h.Add("X-API-Key", eneoKey));
             case "eneo":
                 // As k6/chat.js: one password login, then a new conversation with the personal assistant per message.
                 using (var login = await http.PostAsync("users/login/token/", new FormUrlEncodedContent(new Dictionary<string, string>
@@ -109,7 +117,8 @@ public static class StreamProbe
                     // eneo takes one question per call (its history lives in its own database), so the document case sends
                     // the same text as one question: the same tokens reach the model.
                     var question = document ? Document.AsOneQuestion() : Question;
-                    return ("conversations/", new JsonObject { ["assistant_id"] = assistant, ["question"] = question, ["stream"] = true }.ToJsonString(), auth);
+                    return ("conversations/", new JsonObject { ["assistant_id"] = assistant, ["question"] = question, ["stream"] = true }.ToJsonString(),
+                        h => h.Authorization = auth);
                 }
 
             default:
@@ -117,14 +126,14 @@ public static class StreamProbe
         }
     }
 
-    private static async Task<Sample> OneAsync(HttpClient http, string path, string body, AuthenticationHeaderValue? auth)
+    private static async Task<Sample> OneAsync(HttpClient http, string path, string body, Action<HttpRequestHeaders>? auth)
     {
         var sample = new Sample();
         var start = Stopwatch.GetTimestamp();
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-            request.Headers.Authorization = auth;
+            auth?.Invoke(request.Headers);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
             sample.TtfbMs = Ms(start);
             if (!response.IsSuccessStatusCode)

@@ -44,8 +44,7 @@ export const DOCS = [
   ] },
   { group: 'Performance', items: [
     { slug: 'performance', title: 'Performance', source: 'docs/performance.md', lead: 'What a request costs, every benchmark result and how to measure it.' },
-    { slug: 'benchmark-2026-10-13', title: 'Gateway vs. eneo, 13 Oct', source: 'docs/benchmark-2026-10-13.md', lead: 'Instant and real-provider timing: time to first token, chunk gaps and stalls.' },
-    { slug: 'streaming-findings', title: 'Streaming findings', source: 'docs/streaming-findings.md', lead: 'Why streams fell behind, what was fixed and how to re-validate.' },
+    { slug: 'streaming-findings', title: 'Streaming findings', source: 'docs/streaming-findings.md', lead: 'Why streams fell behind, what was fixed and how to check it again.' },
   ] },
   { group: 'Reference', items: [
     { slug: 'admin-api', title: 'Admin API', source: 'docs/admin-api.md', lead: 'The contract between the admin UI and the control plane, and the gateway\'s data plane.' },
@@ -104,8 +103,8 @@ var reply = await chat.CompleteChatAsync("Sammanfatta ärendet");` },
 export const ENDPOINTS = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/embeddings', '/v1/audio/transcriptions', '/v1/images/generations', '/v1/realtime', '/v1/models']
 
 export const PROOF = [
-  { value: '1.1 ms', label: 'Added latency', sub: 'Median overhead per chat request, one client' },
-  { value: '17 750', label: 'Messages per second', sub: 'Streaming chat on 4 vCPUs' },
+  { value: '1.0 ms', label: 'Added latency', sub: 'Median overhead per chat request, one client' },
+  { value: '17 888', label: 'Messages per second', sub: 'Streaming chat on 4 vCPUs' },
   { value: '0', label: 'Database calls per request', sub: 'Keys and routing are cached in memory' },
   { value: '0', label: 'Prompts stored', sub: 'Usage metadata only, by design' },
 ]
@@ -186,17 +185,20 @@ export const GLOSSARY = [
   ['Routing rule', 'A condition on the request, such as a header or how much of the budget is left, that sends it to a different model. The x-ume-rule response header shows which rule applied.'],
 ]
 
+/** docs/performance.md, Results (baseline 2026-10-27). All gateway figures on the site come from that one run. */
+export const BENCH_DATE = '27 Oct 2026'
+
 export const BENCH_STATS = [
-  { label: 'Added latency', value: '1.1 ms', sub: 'Median, non-streaming, 1 client' },
-  { label: 'Time to first byte', value: '1.4 ms', sub: 'Streaming, 1 client' },
-  { label: 'Peak throughput', value: '20 944', sub: 'msg/s on 6 vCPUs' },
-  { label: 'CPU per message', value: '0.20 ms', sub: 'Gateway process, 4 vCPUs' },
+  { label: 'Added latency', value: '0.97 ms', sub: 'Median, non-streaming, 1 client' },
+  { label: 'Time to first byte', value: '1.28 ms', sub: 'Streaming, 1 client' },
+  { label: 'Peak throughput', value: '17 888', sub: 'Streamed msg/s on 4 vCPUs' },
+  { label: 'CPU per message', value: '0.21 ms', sub: 'Gateway process, 4 vCPUs' },
 ]
 
-/** docs/performance.md, Scaling: 2026-10-09 and the 2026-10-15 re-run (streaming chat, msg/s). */
+/** docs/performance.md, Results (baseline 2026-10-27), Scaling (streaming chat, msg/s). */
 export const SCALE = [
-  { id: 'clients', tab: 'By clients', label: 'Concurrent clients (4 vCPUs)', x: ['1', '4', '16', '64', '128', '256'], a: [581, 2157, 6393, 10668, 11470, 11417], b: [614, 2372, 6612, 13036, 15817, 17642] },
-  { id: 'vcpu', tab: 'By vCPUs', label: 'vCPUs (peak)', x: ['1', '2', '4', '6'], a: [4570, 9791, 11345, 11106], b: [4770, 10785, 17750, 18089] },
+  { id: 'clients', tab: 'By clients', label: 'Concurrent clients (4 vCPUs)', x: ['1', '4', '16', '64', '128', '256'], v: [607, 2356, 6179, 12612, 15489, 17888] },
+  { id: 'vcpu', tab: 'By vCPUs', label: 'vCPUs (peak)', x: ['1', '2', '4', '6'], v: [4751, 9616, 17772, 20550] },
 ]
 
 export const COST_ROWS = [
@@ -207,25 +209,24 @@ export const COST_ROWS = [
   { step: 'Usage record', when: 'Background', rt: '0', how: 'Batched, about ten records per Postgres COPY statement' },
 ]
 
-/** docs/performance.md, Re-run 2026-10-20: eneo through a service API key (streaming, 4 vCPUs each). */
+/** docs/performance.md, Comparison with eneo, eneo v2.2.3 (2026-10-27, same run as the baseline; streaming, 4 vCPUs each). */
 export const COMPARE = [
-  { label: 'Time per streamed answer, 1 client (median)', max: 72.1, rows: [['Ume gateway', 1.7, '1.7 ms'], ['eneo v2.2.1', 72.1, '72.1 ms']] },
-  { label: 'CPU per message, 16 clients', max: 81.8, rows: [['Ume gateway', 0.47, '0.47 ms'], ['eneo v2.2.1', 81.8, '81.8 ms']] },
-  { label: 'Postgres statements per message', max: 78, rows: [['Ume gateway', 0.7, '0.7, batched'], ['eneo v2.2.1', 78, '78']] },
+  { label: 'Time per streamed answer, 1 client (median)', max: 68.1, rows: [['Ume gateway', 1.58, '1.6 ms'], ['eneo v2.2.3', 68.1, '68.1 ms']] },
+  { label: 'CPU per message, 16 clients', max: 79.2, rows: [['Ume gateway', 0.49, '0.49 ms'], ['eneo v2.2.3', 79.2, '79.2 ms']] },
+  { label: 'Postgres statements per message', max: 78, rows: [['Ume gateway', 0.7, '0.7, batched'], ['eneo v2.2.3', 78, '78']] },
 ]
 
-export const BENCH_CODE = `# All BenchmarkDotNet benchmarks (~20 min)
+export const BENCH_CODE = `# All BenchmarkDotNet benchmarks (~10 min)
 dotnet run -c Release --project benchmarks\\Ume.LlmGateway.Benchmarks -- --filter *
 
 # Postgres/Redis calls per request + load test
 dotnet run -c Release --project benchmarks\\Ume.LlmGateway.Benchmarks -- audit
 
-# Compare with eneo against the same fake LLM
-cd benchmarks/compare && ./run.sh`
+# Throughput and scaling against a fake LLM, pinned cores
+cd benchmarks/compare && PLATFORMS="fake ume" ./run.sh && PLATFORMS="fake ume" ./scale.sh`
 
 export const REPORTS = [
   { title: 'Performance', body: 'Every benchmark result, what a request costs and how to measure it.', href: 'docs/performance/' },
-  { title: 'Gateway vs. eneo, 13 Oct 2026', body: 'Real-provider timing: time to first token, chunk gaps and stalls.', href: 'docs/benchmark-2026-10-13/' },
   { title: 'Streaming findings', body: 'Why streams fell behind, what was fixed and how to re-validate.', href: 'docs/streaming-findings/' },
   { title: 'Platform comparison (slides)', body: 'The eneo comparison for non-technical readers. Step with the arrow keys.', href: 'reports/platform-comparison.html', meta: 'HTML · PDF', alt: 'reports/platform-comparison.pdf' },
 ]

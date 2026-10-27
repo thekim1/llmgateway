@@ -35,7 +35,7 @@ with the organisation (departments, teams, keys, budgets) and its rules in Postg
 | Telemetry | OpenTelemetry GenAI semantic conventions (`gen_ai.client.token.usage`, `gen_ai.server.request.duration`, time to first token, time per output token, inter-chunk latency) | Own `ume.gateway.*` metrics including overhead, TTFT, stream gaps | Them on interoperability (standard dashboards work); us on gateway-overhead visibility |
 | MCP / A2A | Full MCP and A2A gateways | Removed (out of scope) | Them; deliberately not ours |
 | Deployment | Kubernetes controller (Gateway API), xDS, single binary | Aspire, Compose with hardening, Kubernetes manifests, zero-downtime updates, backup/restore | Different targets |
-| Performance | Rust, no GC; designed as a general proxy | .NET 10, measured 0 Postgres calls and 2 Redis round trips before the first byte, ~11k msg/s per instance (usage writer bound) | Not measured head to head |
+| Performance | Rust, no GC; designed as a general proxy | .NET 10, measured 0 Postgres calls and 2 Redis round trips before the first byte, about 17 900 streamed msg/s on 4 vCPUs per instance (2026-10-27 baseline) | Not measured head to head |
 
 ### What they do better that matters to us
 
@@ -89,17 +89,9 @@ catalogue (prices are contractual for us; the Azure lookup covers the main provi
 
 ## Results of items 1 to 3
 
-`audit 500` (Release, Redis, same machine, back to back; 64 streaming clients for the load line):
-
-| | Redis commands per chat request | Load: req/s | p50 | p99 |
-|---|---|---|---|---|
-| Before | 9 (one `MGET`) | 10 301 | 5.48 ms | 14.52 ms |
-| After, `Weighted` (default) | 9 (one `MGET`) | 11 341 | 5.15 ms | 12.22 ms |
-| After, `LeastLoaded` | 9 (one `MGET`) | 11 209 | 5.25 ms | 12.01 ms |
-
-No extra round trip: cooldowns are read in the circuit-state `MGET`. The throughput difference is run-to-run noise, not a
-speed-up; the point is that the per-attempt bookkeeping (one dictionary lookup, a few atomics, one small allocation) does
-not show.
+No extra round trip: cooldowns are read in the circuit-state `MGET`, so a chat request still makes 9 Redis commands
+(`audit`), and the per-attempt bookkeeping (one dictionary lookup, a few atomics, one small allocation) does not show
+in the benchmarks. Current figures: the baseline in [performance.md](performance.md#results-baseline-2026-10-27).
 
 ## MCP and A2A: how agentgateway does it, and whether it fits us
 

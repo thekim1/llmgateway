@@ -38,12 +38,34 @@ Cache behaviour:
   expired); keys that are already cached keep working.
 - Provider credentials are decrypted once per catalogue snapshot, not once per request or attempt.
 - Budget alert webhooks are sent from their own queue, so a slow receiver never holds up the usage writer.
+- Trusted proxies come with the catalogue snapshot and a key's allowed networks are parsed once when the key is cached,
+  so client address restrictions add no external call (see *Components* below for their cost).
+- Usage records, budget alerts and `LastUsedAt` are written in one transaction; a batch retried after a lost commit
+  answer skips the records already stored by request id, so it cannot write them twice.
+
+Logging and telemetry: successful requests log their "Request … status … in … ms" line at Debug (refused, failed and
+cancelled ones at Information), because one formatted line per request cost a noticeable share of peak throughput; the
+same facts are in the usage record and the metrics. *Settings > Request logging* turns the line on for every request
+for a while; the switch is read from the cached catalogue snapshot. Provider time and time to first token are two or
+three timestamp reads per request. The OpenTelemetry GenAI metrics are off by default (`Gateway:GenAiMetrics`): they
+add four histogram recordings per request, and `ume.gateway.*` already covers tokens, cost and latency.
 
 Streaming: each upstream SSE event is parsed only as far as needed (a forward-only scan for the text length; the usage
 chunk is parsed fully, and the `"usage":null` that OpenAI and Azure put in every chunk does not count as one — see
 [streaming-findings.md](streaming-findings.md)) and written straight into the response pipe with one flush per event, so tokens reach the client
 as soon as they arrive. Non-streaming answers are passed through as the bytes the provider sent: usage is read with a
-forward-only scan instead of building and re-serialising a JSON tree, which matters most for embeddings.
+forward-only scan instead of building and re-serialising a JSON tree, which matters most for embeddings. A chat
+completion routed to an Anthropic provider is translated with `Utf8JsonReader` for the text and tool-argument deltas and
+a reused `Utf8JsonWriter` for the OpenAI chunks; only the few other events of a stream build JSON trees.
+
+Off the request path:
+
+- `GET /api/usage/metrics` (the Usage dashboard) aggregates in one scan per query (`GROUPING SETS` gives the buckets
+  and the period's percentiles together) plus one for the per-model series. Its cost grows with the number of records
+  in the period (the percentile sorts), so long periods on a busy gateway take seconds; a department's view uses the
+  `(DepartmentId, Timestamp)` index.
+- Data retention removes old records nightly in the admin API, in batches of 5 000 rows, each its own short
+  transaction, so it never holds locks the gateway's usage writer waits on.
 
 ## Measuring
 
@@ -51,7 +73,7 @@ forward-only scan instead of building and re-serialising a JSON tree, which matt
 interaction audit. Both need Docker (Postgres and Redis run in Testcontainers) and must run in Release:
 
 ```powershell
-# All benchmarks (about 20 minutes); results in BenchmarkDotNet.Artifacts\results
+# All benchmarks (about 10 minutes); results in BenchmarkDotNet.Artifacts\results
 dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- --filter *
 
 # One group, e.g. the end-to-end pipeline or the provider/streaming leg
@@ -75,202 +97,154 @@ Absolute numbers depend on the machine; compare runs on the same host. In the re
 Docker on WSL2, so a Redis round trip costs roughly 0.3–0.5 ms; in production (same network segment) it is usually
 below 0.2 ms, and the remaining gateway overhead is correspondingly smaller.
 
-## Results
+Throughput, scaling and streaming latency against a fake LLM in containers with pinned cores are measured with
+`benchmarks/compare` (`PLATFORMS="fake ume"` leaves out eneo); see its [README](../benchmarks/compare/README.md). For a
+new baseline, run everything in one session on an otherwise idle machine:
 
-Measured 2026-10-09 on a 16-core laptop (WSL2, .NET 10.0.12), before and after the optimisation pass described in the
-changelog. "Before" is commit `7521b48`.
+```bash
+dotnet run -c Release --project benchmarks/Ume.LlmGateway.Benchmarks -- --filter '*'   # ~10 min
+dotnet run -c Release --project benchmarks/Ume.LlmGateway.Benchmarks -- audit         # ~1 min
+cd benchmarks/compare
+PLATFORMS="fake ume" ./run.sh       # ~8 min
+PLATFORMS="fake ume" ./scale.sh     # ~16 min
+PLATFORMS="fake ume" ./latency.sh   # ~6 min
+```
 
-### End-to-end gateway overhead (`PipelineBenchmarks`)
+Check the *Harness check* table at the end of each report: if the fake LLM, Postgres or Redis is close to its limit,
+the run measured the harness, not the gateway.
 
-Time per request with an instant upstream, so this is everything the gateway itself adds.
+## Results (baseline 2026-10-27)
 
-| Request | Stores | Before | After | Allocated before → after |
-|---|---|---:|---:|---:|
-| Chat completion | Redis | 4.93 ms | **1.67 ms** (−66 %) | 128 KB → 83 KB |
-| Chat stream, 300 chunks | Redis | 5.59 ms | **1.97 ms** (−65 %) | 2.33 MB → 0.76 MB |
-| Embeddings, 16 × 1536 | Redis | 7.20 ms | **2.42 ms** (−66 %) | 1.94 MB → 0.70 MB |
-| Chat completion | In-memory | 371 µs | **221 µs** (−40 %) | 84 KB → 68 KB |
-| Chat stream, 300 chunks | In-memory | 1.46 ms | **0.72 ms** (−51 %) | 2.30 MB → 0.60 MB |
-| Embeddings, 16 × 1536 | In-memory | 2.14 ms | **1.02 ms** (−52 %) | 1.93 MB → 0.69 MB |
+Every figure in this section comes from one session on one machine, with one harness set-up, so they can be compared
+with each other. Every performance figure in the README, on the website, in the platform comparison slides and in the
+other docs is taken from here; earlier runs used other harness set-ups and are no longer quoted.
 
-The Redis rows are dominated by round trips, which cost more in this Docker-on-WSL2 setup than on a production network.
+**Set-up.** Commit `8222977` (main after #33), .NET 10.0.13, Release. 8-core / 16-thread laptop, WSL2, Docker.
+BenchmarkDotNet and `audit` run the gateway in-process against Postgres 17 and Redis 7.4 in Testcontainers (Redis
+without snapshots). `benchmarks/compare` (`run.sh`, `scale.sh`, `latency.sh`, gateway and fake LLM only) runs the
+gateway image with pinned hardware threads: gateway 8–11 (4 vCPUs), Postgres 12–13, Redis 14–15 (snapshots off), fake
+LLM 0–3 (telemetry off), load generator 4–7. See
+[benchmarks/compare/README.md](../benchmarks/compare/README.md#what-is-compared). Raw results:
+`benchmarks/compare/results/2026-10-27/` on the machine that ran them.
 
-### External calls per request (`audit`, Redis, sequential)
+**The harness was not the limit.** At the gateway's peak (17 888 streamed requests/s) the fake LLM kept 1.6 of its 4
+threads busy, Redis 0.46 of its one command thread and Postgres 0.27 of 2, while the gateway used 3.6 of 4. Sent
+straight to the fake LLM, the same k6 set-up reaches about 55 000 streamed and 75 000 non-streamed requests/s.
 
-| Scenario | Mean before | Mean after | Postgres on request path | Postgres in background writer |
-|---|---:|---:|---|---|
-| Chat, warm caches | 5.60 ms | **1.98 ms** | 0 → 0 | 3 → **1** statement per request |
-| Chat stream, warm caches | 6.46 ms | **2.51 ms** | 0 → 0 | 3 → **1** |
-| Embeddings, warm caches | 6.22 ms | **2.67 ms** | 0 → 0 | 3 → **1** |
-| Key and catalogue invalidated before every request | 10.0 ms | 7.58 ms | 9 → 9 (by design: an invalidation reloads synchronously) | 3 → 1 |
-| Unknown key, 401 (measured 2026-10-10, before/after the negative key cache) | 0.99 ms | **0.12 ms** | 1 → **0** | 0 → 0 |
+### Added latency and throughput (`benchmarks/compare/run.sh`)
 
-Redis round trips: about 10 sequential before (6 before the first byte, 4–5 after; non-streaming answers waited for all
-of them), now 2 before the first byte and 1 pipelined after the response. The background writer's figure is for
-sequential traffic, where every batch holds one record; under load batches grow and the per-request cost falls further.
+Overhead is the gateway's median minus the fake LLM's own median at the same load. 30 s per scenario, 0 failed checks.
 
-Concurrent load (64 streaming clients, cache TTLs shortened to 1 s so expiry happens constantly): **4 594 → 7 897
-requests/s**, p50 13.3 → 5.3 ms. p99 was 26 ms before and 35–37 ms after, measured at the higher throughput: the test
-saturates the machine, so the tail reflects CPU contention in this setup more than per-request cost.
+| | 1 client | 16 clients | 64 clients |
+|---|---:|---:|---:|
+| Non-streaming: requests/s | 747 | 8 634 | **16 805** |
+| Non-streaming: overhead (median) | **0.97 ms** | 1.55 ms | 2.72 ms |
+| Non-streaming: median / p99 | 1.27 / 1.61 ms | 1.69 / 3.60 ms | 3.29 / 13.8 ms |
+| Streaming: requests/s | 606 | 6 449 | **12 618** |
+| Streaming: overhead (median, whole stream) | **1.27 ms** | 2.05 ms | 3.68 ms |
+| Streaming: time to first byte (median) | **1.28 ms** | 1.82 ms | 3.59 ms |
+| Gateway CPU per request, non-streaming / streaming | 2.3 / 2.7 ms¹ | 0.36 / 0.49 ms | **0.20 / 0.27 ms** |
+| Postgres + Redis CPU per request, non-streaming | 0.59 ms¹ | 0.11 ms | 0.06 ms |
+| Postgres statements per request (background writer) | 4¹ | 0.6 | 0.2 |
+| Redis commands per request (incl. inside Lua scripts) | 21 | 21 | 21 |
 
-### Components
+¹ With one client, idle background work (cache refresh, timers) is spread over few requests; 16 and 64 clients show the
+marginal cost.
 
-| Benchmark | Before | After |
-|---|---:|---:|
-| Provider leg: chat stream, 300 chunks (OpenAI-compatible) | 746 µs, 2.02 MB | **223 µs, 360 KB** |
-| Provider leg: chat stream, 300 chunks, OpenAI wire format with `"usage":null` per chunk (measured 2026-10-13) | 672 µs, 1.58 MB | **258 µs, 433 KB** |
-| Provider leg: Anthropic `/v1/messages` stream passthrough, 300 chunks | 435 µs, 1.08 MB | **157 µs, 259 KB** |
-| Provider leg: Anthropic-translated chat stream, 300 chunks | 799 µs, 1.83 MB | 610 µs, 1.27 MB (translator unchanged, see below) |
-| Provider leg: embeddings answer, 16 × 1536 | 1.43 ms, 1.50 MB | **481 µs, 9 KB** |
-| Provider leg: chat answer | 5.4 µs, 10.5 KB | **3.6 µs, 6.3 KB** |
-| Applicable budgets, 10 000 rotated keys in the system | 963 µs, 1.3 MB | **0.18 µs, 0.5 KB** |
-| PII scan, 0.5 KB request | 2.9 µs | **0.5 µs** |
-| PII scan, 64 KB request | 639 µs | **102 µs** |
+### Scaling (`benchmarks/compare/scale.sh`, streaming, 20 s per point)
 
-Unchanged and already cheap: body parsing (0.5 µs for 0.5 KB, 47 µs for 64 KB), per-attempt rewrite and serialisation,
-route selection (1.1 µs) and key hashing (0.9 µs).
+| Concurrent clients (4 vCPUs) | 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Gateway, msg/s | 607 | 1 283 | 2 356 | 3 814 | 6 179 | 9 508 | 12 612 | 15 489 | **17 888** |
+| Gateway, median | 1.59 ms | 1.52 ms | 1.63 ms | 1.88 ms | 2.31 ms | 3.12 ms | 4.61 ms | 7.37 ms | 12.5 ms |
+| Gateway, p99 | 2.05 ms | 2.05 ms | 2.73 ms | 6.94 ms | 7.80 ms | 10.9 ms | 17.2 ms | 25.4 ms | 59.1 ms |
+| Fake LLM directly, msg/s (harness ceiling) | 2 499 | 4 954 | 10 459 | 24 632 | 42 297 | 52 657 | 55 222 | 54 675 | 53 899 |
 
-### Release cleanup check (2026-10-10)
+| vCPUs (peak, fresh stack each) | 1 | 2 | 4 | 6 |
+|---|---:|---:|---:|---:|
+| Gateway, peak msg/s | 4 751 | 9 616 | 17 772 | **20 550** |
+| Speed-up (efficiency) | 1.00× | 2.02× (101 %) | 3.74× (94 %) | 4.33× (72 %) |
+| Gateway CPU per message | 0.21 ms | 0.20 ms | 0.21 ms | 0.25 ms |
 
-The architecture/DRY cleanup before the first release (see the changelog) was checked against commit `1f38195` on the
-same machine, run back to back. Same requests, same external calls: 0 Postgres statements on the request path and
-9 Redis commands per request in both, and the same 9 statements per cache miss.
+The gateway scales close to linearly up to 4 vCPUs and costs about 0.2 ms of CPU per streamed message; there were no
+errors at any load. From 4 to 6 vCPUs it still gains 16 %, but CPU per message rises (0.25 ms), so each extra vCPU buys
+less: on this machine two of the six threads share a physical core with the fake LLM and Postgres, and the median at
+the peak grows to 15 ms (p99 85 ms, 384 clients).
 
-| Benchmark | Before | After |
-|---|---:|---:|
-| `POST /v1/chat/completions`, in-memory stores | 340 μs ± 116, 69.9 KB | **204 μs ± 16**, 68.8 KB |
-| `POST /v1/chat/completions`, Redis | 1,725 μs ± 210, 85.7 KB | **1,524 μs ± 31**, 85.2 KB |
-| Chat stream (300 chunks), in-memory / Redis | 758 / 2,021 μs | 754 / 1,953 μs |
-| Embeddings (16×1536), in-memory / Redis | 1,041 / 2,438 μs | 1,003 / 2,321 μs |
-| Provider leg, request parsing, routing | | unchanged (within ±2 %, same allocations) |
-| Load test, 64 streaming clients, 4 runs each | 7,214–7,895 req/s (mean 7,530) | 7,112–7,658 req/s (mean 7,435) |
+The 6-vCPU point borrows one thread from the fake LLM (left with 3) and one from Postgres (left with 1). To check that
+this does not limit the gateway, the 4-vCPU peak was measured on that smaller harness too: 16 915, 17 494 and 17 422
+msg/s, against 17 772, 16 963 and 17 888 on the full one, the same within run-to-run noise (about ±3 % for a single
+20 s sample). At the 6-vCPU peak the fake LLM used 1.9 of 3 threads, Postgres 0.34 of 1 and Redis 0.59 of 1.
 
-The steadier chat time comes mainly from caching decrypted provider credentials per catalogue snapshot instead of
-decrypting them on every attempt. The load-test difference is within run-to-run noise.
+### Streaming with real-provider timing (`benchmarks/compare/latency.sh`)
 
-### Client address restrictions (2026-10-12)
+The fake LLM waits 400 ms for the first token and sends 200 words at 25 ms ±30 % each (about 5.6 s per answer), so the
+gateway sits in a realistic stream. Measured with the stream probe, 30 s per load:
 
-Key address allow-lists and trusted proxies (see *Client addresses and trusted proxies* in the [runbook](runbook.md)) add
-no external call: trusted proxies come with the catalogue snapshot and a key's networks are parsed once when the key is
-cached. Same machine, run back to back:
+| Clients | Streams/s | TTFT p50 direct → through gateway | Gap between events p99 | Whole stream p50 | Errors |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 0.2 | 364 → 403 ms | 36.2 ms (36.3 direct) | 5.60 s (5.58 direct) | 0 |
+| 16 | 2.8 | 412 → 397 ms | 36.4 ms (36.2) | 5.63 s (5.65) | 0 |
+| 64 | 11.2 | 396 → 411 ms | 36.4 ms (36.4) | 5.62 s (5.62) | 0 |
+| 256 | 44.7 | 412 → 427 ms | 36.5 ms (36.5) | 5.62 s (5.61) | 0 |
+
+The ±30 % jitter on the first token is larger than anything the gateway adds, so the differences go both ways (−16 to
++39 ms with one sample stream at 1 client); the pace of the stream and its total length are unchanged. No gap of 250 ms
+or more at any load.
+
+### Per-request work (`audit`, in-process, Redis, sequential, 500 requests per scenario)
+
+| Scenario | Mean | p99 | Postgres on request path | Postgres in background | Redis commands |
+|---|---:|---:|---:|---:|---:|
+| Chat, warm caches | 1.95 ms | 2.37 ms | 0 | 1 | 9 |
+| Chat stream, warm caches | 2.49 ms | 3.43 ms | 0 | 1 | 9 |
+| Embeddings, warm caches | 2.55 ms | 3.52 ms | 0 | 1 | 9 |
+| Key and catalogue invalidated before every request | 7.63 ms | 9.26 ms | 9 (by design) | 1 | 9 |
+| Unknown key, 401 | 0.12 ms | 0.26 ms | 0 | 0 | 0 |
+
+Load test (64 streaming clients, cache TTLs 1 s so expiry happens constantly, gateway and harness on the same unpinned
+cores): 11 364 requests/s, p50 5.1 ms, p99 13.8 ms.
+
+### Components (BenchmarkDotNet)
+
+End to end through the real gateway (`PipelineBenchmarks`, instant in-process upstream):
+
+| Request | In-memory stores | Redis | Allocated (Redis) |
+|---|---:|---:|---:|
+| Chat completion | 196 µs | 1.65 ms | 60 KB |
+| Chat stream, 300 chunks | 707 µs | 1.95 ms | 579 KB |
+| Embeddings, 16 × 1536 | 961 µs | 2.33 ms | 674 KB |
+
+The Redis rows are mostly round trips, which cost more in Docker on WSL2 (0.3–0.5 ms each) than on a production network.
 
 | Benchmark | Time | Allocated |
 |---|---:|---:|
-| Resolve client address, no trusted proxies (every request when unused) | 0.4 ns | 0 B |
-| Resolve client address through a trusted proxy, `X-Forwarded-For` with 2 hops | 51 ns | 72 B |
-| Key without address restriction (every request when unused) | 0.1 ns | 0 B |
-| Key with 5 allowed networks, the last one matching | 6.2 ns | 0 B |
-
-| `PipelineBenchmarks` | Before | After |
-|---|---:|---:|
-| `POST /v1/chat/completions`, in-memory / Redis | 216 ± 41 / 1,474 ± 67 μs | 195 ± 7 / 1,498 ± 53 μs |
-| Chat stream (300 chunks), in-memory / Redis | 734 ± 245 / 1,869 ± 302 μs | 514 ± 101 / 1,874 ± 263 μs |
-| Embeddings (16×1536), in-memory / Redis | 1,008 ± 69 / 2,327 ± 84 μs | 1,010 ± 48 / 2,582 ± 256 μs |
-
-The pipeline differences are within run-to-run noise (the error columns overlap); allocations per request are unchanged
-within 0.3 KB.
-
-With data retention added as well (`audit`, three runs each, back to back): warm requests still make 0 Postgres calls and
-9 Redis commands. A key + catalogue cache miss makes 10 statements instead of 9 (the catalogue also reads the
-`GatewaySettings` row), and seeding a budget counter reads `UsageRetainedFrom` once. Load test, 64 streaming clients
-with 1 s cache TTLs: 7,756–8,160 req/s (mean 7,968) against 7,755–8,317 req/s (mean 8,096) before, within run-to-run noise.
-The nightly removal runs in the admin API in batches of 5 000 rows, each its own short transaction, so it does not hold
-locks the gateway's usage writer waits on.
-
-### Usage dashboard timings (2026-10-13)
-
-The gateway records provider time (`UpstreamMs`) and time to first token (`TimeToFirstTokenMs`) for the Usage dashboard:
-two `TimeProvider.GetTimestamp()` reads around each provider attempt and the stream, one more on the first streamed event,
-no allocation and no external call. `audit`, same machine, back to back:
-
-| Scenario | Before | After |
-|---|---:|---:|
-| chat (warm caches), mean / p99 | 2.056 / 2.354 ms | 2.047 / 2.443 ms |
-| chat stream (warm caches), mean / p99 | 2.591 / 3.468 ms | 2.525 / 3.674 ms |
-| embeddings (warm caches), mean / p99 | 2.794 / 4.078 ms | 2.676 / 3.582 ms |
-| Load, 64 streaming clients | 7,272 req/s, p99 41.5 ms | 7,162 req/s, p99 42.0 ms |
-
-Postgres (0 on the request path, 1 in the background) and Redis (9) calls per request are unchanged; the differences are
-within run-to-run noise. The migration adds two nullable columns, which Postgres does without rewriting the table.
-
-`GET /api/usage/metrics` (admin API, not the request path) aggregates in one scan per query (`GROUPING SETS` gives the
-buckets and the period's percentiles together) plus one for the per-model series. On 2 million records spread over 30
-days (Postgres 17, default settings): 24 hours per hour 0.11 s, 7 days 0.63 s, 30 days 1.8 s for a gateway-admin (all
-departments); a department's view uses the `(DepartmentId, Timestamp)` index and took 0.02 / 0.13 / 0.40 s. The cost
-grows with the number of records in the period (the percentile sorts), so a 90-day view of a very busy gateway takes a
-few seconds.
-
-### Usage writer: COPY (2026-10-14)
-
-The usage writer was the ceiling under load (see *Scaling* below; the 2026-10-13 benchmark fell to about 8 500 req/s
-when usage rows gained columns). It now writes each batch with one Postgres binary `COPY` instead of EF's
-`INSERT … RETURNING` per row through the change tracker, takes up to 5 000 records per batch (was 500), and sets
-`LastUsedAt` for all keys of a batch in one `UPDATE … FROM unnest(…)` instead of one statement per key. Records, alerts
-and `LastUsedAt` share one transaction; a retried batch skips the records already stored by request id, so a commit
-whose answer was lost cannot write them twice.
-
-`benchmarks/compare` (`PLATFORMS=ume VUS="16 64"`, 30 s, same machine, back to back; before = commit `d4c5eaf`):
-
-| Scenario | Before req/s | After req/s | Median before → after | p95 before → after |
-|---|---:|---:|---:|---:|
-| Non-streaming, 16 clients | 7 087 | 8 206 | 1.66 → 1.58 ms | 3.09 → 2.43 ms |
-| Non-streaming, 64 clients | 8 492 | **15 083** (+78 %) | 3.61 → 3.18 ms | 27.5 → 7.57 ms |
-| Streaming, 16 clients | 5 807 | 6 176 | 2.29 → 2.15 ms | 3.58 → 3.29 ms |
-| Streaming, 64 clients | 7 726 | **10 878** (+41 %) | 5.32 → 4.64 ms | 21.9 → 9.84 ms |
-
-Streaming at 64 clients, per request: gateway CPU 0.368 → 0.314 ms, Postgres + Redis CPU 0.152 → 0.076 ms, Postgres
-statements 1.0 → 0.3 (background writer). The gateway's memory at that load rose from 904 to 1 389 MB, from serving
-40 % more requests at once (larger batches account for at most a few MB).
-
-`audit 500`: per-request calls are unchanged (0 Postgres statements on the request path, 1 in the background for
-sequential traffic, 9 Redis commands); sequential latencies are within noise (chat 1.90 → 1.76 ms mean). Its load
-test (64 streaming clients, 1 s cache TTLs) went from 7 876 to **12 412 req/s**, p99 40.4 → 11.5 ms.
-
-### Per-request log line (2026-10-15)
-
-Every request used to log "Request … key … model … status … in … ms" at Information: one formatted message per
-request for the console and OpenTelemetry. The same facts are in the usage record and the metrics, so successful
-requests now log it at Debug; refused, failed and cancelled requests still log it at Information.
-
-What the line cost, measured first with the unchanged gateway at `GATEWAY_LOG_LEVEL=Information` and `Warning`
-(`benchmarks/compare`, `PLATFORMS=ume VUS="16 64"`, 30 s, two runs each, alternating):
-
-| Scenario | Information req/s | Warning req/s | Difference |
-|---|---:|---:|---:|
-| Non-streaming, 64 clients | 14 966 / 16 062 | 18 167 / 17 883 | +16 % |
-| Streaming, 64 clients | 11 747 / 11 816 | 13 064 / 13 091 | +11 % |
-| Non-streaming, 16 clients | 7 687 / 8 421 | 9 419 / 8 857 | +13 % |
-| Streaming, 16 clients | 6 290 / 6 580 | 6 997 / 7 030 | +9 % |
-
-The change, at the production default (Information), two runs:
-
-| Scenario | Before req/s | After req/s | Gateway CPU per request |
-|---|---:|---:|---:|
-| Non-streaming, 64 clients | 14 966 / 16 062 | 18 116 / 16 693 (+12 %) | 0.229 / 0.216 → 0.189 / 0.204 ms |
-| Streaming, 64 clients | 11 747 / 11 816 | 12 836 / 12 254 (+6 %) | 0.292 / 0.291 → 0.266 / 0.280 ms |
-| Non-streaming, 16 clients | 7 687 / 8 421 | 9 264 / 9 047 (+14 %) | |
-| Streaming, 16 clients | 6 290 / 6 580 | 7 073 / 6 688 (+7 %) | |
-
-The admin switch *Settings > Request logging* (log every request for 24 hours or without a time limit) is read from the
-cached catalogue snapshot: with it off, a request costs one comparison more. Measured with it off, two runs: non-streaming
-at 64 clients 18 126 / 17 902 req/s, streaming 12 721 / 13 067, the same as without the switch within run-to-run noise.
-
-Not done: a covering index (`INCLUDE ("CostUsd")`, `CostSek` when this was measured) on the key/team/department + timestamp indexes) would let a cold
-budget counter be seeded with an index-only scan. On 5 million records it seeded a yearly department budget in 22 ms
-instead of 86 ms (team budgets 2.8 vs 3.5 ms), but made `COPY` inserts 28 % slower and the indexes 55 % larger. Seeding
-happens once per budget and period; inserts happen for every request, so it was left out.
+| Provider leg: chat answer | 3.3 µs | 7.3 KB |
+| Provider leg: chat stream, 300 chunks (OpenAI-compatible) | 231 µs | 360 KB |
+| Provider leg: chat stream, 300 chunks, `"usage":null` per chunk | 262 µs | 433 KB |
+| Provider leg: Anthropic `/v1/messages` passthrough, 300 chunks | 161 µs | 259 KB |
+| Provider leg: Anthropic-translated chat stream, 300 chunks | 259 µs | 379 KB |
+| Provider leg: embeddings answer, 16 × 1536 | 455 µs | 9.3 KB |
+| Parse body, 0.5 KB / 64 KB | 0.58 / 47.8 µs | 1.0 / 70 KB |
+| Rewrite + serialise one attempt, 0.5 KB / 64 KB | 1.08 / 95.0 µs | 1.5 / 67 KB |
+| PII scan, 0.5 KB / 64 KB | 0.51 / 104 µs | 0.8 / 126 KB |
+| Resolve model + select candidates | 1.3 µs | 3.9 KB |
+| Applicable budgets (0 or 10 000 rotated keys in the system) | 0.18 µs | 0.5 KB |
+| Hash presented key (HMAC-SHA256) | 0.91 µs | 0.3 KB |
+| Resolve client address, no trusted proxies / through a proxy (2 hops) | 0.4 / 47 ns | 0 / 72 B |
+| Key address allow-list: none / 5 networks, last matching | 0.1 / 6.2 ns | 0 B |
 
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
 (open in a browser, step with the arrow keys; works offline) and [reports/platform-comparison.pdf](reports/platform-comparison.pdf).
-Its numbers are copied from the runs below; regenerate it by hand after a new run.
+Its numbers are from the eneo v2.2.3 run below (2026-10-27); the data-protection slides were tested on v2.2.1, whose
+backports to v2.2.3 do not touch them. Regenerate it by hand after a new run (the PDF is printed from the HTML).
 
-`benchmarks/compare` runs this gateway and [eneo](https://github.com/eneo-ai/eneo) v2.2.1 (production Docker image
-built from the tag) against the **same fake LLM**, which answers instantly, so only the platforms are measured. A
-third target sends the same requests straight to the fake LLM: that is the floor. Both platforms get the same four
-pinned cores for the application and two for Postgres + Redis; the fake LLM and the load generator (k6) have their own
-cores. Setup, fairness choices and how to re-run: [benchmarks/compare/README.md](../benchmarks/compare/README.md).
+`benchmarks/compare` runs this gateway and [eneo](https://github.com/eneo-ai/eneo) (production Docker image built
+from the release tag) against the **same fake LLM**, which answers instantly, so only the platforms are measured. A
+third target sends the same requests straight to the fake LLM: that is the floor. Both platforms get the same pinned
+cores for the application, Postgres and Redis; the fake LLM and the load generator (k6) have their own cores. Setup, fairness choices and how to re-run: [benchmarks/compare/README.md](../benchmarks/compare/README.md).
 
 **These are different kinds of product.** The gateway is a stateless proxy that authenticates a key, enforces limits
 and budgets, routes and records usage metadata. eneo is a chat application: every message resolves the assistant and
@@ -281,211 +255,105 @@ costs on top of the LLM call, not which product is better.
 without knowledge, attachments or tools, using the fake LLM as its model; the same Swedish question as the gateway gets,
 streamed or not. eneo can be called in two ways, and they cost different amounts:
 
-- **As a signed-in user** (`Authorization: Bearer` JWT, the user's personal assistant): what eneo's web app does. All
-  eneo runs up to and including 2026-10-20 morning used this.
+- **As a signed-in user** (`Authorization: Bearer` JWT, the user's personal assistant): what eneo's web app does.
 - **With a service API key** (`X-API-Key: sk_…`, scoped to an assistant in a shared space): what an external
   application does, and the counterpart of a gateway virtual key. Each message then also checks the key's guardrails and
   scope, its rate limit in Redis and writes an *API key used* audit event (through eneo's background worker). This is
-  the fair comparison; see *Re-run 2026-10-20: eneo through a service API key* below.
+  the fair comparison, and the one used below.
 
 Exact set-up of both (assistant, key settings, what is stored):
 [benchmarks/compare/README.md](../benchmarks/compare/README.md#the-eneo-message).
 
-Measured 2026-10-09 with eneo called as a signed-in user (for eneo through a service API key, the like-for-like comparison, see *Re-run 2026-10-20* below; 30 s per scenario, 0 failed checks in every scenario; each response verified to contain the fake
-LLM's answer). Overhead is the median minus the fake LLM's own median at the same load.
+### eneo v2.2.3 (2026-10-27)
 
-| Chat message, non-streaming | Ume gateway | eneo v2.2.1 |
+eneo's latest release, through a service API key, measured on the same harness and the same day as the gateway's
+baseline (*Results (baseline 2026-10-27)* above), so the gateway figures here are those of the baseline. 4 vCPUs each
+(eneo: 4 gunicorn workers plus its background worker, whose CPU is counted), Postgres 2 threads, Redis 2, fake LLM 4,
+k6 4. `ENEO_AUTH=apikey PLATFORMS=eneo` with `run.sh`, `scale.sh` and `latency.sh`; every response was checked for the
+fake LLM's answer. Raw results: `benchmarks/compare/results/2026-10-27-combined/`.
+
+| Chat message, 4 vCPUs | Ume gateway | eneo v2.2.3 |
 |---|---:|---:|
-| Overhead, 1 client (median) | **1.1 ms** | 51.5 ms |
-| Maximum throughput on 4 cores (best of 1/16/64 clients) | **11 680 req/s** | 66 req/s |
-| Median / p99 at 64 clients | **3.4 / 30 ms** | 496 ms / 25.3 s (saturated) |
-| CPU per message, platform process (16 clients) | **0.37 ms** | 56.5 ms |
-| CPU per message, its Postgres + Redis (16 clients) | **0.14 ms** | 11.1 ms |
-| Postgres statements per message | **1–2** (background, batched) | 72 |
-| Memory of the platform process | 0.2–1.3 GB | 1.8 GB |
+| Added latency, 1 client, non-streaming (median) | **0.97 ms** | 54.3 ms |
+| Added latency, 1 client, streaming, whole stream (median) | **1.27 ms** | 67.8 ms |
+| Time to first byte, 1 client, streaming (median) | **1.28 ms** | 53.0 ms |
+| Peak throughput, streaming | **17 888 msg/s** (256 clients) | 51 msg/s (8 clients) |
+| Peak throughput, non-streaming (1/16/64 clients) | **16 805 msg/s** (64 clients) | 56 msg/s (16 clients) |
+| Median / p99 at 64 clients, streaming | **4.6 / 17 ms** | 1.0 s / 13.8 s |
+| CPU per message, platform (16 clients, streaming) | **0.49 ms** | 79.2 ms |
+| CPU per message, its Postgres + Redis (16 clients, streaming) | **0.14 ms** | 6.4 ms |
+| Postgres statements per message | **0.7** (background, batched) | 78 |
+| Redis commands per message (incl. inside Lua scripts) | 21 | 31 |
+| Memory, platform process | 0.4–1.7 GB | 2.2 GB |
 
-| Chat message, streaming | Ume gateway | eneo v2.2.1 |
-|---|---:|---:|
-| Overhead, 1 client (median, whole stream) | **1.4 ms** | 65.3 ms |
-| Time to first byte, 1 client (median) | **1.4 ms** | 50.3 ms |
-| Maximum throughput on 4 cores | **10 566 req/s** | 49 req/s |
-| CPU per message, platform process (16 clients) | **0.49 ms** | 70.6 ms |
-| Postgres statements per message | **1–2** | 74 |
+Load (streaming, 4 vCPUs, 20 s per point):
 
-Full table (all loads, p95/p99, TTFB, per-component CPU): `benchmarks/compare/results/report.md` after a run.
-
-Notes for reading the numbers:
-
-- With an LLM in the loop, eneo's ~50–65 ms is small next to a real model's 0.5–30 s, so a single user will not notice
-  it. It matters for capacity: at about 57–70 ms CPU per message, eneo needs roughly one core per 14–18 messages per
-  second, and queueing sets in early (at 64 concurrent clients the 99th percentile reached 25 s). The gateway's cost
-  per message is about 150× lower in CPU and 45× lower in latency.
-- CPU per request at one client is inflated for both by idle background work spread over few requests; the 16- and
-  64-client rows are the real marginal cost. The gateway's memory grows with load because .NET's server GC keeps a
-  larger heap when there is work; it is not a leak.
-- The gateway's Redis count (18) includes the operations inside its Lua scripts; that is still 3–4 network round trips.
-  eneo uses no Redis on this path.
-
-### Scaling
-
-`benchmarks/compare/scale.sh` measures how both platforms scale with load (1–256 concurrent clients on 4 vCPUs each)
-and with resources (1–6 vCPUs, eneo with one worker per vCPU, peak throughput on a fresh stack per size). Streaming
-chat, same fake LLM; vCPU means one hardware thread (this machine has 8 cores / 16 threads, CPU sets follow the
-physical cores). Measured 2026-10-09.
-
-| Concurrent clients (4 vCPUs) | 1 | 4 | 16 | 64 | 128 | 256 |
-|---|---:|---:|---:|---:|---:|---:|
-| Ume gateway, msg/s | 581 | 2 157 | 6 393 | 10 668 | 11 470 | 11 417 |
-| Ume gateway, median | 1.7 ms | 1.7 ms | 2.4 ms | 5.0 ms | 8.2 ms | 21 ms |
-| eneo, msg/s | 15 | 56 | 50 | 44 | 35 | 7 (29 % errors) |
-| eneo, median | 65 ms | 68 ms | 247 ms | 0.9 s | 2.9 s | 35 s |
-
-| vCPUs | 1 | 2 | 4 | 6 |
-|---|---:|---:|---:|---:|
-| Ume gateway, peak msg/s | 4 570 | 9 791 | 11 345 | 11 106 |
-| eneo, peak msg/s | 16 | 32 | 56 | 75 |
-| eneo, speed-up | 1.0× | 1.97× | 3.49× | 4.67× |
-
-- **eneo** scales close to linearly with workers, but each worker only serves about 13–16 messages/s (64–78 ms CPU per
-  message). Beyond about 4 concurrent requests per worker its throughput *falls*: each request holds two or more
-  pooled database connections at once, the per-worker SQLAlchemy pool (20 + 10 overflow) starves, and requests fail
-  after the 30 s pool timeout with HTTP 500 (`QueuePool limit of size 20 overflow 10 reached`). With Postgres'
-  default `max_connections=100`, four workers (up to 120 connections) can also exhaust the database; the scaling runs
-  use 500.
-- **The gateway** levels off at about 11 000 messages/s from 2 vCPUs, with CPU to spare (3.3 of 6 vCPUs busy at the
-  6-vCPU peak; Redis, Postgres and the fake LLM also below capacity). The limit is the usage writer: its queue
-  (10 000 records) stayed full for the whole run, so back-pressure caps the request rate at the rate one batched
-  insert loop can write to Postgres. Requests slow down instead of failing. Since 2026-10-14 the writer uses `COPY`
-  (see *Usage writer: COPY* above), which lifted the 64-client peak from about 8 500 to 15 000 non-streaming requests/s
-  on this machine; more than one writer is the next step if that is ever not enough. Several gateway instances each
-  bring their own writer.
-
-#### Re-run 2026-10-15 (COPY writer, per-request log line at Debug)
-
-Same script, same machine, gateway only (`PLATFORMS=ume ./scale.sh`); the eneo figures above are unchanged.
-
-| Concurrent clients (4 vCPUs) | 1 | 4 | 16 | 64 | 128 | 256 |
-|---|---:|---:|---:|---:|---:|---:|
-| Gateway 2026-10-09, msg/s | 581 | 2 157 | 6 393 | 10 668 | 11 470 | 11 417 |
-| Gateway 2026-10-15, msg/s | 614 | 2 372 | 6 612 | **13 036** | **15 817** | **17 642** |
-| Median 2026-10-09 → 10-15 | 1.71 → 1.52 ms | 1.70 → 1.56 ms | 2.39 → 2.17 ms | 4.97 → 4.37 ms | 8.24 → 7.12 ms | 20.6 → 12.6 ms |
-| p99 2026-10-09 → 10-15 | 2.23 → 1.91 ms | 2.97 → 2.41 ms | 7.46 → 7.50 ms | 25.1 → 14.5 ms | 48.3 → 24.0 ms | 61.1 → 55.5 ms |
-
-| vCPUs | 1 | 2 | 4 | 6 |
-|---|---:|---:|---:|---:|
-| Gateway 2026-10-09, peak msg/s | 4 570 | 9 791 | 11 345 | 11 106 |
-| Gateway 2026-10-15, peak msg/s | 4 770 | 10 785 | **17 750** | 18 089 |
-| Speed-up over 1 vCPU (efficiency) | 1.00× | 2.26× (113 %) | 3.72× (93 %) | 3.79× (63 %) |
-| Gateway CPU per message | 0.21 ms | 0.18 ms | 0.20 ms | 0.26 ms |
-| With 4 threads for the fake LLM | | | 17 997 | **20 944** (4.39×, 73 %) |
-
-- With few clients there is little to gain (a request then takes about 1.5 ms of which the gateway's own work is a small part);
-  the change shows where the usage writer used to be the ceiling: from 64 clients and from 4 vCPUs up. Postgres statements
-  fell from 1.0 to 0.1 per message (the writer now copies about ten records per statement) and Postgres CPU from 0.78
-  to 0.3 cores at the peak.
-- The gateway now scales close to linearly up to 4 vCPUs (93 % efficiency, was 62 %). Up to 2 vCPUs the efficiency is
-  above 100 % because the first thread also carries the runtime's own work.
-- At 6 vCPUs the test harness becomes the limit: the fake LLM, on two hardware threads (one physical core), was 83 % busy
-  while the gateway used 4.7 of its 6 threads. Given four threads (`FAKE_CPUS=0-1,12-13 DATA_CPUS=14-15`; Postgres and
-  Redis use under one thread together) it served 20 944 msg/s with the gateway at 5.1 of 6 threads. The 4-vCPU peak did not
-  move (17 997), so there the gateway is the limit.
-- Redis: 18 commands per message and about half of one thread at the peak, so it is not close to its single-thread limit yet.
-
-#### Re-run 2026-10-20: eneo through a service API key
-
-The runs above sent eneo messages as a signed-in user (JWT, personal assistant), the way eneo's web app does. An
-external application uses a service API key instead, which is the counterpart of a gateway virtual key, so this run
-compares the two on that footing. Set-up (`ENEO_AUTH=apikey`): a shared space with one assistant, a service key
-(`sk_`, ownership `service`, write permission, scoped to that assistant, 90-day expiry, rate limit raised so it is
-checked but never reached); eneo's background worker runs on the same cores, as in its production compose, and its CPU
-is counted. Same 4 vCPUs for both platforms (eneo: 4 gunicorn workers + the worker), fake LLM 2 threads, k6 4 threads,
-Postgres + Redis 4 threads, 30 s per point, gateway image built from the current code. eneo as a signed-in user was
-re-run in the same session for comparison. Details of both eneo paths:
-[benchmarks/compare/README.md](../benchmarks/compare/README.md#the-eneo-message).
-
-| Streaming, 4 vCPUs | 1 client | 8 | 16 | 32 | 64 | 128 |
-|---|---:|---:|---:|---:|---:|---:|
-| Gateway, msg/s | 593 | 4 014 | 6 539 | 9 840 | 13 357 | **16 180** |
-| Gateway, median | 1.7 ms | 2.0 ms | 2.4 ms | 3.2 ms | 4.6 ms | 7.5 ms |
-| eneo API key, msg/s | 13 | **49** | 48 | 45 | 43 | 35 (0.8 % errors) |
-| eneo API key, median | 72 ms | 141 ms | 284 ms | 643 ms | 1.5 s | 2.5 s |
-| eneo signed-in user, msg/s | 14 | 53 | **55** | 47 | 46 | 41 |
-
-| Non-streaming, 4 vCPUs | 1 client | 8 | 16 | 32 | 64 | 128 |
-|---|---:|---:|---:|---:|---:|---:|
-| Gateway, msg/s | 749 | 5 121 | 8 821 | 13 147 | 17 641 | **21 758** |
-| Gateway, median | 1.3 ms | 1.5 ms | 1.7 ms | 2.3 ms | 3.3 ms | 5.1 ms |
-| eneo API key, msg/s | 17 | 58 | **58** | 48 | 51 | 30 (0.9 % errors) |
-| eneo API key, median | 58 ms | 107 ms | 254 ms | 718 ms | 1.3 s | 2.0 s |
-| eneo signed-in user, msg/s | 17 | 63 | **63** | 58 | 57 | 28 (1.8 % errors) |
-
-| Per message, streaming, 16 clients | Gateway | eneo API key | eneo signed-in user |
-|---|---:|---:|---:|
-| Application CPU | **0.47 ms** | 81.8 ms (of which worker 7.5 ms) | 71.6 ms |
-| Postgres + Redis CPU | **0.13 ms** | 12.1 ms | 9.2 ms |
-| Postgres statements | **0.7** (background, batched) | 78 | 74 |
-| Redis commands | 18 (incl. inside Lua scripts) | 31 | 0.2 |
-| Memory, application | 0.7 GB | 2.1 GB | 2.1 GB |
-
-- **The API key makes eneo about 10–14 % more expensive per message**: about 10 ms more CPU (7.5 ms of it in the worker
-  writing the *API key used* audit event, the rest in key resolution, guardrails and the rate limit), four more Postgres
-  statements and about 30 Redis commands (rate limit and the audit job queue). Peak throughput falls from 55 to 49
-  streaming and from 63 to 58 non-streaming messages/s.
-- **Like for like**, the gateway on the same four vCPUs peaks at 16 180 streaming and 21 758 non-streaming messages/s:
-  about 330× and 370× eneo's peak through an API key, at roughly 170× less application CPU per message (0.47 against
-  81.8 ms at 16 clients; at its peak the gateway uses 0.21 ms). At 128 clients the gateway is close to the fake LLM's
-  limit on two threads (see the 2026-10-15 notes), so its numbers there are a lower bound.
-- With one client both platforms' CPU per message includes idle background work spread over few messages; the 16-client
-  column is the marginal cost.
-
-**Scaling through the API key** (`PLATFORMS="ume eneo" ENEO_AUTH=apikey ./scale.sh`, streaming, 20 s per point,
-results in `benchmarks/compare/results/scale-2026-10-20-apikey/`). The presentation
-([reports/platform-comparison.html](reports/platform-comparison.html)) uses these numbers.
-
-| Concurrent clients (4 vCPUs) | 1 | 4 | 8 | 16 | 64 | 128 | 256 |
+| Concurrent clients | 1 | 4 | 8 | 16 | 64 | 128 | 256 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Gateway, msg/s | 554 | 2 392 | 4 193 | 6 554 | 11 899 | 14 314 | **17 817** |
-| Gateway, median | 1.7 ms | 1.7 ms | 1.9 ms | 2.4 ms | 4.8 ms | 7.8 ms | 13.9 ms |
-| eneo API key, msg/s | 14 | 50 | **51** | 46 | 45 | 17 (1.7 % errors) | 8 (53 % errors) |
-| eneo API key, median | 76 ms | 76 ms | 143 ms | 315 ms | 1.4 s | 2.3 s | 31 s |
+| Gateway, msg/s | 607 | 2 356 | 3 814 | 6 179 | 12 612 | 15 489 | **17 888** |
+| Gateway, median | 1.6 ms | 1.6 ms | 1.9 ms | 2.3 ms | 4.6 ms | 7.4 ms | 12.5 ms |
+| eneo, msg/s | 14 | 48 | **49** | 45 | 36 | 12 (6 % errors) | 8 (53 % errors) |
+| eneo, median | 69 ms | 73 ms | 136 ms | 273 ms | 992 ms | 1.5 s | 31.8 s |
 
-| vCPUs (peak, fresh stack each) | 1 | 2 | 4 | 6 |
+Resources (peak over several client counts, fresh stack per size; 6 vCPUs borrow one thread each from the fake LLM and
+Postgres, see the baseline):
+
+| vCPUs | 1 | 2 | 4 | 6 |
 |---|---:|---:|---:|---:|
-| Gateway, peak msg/s | 4 543 | 10 577 | 16 509 | 18 072 |
-| Gateway, CPU per message | 0.20 ms | 0.18 ms | 0.20 ms | 0.27 ms |
-| eneo API key, peak msg/s | 13 | 27 | 45 | 65 |
-| eneo API key, speed-up (efficiency) | 1.0× | 2.06× (103 %) | 3.41× (85 %) | 4.91× (82 %) |
-| eneo API key, CPU per message (incl. worker) | 78.7 ms | 76.2 ms | 81.1 ms | 90.6 ms |
+| Gateway, peak msg/s | 4 751 | 9 616 | 17 772 | **20 550** |
+| eneo, peak msg/s | 13 | 26 | 51 | 60 |
+| eneo, speed-up (efficiency) | 1.0× | 1.96× (98 %) | 3.80× (95 %) | 4.50× (75 %) |
+| eneo, CPU per message (incl. worker) | 73 ms | 76 ms | 78 ms | 82 ms |
 
-- eneo's 4-vCPU peak differs between the load sweep (51), the resources sweep (45) and the dedicated run above (49):
-  single 20–30 s samples of eneo vary by about ±10 %. Each figure is used in its own context.
-- At its peak the gateway does 0.1 Postgres statements per message (about ten usage records per `COPY`); eneo 78.
+With real-provider timing (400 ms to the first token, 200 words at 25 ms ±30 %, `latency.sh`, stream probe through
+the API key):
 
-Other eneo checks the same day (details in `benchmarks/compare/results/`):
+| Clients | Time to first token p50 / p95: direct | Gateway | eneo | eneo whole stream p95 | eneo errors |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 364 / 485 ms | 403 / 506 ms | 440 / 695 ms | 5.9 s | 0 |
+| 16 | 412 / 516 ms | 397 / 514 ms | 561 ms / 2.3 s | 7.5 s | 0 |
+| 64 | 396 / 512 ms | 411 / 519 ms | 1.1 s / 11.2 s | 16.5 s | 0 |
+| 256 | 412 / 519 ms | 427 / 610 ms | 33.0 s / 33.5 s | 38.8 s | 137 |
 
-- **Reproducibility.** A second run of the 1/2/4/6-vCPU scaling as a signed-in user gave peaks within ±7 % of the
-  2026-10-09 run (16.6 / 31.6 / 54.1 / 79.9 msg/s), the same CPU per message and the same 74 statements per message.
-- **Limits.** At its peak eneo is limited by its own CPU (0.96 of 1, 1.9 of 2, 3.7 of 4, 5.6 of 6 vCPUs busy); its
-  Postgres used 0.1–0.6 cores and memory was not limiting. `LOGLEVEL=WARNING`, `OTEL_SDK_DISABLED=true` and
-  `DB_POOL_PRE_PING=false` changed throughput by at most 2–6 %: no configuration setting removes the ~70 ms of Python
-  work per message.
-- **10 000 users.** With 10 000 users in the tenant (each with a personal space, assistant and one conversation, created
-  through eneo's API by `eneo/seed_users.py`) the 4-vCPU results did not change (peak 54.6 → 58.0 msg/s, same CPU and
-  statements per message): eneo's lookups are by indexed keys of the requesting user and space.
-- **Uneven worker load.** gunicorn's workers share one listening socket and each uvicorn worker accepts a whole burst of
-  new connections at once, so clients that keep their connection open can end up on a few workers. With 1–6 workers
-  this did not change the peaks (checked with a new connection per message, `NO_REUSE=true`), but with 12 workers in
-  one container two workers did all the work (14 msg/s instead of 70–85). eneo has no setting for this; in production
-  its backend is reached over kept-alive connections (Traefik, the frontend's server-side rendering), so scaling eneo
-  is better done with several containers of a few workers each than one container with many.
-- **Whole machine.** With all 16 hardware threads shared (16 workers) eneo peaked at 132 msg/s as a signed-in user;
-  the gateway reached 22 094 msg/s with 6 pinned threads, limited by the load generator and fake LLM on the same machine.
+- **Like for like**, the gateway on the same four vCPUs serves about 350× eneo's streaming peak and 300× its
+  non-streaming peak, at about 160× less application CPU per message (0.49 against 79 ms at 16 clients).
+- **Single samples of eneo vary by about ±10 %**, so its 4-vCPU peak is 49 msg/s in the load sweep and 51 in the
+  resources sweep; each figure is used in its own context.
+- **Why eneo fails under load.** It scales close to linearly with workers, but each worker serves only about 13
+  messages/s (73–82 ms CPU per message), so it needs roughly one core per 13 messages per second. Beyond a few
+  concurrent requests per worker its throughput *falls*: each request holds two or more pooled database connections at
+  once, the per-worker SQLAlchemy pool (20 + 10 overflow) starves, and requests fail with HTTP 500 after the 30 s pool
+  timeout, which is the 32 s median at 256 clients. The compare stack sets Postgres' `max_connections` to 500 so the
+  database itself is not the limit.
+- **The gateway slows down instead of failing.** At 256 clients requests queue a little longer (median 12.5 ms) and
+  none fail.
+- With one client, both platforms' CPU per message includes idle background work spread over few messages; the
+  16-client figures are the marginal cost. The gateway's memory grows with load because .NET's server GC keeps a larger
+  heap when there is work; it is not a leak.
+- k6 keeps one connection per client open. gunicorn's workers share one listening socket and each accepts a burst of
+  new connections at once, so with many workers in one container a few of them can end up with every client.
+  `NO_REUSE=true` makes k6 open a new connection per message to check this; scaling eneo is better done with several
+  containers of a few workers each than one container with many.
+- With a real model, eneo's added time is small for one user (about 75 ms to the first token) but grows with load:
+  at 16 users the 95th percentile to the first token is 2.3 s, at 64 users 11 s, and at 256 users streams wait about
+  33 s and 137 of them failed. The gateway's figures stay within the fake LLM's own jitter at every load.
+
+Where eneo's time goes (from reading the code path of `POST /api/v1/conversations/`, not profiled): about half of its
+statements load the **whole space** for every message (all tenant models, assistants, MCP servers, capabilities, with a
+duplicated capability lookup); a large share create the session and question placeholder (the question row is re-read
+right after `INSERT … RETURNING`); the rest are authentication (the API key, user, roles, tenant), governance/skill
+policy and the final `UPDATE` plus an always-written `logging` row. Each request also builds a fresh
+dependency-injection container of about 230 providers, uses three to four transactions over two pooled connections
+(holding one open during the LLM call when not streaming), counts tokens several times with litellm/tiktoken, and goes
+through litellm's parameter handling and pydantic serialisation per streamed chunk. Caching the space/assistant
+resolution per user would likely remove most of the database work.
 
 ### Data protection and resilience (not performance)
 
-Checked in the eneo v2.2.1 source and tested live on 2026-10-09 with the compare stack:
+Checked in the eneo v2.2.1 source and tested live with the compare stack. The three backports in v2.2.3 (CORS allowlist
+for secret-key calls, website loading, JIT e-mail verification) do not change any of it.
 
-| Safeguard | Ume gateway | eneo v2.2.1 |
+| Safeguard | Ume gateway | eneo |
 |---|---|---|
 | Scans message content for personal data | Yes: personnummer and samordningsnummer (date checked; Luhn for bare 10 digits), e-mail, phone, IBAN | No. Its "redaction" only masks secrets, tokens and e-mail addresses in its own logs (`observability/redaction.py`). Tested: a message with Skatteverket's test personnummer 19121212-1212, an e-mail and a phone number reached the model unchanged |
 | Acts on it | Per key: block, redact, keep on-premises, or log only | No |
@@ -502,37 +370,14 @@ text in its own chat history; the gateway only protects what is sent to the mode
 The gateway's detection is pattern-based: it does not recognise names, addresses or free-text health information, and
 the policy is set per key (off unless configured).
 
-Where eneo's time goes (from reading the v2.2.1 code path for `POST /api/v1/conversations/`, not profiled): about 35
-of the 72 statements load the **whole space** for every message (all tenant models, assistants, MCP servers,
-capabilities, with a duplicated capability lookup); about 20 create the session and question placeholder (the
-question row is re-read right after `INSERT … RETURNING`); the rest are authentication (user, roles, tenant, groups),
-governance/skill policy and the final `UPDATE` plus an always-written `logging` row. Each request also builds a
-fresh dependency-injection container of ~230 providers, uses three to four transactions over two pooled connections
-(holding one open during the LLM call when not streaming), counts tokens 4–8 times with litellm/tiktoken, and goes
-through litellm's parameter handling and pydantic serialisation per streamed chunk. Caching the space/assistant
-resolution per user would likely remove most of the database work.
-
-## Anthropic-translated streaming (2026-10-22)
-
-`AnthropicStreamTranslator` reads text and tool-argument deltas with `Utf8JsonReader` and writes the OpenAI chunks with a
-reused `Utf8JsonWriter`; only the few other events of a stream (start, stop, errors) still build JSON trees. A test checks
-that both paths write identical chunks. `ProviderBenchmarks`, same machine, back to back:
-
-| Chat stream, 300 chunks, Anthropic translated | Mean | Allocated |
-|---|---|---|
-| Before | 683 µs | 1 270 KB |
-| After | 291 µs | 379 KB |
-
-(The native `/v1/messages` passthrough of the same stream: 176–193 µs, 259 KB.)
-
-The OpenTelemetry GenAI metrics are off by default (`Gateway:GenAiMetrics`): they add four histogram recordings per
-request, and `ume.gateway.*` already covers tokens, cost and latency.
-
 ## Not done (yet)
 
 - **Rate limit and budget in one script.** Both are Lua scripts on the same Redis; merging them would save one more round
   trip but couples two independent stores, and the budget estimate depends on routing, which runs in between.
-- **Caching decrypted provider credentials.** Data Protection decryption takes a few microseconds per attempt; keeping
-  plaintext credentials in memory for the snapshot's lifetime was not judged worth it.
+- **A covering index for budget seeding** (`INCLUDE ("CostUsd")` on the key/team/department + timestamp indexes) would
+  let a cold budget counter be seeded with an index-only scan, but makes every `COPY` insert slower and the indexes
+  larger. Seeding happens once per budget and period, inserts for every request, so it was left out.
+- **More than one usage writer per instance.** Not needed at the peaks above, where the gateway's own CPU is the limit
+  and Postgres is mostly idle; several gateway instances each bring their own writer.
 - **Byte-level SSE passthrough** (never decoding events to strings) would save more allocations, but needs a different
   `SseEvent` model shared with the Anthropic translator.
