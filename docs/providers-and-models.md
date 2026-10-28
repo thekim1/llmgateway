@@ -91,7 +91,9 @@ listed, cached-input and audio-token price. Provisioned and batch deployments, C
 and models the list names differently get no suggestion. A suggested price shows *Azure list price* and the meters it
 came from; it is a list price, so check it against your agreement before you add the model. The list is cached for 12 hours.
 
-<a id="list-prices"></a>**List prices and model details (models.dev).** Prices for Anthropic (including Claude on
+### List prices
+
+Model prices and details from models.dev. Prices for Anthropic (including Claude on
 Foundry), Ollama Cloud, OpenAI and OpenRouter, and details and missing prices for Azure deployments, come from
 [models.dev](https://models.dev), an open list maintained by its community (`Admin:PriceListUrl`, default `https://models.dev/api.json`, no key; the admin API needs outbound HTTPS to
 `models.dev`). A provider's list is chosen by its type and address: `Anthropic` uses `anthropic` (at a Foundry address
@@ -136,6 +138,8 @@ drawer). Turning it on again lets the list price take over at the next update.
   stay as they are and the next attempt is within 30 minutes; *Settings › Model prices* shows the error.
 
 List prices are public prices: discounts in your agreement are not in them.
+
+### Capabilities, context window and prompt caching
 
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
 edited in the model drawer. Providers without a list price (local Ollama, vLLM and other servers) get their prices
