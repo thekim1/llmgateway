@@ -8,7 +8,7 @@ using Ume.LlmGateway.Infrastructure.Stores;
 namespace Ume.LlmGateway.AdminApi;
 
 /// <summary>Providers, model deployments, their prices and route aliases.</summary>
-public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService rules, CredentialProtector protector)
+public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService rules, CredentialProtector protector, ModelListService modelList)
 {
     public static ProviderCapabilities[] Capabilities(ProviderCapabilities value) =>
         [.. Enum.GetValues<ProviderCapabilities>().Where(c => c != ProviderCapabilities.None && value.HasFlag(c))];
@@ -76,8 +76,13 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         }
 
         p.Name = input.Name; p.DisplayName = input.DisplayName; p.BaseUrl = input.BaseUrl.TrimEnd('/'); p.Type = input.Type; p.AuthMode = input.AuthMode;
-        p.Residency = input.Residency; p.Capabilities = input.Capabilities.Aggregate(ProviderCapabilities.None, (a, b) => a | b); p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
+        p.Residency = input.Residency; p.TimeoutSeconds = input.TimeoutSeconds; p.IsEnabled = input.IsEnabled;
         if (input.Credential is not null) { p.EncryptedCredential = input.Credential.Length == 0 ? null : protector.Protect(input.Credential); }
+        if (input.AutoUpdatePrices is { } auto) { p.AutoUpdatePrices = auto; }
+        // Only an OpenAI-compatible server reads it; the others store their fixed set, which a change to OpenAI-compatible starts from.
+        p.Capabilities = ProviderTypes.Fixed(p.Type)
+            ?? (input.Capabilities is { } chosen ? chosen.Aggregate(ProviderCapabilities.None, (a, b) => a | b)
+                : p.Capabilities == ProviderCapabilities.None ? ProviderTypes.CompatibleDefault : p.Capabilities);
     }
 
     /// <summary>Same scheme, host and port (the parts that decide who receives the credential); the path may change.</summary>
@@ -87,9 +92,16 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
 
     // ---- models and prices -------------------------------------------------------------------------------
 
-    public async Task<List<ModelDto>> ModelsAsync(CancellationToken ct) =>
-        await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).OrderBy(m => m.Name).ToListAsync(ct) is var all
-            && PublicModelNames.Public(all) is var names ? [.. all.Select(m => ModelDto.Of(m, ctx.Now, names[m.Id]))] : [];
+    public async Task<List<ModelDto>> ModelsAsync(CancellationToken ct)
+    {
+        var all = await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).OrderBy(m => m.Name).ToListAsync(ct);
+        var names = PublicModelNames.Public(all);
+        var list = await modelList.GetAsync(ct);
+        return [.. all.Select(m => ModelDto.Of(m, ctx.Now, names[m.Id], list, modelList.UpdatesPrices))];
+    }
+
+    private async Task<ModelDto> DtoAsync(ModelDeployment m, CancellationToken ct) =>
+        ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct), await modelList.GetAsync(ct), modelList.UpdatesPrices);
 
     public async Task<ModelDeployment> ModelAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).SingleOrDefaultAsync(m => m.Id == id, ct)
@@ -104,7 +116,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         if (input.Price is { } price) { m.Prices.Add(NewPrice(price)); }
         ctx.Db.ModelDeployments.Add(m);
         await ctx.SaveAsync(AuditActions.Create, AuditEntities.Model, m.Id, null, ModelAudit.Of(m), InvalidationKind.Config, ct);
-        return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
+        return await DtoAsync(m, ct);
     }
 
     public async Task<ModelDto> UpdateModelAsync(Guid id, ModelRequest input, CancellationToken ct)
@@ -116,7 +128,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         var before = ModelAudit.Of(m);
         Apply(m, input);
         await ctx.SaveAsync(AuditActions.Update, AuditEntities.Model, id, before, ModelAudit.Of(m), InvalidationKind.Config, ct);
-        return ModelDto.Of(m, ctx.Now, await PublicNameAsync(m, ct));
+        return await DtoAsync(m, ct);
     }
 
     public async Task DeleteModelAsync(Guid id, CancellationToken ct)
@@ -141,6 +153,9 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     {
         m.Name = input.Name.Trim(); m.UpstreamModel = input.UpstreamModel.Trim(); m.Kind = input.Kind; m.ParameterProfile = input.ParameterProfile;
         m.ContextWindow = input.ContextWindow; m.IsEnabled = input.IsEnabled;
+        if (input.AutoUpdatePrice is { } auto) { m.AutoUpdatePrice = auto; }
+        if (input.Description is { } description) { m.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(); }
+        if (input.BaseModel is { } baseModel) { m.BaseModel = string.IsNullOrWhiteSpace(baseModel) ? null : baseModel.Trim(); }
         if (input.Features is not null)
         {
             m.Features = [.. input.Features.Select(f => f.Trim().ToLowerInvariant()).Where(f => f.Length is > 0 and <= 40).Distinct().Take(20).Order()];
@@ -174,6 +189,11 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     public async Task<PriceDto> AddPriceAsync(Guid id, PriceRequest input, CancellationToken ct)
     {
         var m = await ModelAsync(id, ct);
+        if ((await modelList.GetAsync(ct)).Mode(m, modelList.UpdatesPrices) == PriceMode.List)
+        {
+            throw new ApiFaultException(409,
+                "The model's price follows the models.dev list price. Turn off automatic prices for the model or its provider to set your own.");
+        }
         var price = NewPrice(input);
         price.ModelDeploymentId = m.Id;
         m.Prices.Add(price);

@@ -118,3 +118,15 @@ its release notes. When a newer release exists the card says so and **Settings**
 when the menu is collapsed). Local builds show *Development build* and are never reported as out of date. The admin API asks
 GitHub at most every 6 hours; with `Admin:CheckForReleases=false` (no internet access) only the running version is shown.
 The data comes from `GET /api/settings/version` ([docs/admin-api.md](admin-api.md)).
+
+## Model prices
+
+**Settings > Model prices** (gateway-admin) shows the daily models.dev update: when the admin API last read the list, how
+many models follow it, how many prices it changed and how many models it gave a description, capabilities or context
+window, or why it failed. **Check now** runs it at once.
+
+In **Providers › Models** each price says where it comes from: *models.dev*, *Set by hand*, or *Set by hand (not in
+models.dev)*; the **Price** filter shows one kind. A model that follows models.dev has **Add price** turned off: turn off
+**Price from models.dev** in the model drawer, or **Prices from models.dev** in the provider drawer for all its models, to
+set your own. The price history has a **Source** column: the models.dev entry a price came from, or *Admin*. A model's
+**Description** is shown in the catalogue. See [List prices](providers-and-models.md#list-prices).

@@ -178,7 +178,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
         var candidates = new List<RouteTarget>(ordered.Count);
         candidates.AddRange(ordered.Where(t => !status.IsUnavailable(t.ModelDeployment!.ProviderAccountId, t.ModelDeploymentId)));
         candidates.AddRange(ordered.Where(t => status.IsUnavailable(t.ModelDeployment!.ProviderAccountId, t.ModelDeploymentId)));
-        candidates = [.. candidates.Where(t => !stream || t.ModelDeployment!.ProviderAccount!.Capabilities.HasFlag(ProviderCapabilities.Streaming))];
+        candidates = [.. candidates.Where(t => !stream || t.ModelDeployment!.ProviderAccount!.SupportedCapabilities.HasFlag(ProviderCapabilities.Streaming))];
         if (candidates.Count > 0)
         {
             return new CandidateSelection(candidates, null);

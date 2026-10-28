@@ -321,11 +321,13 @@ public sealed partial class GatewayCatalog : IDisposable
         foreach (var provider in providers)
         {
             // A Foundry provider keeps the project endpoint the admin entered (it names the project for discovery);
-            // requests go to the resource's /openai/v1 or /anthropic/v1. Derived once per snapshot, not per request.
+            // requests go to the resource's /openai/v1 or /anthropic/v1. Its Claude deployments are served only by the
+            // Anthropic API, so they get the provider as an Anthropic provider. Derived once per snapshot, not per request.
+            var anthropic = provider.Deployments.Any(d => FoundryEndpoint.IsClaude(provider, d)) ? FoundryEndpoint.AnthropicView(provider) : null;
             provider.BaseUrl = FoundryEndpoint.RequestBaseUrl(provider.Type, provider.BaseUrl);
             foreach (var deployment in provider.Deployments)
             {
-                deployment.ProviderAccount = provider;
+                deployment.ProviderAccount = anthropic is not null && FoundryEndpoint.IsClaude(provider, deployment) ? anthropic : provider;
                 deployments[deployment.Id] = deployment;
             }
         }

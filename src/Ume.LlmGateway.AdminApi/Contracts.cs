@@ -70,31 +70,47 @@ public sealed record DataApiKeyCreatedDto(DataApiKeyDto Key, string Secret);
 public sealed record ProviderDto(
     Guid Id, string Name, string? DisplayName, ProviderType Type, string BaseUrl, ProviderAuthMode AuthMode, bool HasCredential,
     DataResidency Residency, ProviderCapabilities[] Capabilities, bool IsEnabled, bool IsDrained, int TimeoutSeconds, DateTimeOffset CreatedAt,
-    int DeploymentCount)
+    int DeploymentCount, bool AutoUpdatePrices, string? PriceList)
 {
+    /// <summary>
+    /// The provider; <c>autoUpdatePrices</c>: its models follow the models.dev list price unless a model opts out. <c>priceList</c>:
+    /// the models.dev provider its models are looked up in, null when it has none (then every price is set by an admin).
+    /// </summary>
     public static ProviderDto Of(ProviderAccount p) => new(
         p.Id, p.Name, p.DisplayName, p.Type, p.BaseUrl, p.AuthMode, !string.IsNullOrEmpty(p.EncryptedCredential), p.Residency,
-        ProviderCatalogService.Capabilities(p.Capabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds, p.CreatedAt, p.Deployments.Count);
+        ProviderCatalogService.Capabilities(p.SupportedCapabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds, p.CreatedAt, p.Deployments.Count,
+        p.AutoUpdatePrices, ModelList.ProviderId(p));
 }
 
 public sealed record PriceDto(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd, decimal AudioPerMinuteUsd,
     decimal AudioInputPerMillionUsd, decimal AudioOutputPerMillionUsd, DateTimeOffset EffectiveFrom, decimal PerImageUsd = 0,
-    decimal? CacheWriteInputPerMillionUsd = null)
+    decimal? CacheWriteInputPerMillionUsd = null, string? Source = null)
 {
+    /// <summary>The price; <c>source</c> is where it came from (e.g. <c>models.dev anthropic/claude-opus-4-5</c>), null when an admin entered it.</summary>
     public static PriceDto Of(ModelPrice p) => new(
         p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd,
-        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd, p.CacheWriteInputPerMillionUsd);
+        p.AudioOutputPerMillionUsd, p.EffectiveFrom, p.PerImageUsd, p.CacheWriteInputPerMillionUsd, p.Source);
 }
 
 public sealed record ModelDto(
     Guid Id, Guid ProviderId, string? ProviderName, DataResidency? Residency, string Name, string UpstreamModel, ModelKind Kind,
-    ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice, string PublicName)
+    ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice, string PublicName,
+    string? Description, bool AutoUpdatePrice, PriceMode PriceMode, string? PriceListKey, string? BaseModel)
 {
-    /// <summary>The model; <c>publicName</c> is what clients call it: its name, or provider/name when another provider has the same name.</summary>
-    public static ModelDto Of(ModelDeployment m, DateTimeOffset now, string publicName) => new(
+    /// <summary>
+    /// The model; <c>publicName</c> is what clients call it: its name, or provider/name when another provider has the same name.
+    /// <c>priceMode</c>: <c>List</c> follows the models.dev price of <c>priceListKey</c> (admins cannot add prices),
+    /// <c>Unlisted</c> is not in the list (admins set the price until it is), <c>Manual</c> has automatic prices turned off for
+    /// the model, its provider or the gateway, or is an Azure deployment (priced by Azure's list; the models.dev price only
+    /// fills a missing one). <c>priceListKey</c> is the model's models.dev entry, null when it has none. <c>baseModel</c>: the
+    /// model behind an Azure deployment.
+    /// </summary>
+    public static ModelDto Of(ModelDeployment m, DateTimeOffset now, string publicName, ModelList list, bool updatesOn) => new(
         m.Id, m.ProviderAccountId, m.ProviderAccount?.Name, m.ProviderAccount?.Residency, m.Name, m.UpstreamModel, m.Kind,
-        m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null, publicName);
+        m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null, publicName,
+        m.Description, m.AutoUpdatePrice, list.Mode(m, updatesOn),
+        list.Find(m)?.Key, m.BaseModel);
 }
 
 public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, RouteTargetDto[] Targets)
@@ -244,7 +260,8 @@ public sealed record AuditEntryDto(long Id, DateTimeOffset Timestamp, string Act
 public sealed record CatalogDto(string GatewayBaseUrl, IReadOnlyList<CatalogModelDto> Models, IReadOnlyList<CatalogRouteDto> Routes);
 
 public sealed record CatalogModelDto(
-    string Name, ModelKind Kind, DataResidency Residency, ProviderCapabilities[] Capabilities, decimal? InputUsdPerMillion, decimal? OutputUsdPerMillion);
+    string Name, ModelKind Kind, DataResidency Residency, ProviderCapabilities[] Capabilities, decimal? InputUsdPerMillion, decimal? OutputUsdPerMillion,
+    string? Description = null, string[]? Features = null);
 
 public sealed record CatalogRouteDto(
     string Name, string? Description, ModelKind Kind, DataResidency[] Residencies, ProviderCapabilities[] Capabilities,

@@ -11,7 +11,8 @@ curl https://<gateway>/v1/images/edits -H "Authorization: Bearer $UME_API_KEY" \
   -F model=ume/image -F prompt="Gör himlen blå" -F image=@stuga.png
 ```
 
-**Setting it up.** Give the provider the *Image generation and editing* capability (`Images`), add the model with kind
+**Setting it up.** OpenAI, Azure OpenAI and Foundry providers serve images; an OpenAI-compatible server needs *Image
+generation and editing* under *Endpoints this server offers*. Add the model with kind
 *Image generation* (`Image`; discovery does this for `gpt-image*`, `dall-e*`, `flux*`, `imagen*` and `stable-diffusion*`
 models) and put it behind an alias with the same kind. Fallback, residency, provider allow-lists, rate limits, budgets
 and routing rules (`endpoint == "image_generations"` or `"image_edits"`) work as for chat. The dev seed has `ume/image`

@@ -178,13 +178,13 @@ public static class ReportEndpoints
             var routes = await catalog.Routes().Where(r => r.IsEnabled).ToListAsync(ct);
             return TypedResults.Ok(new CatalogDto(
                 gateway.Value.PublicBaseUrl,
-                [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.ProviderAccount!.Residency, ProviderCatalogService.Capabilities(m.ProviderAccount.Capabilities),
-                    m.PriceAt(now)?.InputPerMillionUsd, m.PriceAt(now)?.OutputPerMillionUsd))],
+                [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.ProviderAccount!.Residency, ProviderCatalogService.Capabilities(FoundryEndpoint.Capabilities(m.ProviderAccount, m)),
+                    m.PriceAt(now)?.InputPerMillionUsd, m.PriceAt(now)?.OutputPerMillionUsd, m.Description, m.Features))],
                 [.. routes.Where(r => r.Targets.Any(t => byId.ContainsKey(t.ModelDeploymentId))).Select(r =>
                 {
                     var targets = r.Targets.Where(t => byId.ContainsKey(t.ModelDeploymentId)).Select(t => byId[t.ModelDeploymentId]).ToArray();
                     return new CatalogRouteDto(r.Name, r.Description, r.Kind, [.. targets.Select(m => m.ProviderAccount!.Residency).Distinct()],
-                        ProviderCatalogService.Capabilities(targets.Aggregate(ProviderCapabilities.None, (a, m) => a | m.ProviderAccount!.Capabilities)),
+                        ProviderCatalogService.Capabilities(targets.Aggregate(ProviderCapabilities.None, (a, m) => a | FoundryEndpoint.Capabilities(m.ProviderAccount!, m))),
                         targets.Max(m => m.PriceAt(now)?.InputPerMillionUsd), targets.Max(m => m.PriceAt(now)?.OutputPerMillionUsd));
                 })]));
         }).WithTags("Reports").WithName("GetCatalog").WithSummary("Enabled models and routes with prices in USD, for key holders");

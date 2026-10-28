@@ -9,7 +9,8 @@ curl https://<gateway>/v1/audio/transcriptions -H "Authorization: Bearer $UME_AP
   -F model=ume/transcribe -F language=sv -F file=@samtal.mp3
 ```
 
-**Setting it up.** Give the provider the *Speech to text* capability (`AudioTranscriptions`), add the model with kind
+**Setting it up.** OpenAI, Azure OpenAI and Foundry providers serve speech to text; an OpenAI-compatible server needs
+*Speech to text* under *Endpoints this server offers*. Add the model with kind
 *Speech to text* (`Transcription`; discovery does this for `whisper*` and `*-transcribe` models) and put it behind an
 alias with the same kind. Fallback, residency, provider allow-lists, rate limits, budgets and routing rules
 (`endpoint == "audio_transcriptions"`) work as for chat. The dev seed has `ume/transcribe` on FakeLlm.

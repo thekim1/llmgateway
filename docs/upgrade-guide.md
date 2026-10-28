@@ -11,6 +11,45 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: model prices and details from models.dev
+
+- **Rolling update: yes.** Migration `ModelListPrices` adds `ModelDeployments.AutoUpdatePrice` and
+  `ProviderAccounts.AutoUpdatePrices` (both default `true`), `ModelDeployments.Description` and `ModelPrices.Source`; the
+  previous version ignores them.
+- **Changed behaviour: prices of existing models can change.** Two minutes after the admin API starts, models of
+  Anthropic, Ollama Cloud, OpenAI and OpenRouter providers whose upstream name is in the models.dev list get the list
+  price added to their price history when it differs from theirs (usage before keeps its cost), and empty descriptions,
+  capabilities and context windows are filled. A replaced price is in the price history and the audit log
+  (`system:price-list`). For an agreed price, turn off *Price from models.dev* on the model (or the provider) and add it
+  again. Such models no longer take a price by hand while they follow the list (`POST /api/models/{id}/prices` answers 409).
+- **Azure AI Foundry: one provider for Claude too.** Migration `ModelBaseModel` adds the nullable
+  `ModelDeployments.BaseModel` (the model behind a deployment). A Foundry provider now discovers and serves Claude
+  deployments (through the resource's `…/anthropic/v1`), so a separate Anthropic provider per resource is no longer
+  needed. Existing Anthropic providers at a Foundry address keep working unchanged. To move to one provider, add the Claude
+  deployments under the Foundry provider with *Discover models*, point routes at them, then delete the Anthropic one.
+  Claude models added by hand under their own deployment name need *Base model* set (`claude-…`); until then they go to
+  `…/openai/v1`, which does not serve Claude. Rolling update: yes; an old gateway ignores the column.
+- **Azure deployments** now get descriptions, capabilities and context windows from models.dev, and a price from it when
+  they have none (discovery and the daily update). Their prices are otherwise left alone. Models added before have no
+  base model: one whose deployment name differs from its model (`prod-chat`) is not found in models.dev until it has one.
+  Open *Discover models* on the Foundry provider and use *Update … shown*, which sets the base model and fills empty
+  descriptions of models already added.
+- **Provider capabilities follow from the provider type.** OpenAI, Azure OpenAI and Foundry providers now serve every
+  OpenAI endpoint (Responses, speech to text, realtime, images), Anthropic chat and Messages, Ollama chat and embeddings,
+  Ollama Cloud chat, whatever was ticked before; which model gets a request still follows its kind. Only OpenAI-compatible
+  providers keep their chosen endpoints. A provider that had an endpoint unticked to keep requests away from it now gets
+  them for models of that kind: disable or remove those models instead. `capabilities` on `POST`/`PUT /api/providers` is
+  now optional and ignored except for `OpenAICompatible`. No migration.
+- **Outbound HTTPS** from the admin API to `models.dev` (about 6 MB once a day). Without internet access, set
+  `Admin__PriceListUrl` to a copy of `https://models.dev/api.json` in your network, or empty to turn it off; a failed
+  download only logs a warning and leaves prices as they are.
+- **Admin API:** `Model` has `description`, `autoUpdatePrice`, `priceMode` and `priceListKey`; `Provider` has
+  `autoUpdatePrices` and `priceList`; `Price` has `source`; `DiscoveredModel` has `description` and `baseModel`, and `Model`
+  `baseModel`; catalogue models have `description`
+  and `features`. `POST`/`PUT /api/models` and `/api/providers` take the new settings (omitted keeps them).
+  `GET`/`POST /api/settings/model-prices` are new. The configuration export includes the settings, descriptions and
+  model capabilities.
+
 ## Unreleased: teams manage their own keys
 
 - **Rolling update: yes.** Migration `TeamCodes` adds the nullable `Teams.Code` column and a unique index on it; the

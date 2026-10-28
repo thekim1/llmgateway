@@ -1,5 +1,19 @@
 # Providers and models
 
+## What a provider serves
+
+The provider type decides which gateway endpoints a provider serves; there is nothing to tick. Which **model** gets a
+request then follows from the model's kind (an embedding model gets `/v1/embeddings`, a speech-to-text model
+`/v1/audio/transcriptions`, and so on).
+
+| Provider type | Serves |
+|---|---|
+| OpenAI, Azure OpenAI, Azure AI Foundry | chat completions, Responses, embeddings, speech to text, live audio (realtime), image generation and editing, streaming (Claude on Foundry: chat completions and Anthropic Messages) |
+| Anthropic | chat completions (translated), Anthropic Messages, streaming |
+| Ollama | chat completions, embeddings, streaming |
+| Ollama Cloud | chat completions, streaming |
+| OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server) |
+
 ## Discovering models
 
 Instead of typing models in by hand, open a provider (**Providers & models**) and choose
@@ -15,7 +29,7 @@ the gateway creates them with what the provider reports:
 |---|---|---|
 | OpenAI, OpenAI-compatible | `GET {baseUrl}/models` | context size and USD prices where present (OpenRouter-style) |
 | Azure AI Foundry | `GET https://<resource>.services.ai.azure.com/api/projects/<project>/deployments?api-version=v1` (only the deployed models, by deployment name) | model, version, capabilities and a suggested USD price from Azure's list prices |
-| Anthropic | `GET {baseUrl}/models`; Claude on Foundry (project endpoint as base URL) lists its Claude deployments from the project API | context size and capabilities |
+| Anthropic | `GET {baseUrl}/models`; an Anthropic provider at a Foundry project endpoint lists the project's Claude deployments | context size and capabilities |
 | Ollama, Ollama Cloud | `GET /api/tags` then `POST /api/show` (a trailing `/v1` is stripped from the base URL) | context size and capabilities (tools, vision, thinking, embedding, ...) |
 | Azure OpenAI | not supported (deployments are not listable via the data plane) | add models manually |
 
@@ -36,17 +50,21 @@ failing can be better than an unexpected provider. To spread or fall back betwee
 *Routes* (it may carry the plain name; the route is then used) and order its targets. A key that allows the plain name
 may use each provider's model of that name; restrict providers with the key's provider list.
 
-**One Foundry resource, two providers.** The gateway speaks a provider's protocol by its *type*, not by the model, and
-translates between them: clients can call `/v1/chat/completions` for any model, including Claude. On Foundry, OpenAI,
-DeepSeek, Grok, Llama, Mistral and other models are served by the OpenAI v1 API, but Claude only by the Anthropic API. So
-add the resource twice with the same key:
+**One Foundry resource, one provider.** On Foundry, OpenAI, DeepSeek, Grok, Llama, Mistral and other models are served
+by the OpenAI v1 API, but Claude only by the Anthropic API. An *Azure AI Foundry* provider handles both: add the resource
+once, with the project endpoint (`https://<resource>.services.ai.azure.com/api/projects/<project>`) and the API key
+(`api-key` header). Discovery lists every deployment of the project, Claude included, and records the model behind each
+one as its **base model** (`gpt-4.1` behind a deployment called `prod-chat`). The gateway sends a deployment whose base
+model (or, without one, deployment name) starts with `claude` to the resource's `…/anthropic/v1` with the same key, and
+every other deployment to `…/openai/v1`. Health, circuit breaker, usage and a key's provider allow-list treat it as the
+one provider. Clients can call `/v1/chat/completions` or `/v1/messages` for Claude either way: the gateway translates.
+For a Claude deployment added by hand under a name of its own, set its *Base model* (`claude-sonnet-4-5`) in the model
+drawer.
 
-| Provider type | Base URL | Authentication | Discovery lists |
-|---|---|---|---|
-| Azure AI Foundry | the project endpoint, `https://<resource>.services.ai.azure.com/api/projects/<project>` (requests go to `…/openai/v1`) | API key header (`api-key`) | every deployment except Claude |
-| Anthropic | the same project endpoint (requests go to `…/anthropic/v1`) | API key header (`api-key`) | the Claude deployments |
+An *Anthropic* provider with the same project endpoint still works and lists only the Claude deployments, so providers
+set up that way before need no change; new setups need only the Foundry provider.
 
-Tick *Responses* on the Foundry provider for GPT-5/GPT-6 and other models used through `/v1/responses`. Reasoning models
+A Foundry provider serves `/v1/responses` for GPT-5/GPT-6 and other models used through it. Reasoning models
 (o-series, GPT-5 and later) are added with the reasoning parameter profile, which sends `max_completion_tokens` and drops
 the sampling parameters they reject.
 
@@ -73,9 +91,55 @@ listed, cached-input and audio-token price. Provisioned and batch deployments, C
 and models the list names differently get no suggestion. A suggested price shows *Azure list price* and the meters it
 came from; it is a list price, so check it against your agreement before you add the model. The list is cached for 12 hours.
 
+<a id="list-prices"></a>**List prices and model details (models.dev).** Prices for Anthropic (including Claude on
+Foundry), Ollama Cloud, OpenAI and OpenRouter, and details and missing prices for Azure deployments, come from
+[models.dev](https://models.dev), an open list maintained by its community (`Admin:PriceListUrl`, default `https://models.dev/api.json`, no key; the admin API needs outbound HTTPS to
+`models.dev`). A provider's list is chosen by its type and address: `Anthropic` uses `anthropic` (at a Foundry address
+`azure`), `AzureAIFoundry` and `AzureOpenAI` `azure`, `OllamaCloud` (or `Ollama` at `ollama.com`) `ollama-cloud`, an
+OpenAI or OpenAI-compatible provider at `api.openai.com` `openai` and at `openrouter.ai` `openrouter`; the model is looked
+up by its base model, else its upstream model name (Ollama's `:latest` and `-cloud` suffixes are tried without). Local
+Ollama and other servers are not in the list.
+
+**Azure deployments** are priced by region and deployment type (global, data zone, regional, provisioned), which the
+list does not know, so their price is set by hand (*Set by hand* mode): discovery suggests Azure's own list price, else
+the models.dev price, and the daily update gives the models.dev price only to a deployment that has **no price at all**,
+and never changes it after that. Claude on Azure is billed at Anthropic's price, so a Claude deployment follows the list
+like any other model.
+
+Every model has a **price mode**, shown under its price in *Providers › Models* (and a *Price* filter):
+
+| Mode | When | Who sets the price |
+|---|---|---|
+| *models.dev* | *Price from models.dev* is on for the model and its provider, and the list prices the model | the daily update; **Add price** is off (the API answers 409) |
+| *Set by hand (not in models.dev)* | both are on, but the list does not have the model (or has no price for it) | an admin, until the list has it: then its list price takes over |
+| *Set by hand* | *Price from models.dev* is off for the model or for its provider, or `Admin:AutoUpdatePrices` is off | an admin |
+
+Both settings are on for new and existing models and providers. Turn one off for an agreed (discounted) price: on the
+model (*Price from models.dev* in the model drawer) or for the whole provider (*Prices from models.dev* in the provider
+drawer). Turning it on again lets the list price take over at the next update.
+
+- **Daily update.** Once a day (two minutes after the admin API starts, then every 24 hours, or *Settings › Model prices ›
+  Check now*) the admin API downloads the list and, for every model in mode *models.dev*, adds the list price to the
+  price history when it differs from the current price. It applies from the time of the check; earlier usage keeps its
+  price, and the gateways pick it up within seconds. Input, output, cached input, cache write and audio-token prices come
+  from the list; what the list leaves out (audio duration, per-image price, a missing cache price) is kept. Context tiers
+  (a higher price above 200k tokens) are not used: the base price applies. A list price of 0 for both input and output is
+  treated as unknown and never applied. A price set for a future date is left until it applies.
+- **Model details.** The same update fills in a listed model's empty **description**, **capabilities** (tools, thinking,
+  vision, audio, image generation) and **context window**; it never replaces what is there. Discovery uses them too, for
+  what the provider does not report. The description is shown in the catalogue key holders see.
+- **Audit.** Each change is in the audit log as `system:price-list`, and the price history shows each price's source
+  (`models.dev anthropic/claude-opus-4-5`, or *Admin*).
+- **Turning it off.** `Admin:AutoUpdatePrices=false` (`Admin__AutoUpdatePrices`) stops the daily update (every model is
+  then *Set by hand*) and keeps discovery's suggestions; an empty `Admin:PriceListUrl` stops both. Without internet
+  access, serve a copy of `api.json` inside your network and set `Admin:PriceListUrl` to it. If the download fails, prices
+  stay as they are and the next attempt is within 30 minutes; *Settings › Model prices* shows the error.
+
+List prices are public prices: discounts in your agreement are not in them.
+
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
-edited in the model drawer. Most providers, including Ollama Cloud, do not publish prices, so
-add them under the model's price history. A model's *context window* is used for routing: a prompt clearly larger is
+edited in the model drawer. Providers without a list price (local Ollama, vLLM and other servers) get their prices
+under the model's price history. A model's *context window* is used for routing: a prompt clearly larger is
 not sent to it (see [routing rules](routing-rules.md)).
 
 **Prompt caching with Claude.** Clients of `/v1/messages` set their own `cache_control` markers. Requests the gateway

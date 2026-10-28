@@ -41,7 +41,11 @@ docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait
 In the admin UI, search (Ctrl K) finds any page or setting by name or topic, and on a phone **Menu** in the bottom bar opens
 every page ([Admin UI](docs/admin-ui.md#finding-your-way)). *Usage > Requests and costs* with *Outcome: All errors* lists the
 failed requests, and every error count links there ([Finding failed requests](docs/admin-ui.md#finding-failed-requests)). *Settings > Version* shows the running version and says when a newer release is out (the admin API checks
-GitHub; set `Admin__CheckForReleases=false` without internet access). Upgrades: [Upgrade guide](docs/upgrade-guide.md).
+GitHub; set `Admin__CheckForReleases=false` without internet access). Model prices for Anthropic, Ollama Cloud, OpenAI and
+OpenRouter follow the [models.dev](https://models.dev) list, updated daily, which also fills in empty descriptions,
+capabilities and context windows; turn it off per model or provider to set your own prices
+([List prices](docs/providers-and-models.md#list-prices); `Admin__PriceListUrl=` turns it off).
+Upgrades: [Upgrade guide](docs/upgrade-guide.md).
 
 ## Build and test
 

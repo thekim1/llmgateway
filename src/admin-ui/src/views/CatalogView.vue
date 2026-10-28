@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import type { ProviderCapability } from '@/api/types'
 import { useCatalogStore } from '@/stores/catalog'
-import { CAPABILITY_LABEL, KIND_LABEL } from '@/utils/labels'
+import { CAPABILITY_LABEL, KIND_LABEL, featureLabel } from '@/utils/labels'
 import { formatUsdCost } from '@/utils/format'
 import CodeBlock from '@/components/keys/CodeBlock.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -73,7 +73,11 @@ const price = (value: number | null): string => (value === null ? '—' : format
       <section aria-labelledby="catalog-models" class="flex flex-col gap-3">
         <h2 id="catalog-models" class="text-heading">Models</h2>
         <DataTable :columns="modelColumns" :rows="models" :row-key="(m) => m.name" caption="Models" empty-text="No models available.">
-          <template #cell-name="{ row }"><span class="font-mono font-medium">{{ row.name }}</span></template>
+          <template #cell-name="{ row }">
+            <span class="font-mono font-medium">{{ row.name }}</span>
+            <span v-if="row.description" class="block max-w-md text-small text-fg-2">{{ row.description }}</span>
+            <span v-if="row.features?.length" class="block text-caption text-fg-3">{{ row.features.map(featureLabel).join(' · ') }}</span>
+          </template>
           <template #cell-residency="{ row }"><ResidencyLabel :residency="row.residency" /></template>
           <template #cell-kind="{ row }">{{ KIND_LABEL[row.kind] }}</template>
           <template #cell-input="{ row }">{{ price(row.inputUsdPerMillion) }}</template>

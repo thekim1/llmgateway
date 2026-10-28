@@ -255,6 +255,10 @@ public sealed class ProviderAccount
     public string? EncryptedCredential { get; set; }
 
     public DataResidency Residency { get; set; }
+    /// <summary>
+    /// The endpoints an OpenAI-compatible server offers, as the admin chose them. Other types serve what their API offers
+    /// (<see cref="SupportedCapabilities"/>), whatever is stored here.
+    /// </summary>
     public ProviderCapabilities Capabilities { get; set; }
     public bool IsEnabled { get; set; } = true;
 
@@ -262,12 +266,19 @@ public sealed class ProviderAccount
     public bool IsDrained { get; set; }
 
     public int TimeoutSeconds { get; set; } = 120;
+
+    /// <summary>The provider's models follow the models.dev list price (each model can opt out). Off, admins set every price.</summary>
+    public bool AutoUpdatePrices { get; set; } = true;
+
     public DateTimeOffset CreatedAt { get; set; }
     public List<ModelDeployment> Deployments { get; set; } = [];
 
     public bool IsAvailable => IsEnabled && !IsDrained;
 
-    public bool Supports(GatewayEndpoint endpoint) => GatewayEndpoints.Info(endpoint).IsSupportedBy(Capabilities);
+    /// <summary>What the provider serves: fixed by its type (<see cref="ProviderTypes"/>), or for an OpenAI-compatible server <see cref="Capabilities"/>.</summary>
+    public ProviderCapabilities SupportedCapabilities => ProviderTypes.Capabilities(Type, Capabilities);
+
+    public bool Supports(GatewayEndpoint endpoint) => GatewayEndpoints.Info(endpoint).IsSupportedBy(SupportedCapabilities);
 }
 
 /// <summary>A concrete model offered by a provider account.</summary>
@@ -283,12 +294,30 @@ public sealed class ModelDeployment
     /// <summary>Model id or Azure deployment name sent upstream.</summary>
     public required string UpstreamModel { get; set; }
 
+    /// <summary>
+    /// The model behind an Azure deployment (<c>gpt-4.1</c> behind deployment <c>prod-chat</c>), set by discovery; null when
+    /// <see cref="UpstreamModel"/> is the model. Finds the model in the models.dev list, and a Claude base model on an Azure AI
+    /// Foundry provider is served through the resource's Anthropic API.
+    /// </summary>
+    public string? BaseModel { get; set; }
+
+    /// <summary>The model's own name: <see cref="BaseModel"/>, else <see cref="UpstreamModel"/>.</summary>
+    public string ModelName => BaseModel ?? UpstreamModel;
+
     public ModelKind Kind { get; set; }
     public ParameterProfile ParameterProfile { get; set; }
     public int? ContextWindow { get; set; }
     /// <summary>What the model can do, e.g. tools, vision, thinking, embedding, image generation. Free-form tags.</summary>
     public string[] Features { get; set; } = [];
     public bool IsEnabled { get; set; } = true;
+    /// <summary>
+    /// The price follows the models.dev list price, updated daily, when the model is in the list and its provider also has
+    /// <see cref="ProviderAccount.AutoUpdatePrices"/> on. Off, or for a model not in the list, an admin sets the price.
+    /// </summary>
+    public bool AutoUpdatePrice { get; set; } = true;
+
+    /// <summary>What the model is good for, shown in the catalogue. Filled from models.dev when empty.</summary>
+    public string? Description { get; set; }
     public List<ModelPrice> Prices { get; set; } = [];
 
     public ModelPrice? PriceAt(DateTimeOffset when) =>
@@ -328,6 +357,9 @@ public sealed class ModelPrice
 
     /// <summary>Price per generated image in USD (DALL·E, FLUX …). Token-billed image models (gpt-image-1) use the token prices instead; a model may have both.</summary>
     public decimal PerImageUsd { get; set; }
+
+    /// <summary>Where the price came from, e.g. <c>models.dev anthropic/claude-opus-4-5</c>; null when an admin entered it.</summary>
+    public string? Source { get; set; }
 }
 
 /// <summary>Client-facing model alias (e.g. <c>ume/chat-standard</c>) mapping to targets with fallback.</summary>

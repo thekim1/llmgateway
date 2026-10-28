@@ -12,6 +12,7 @@ public class RouteSelectorTests
         {
             Name = name,
             BaseUrl = "http://x",
+            Type = ProviderType.OpenAICompatible,
             Residency = residency,
             Capabilities = caps,
             IsEnabled = enabled,

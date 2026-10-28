@@ -19,7 +19,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import { useModelsStore } from '@/stores/models'
 import { useProvidersStore } from '@/stores/providers'
 import { formatNumber, formatUsd } from '@/utils/format'
-import { KIND_LABEL, MODEL_FEATURES, PROVIDER_TYPE_LABEL, RESIDENCY, featureLabel, plural } from '@/utils/labels'
+import { KIND_LABEL, MODEL_FEATURES, PRICE_MODE_LABEL, PROVIDER_TYPE_LABEL, RESIDENCY, featureLabel, plural } from '@/utils/labels'
 
 type Segment = 'providers' | 'models'
 
@@ -141,6 +141,9 @@ const modelStatusOptions = withAll('All statuses', [
 const priceOptions = withAll('Any price', [
   { value: 'priced', label: 'Has price' },
   { value: 'unpriced', label: 'No price' },
+  { value: 'List', label: 'From models.dev' },
+  { value: 'Manual', label: 'Set by hand' },
+  { value: 'Unlisted', label: 'Not in models.dev' },
 ])
 
 const filteredModels = computed(() => {
@@ -153,6 +156,7 @@ const filteredModels = computed(() => {
     if (modelStatus.value === 'disabled' && m.isEnabled) return false
     if (modelPrice.value === 'priced' && !m.currentPrice) return false
     if (modelPrice.value === 'unpriced' && m.currentPrice) return false
+    if (['List', 'Manual', 'Unlisted'].includes(modelPrice.value) && m.priceMode !== modelPrice.value) return false
     return !q || includes(q, m.name, m.upstreamModel, m.providerName, ...m.features)
   })
 })
@@ -309,6 +313,7 @@ onMounted(load)
           <span v-else-if="row.currentPrice?.perImageUsd">{{ formatUsd(row.currentPrice.perImageUsd) }} per image</span>
           <span v-else-if="row.currentPrice">{{ formatUsd(row.currentPrice.inputPerMillionUsd) }} / {{ formatUsd(row.currentPrice.outputPerMillionUsd) }}</span>
           <span v-else class="text-fg-3">No price</span>
+          <span class="block text-caption text-fg-3">{{ PRICE_MODE_LABEL[row.priceMode] }}</span>
         </template>
         <template #cell-status="{ row }"><UiBadge :tone="row.isEnabled ? 'ok' : 'neutral'" :label="row.isEnabled ? 'Enabled' : 'Disabled'" /></template>
       </DataTable>

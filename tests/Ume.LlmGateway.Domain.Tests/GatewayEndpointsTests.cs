@@ -56,15 +56,15 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.ImageEdits, ProviderCapabilities.Images)]
     public void Provider_support_follows_the_required_capability(GatewayEndpoint endpoint, ProviderCapabilities capability)
     {
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = capability }.Supports(endpoint).ShouldBeTrue();
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ~capability & (ProviderCapabilities)0xFF }.Supports(endpoint).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = capability }.Supports(endpoint).ShouldBeTrue();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = ~capability & (ProviderCapabilities)0xFF }.Supports(endpoint).ShouldBeFalse();
     }
 
     [Fact]
     public void Models_endpoint_is_never_served_by_a_provider()
     {
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = (ProviderCapabilities)0xFF }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
-        new ProviderAccount { Name = "p", BaseUrl = "http://x", Capabilities = ProviderCapabilities.None }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = (ProviderCapabilities)0xFF }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = ProviderCapabilities.None }.Supports(GatewayEndpoint.Models).ShouldBeFalse();
     }
 
     [Theory]
@@ -145,7 +145,7 @@ public class EligibilityTests
 {
     private static ModelDeployment Deployment(ProviderCapabilities caps, bool enabled = true, bool drained = false, string name = "p")
     {
-        var provider = new ProviderAccount { Name = name, BaseUrl = "http://x", Residency = DataResidency.Eu, Capabilities = caps, IsDrained = drained };
+        var provider = new ProviderAccount { Name = name, BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Residency = DataResidency.Eu, Capabilities = caps, IsDrained = drained };
         return new ModelDeployment { Name = name + "/m", UpstreamModel = "m", IsEnabled = enabled, ProviderAccount = provider, ProviderAccountId = provider.Id };
     }
 
@@ -170,5 +170,21 @@ public class EligibilityTests
         RouteSelector.IsEligible(Deployment(ProviderCapabilities.ChatCompletions, name: "other"), chat with { AllowedProviders = ["p"] }).ShouldBeFalse();
         RouteSelector.IsEligible(Deployment(ProviderCapabilities.ChatCompletions), chat with { AllowedResidencies = [DataResidency.OnPrem] }).ShouldBeFalse();
         RouteSelector.IsEligible((ModelDeployment?)null, chat).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(ProviderType.OpenAI, GatewayEndpoint.Realtime, true)]
+    [InlineData(ProviderType.AzureOpenAI, GatewayEndpoint.ImageGenerations, true)]
+    [InlineData(ProviderType.AzureAIFoundry, GatewayEndpoint.Responses, true)]
+    [InlineData(ProviderType.OpenAI, GatewayEndpoint.AnthropicMessages, false)]
+    [InlineData(ProviderType.Anthropic, GatewayEndpoint.AnthropicMessages, true)]
+    [InlineData(ProviderType.Anthropic, GatewayEndpoint.ChatCompletions, true)]
+    [InlineData(ProviderType.Anthropic, GatewayEndpoint.Embeddings, false)]
+    [InlineData(ProviderType.Ollama, GatewayEndpoint.Embeddings, true)]
+    [InlineData(ProviderType.OllamaCloud, GatewayEndpoint.Embeddings, false)]
+    public void Known_provider_types_serve_what_their_API_offers_whatever_is_stored(ProviderType type, GatewayEndpoint endpoint, bool supported)
+    {
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = type, Capabilities = ProviderCapabilities.None }.Supports(endpoint).ShouldBe(supported);
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = type, Capabilities = (ProviderCapabilities)0xFF }.Supports(endpoint).ShouldBe(supported);
     }
 }

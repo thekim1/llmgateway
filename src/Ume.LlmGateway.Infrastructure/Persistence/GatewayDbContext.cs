@@ -96,6 +96,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Type).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.AuthMode).HasConversion<string>().HasMaxLength(30);
             e.Property(x => x.Residency).HasConversion<string>().HasMaxLength(20);
+            e.Ignore(x => x.SupportedCapabilities);
             e.HasIndex(x => x.Name).IsUnique();
             e.HasMany(x => x.Deployments).WithOne(x => x.ProviderAccount).HasForeignKey(x => x.ProviderAccountId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -104,6 +105,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
         {
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.UpstreamModel).HasMaxLength(200);
+            e.Property(x => x.BaseModel).HasMaxLength(200);
+            e.Ignore(x => x.ModelName);
+            e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ParameterProfile).HasConversion<string>().HasMaxLength(30);
             // Unique per provider: two providers may offer a model of the same name (see PublicModelNames).
@@ -122,6 +126,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.AudioInputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.AudioOutputPerMillionUsd).HasPrecision(18, 6);
             e.Property(x => x.PerImageUsd).HasPrecision(18, 6);
+            e.Property(x => x.Source).HasMaxLength(300);
             e.HasIndex(x => new { x.ModelDeploymentId, x.EffectiveFrom }).IsUnique();
         });
 

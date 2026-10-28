@@ -10,11 +10,15 @@ public sealed record ProviderRequest(
     [property: EnumDataType(typeof(ProviderType))] ProviderType Type,
     [property: EnumDataType(typeof(ProviderAuthMode))] ProviderAuthMode AuthMode,
     [property: EnumDataType(typeof(DataResidency))] DataResidency Residency,
-    [property: Required] ProviderCapabilities[] Capabilities,
+    // The endpoints an OpenAI-compatible server offers; other types serve what their API offers (ProviderTypes), so it is
+    // ignored for them. Omitted = unchanged (a new OpenAI-compatible server: chat, streaming and embeddings).
+    [property: MaxLength(16)] ProviderCapabilities[]? Capabilities,
     [property: Range(1, 900)] int TimeoutSeconds = 120,
     bool IsEnabled = true,
     [property: StringLength(200)] string? DisplayName = null,
-    [property: StringLength(2000), System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Credential = null) : AdminRequest, IValidatableObject
+    [property: StringLength(2000), System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Credential = null,
+    // The provider's models follow the models.dev list price (each model can opt out). Omitted = unchanged (a new provider: on).
+    bool? AutoUpdatePrices = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -27,6 +31,10 @@ public sealed record ProviderRequest(
         {
             // Query parameters such as api-version are fine; credentials belong in the encrypted credential field.
             yield return new ValidationResult("The query string must not contain keys or tokens. Give them as the credential instead.", [nameof(BaseUrl)]);
+        }
+        if (Type == ProviderType.OpenAICompatible && Capabilities is { Length: 0 })
+        {
+            yield return new ValidationResult("Choose at least one endpoint the server offers.", [nameof(Capabilities)]);
         }
         if (Capabilities?.Any(c => !Enum.IsDefined(c) || c == ProviderCapabilities.None) == true)
         {
@@ -64,7 +72,13 @@ public sealed record ModelRequest(
     [property: Range(1, int.MaxValue)] int? ContextWindow = null,
     bool IsEnabled = true,
     PriceRequest? Price = null,
-    [property: MaxLength(20)] string[]? Features = null) : AdminRequest;
+    [property: MaxLength(20)] string[]? Features = null,
+    // The price follows the models.dev list price when the model is listed. Omitted = unchanged (a new model: on).
+    bool? AutoUpdatePrice = null,
+    // Omitted = unchanged; empty removes it.
+    [property: StringLength(1000)] string? Description = null,
+    // The model behind an Azure deployment (gpt-4.1 behind prod-chat). Omitted = unchanged; empty removes it.
+    [property: StringLength(200)] string? BaseModel = null) : AdminRequest;
 /// <summary>Limits of route aliases, shared by the API and the configuration document.</summary>
 public static class RouteLimits
 {
@@ -134,9 +148,9 @@ public static class ConfigurationEndpoints
             TypedResults.Ok(await catalog.DrainAsync(id, input.Drained, ct)))
             .WithName("DrainProvider").WithSummary("Stops (or resumes) routing new requests to a provider");
         providers.MapPost("/{id:guid}/discover-models", async (Guid id, ProviderCatalogService catalog, CredentialProtector protector, IHttpClientFactory clients,
-            AzureRetailPrices azurePrices, IHostEnvironment environment, CancellationToken ct) =>
+            AzureRetailPrices azurePrices, ModelListService modelList, IHostEnvironment environment, CancellationToken ct) =>
             TypedResults.Ok(await ModelDiscovery.DiscoverAsync(await catalog.ProviderAsync(id, ct), clients.CreateClient(ModelDiscovery.HttpClientName), protector,
-                requireHttps: environment.IsProduction(), ct, azurePrices.GetAsync)))
+                requireHttps: environment.IsProduction(), ct, azurePrices.GetAsync, c => modelList.GetAsync(c))))
             .WithName("DiscoverModels").WithSummary("Lists the models the provider offers");
         providers.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, CancellationToken ct) =>
         {
@@ -164,7 +178,7 @@ public static class ConfigurationEndpoints
             .WithName("ListModelPrices").WithSummary("Price history, newest first");
         models.MapPost("/{id:guid}/prices", async (Guid id, PriceRequest input, ProviderCatalogService catalog, CancellationToken ct) =>
             TypedResults.Created($"/api/models/{id}/prices", await catalog.AddPriceAsync(id, input, ct)))
-            .WithName("AddModelPrice").WithSummary("Adds a price; earlier prices are kept for past usage");
+            .WithName("AddModelPrice").WithSummary("Adds a price (409 while the model follows the models.dev list price); earlier prices are kept for past usage");
 
         var routes = api.MapGroup("/routes").RequireAuthorization(AdminPolicies.Admin).WithTags("Routes");
         routes.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.RoutesAsync(ct)))

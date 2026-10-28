@@ -113,21 +113,22 @@ public sealed record DataApiKeyAudit(
 
 public sealed record ProviderAudit(
     Guid Id, string Name, string? DisplayName, ProviderType Type, string BaseUrl, ProviderAuthMode AuthMode, bool HasCredential,
-    DataResidency Residency, ProviderCapabilities[] Capabilities, bool IsEnabled, bool IsDrained, int TimeoutSeconds)
+    DataResidency Residency, ProviderCapabilities[] Capabilities, bool IsEnabled, bool IsDrained, int TimeoutSeconds, bool AutoUpdatePrices)
 {
     public static ProviderAudit Of(ProviderAccount p) => new(
         p.Id, p.Name, p.DisplayName, p.Type, p.BaseUrl, p.AuthMode, !string.IsNullOrEmpty(p.EncryptedCredential), p.Residency,
-        ProviderCatalogService.Capabilities(p.Capabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds);
+        ProviderCatalogService.Capabilities(p.SupportedCapabilities), p.IsEnabled, p.IsDrained, p.TimeoutSeconds, p.AutoUpdatePrices);
 }
 
 public sealed record CircuitAudit(CircuitState State);
 
 public sealed record ModelAudit(
     Guid Id, Guid ProviderId, string Name, string UpstreamModel, ModelKind Kind, ParameterProfile ParameterProfile, int? ContextWindow,
-    bool IsEnabled, IReadOnlyList<string> Features)
+    bool IsEnabled, IReadOnlyList<string> Features, bool AutoUpdatePrice, string? Description, string? BaseModel)
 {
     public static ModelAudit Of(ModelDeployment m) => new(
-        m.Id, m.ProviderAccountId, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, [.. m.Features]);
+        m.Id, m.ProviderAccountId, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, [.. m.Features],
+        m.AutoUpdatePrice, m.Description, m.BaseModel);
 }
 
 public sealed record RouteAudit(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, IReadOnlyList<RouteTargetAudit> Targets)
