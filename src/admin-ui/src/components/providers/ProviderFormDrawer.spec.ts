@@ -144,7 +144,7 @@ describe('ProviderFormDrawer endpoints', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(update.mock.calls[0][1]).not.toHaveProperty('capabilities')
+    expect(update.mock.lastCall?.[1]).not.toHaveProperty('capabilities')
   })
 
   it('lets an OpenAI-compatible server choose its endpoints', async () => {
@@ -155,6 +155,6 @@ describe('ProviderFormDrawer endpoints', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(update.mock.calls[0][1]).toMatchObject({ capabilities: ['ChatCompletions', 'Streaming'] })
+    expect(update.mock.lastCall?.[1]).toMatchObject({ capabilities: ['ChatCompletions', 'Streaming'] })
   })
 })
