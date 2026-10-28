@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.4 - 2026-10-29
+
+Model prices follow the open models.dev list instead of being kept by hand on every installation, and models get
+descriptions and capabilities from it; one Azure AI Foundry provider now serves Claude too; known provider types need no
+capability boxes; teams can manage their own keys; audio can be priced per second, minute or hour; and a sizing guide and
+one benchmark baseline. Migrations `AudioDurationPrecision`, `TeamCodes`, `ModelListPrices` and `ModelBaseModel`; read the
+0.8.4 section of `docs/upgrade-guide.md` before upgrading (prices of existing models can change). Rolling update: yes.
+
 **Model prices and details from models.dev.** Prices for Anthropic (also Claude on Foundry), Ollama Cloud, OpenAI and
 OpenRouter models no longer have to be kept up to date by hand on every installation. Once a day the admin API reads the
 open [models.dev](https://models.dev) list and adds a changed list price to the price history of every model that follows

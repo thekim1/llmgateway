@@ -11,7 +11,16 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: model prices and details from models.dev
+## 0.8.4: model prices from models.dev, Claude on the Foundry provider, team admins, audio priced per unit
+
+- **Rolling update: yes.** Four migrations, each adding nullable or defaulted columns or widening one, so the previous
+  version keeps working against the new schema while its instances are replaced: `AudioDurationPrecision`, `TeamCodes`,
+  `ModelListPrices`, `ModelBaseModel`.
+- **Check before upgrading:** prices of existing Anthropic, Ollama Cloud, OpenAI and OpenRouter models follow models.dev
+  from two minutes after the admin API starts (see below), the admin API needs outbound HTTPS to `models.dev`, and known
+  provider types now serve every endpoint of their API whatever was ticked.
+
+### Model prices and details from models.dev
 
 - **Rolling update: yes.** Migration `ModelListPrices` adds `ModelDeployments.AutoUpdatePrice` and
   `ProviderAccounts.AutoUpdatePrices` (both default `true`), `ModelDeployments.Description` and `ModelPrices.Source`; the
@@ -50,7 +59,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `GET`/`POST /api/settings/model-prices` are new. The configuration export includes the settings, descriptions and
   model capabilities.
 
-## Unreleased: teams manage their own keys
+### Teams manage their own keys
 
 - **Rolling update: yes.** Migration `TeamCodes` adds the nullable `Teams.Code` column and a unique index on it; the
   previous version ignores both. While old admin API instances still run, a team admin's calls to them get 403.
@@ -61,7 +70,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - **Admin API:** `Team` has a new `code` field, and `POST`/`PUT /api/teams` take it; `/bff/user` returns `teamCodes`.
   Existing clients that do not send `code` leave it unchanged.
 
-## Unreleased: input audio priced per second, minute or hour
+### Input audio priced per second, minute or hour
 
 - **Rolling update: yes.** Migration `AudioDurationPrecision` widens `ModelPrices.AudioPerMinuteUsd` from
   `numeric(18,6)` to `numeric(18,10)`; the old version reads and writes the wider column unchanged. `ModelPrices` is
