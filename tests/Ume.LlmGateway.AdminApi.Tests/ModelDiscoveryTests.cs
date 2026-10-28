@@ -158,10 +158,11 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
 
         var models = await DiscoverAsync(Provider("https://res.services.ai.azure.com/openai/v1", ProviderType.AzureAIFoundry, ProviderAuthMode.ApiKeyHeader), list, azurePrices: meters);
 
-        models.Select(m => m.Id).ShouldBe(["gpt-4.1", "gpt-4.1-ptu"]); // Claude belongs to an Anthropic provider
-        models[0].Price.ShouldBe(new DiscoveredPrice(2m, 2m, 8m));
-        models[0].PriceSource.ShouldBe("Azure list price: gpt 4.1 Inp glbl Tokens, gpt 4.1 Outp glbl Tokens");
-        models[1].Price.ShouldBeNull();
+        // Claude too: the gateway sends it to the resource's Anthropic API.
+        models.Select(m => (m.Id, m.BaseModel)).ShouldBe([("claude-sonnet-4-5", "claude-sonnet-4-5"), ("gpt-4.1", "gpt-4.1"), ("gpt-4.1-ptu", "gpt-4.1")]);
+        models[1].Price.ShouldBe(new DiscoveredPrice(2m, 2m, 8m));
+        models[1].PriceSource.ShouldBe("Azure list price: gpt 4.1 Inp glbl Tokens, gpt 4.1 Outp glbl Tokens");
+        models[2].Price.ShouldBeNull();
     }
 
     [Fact]
@@ -175,6 +176,37 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
         list.Requests[0].Headers["api-key"].ShouldBe("secret");
         list.Requests[0].Headers.ShouldNotContainKey("x-api-key");
         models.Single().Id.ShouldBe("claude-sonnet-4-5");
+    }
+
+    [Fact]
+    public async Task Foundry_deployments_get_details_and_a_missing_price_from_the_model_list_by_their_base_model()
+    {
+        using var list = new FakeProvider(MixedDeployments);
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {"azure":{"models":{
+              "gpt-4.1":{"description":"Smart non-reasoning model","tool_call":true,"limit":{"context":1047576},"cost":{"input":2,"output":8,"cache_read":0.5}},
+              "claude-sonnet-4-5":{"description":"Claude Sonnet","reasoning":true,"cost":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}}}}
+            """);
+        var listed = ModelList.Parse(document);
+        AzurePriceMeter[] meters =
+        [
+            AzurePriceMatcher.Parse("Azure OpenAI", "gpt 4.1 Inp glbl Tokens", "1K", 0.002m, "Consumption")!,
+            AzurePriceMatcher.Parse("Azure OpenAI", "gpt 4.1 Outp glbl Tokens", "1K", 0.008m, "Consumption")!,
+        ];
+        using var http = new HttpClient(list, disposeHandler: false);
+        var models = await ModelDiscovery.DiscoverAsync(Provider("https://res.services.ai.azure.com/openai/v1", ProviderType.AzureAIFoundry, ProviderAuthMode.ApiKeyHeader),
+            http, Protector, requireHttps: false, Ct, _ => Task.FromResult<IReadOnlyList<AzurePriceMeter>>(meters), _ => Task.FromResult(listed));
+
+        var global = models.Single(m => m.Id == "gpt-4.1");
+        global.PriceSource.ShouldNotBeNull().ShouldStartWith("Azure list price"); // Azure's own price comes first
+        (global.Description, global.ContextWindow).ShouldBe(("Smart non-reasoning model", (int?)1047576));
+        global.Features.ShouldBe(["tools"]);
+        // The provisioned deployment has no Azure pay-as-you-go price: the list fills it, looked up by its base model.
+        var ptu = models.Single(m => m.Id == "gpt-4.1-ptu");
+        (ptu.Price, ptu.PriceSource, ptu.Description).ShouldBe((new DiscoveredPrice(2, 0.5m, 8), "models.dev list price: azure/gpt-4.1", "Smart non-reasoning model"));
+        var claude = models.Single(m => m.Id == "claude-sonnet-4-5");
+        claude.Price.ShouldBe(new DiscoveredPrice(3, 0.3m, 15, CacheWriteInputPerMillionUsd: 3.75m));
+        claude.Features.ShouldBe(["thinking"]);
     }
 
     [Fact]
@@ -260,6 +292,31 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
         credentialHeaders.Where(h => h != header).ShouldAllBe(h => !sent.ContainsKey(h));
         sent.ContainsKey("anthropic-version").ShouldBeFalse();
         list.LastUri!.Query.ShouldNotContain("secret");
+    }
+
+    [Fact]
+    public async Task Models_get_what_the_provider_does_not_report_from_the_model_list()
+    {
+        using var list = new FakeProvider("""{"data":[{"id":"claude-opus-4-5"},{"id":"claude-unlisted"}]}""");
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {"anthropic":{"models":{"claude-opus-4-5":{"description":"Deep reasoning","tool_call":true,"reasoning":true,
+              "modalities":{"input":["text","image","pdf"],"output":["text"]},"limit":{"context":200000},
+              "cost":{"input":5,"output":25,"cache_read":0.5,"cache_write":6.25}}}}}
+            """);
+        var listed = ModelList.Parse(document);
+        using var http = new HttpClient(list, disposeHandler: false);
+        var models = await ModelDiscovery.DiscoverAsync(Provider("https://api.anthropic.example/v1", ProviderType.Anthropic, ProviderAuthMode.XApiKeyHeader),
+            http, Protector, requireHttps: false, Ct, modelList: _ => Task.FromResult(listed));
+
+        // An Anthropic provider at another host still pays Anthropic's prices.
+        var opus = models.Single(m => m.Id == "claude-opus-4-5");
+        opus.Price.ShouldBe(new DiscoveredPrice(5, 0.5m, 25, CacheWriteInputPerMillionUsd: 6.25m));
+        opus.PriceSource.ShouldBe("models.dev list price: anthropic/claude-opus-4-5");
+        opus.Description.ShouldBe("Deep reasoning");
+        opus.Features.ShouldBe(["thinking", "tools", "vision"]);
+        opus.ContextWindow.ShouldBe(200000);
+        var unlisted = models.Single(m => m.Id == "claude-unlisted");
+        (unlisted.Price, unlisted.Description).ShouldBe((null, null));
     }
 
     [Fact]

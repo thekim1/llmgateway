@@ -29,6 +29,7 @@ import type {
   KeyFilter,
   KeyRotationMode,
   Model,
+  ModelPriceSync,
   NewPrice,
   OpsHealth,
   Paged,
@@ -174,6 +175,8 @@ export const api = {
       http.put<RetentionSettings>('/api/settings/retention', { usageRetentionDays, auditRetentionDays }),
     runRetention: () => http.post<RetentionSettings>('/api/settings/retention/run'),
     version: () => http.get<VersionInfo>('/api/settings/version'),
+    modelPrices: () => http.get<ModelPriceSync>('/api/settings/model-prices'),
+    runModelPrices: () => http.post<ModelPriceSync>('/api/settings/model-prices/run'),
   },
   usage: {
     summary: (query: UsageSummaryQuery) => http.get<UsageSummary>('/api/usage/summary', { ...query }),

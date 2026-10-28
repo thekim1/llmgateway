@@ -12,6 +12,7 @@ import type {
   PiiAction,
   PiiCategory,
   PiiPolicy,
+  PriceMode,
   ProviderCapability,
   ProviderStatus,
   RequestOutcome,
@@ -160,6 +161,13 @@ export const PERIOD_LABEL: Record<BudgetPeriod, string> = {
   Quarterly: 'Quarterly',
   Yearly: 'Yearly',
 }
+/** Where a model's price comes from (Model.priceMode). */
+export const PRICE_MODE_LABEL: Record<PriceMode, string> = {
+  List: 'models.dev',
+  Unlisted: 'Set by hand (not in models.dev)',
+  Manual: 'Set by hand',
+}
+
 export const KIND_LABEL: Record<ModelKind, string> = {
   Chat: 'Chat',
   Embedding: 'Embedding',
@@ -177,6 +185,20 @@ export const PROVIDER_TYPE_LABEL: Record<import('@/api/types').ProviderType, str
   Ollama: 'Ollama',
   OllamaCloud: 'Ollama Cloud',
   OpenAICompatible: 'OpenAI-compatible',
+}
+
+/**
+ * What each provider type serves (ProviderTypes.cs in the domain; keep the two in step). Null: an OpenAI-compatible server,
+ * where the admin chooses the endpoints.
+ */
+export const TYPE_CAPABILITIES: Record<import('@/api/types').ProviderType, import('@/api/types').ProviderCapability[] | null> = {
+  OpenAI: ['ChatCompletions', 'Streaming', 'Embeddings', 'Responses', 'AudioTranscriptions', 'Realtime', 'Images'],
+  AzureOpenAI: ['ChatCompletions', 'Streaming', 'Embeddings', 'Responses', 'AudioTranscriptions', 'Realtime', 'Images'],
+  AzureAIFoundry: ['ChatCompletions', 'Streaming', 'Embeddings', 'Responses', 'AudioTranscriptions', 'Realtime', 'Images'],
+  Anthropic: ['ChatCompletions', 'Streaming', 'AnthropicMessages'],
+  Ollama: ['ChatCompletions', 'Streaming', 'Embeddings'],
+  OllamaCloud: ['ChatCompletions', 'Streaming'],
+  OpenAICompatible: null,
 }
 
 export const AUTH_MODE_LABEL: Record<import('@/api/types').ProviderAuthMode, string> = {

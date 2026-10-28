@@ -37,6 +37,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>(
 builder.Services.AddSingleton<GatewayOperationsClient>();
 builder.Services.AddSingleton<AzureRetailPrices>();
 builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
+builder.Services.AddSingleton<ModelListService>();
+builder.Services.AddHttpClient(ModelListService.HttpClientName);
+builder.Services.AddSingleton<ModelListSync>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModelListSync>());
 builder.Services.AddSingleton<ReleaseCheck>();
 builder.Services.AddSingleton<AdminClientAddresses>();
 builder.Services.AddSingleton<AccessDeniedThrottle>();

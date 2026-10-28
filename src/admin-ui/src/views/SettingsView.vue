@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PageHeader from '@/components/ui/PageHeader.vue'
 import RequestLogCard from '@/components/settings/RequestLogCard.vue'
+import ModelPricesCard from '@/components/settings/ModelPricesCard.vue'
 import RetentionCard from '@/components/settings/RetentionCard.vue'
 import TrustedProxiesCard from '@/components/settings/TrustedProxiesCard.vue'
 import VersionCard from '@/components/settings/VersionCard.vue'
@@ -13,6 +14,10 @@ import VersionCard from '@/components/settings/VersionCard.vue'
 
   <div class="mt-6">
     <RetentionCard />
+  </div>
+
+  <div class="mt-6">
+    <ModelPricesCard />
   </div>
 
   <div class="mt-6">

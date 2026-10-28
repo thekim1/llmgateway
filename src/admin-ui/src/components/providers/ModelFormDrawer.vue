@@ -14,6 +14,7 @@ import DataTable, { type Column } from '../ui/DataTable.vue'
 import FieldGroup from '../ui/FieldGroup.vue'
 import InlineError from '../ui/InlineError.vue'
 import SelectField from '../ui/SelectField.vue'
+import TextAreaField from '../ui/TextAreaField.vue'
 import TextField from '../ui/TextField.vue'
 import ToggleChip from '../ui/ToggleChip.vue'
 import UiBadge from '../ui/UiBadge.vue'
@@ -44,6 +45,9 @@ const kind = ref<ModelKind>('Chat')
 const parameterProfile = ref<ParameterProfile>('Standard')
 const contextWindow = ref('')
 const isEnabled = ref(true)
+const autoUpdatePrice = ref(true)
+const description = ref('')
+const baseModel = ref('')
 const features = ref<string[]>([])
 const busy = ref(false)
 const priceDraft = ref(emptyPriceDraft())
@@ -70,7 +74,20 @@ const priceColumns: Column[] = [
   { key: 'audio', label: 'Audio duration', align: 'right' },
   { key: 'audioTokens', label: 'Audio tokens in / out', align: 'right' },
   { key: 'image', label: 'Image', align: 'right' },
+  { key: 'source', label: 'Source' },
 ]
+
+const provider = computed(() => props.providers.find((p) => p.id === (props.model?.providerId ?? providerId.value)))
+const azure = computed(() => provider.value?.type === 'AzureAIFoundry' || provider.value?.type === 'AzureOpenAI')
+const autoUpdateDescription = computed(() => {
+  if (provider.value && !provider.value.priceList) return 'This provider has no models.dev price list, so you set the price.'
+  if (azure.value && provider.value?.autoUpdatePrices)
+    return 'Azure prices depend on region and deployment type, so you set the price (discovery suggests Azure’s list price). models.dev fills it only while the model has none; Claude follows the models.dev price.'
+  if (provider.value && !provider.value.autoUpdatePrices) return 'Turned off for the whole provider, so you set the price. Turn it on in the provider to use this.'
+  return 'Updated daily from the models.dev list price when the model is listed. Turn off to set your own price, for example an agreed discount.'
+})
+/** Why Add price is off: the model follows the list, as last saved. */
+const followsList = computed(() => props.model?.priceMode === 'List')
 
 async function loadPrices(): Promise<void> {
   if (!props.model) return
@@ -98,6 +115,9 @@ watch(
     parameterProfile.value = m?.parameterProfile ?? 'Standard'
     contextWindow.value = m?.contextWindow != null ? String(m.contextWindow) : ''
     isEnabled.value = m?.isEnabled ?? true
+    autoUpdatePrice.value = m?.autoUpdatePrice ?? true
+    description.value = m?.description ?? ''
+    baseModel.value = m?.baseModel ?? ''
     features.value = [...(m?.features ?? [])]
     priceDraft.value = emptyPriceDraft()
     priceErrors.value = {}
@@ -134,6 +154,9 @@ async function submit(): Promise<void> {
       contextWindow: contextWindow.value.trim() === '' ? null : Number(contextWindow.value),
       isEnabled: isEnabled.value,
       features: features.value,
+      autoUpdatePrice: autoUpdatePrice.value,
+      description: description.value.trim(),
+      baseModel: baseModel.value.trim(),
     }
     if (props.model) await models.update(props.model.id, body)
     else await models.create({ ...body, providerId: providerId.value, ...(withPrice ? { price: toNewPrice(priceDraft.value) } : {}) })
@@ -169,8 +192,17 @@ async function priceAdded(): Promise<void> {
       <SelectField v-if="!model" id="model-provider" v-model="providerId" label="Provider" :options="providerOptions" placeholder="Choose a provider" :error="errors.providerId" />
       <TextField id="model-name" v-model="name" label="Name" mono :error="errors.name" hint="The name clients can request directly." />
       <TextField id="model-upstream" v-model="upstreamModel" label="Upstream model" mono :error="errors.upstreamModel" hint="The model or deployment name at the provider." />
+      <TextField
+        v-if="azure"
+        id="model-base"
+        v-model="baseModel"
+        label="Base model"
+        mono
+        hint="The model behind the deployment, e.g. gpt-4.1 or claude-sonnet-4-5, when the deployment has a name of its own. Finds its details and price; a Claude model is sent to the resource’s Anthropic API. Filled by Discover models."
+      />
       <SelectField id="model-kind" v-model="kind" label="Kind" :options="kindOptions" :error="errors.kind" />
       <SelectField id="model-profile" v-model="parameterProfile" label="Parameter profile" :options="profileOptions" :error="errors.parameterProfile" />
+      <TextAreaField id="model-description" v-model="description" label="Description" :rows="2" hint="Optional. Shown in the catalogue. Filled from models.dev when empty." />
       <TextField id="model-context" v-model="contextWindow" label="Context window (tokens)" type="number" min="1" inputmode="numeric" hint="Optional." :error="errors.contextWindow" />
       <FieldGroup legend="Capabilities" hint="What the model can do. Filled in automatically when you add it with Discover models.">
         <div class="flex flex-wrap gap-2">
@@ -178,6 +210,12 @@ async function priceAdded(): Promise<void> {
         </div>
       </FieldGroup>
       <CheckField v-model="isEnabled" label="Enabled" description="Turn off to stop routing to this model." />
+      <CheckField
+        v-model="autoUpdatePrice"
+        label="Price from models.dev"
+        :description="autoUpdateDescription"
+        :disabled="!!provider && (!provider.priceList || !provider.autoUpdatePrices)"
+      />
       <FieldGroup v-if="!model" legend="Price" hint="Optional. You can add it later.">
         <PriceFields v-model="priceDraft" :errors="priceErrors" id-prefix="model-price" />
       </FieldGroup>
@@ -186,8 +224,15 @@ async function priceAdded(): Promise<void> {
     <section v-if="model" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="model-prices">
       <div class="flex items-center justify-between gap-3">
         <h3 id="model-prices" class="text-heading">Price history</h3>
-        <UiButton size="sm" icon="add" @click="addPrice = true">Add price</UiButton>
+        <UiButton size="sm" icon="add" :disabled="followsList" @click="addPrice = true">Add price</UiButton>
       </div>
+      <p v-if="followsList" class="m-0 text-small text-fg-2">
+        The price follows models.dev (<span class="font-mono">{{ model.priceListKey }}</span>) and is updated daily. To set your own, turn off
+        <em>Price from models.dev</em> and save.
+      </p>
+      <p v-else-if="model.priceMode === 'Unlisted'" class="m-0 text-small text-fg-2">
+        Not in models.dev, so you set the price. If the model is added to the list, its list price takes over.
+      </p>
       <p class="text-small text-fg-3">USD per 1M tokens; audio duration in USD per second, minute or hour; images in USD per picture. A dash means cache writes are billed at the input price, audio tokens as text tokens, or images per token.</p>
       <AsyncState :loading="pricesLoading" :error="pricesError" :empty="prices.length === 0" empty-text="No price yet. Usage of this model is not costed." @retry="loadPrices">
         <DataTable :columns="priceColumns" :rows="prices" :row-key="(p) => p.effectiveFrom" caption="Price history">
@@ -198,6 +243,7 @@ async function priceAdded(): Promise<void> {
           <template #cell-output="{ row }">{{ formatUsd(row.outputPerMillionUsd) }}</template>
           <template #cell-audio="{ row }">{{ row.audioPerMinuteUsd ? formatAudioPrice(row.audioPerMinuteUsd) : '—' }}</template>
           <template #cell-image="{ row }">{{ row.perImageUsd ? formatUsd(row.perImageUsd) : '—' }}</template>
+          <template #cell-source="{ row }"><span :class="row.source ? 'font-mono text-small' : ''">{{ row.source ?? 'Admin' }}</span></template>
           <template #cell-audioTokens="{ row }">
             {{ row.audioInputPerMillionUsd ? formatUsd(row.audioInputPerMillionUsd) : '—' }} / {{ row.audioOutputPerMillionUsd ? formatUsd(row.audioOutputPerMillionUsd) : '—' }}
           </template>

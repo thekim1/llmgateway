@@ -420,7 +420,7 @@ public class RoutingRuleSetTests
 
     private static RouteTarget Deployment(string name, string provider, DataResidency residency)
     {
-        var account = new ProviderAccount { Name = provider, BaseUrl = "http://x", Residency = residency, Capabilities = ProviderCapabilities.ChatCompletions };
+        var account = new ProviderAccount { Name = provider, BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Residency = residency, Capabilities = ProviderCapabilities.ChatCompletions };
         var deployment = new ModelDeployment { Name = name, UpstreamModel = name, ProviderAccount = account, ProviderAccountId = account.Id };
         return new RouteTarget { ModelDeployment = deployment, ModelDeploymentId = deployment.Id };
     }

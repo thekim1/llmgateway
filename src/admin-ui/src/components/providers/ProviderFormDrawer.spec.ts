@@ -22,6 +22,8 @@ const saved: Provider = {
   isEnabled: true,
   isDrained: false,
   deploymentCount: 0,
+  autoUpdatePrices: true,
+  priceList: null,
 } as unknown as Provider
 
 function mountForm(provider: Provider = saved) {
@@ -125,5 +127,34 @@ describe('ProviderFormDrawer stored credential', () => {
     await flushPromises()
 
     expect(update).toHaveBeenCalledWith('p1', expect.objectContaining({ baseUrl: 'https://elsewhere.example/openai/v1', credential: 'new-secret' }))
+  })
+})
+
+describe('ProviderFormDrawer endpoints', () => {
+  beforeEach(() => {
+    update.mockReset()
+    update.mockResolvedValue(saved)
+  })
+
+  it('shows what a known provider type supports and sends no endpoints for it', async () => {
+    const wrapper = mountForm()
+    expect(wrapper.find('#prov-capabilities').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Supports Chat completions')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(update.mock.lastCall?.[1]).not.toHaveProperty('capabilities')
+  })
+
+  it('lets an OpenAI-compatible server choose its endpoints', async () => {
+    const wrapper = mountForm({ ...saved, type: 'OpenAICompatible', capabilities: ['ChatCompletions', 'Streaming'] } as Provider)
+    expect(wrapper.find('#prov-capabilities').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Endpoints this server offers')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(update.mock.lastCall?.[1]).toMatchObject({ capabilities: ['ChatCompletions', 'Streaming'] })
   })
 })

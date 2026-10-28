@@ -11,7 +11,8 @@ namespace Ume.LlmGateway.AdminApi;
 
 public sealed record DiscoveredPrice(
     decimal InputPerMillionUsd, decimal CachedInputPerMillionUsd, decimal OutputPerMillionUsd,
-    decimal AudioInputPerMillionUsd = 0, decimal AudioOutputPerMillionUsd = 0, decimal PerImageUsd = 0);
+    decimal AudioInputPerMillionUsd = 0, decimal AudioOutputPerMillionUsd = 0, decimal PerImageUsd = 0,
+    decimal? CacheWriteInputPerMillionUsd = null);
 
 public sealed record DiscoveredModel(
     string Id,
@@ -22,7 +23,9 @@ public sealed record DiscoveredModel(
     string[] Features,
     DiscoveredPrice? Price,
     bool AlreadyAdded,
-    string? PriceSource = null);
+    string? PriceSource = null,
+    string? Description = null,
+    string? BaseModel = null);
 
 /// <summary>
 /// Lists the models an upstream provider exposes, using the provider's stored credential. Doubles as a
@@ -60,11 +63,16 @@ public static partial class ModelDiscovery
     /// <summary>
     /// The provider's models. With <paramref name="requireHttps"/> (production) only an https base URL is called, the same
     /// rule the gateway applies to provider calls. Foundry deployments get a price from <paramref name="azurePrices"/>, the
-    /// Azure list prices, when it is given and the list is unambiguous.
+    /// Azure list prices, when it is given and the list is unambiguous. When the provider is in the models.dev list
+    /// (<paramref name="modelList"/>: Anthropic, Ollama Cloud, OpenAI, OpenRouter), a model gets what the provider does not
+    /// report from it: price, capability tags, context window and a description; an Azure deployment is looked up by the model
+    /// behind it (<c>BaseModel</c>). A Foundry provider lists every deployment, Claude included (the gateway sends Claude to
+    /// the resource's Anthropic API); an Anthropic provider at a Foundry address only the Claude ones.
     /// </summary>
     public static async Task<DiscoveredModel[]> DiscoverAsync(
         ProviderAccount provider, HttpClient http, CredentialProtector protector, bool requireHttps, CancellationToken ct,
-        Func<CancellationToken, Task<IReadOnlyList<AzurePriceMeter>>>? azurePrices = null)
+        Func<CancellationToken, Task<IReadOnlyList<AzurePriceMeter>>>? azurePrices = null,
+        Func<CancellationToken, Task<ModelList>>? modelList = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(http);
@@ -163,10 +171,12 @@ public static partial class ModelDiscovery
 
         var existing = provider.Deployments.Select(d => d.UpstreamModel).ToHashSet(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<AzurePriceMeter> meters = foundry && azurePrices is not null ? await azurePrices(ct) : [];
+        var list = modelList is not null && ModelList.ProviderId(provider) is not null ? await modelList(ct) : ModelList.Empty;
         return [.. items.OfType<JsonObject>()
-            .Where(item => !foundry || IsAnthropic(item) == anthropic)
+            .Where(item => !foundry || !anthropic || IsAnthropic(item))
             .Select(item => foundry ? MapDeployment(item, existing, meters) : Map(item, existing))
             .OfType<DiscoveredModel>()
+            .Select(m => list.Find(provider, m.BaseModel ?? m.Id) is { } found ? Enrich(m, found) : m)
             .Where(m => !UnsupportedModel().IsMatch(m.Id) || m.Kind is ModelKind.Transcription or ModelKind.Realtime or ModelKind.SpeechTranslation)
             .OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase)];
     }
@@ -260,6 +270,7 @@ public static partial class ModelDiscovery
             AlreadyAdded = existing.Contains(name),
             Price = suggestion?.Price,
             PriceSource = suggestion is { } s ? $"Azure list price: {string.Join(", ", s.Meters)}" : null,
+            BaseModel = model,
         };
     }
 
@@ -397,6 +408,18 @@ public static partial class ModelDiscovery
         }
         return [.. features.Select(Normalize).Where(f => f is not ("completion" or "insert")).Distinct().Order()];
     }
+
+    /// <summary>What the provider did not report, from the models.dev list.</summary>
+    private static DiscoveredModel Enrich(DiscoveredModel m, ListModel listed) => m with
+    {
+        Price = m.Price ?? (listed.Price is { } p
+            ? new DiscoveredPrice(p.Input, p.CacheRead ?? p.Input, p.Output, p.AudioInput ?? 0, p.AudioOutput ?? 0, CacheWriteInputPerMillionUsd: p.CacheWrite)
+            : null),
+        PriceSource = m.Price is null && listed.Price is not null ? $"models.dev list price: {listed.Key}" : m.PriceSource,
+        Features = m.Features.Length > 0 ? m.Features : listed.Features,
+        ContextWindow = m.ContextWindow ?? listed.ContextWindow,
+        Description = m.Description ?? listed.Description,
+    };
 
     /// <summary>OpenRouter-style pricing is USD per token as strings; convert to USD per million tokens.</summary>
     private static DiscoveredPrice? Price(JsonObject item)

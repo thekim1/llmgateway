@@ -1,3 +1,5 @@
+using Ume.LlmGateway.Domain.Entities;
+
 namespace Ume.LlmGateway.Domain.Services;
 
 /// <summary>
@@ -40,14 +42,54 @@ public static class FoundryEndpoint
     {
         ArgumentNullException.ThrowIfNull(baseUrl);
         var uri = new Uri(baseUrl);
-        var host = uri.Host;
-        var suffix = ResourceHostSuffixes.FirstOrDefault(s => host.EndsWith(s, StringComparison.OrdinalIgnoreCase));
-        if (suffix is not null)
-        {
-            host = host[..^suffix.Length] + ServicesHostSuffix;
-        }
+        return new UriBuilder(uri.Scheme, ServicesHost(uri.Host), uri.Port, $"{ProjectsPath}{ProjectName(baseUrl) ?? "_project"}/deployments") { Query = "api-version=v1" }.Uri;
+    }
 
-        return new UriBuilder(uri.Scheme, host, uri.Port, $"{ProjectsPath}{ProjectName(baseUrl) ?? "_project"}/deployments") { Query = "api-version=v1" }.Uri;
+    /// <summary>
+    /// Whether <paramref name="deployment"/> of an Azure AI Foundry provider is Claude, which the resource serves only through
+    /// its Anthropic API (<c>…/anthropic/v1</c>), not the OpenAI v1 API the provider's other deployments use.
+    /// </summary>
+    public static bool IsClaude(ProviderAccount provider, ModelDeployment deployment)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(deployment);
+        return provider.Type == ProviderType.AzureAIFoundry && deployment.ModelName.StartsWith("claude", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// What <paramref name="deployment"/> can be called for: its provider's capabilities, or for Claude on a Foundry provider
+    /// those of the Anthropic API (<see cref="AnthropicView"/>), as the gateway routes it.
+    /// </summary>
+    public static ProviderCapabilities Capabilities(ProviderAccount provider, ModelDeployment deployment) =>
+        IsClaude(provider, deployment) ? ProviderTypes.AnthropicApi : provider.SupportedCapabilities;
+
+    /// <summary>
+    /// The resource's Anthropic API as an Anthropic provider, for the Claude deployments of a Foundry provider: the same id
+    /// (so health, circuit and usage stay the provider's), name, credential, residency and switches; the address
+    /// <c>https://&lt;resource&gt;.services.ai.azure.com/anthropic/v1</c>; what an Anthropic provider serves.
+    /// <paramref name="foundry"/> must still have the address the admin entered.
+    /// </summary>
+    public static ProviderAccount AnthropicView(ProviderAccount foundry)
+    {
+        ArgumentNullException.ThrowIfNull(foundry);
+        var uri = new Uri(foundry.BaseUrl);
+        return new ProviderAccount
+        {
+            Id = foundry.Id,
+            Name = foundry.Name,
+            DisplayName = foundry.DisplayName,
+            Type = ProviderType.Anthropic,
+            BaseUrl = new UriBuilder(uri.Scheme, ServicesHost(uri.Host), uri.Port, "/anthropic/v1").Uri.ToString().TrimEnd('/'),
+            AuthMode = foundry.AuthMode,
+            EncryptedCredential = foundry.EncryptedCredential,
+            Residency = foundry.Residency,
+            Capabilities = ProviderTypes.AnthropicApi,
+            IsEnabled = foundry.IsEnabled,
+            IsDrained = foundry.IsDrained,
+            TimeoutSeconds = foundry.TimeoutSeconds,
+            AutoUpdatePrices = foundry.AutoUpdatePrices,
+            CreatedAt = foundry.CreatedAt,
+        };
     }
 
     /// <summary>The project named in a project endpoint, or <c>null</c>.</summary>
@@ -58,6 +100,13 @@ public static class FoundryEndpoint
 
     /// <summary>Whether <paramref name="baseUrl"/> is on a Foundry resource (<c>…services.ai.azure.com</c>).</summary>
     public static bool IsFoundryHost(string baseUrl) => Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && IsFoundryHost(uri);
+
+    /// <summary>The resource's <c>…services.ai.azure.com</c> host for any of its addresses; other hosts unchanged.</summary>
+    private static string ServicesHost(string host)
+    {
+        var suffix = ResourceHostSuffixes.FirstOrDefault(s => host.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+        return suffix is null ? host : host[..^suffix.Length] + ServicesHostSuffix;
+    }
 
     private static bool IsFoundryHost(Uri uri) => uri.Host.EndsWith(ServicesHostSuffix, StringComparison.OrdinalIgnoreCase);
 

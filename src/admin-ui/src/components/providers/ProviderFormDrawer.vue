@@ -5,7 +5,7 @@ import { DATA_RESIDENCIES, PROVIDER_AUTH_MODES, PROVIDER_CAPABILITIES, PROVIDER_
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useProvidersStore } from '@/stores/providers'
 import { useUiStore } from '@/stores/ui'
-import { AUTH_MODE_LABEL, CAPABILITY_LABEL, PROVIDER_TYPE_LABEL, RESIDENCY, plural } from '@/utils/labels'
+import { AUTH_MODE_LABEL, CAPABILITY_LABEL, PROVIDER_TYPE_LABEL, RESIDENCY, TYPE_CAPABILITIES, plural } from '@/utils/labels'
 import { problemMessage } from '@/utils/problem'
 import CheckField from '../ui/CheckField.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
@@ -45,12 +45,22 @@ const authMode = ref<ProviderAuthMode>('None')
 const credential = ref('')
 const clearCredential = ref(false)
 const residency = ref<DataResidency>('OnPrem')
-const capabilities = ref<ProviderCapability[]>(['ChatCompletions', 'Streaming'])
+const DEFAULT_ENDPOINTS: ProviderCapability[] = ['ChatCompletions', 'Streaming', 'Embeddings']
+const capabilities = ref<ProviderCapability[]>([...DEFAULT_ENDPOINTS])
+/** Only an OpenAI-compatible server has endpoints to choose; other types serve what their API offers. */
+const chooseEndpoints = computed(() => TYPE_CAPABILITIES[type.value] === null)
+const typeSupports = computed(() =>
+  (TYPE_CAPABILITIES[type.value] ?? [])
+    .filter((c) => c !== 'Streaming')
+    .map((c) => CAPABILITY_LABEL[c])
+    .join(', '),
+)
 const timeoutSeconds = ref('120')
 const isEnabled = ref(true)
+const autoUpdatePrices = ref(true)
 const baseUrlHint = computed(() =>
   type.value === 'AzureAIFoundry'
-    ? 'Paste the project endpoint from the Foundry portal (…services.ai.azure.com/api/projects/<project>). Discover models lists that project’s deployments; requests go to the resource’s …/openai/v1.'
+    ? 'Paste the project endpoint from the Foundry portal (…services.ai.azure.com/api/projects/<project>). Discover models lists that project’s deployments, Claude included; requests go to the resource’s …/openai/v1, and Claude’s to …/anthropic/v1.'
     : undefined,
 )
 const busy = ref(false)
@@ -76,9 +86,10 @@ const dirty = computed(() => {
     credential.value !== '' ||
     clearCredential.value ||
     residency.value !== p.residency ||
-    [...capabilities.value].sort().join() !== [...p.capabilities].sort().join() ||
+    (chooseEndpoints.value && [...capabilities.value].sort().join() !== [...p.capabilities].sort().join()) ||
     Number(timeoutSeconds.value) !== p.timeoutSeconds ||
-    isEnabled.value !== p.isEnabled
+    isEnabled.value !== p.isEnabled ||
+    autoUpdatePrices.value !== p.autoUpdatePrices
   )
 })
 
@@ -102,9 +113,10 @@ function fill(p: Provider | null): void {
   credential.value = ''
   clearCredential.value = false
   residency.value = p?.residency ?? 'OnPrem'
-  capabilities.value = p ? [...p.capabilities] : ['ChatCompletions', 'Streaming']
+  capabilities.value = p ? [...p.capabilities] : [...DEFAULT_ENDPOINTS]
   timeoutSeconds.value = String(p?.timeoutSeconds ?? 120)
   isEnabled.value = p?.isEnabled ?? true
+  autoUpdatePrices.value = p?.autoUpdatePrices ?? true
 }
 
 function toggleCapability(capability: ProviderCapability, on: boolean): void {
@@ -159,9 +171,10 @@ async function submit(thenDiscover = false): Promise<void> {
       baseUrl: baseUrl.value.trim(),
       authMode: authMode.value,
       residency: residency.value,
-      capabilities: capabilities.value,
+      ...(chooseEndpoints.value ? { capabilities: capabilities.value } : {}),
       timeoutSeconds: Number(timeoutSeconds.value),
       isEnabled: isEnabled.value,
+      autoUpdatePrices: autoUpdatePrices.value,
       ...(clearCredential.value ? { credential: '' } : credential.value ? { credential: credential.value } : {}),
     }
     const saved = props.provider ? await providers.update(props.provider.id, body) : await providers.create(body)
@@ -231,7 +244,14 @@ async function remove(): Promise<void> {
         <CheckField v-if="provider?.hasCredential" v-model="clearCredential" label="Remove stored credential" />
       </div>
       <SelectField id="prov-residency" v-model="residency" label="Residency" :options="residencyOptions" :error="errors.residency" :hint="RESIDENCY[residency].description" />
-      <FieldGroup legend="Capabilities">
+      <p v-if="!chooseEndpoints" class="m-0 text-small text-fg-2">
+        Supports {{ typeSupports }}, with streaming. Which models get which requests follows from each model’s kind.
+      </p>
+      <FieldGroup
+        v-else
+        legend="Endpoints this server offers"
+        hint="Depends on the software behind it (vLLM, LiteLLM, a speech server). Which models get which requests follows from each model’s kind."
+      >
         <div id="prov-capabilities" class="flex flex-wrap gap-2">
           <ToggleChip
             v-for="c in PROVIDER_CAPABILITIES"
@@ -244,6 +264,11 @@ async function remove(): Promise<void> {
       </FieldGroup>
       <TextField id="prov-timeout" v-model="timeoutSeconds" label="Timeout (seconds)" type="number" min="1" max="900" inputmode="numeric" :error="errors.timeoutSeconds" />
       <CheckField v-model="isEnabled" label="Enabled" description="Turn off to stop routing to this provider." />
+      <CheckField
+        v-model="autoUpdatePrices"
+        label="Prices from models.dev"
+        description="Models follow the models.dev list price, updated daily, unless a model opts out (Anthropic, Ollama Cloud, OpenAI, OpenRouter, and Claude on Azure). Other Azure deployments keep their own price and get the models.dev price only while they have none. Turn off to set every price yourself."
+      />
     </form>
 
     <section v-if="provider" class="mt-8 flex flex-col gap-3 border-t border-border pt-6" aria-labelledby="prov-discover">

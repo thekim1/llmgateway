@@ -61,6 +61,7 @@ const priceToDraft = (p: DiscoveredPrice | null | undefined): PriceDraft => ({
   ...(p ? { input: String(p.inputPerMillionUsd), cached: String(p.cachedInputPerMillionUsd), output: String(p.outputPerMillionUsd) } : {}),
   ...(p?.audioInputPerMillionUsd ? { audioIn: String(p.audioInputPerMillionUsd) } : {}),
   ...(p?.audioOutputPerMillionUsd ? { audioOut: String(p.audioOutputPerMillionUsd) } : {}),
+  ...(p?.cacheWriteInputPerMillionUsd != null ? { cacheWrite: String(p.cacheWriteInputPerMillionUsd) } : {}),
 })
 
 /** Audio token prices only apply to speech models; others leave them out of the form. */
@@ -115,18 +116,21 @@ const visible = computed(() => {
   })
 })
 /** Capabilities the provider reports that the saved model lacks, plus a context size it has not recorded yet. */
-function pendingUpdate(m: DiscoveredModel): { features: string[]; context: number | null } | null {
+/** What discovery knows that the saved model lacks: capabilities, context window, description and the model behind a deployment. */
+function pendingUpdate(m: DiscoveredModel): { features: string[]; context: number | null; description: string | null; baseModel: string | null } | null {
   const current = existing(m)
   if (!current) return null
   const features = m.features.filter((f) => !current.features.includes(f))
   const context = current.contextWindow == null ? m.contextWindow : null
-  return features.length || context != null ? { features, context } : null
+  const description = !current.description && m.description ? m.description : null
+  const baseModel = !current.baseModel && m.baseModel && m.baseModel !== current.upstreamModel ? m.baseModel : null
+  return features.length || context != null || description || baseModel ? { features, context, description, baseModel } : null
 }
 const updatable = computed(() => visible.value.filter((m) => pendingUpdate(m)))
 const updating = ref(false)
 const updatedCount = ref<number | null>(null)
 
-/** Adds reported capabilities to saved models. Tags set by hand are kept; nothing is removed. */
+/** Adds what the provider and models.dev report to saved models. Tags and text set by hand are kept; nothing is removed. */
 async function updateFromProvider(list: DiscoveredModel[]): Promise<void> {
   updating.value = true
   rowError.value = null
@@ -146,6 +150,8 @@ async function updateFromProvider(list: DiscoveredModel[]): Promise<void> {
         contextWindow: pending.context ?? current.contextWindow,
         isEnabled: current.isEnabled,
         features: merged,
+        ...(pending.description ? { description: pending.description } : {}),
+        ...(pending.baseModel ? { baseModel: pending.baseModel } : {}),
       })
       const draft = drafts.value[m.id]
       if (draft) draft.features = merged
@@ -160,6 +166,8 @@ async function updateFromProvider(list: DiscoveredModel[]): Promise<void> {
 }
 
 const selectable = computed(() => visible.value.filter((m) => !m.alreadyAdded))
+/** An added model whose price follows models.dev: its price is not edited here. */
+const followsList = (m: DiscoveredModel): boolean => existing(m)?.priceMode === 'List'
 
 async function discover(): Promise<void> {
   if (!props.provider) return
@@ -269,7 +277,7 @@ async function saveExisting(m: DiscoveredModel): Promise<void> {
       isEnabled: current.isEnabled,
       features: d.features,
     })
-    if (price && !samePrice(price, current.currentPrice)) await models.addPrice(current.id, price)
+    if (price && !followsList(m) && !samePrice(price, current.currentPrice)) await models.addPrice(current.id, price)
     savedId.value = m.id
   } catch (e) {
     rowError.value = { id: m.id, error: e }
@@ -302,6 +310,8 @@ async function addSelected(): Promise<void> {
         contextWindow: m.contextWindow,
         isEnabled: true,
         features: featuresOf(m),
+        ...(m.description ? { description: m.description } : {}),
+        ...(m.baseModel && m.baseModel !== m.id ? { baseModel: m.baseModel } : {}),
         ...(price ? { price } : {}),
       })
       count++
@@ -372,18 +382,21 @@ async function addSelected(): Promise<void> {
               />
               <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span class="break-all font-mono text-small">{{ m.id }}</span>
+                <span v-if="m.description" class="text-caption text-fg-2">{{ m.description }}</span>
                 <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-fg-3">
                   <span>{{ KIND_LABEL[m.kind] }}</span>
                   <span v-if="m.contextWindow">{{ formatNumber(m.contextWindow) }} tokens</span>
                   <span v-if="priceOf(m)">{{ formatUsd(priceOf(m)!.inputPerMillionUsd) }} in / {{ formatUsd(priceOf(m)!.outputPerMillionUsd) }} out per 1M</span>
                   <span v-else>No price</span>
-                  <span v-if="suggestedFrom(m)" :title="suggestedFrom(m)!">Azure list price<span class="sr-only">: {{ suggestedFrom(m) }}</span></span>
+                  <span v-if="suggestedFrom(m)" :title="suggestedFrom(m)!">{{ suggestedFrom(m)!.split(':')[0] }}<span class="sr-only">: {{ suggestedFrom(m) }}</span></span>
                   <UiBadge v-for="f in featuresOf(m)" :key="f" tone="neutral" :label="featureLabel(f)" />
                   <UiBadge v-if="m.alreadyAdded" tone="neutral" label="Already added" />
                   <span v-if="sharedWith(m).length">
                     Also offered by {{ sharedWith(m).join(', ') }}: clients call <span class="font-mono">{{ provider!.name }}/{{ m.id }}</span>
                   </span>
                   <span v-if="pendingUpdate(m)?.features.length" class="text-accent-ink">New from provider: {{ pendingUpdate(m)!.features.map(featureLabel).join(', ') }}</span>
+                  <span v-if="pendingUpdate(m)?.baseModel" class="text-accent-ink">Base model: <span class="font-mono">{{ pendingUpdate(m)!.baseModel }}</span></span>
+                  <span v-if="pendingUpdate(m)?.description" class="text-accent-ink">New description</span>
                 </span>
               </span>
               <UiButton v-if="pendingUpdate(m)" size="sm" :loading="updating" @click="updateFromProvider([m])">
@@ -401,7 +414,10 @@ async function addSelected(): Promise<void> {
                   <ToggleChip v-for="f in featureChoices(m)" :key="f" :label="featureLabel(f)" :model-value="peek(m).features.includes(f)" @update:model-value="setFeature(m, f, $event)" />
                 </div>
               </fieldset>
-              <fieldset class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+              <p v-if="followsList(m)" class="m-0 text-small text-fg-2">
+                The price follows models.dev and is updated daily. To set your own, turn off <em>Price from models.dev</em> in the model.
+              </p>
+              <fieldset v-else class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
                 <legend class="mb-1 text-small font-medium">Price (USD per 1M tokens)</legend>
                 <div class="grid gap-3 sm:grid-cols-3">
                   <TextField :model-value="peek(m).price.input" label="Input" inputmode="decimal" :error="priceErrors[m.id]?.input" @update:model-value="setPrice(m, 'input', $event)" />

@@ -55,9 +55,10 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
         var names = PublicModelNames.Public(providers.SelectMany(p => p.Deployments)); // tracked: ProviderAccount is fixed up
         var globalRules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).Where(r => r.Scope == RoutingScope.Global && !r.IsTemplate).OrderBy(r => r.Priority).ThenBy(r => r.Name).ToListAsync(ct);
         return new ConfigDocument(
-            [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.Capabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName)))],
+            [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.SupportedCapabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName, AutoUpdatePrices: p.AutoUpdatePrices)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
-                new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled),
+                new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, Features: m.Features,
+                    AutoUpdatePrice: m.AutoUpdatePrice, Description: m.Description, BaseModel: m.BaseModel),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd, price.CacheWriteInputPerMillionUsd))])))],
             [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
             RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);

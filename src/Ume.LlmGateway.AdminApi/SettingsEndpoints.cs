@@ -220,5 +220,12 @@ public static class SettingsEndpoints
         settings.MapPost("/retention/run", async (GatewaySettingsService service, CancellationToken ct) =>
             TypedResults.Accepted("/api/settings/retention", await service.RunRetentionAsync(ct)))
             .WithName("RunRetention").WithSummary("Starts the removal of old data now (it runs in the background)");
+        settings.MapGet("/model-prices", (ModelListSync sync) => TypedResults.Ok(sync.Status()))
+            .WithName("GetModelPriceSync").WithSummary("Whether model prices follow the models.dev list, and this instance's last update");
+        settings.MapPost("/model-prices/run", (ModelListSync sync) =>
+            sync.TryTrigger()
+                ? TypedResults.Accepted("/api/settings/model-prices", sync.Status())
+                : throw new ApiFaultException(409, sync.Enabled ? "A price list check is already running." : "Price list updates are turned off (Admin:AutoUpdatePrices, Admin:PriceListUrl)."))
+            .WithName("RunModelPriceSync").WithSummary("Downloads the models.dev list and updates prices and empty model details now (in the background)");
     }
 }

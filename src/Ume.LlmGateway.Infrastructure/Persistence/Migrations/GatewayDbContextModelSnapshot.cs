@@ -447,8 +447,19 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AutoUpdatePrice")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("BaseModel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<int?>("ContextWindow")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.PrimitiveCollection<string[]>("Features")
                         .IsRequired()
@@ -532,6 +543,10 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)");
 
+                    b.Property<string>("Source")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ModelDeploymentId", "EffectiveFrom")
@@ -550,6 +565,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("AutoUpdatePrices")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("BaseUrl")
                         .IsRequired()

@@ -40,6 +40,10 @@ shows this as a notice.
 - API rate limit: 120 requests/minute per authenticated subject (`Admin:RequestsPerMinute`, 1–10000).
   Exceeded → 429 ProblemDetails with `Retry-After`.
 - Suggested Azure AI Foundry prices come from the Azure retail price list of `Admin:AzurePriceRegion` (default `swedencentral`).
+- Model list prices come from models.dev (`Admin:PriceListUrl`, default `https://models.dev/api.json`, no key; the admin API
+  needs outbound HTTPS to `models.dev`, or point it at a copy of the file). Once a day they are added to the price history of
+  models that follow the list, and empty model details are filled (`Admin:AutoUpdatePrices`, default `true`). An empty
+  `Admin:PriceListUrl` turns the list off. See *List prices* in [providers and models](providers-and-models.md#list-prices).
 - The newest release is read from GitHub (`https://api.github.com/repos/<Admin:ReleaseRepository>/releases/latest`, default
   `thekim1/llmgateway`, no key; the admin API needs outbound HTTPS to `api.github.com`). Set `Admin:CheckForReleases=false`
   (`Admin__CheckForReleases`) where it has no internet access; the running version is still shown.
@@ -137,33 +141,47 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
 - Plain HTTP is accepted only for on-prem local/test configuration. Production gateway
   invocation requires HTTPS even for on-prem targets and never follows upstream redirects.
   Configure approved TLS endpoints before enabling production providers.
-- `Provider = { id, name, displayName, type, baseUrl, authMode, hasCredential, residency, capabilities: ProviderCapabilities[], isEnabled, isDrained, timeoutSeconds, createdAt, deploymentCount }`
+- `Provider = { id, name, displayName, type, baseUrl, authMode, hasCredential, residency, capabilities: ProviderCapabilities[], isEnabled, isDrained, timeoutSeconds, createdAt, deploymentCount, autoUpdatePrices, priceList|null }`
+  (`autoUpdatePrices`: the provider's models follow the models.dev list price unless a model opts out; `priceList`: the
+  models.dev provider its models are looked up in, null when it has none)
   (credential is **write-only**, never returned)
-- `GET /api/providers` · `POST /api/providers` `{ name, displayName?, type, baseUrl, authMode, credential?, residency, capabilities, timeoutSeconds, isEnabled }`
+- `GET /api/providers` · `POST /api/providers` `{ name, displayName?, type, baseUrl, authMode, credential?, residency, capabilities?, timeoutSeconds, isEnabled, autoUpdatePrices? }`
+  (`capabilities` only for `OpenAICompatible`: omitted = unchanged, chat completions, streaming and embeddings for a new
+  one, `[]` is refused; other types ignore it) (omitted `autoUpdatePrices` = unchanged, on for a new provider)
 - `PUT /api/providers/{id}` same body; `credential`: omitted/null = unchanged, `""` = remove. A stored credential is only
   kept while the base URL's scheme, host and port stay the same: moving the provider elsewhere without a new `credential`
   (or `""`) answers `400` with a field error on `credential`.
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}` (409 if models exist)
-- `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd }|null, alreadyAdded }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
-- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom }`
+- `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, cacheWriteInputPerMillionUsd? }|null, priceSource|null, alreadyAdded, description|null, baseModel|null }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them; when the provider is in the models.dev list, a model gets what the provider does not report from it (price, capabilities, context window, description; `priceSource` says where a suggested price came from). A Foundry deployment is looked up by the model behind it (`baseModel`); an Azure AI Foundry provider lists the project's Claude deployments too (the gateway sends them to the resource's Anthropic API), an Anthropic provider at a Foundry address only those. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
+- `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom, source|null }`
   (`audioPerMinuteUsd` is for models billed by the duration of the input audio, such as Whisper and gpt-realtime-translate,
   up to ten decimals: a price per hour is sent divided by 60, one per second multiplied by 60; with it set and
   `audioInputPerMillionUsd` at 0, audio input tokens are covered by the duration and not billed as text; `audioInputPerMillionUsd`
   and `audioOutputPerMillionUsd` price the audio part of the tokens of realtime and gpt-4o-transcribe models, 0 = billed
   as text tokens; `perImageUsd` is for image models billed per picture, such as DALL·E; all four omitted on create = 0;
   `cacheWriteInputPerMillionUsd` prices prompt-cache writes (Anthropic `cache_creation_input_tokens`), omitted or null =
-  billed at `inputPerMillionUsd`)
+  billed at `inputPerMillionUsd`; `source` is read-only: where the price came from, e.g. `models.dev anthropic/claude-opus-4-5`,
+  null when an admin entered it)
 - `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
-  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). `ModelKind` (models and
+  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). A provider's
+  `capabilities` are what it serves: fixed by its type, except for `OpenAICompatible`, where the request's `capabilities`
+  are the endpoints the server offers (see *What a provider serves* in [providers and models](providers-and-models.md)). `ModelKind` (models and
   routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
   `*realtime-translate*` as `SpeechTranslation`, other `*realtime*` models as `Realtime` and `gpt-image*`, `dall-e*`,
   `flux*`, `imagen*` and `stable-diffusion*` models as `Image`; speech synthesis, video and chat-with-audio models are still left out.
 - `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
   gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
-- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null }`
-- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price }`
-- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[] }` · `DELETE /api/models/{id}` (409 if used by a route)
-- `GET /api/models/{id}/prices` → `Price[]` · `POST /api/models/{id}/prices` `Price` (effectiveFrom optional = now)
+- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null, publicName, description|null, autoUpdatePrice, priceMode, priceListKey|null, baseModel|null }`
+  (`autoUpdatePrice`: the price follows the models.dev list price when listed; `priceMode`: `List` follows the list price of
+  `priceListKey`, `Unlisted` is not in the list and priced by hand until it is, `Manual` has automatic prices off for the
+  model, its provider or the gateway, or is an Azure deployment other than Claude (priced by hand; the update only fills a
+  missing price); `priceListKey`: the model's models.dev entry, `provider/model`, null when it has none; `baseModel`: the
+  model behind an Azure deployment, which finds it in the list, and a `claude*` base model on a Foundry provider is sent
+  to the resource's Anthropic API)
+- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price, autoUpdatePrice?, description?, baseModel? }` (omitted `autoUpdatePrice` = true)
+- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], autoUpdatePrice?, description?, baseModel? }` (omitted = unchanged; `""` removes `description` or `baseModel`) · `DELETE /api/models/{id}` (409 if used by a route)
+- `GET /api/models/{id}/prices` → `Price[]` · `POST /api/models/{id}/prices` `Price` (effectiveFrom optional = now); 409 while
+  the model's `priceMode` is `List`: turn off `autoUpdatePrice` on the model or `autoUpdatePrices` on its provider first.
 - `Route = { id, name, description, kind, isEnabled, targets: [{ modelId, modelName, providerName, residency, priority, weight }] }`
 - `GET /api/routes` · `POST /api/routes` · `PUT /api/routes/{id}` body `{ name, description?, kind, isEnabled, targets: [{ modelId, priority, weight }] }` · `DELETE /api/routes/{id}`
 
@@ -237,6 +255,13 @@ and invalidate the gateway catalogue.
   build: `developmentBuild`, never `updateAvailable`). `latest` is the newest published GitHub release (drafts and pre-releases
   excluded), checked at most every 6 hours (after a failure, again within 30 minutes; `checkFailed` then keeps any earlier result);
   null when the check is off or no release exists. `url` is always a `github.com` link. Browsers never call GitHub.
+- `GET /api/settings/model-prices` *(gateway-admin)* → `{ enabled, priceListUrl, lastRunAt, followed, updated, enriched, error, nextRunAt, running }`:
+  the daily models.dev update. `enabled` is false when `Admin:AutoUpdatePrices` is off or `Admin:PriceListUrl` empty. `followed`
+  is the number of models in price mode `List` at the last run, `updated` the prices added (including missing Azure prices), `enriched` the models whose empty
+  description, capabilities or context window were filled; these, `lastRunAt` and `error` are those of the admin API instance
+  that answered. `POST /api/settings/model-prices/run` → 202 with the state: downloads the list now and updates in the
+  background (409 when a run is going or updates are off). Each added price is audited as `price`, each filled model as
+  `update`, by `system:price-list`.
 - `GET /api/settings/request-log` *(gateway-admin)* → `{ active, until, updatedAt }` · `PUT /api/settings/request-log`
   `{ logAllRequests, noTimeLimit }` *(gateway-admin)*. Whether the gateways log successful requests too (normally only refused,
   failed and cancelled ones; every request is a usage record either way). Switched on, it lasts 24 hours unless `noTimeLimit` is
@@ -285,7 +310,7 @@ and invalidate the gateway catalogue.
   numbers such as `-1.5` are left as they are. The Data API's CSV (comma-separated) uses the same rule.
 
 ## Catalogue (developer portal, any authenticated user)
-- `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputUsdPerMillion, outputUsdPerMillion }], models: [{ name, kind, residency, capabilities, inputUsdPerMillion, outputUsdPerMillion }] }`
+- `GET /api/catalog` → `{ gatewayBaseUrl, routes: [{ name, description, kind, residencies: DataResidency[], capabilities: ProviderCapabilities[], inputUsdPerMillion, outputUsdPerMillion }], models: [{ name, kind, residency, capabilities, inputUsdPerMillion, outputUsdPerMillion, description|null, features|null }] }`
 
 ## Operations (gateway-admin)
 - `GET /api/ops/health` → `{ checkedAt, components: [{ name, status: "Healthy"|"Degraded"|"Unhealthy", description }], versions: { adminApi, gateway: string|null, schema }, usageWriter: { queueDepth, capacity, inFlightRecords, lastWriteAt: string|null, consecutiveFailures, journaledBatches }|null, providers: [{ id, name, type, residency, isEnabled, isDrained, circuitState, requests24h, errorRate24h, providerErrorRate24h, fallbackRate24h, p50FirstTokenMs, p95FirstTokenMs, status, statusReason, recentRequests, recentProviderErrors }] }` (providers sorted by name; `p50FirstTokenMs`/`p95FirstTokenMs` are the provider's time to first token on streamed answers over 24 h, see `/api/ops/providers/stats`; `null` when it streamed none)

@@ -41,6 +41,7 @@ public sealed class AdminFixture : IAsyncLifetime
             builder.UseSetting("Oidc:Authority", "https://identity.invalid");
             builder.UseSetting("Admin:RequestsPerMinute", "10000");
             builder.UseSetting("Admin:CheckForReleases", "false"); // tests never call GitHub
+            builder.UseSetting("Admin:PriceListUrl", "https://models.dev.test/api.json"); // nor models.dev: ModelListJson is served instead
             builder.ConfigureTestServices(services =>
             {
                 services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, o =>
@@ -50,8 +51,18 @@ public sealed class AdminFixture : IAsyncLifetime
                         TokenEndpoint = "https://identity.invalid/token", EndSessionEndpoint = "https://identity.invalid/logout",
                     });
                 services.AddHeaderAuthentication();
+                services.AddHttpClient(ModelListService.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => new FakeModelList());
             });
         });
+    }
+
+    /// <summary>The models.dev list the admin API downloads (see ModelListTests); empty by default.</summary>
+    public static string ModelListJson { get; set; } = "{}";
+
+    private sealed class FakeModelList : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ModelListJson) });
     }
 
     /// <summary><paramref name="role"/> may name several roles, comma-separated; <paramref name="teams"/> are team codes.</summary>

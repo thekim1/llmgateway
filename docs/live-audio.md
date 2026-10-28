@@ -47,6 +47,7 @@ A session is one usage record (endpoint `Realtime` or `RealtimeTranslations`): `
 **Providers.** OpenAI (`https://api.openai.com/v1`), Azure OpenAI and Azure AI Foundry (`https://<resource>.openai.azure.com/openai/v1`
 or `…services.ai.azure.com/openai/v1`), Foundry Voice Live for other models in Sweden
 (`https://<resource>.services.ai.azure.com/voice-live?api-version=2026-04-10`; base URLs may now carry query parameters,
-never credentials), and on-prem servers with the same protocol such as vLLM and Speaches (`http://<server>/v1`). Give
-the provider the *Live audio (realtime)* capability. Behind nginx, pass the WebSocket upgrade (see
+never credentials), and on-prem servers with the same protocol such as vLLM and Speaches (`http://<server>/v1`). An
+OpenAI-compatible server needs *Live audio (realtime)* under *Endpoints this server offers*; the other types serve it
+already. Behind nginx, pass the WebSocket upgrade (see
 `deploy/proxy/nginx.conf.example`).

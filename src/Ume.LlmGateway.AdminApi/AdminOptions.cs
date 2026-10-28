@@ -29,6 +29,19 @@ public sealed class AdminOptions
     [RegularExpression("^[a-z0-9]{2,40}$")]
     public string AzurePriceRegion { get; set; } = "swedencentral";
 
+    /// <summary>
+    /// Where model list prices are read, once a day: models.dev's <c>api.json</c> or a copy of it (for an admin API without
+    /// internet access). Empty turns list prices off.
+    /// </summary>
+    [RegularExpression("^https?://.+")]
+    public string? PriceListUrl { get; set; } = "https://models.dev/api.json";
+
+    /// <summary>
+    /// Add a changed list price to the price history of every model whose price is not locked, once a day. Off, list prices are
+    /// only suggested when models are discovered.
+    /// </summary>
+    public bool AutoUpdatePrices { get; set; } = true;
+
     /// <summary>Whether the admin API asks GitHub for the latest release, shown in Settings. Turn off where the admin API has no internet access.</summary>
     public bool CheckForReleases { get; set; } = true;
 

@@ -345,6 +345,10 @@ export interface Provider {
   timeoutSeconds: number
   createdAt: IsoDateTime
   deploymentCount: number
+  /** The provider's models follow the models.dev list price (each model can opt out). */
+  autoUpdatePrices: boolean
+  /** The models.dev provider its models are looked up in; null when it has none (every price is set by hand). */
+  priceList: string | null
 }
 
 export interface ProviderRequest {
@@ -356,9 +360,12 @@ export interface ProviderRequest {
   /** Write-only. On update: omitted/null = unchanged, "" = remove. */
   credential?: string | null
   residency: DataResidency
-  capabilities: ProviderCapability[]
+  /** Only for an OpenAI-compatible server: the endpoints it offers. Other types serve what their API offers. Omitted = unchanged. */
+  capabilities?: ProviderCapability[]
   timeoutSeconds: number
   isEnabled: boolean
+  /** Optional; omitted keeps it (a new provider: on). */
+  autoUpdatePrices?: boolean
 }
 
 export interface DrainRequest {
@@ -379,6 +386,8 @@ export interface Price {
   /** Prompt-cache writes (Anthropic); null bills them at the input price. */
   cacheWriteInputPerMillionUsd: number | null
   effectiveFrom: IsoDateTime
+  /** Where the price came from, e.g. `models.dev anthropic/claude-opus-4-5`; null when an admin entered it. */
+  source: string | null
 }
 
 export interface NewPrice {
@@ -413,7 +422,22 @@ export interface Model {
   currentPrice: Price | null
   /** What clients call the model: its name, or provider/name when another provider has a model of the same name. */
   publicName: string
+  /** What the model is good for, shown in the catalogue; filled from models.dev when empty. */
+  description: string | null
+  /** The price follows the models.dev list price when the model is listed and its provider allows it. */
+  autoUpdatePrice: boolean
+  /**
+   * List: follows the models.dev price (no prices by hand). Unlisted: not in models.dev, priced by hand until it is.
+   * Manual: automatic prices are off for the model, its provider or the gateway.
+   */
+  priceMode: PriceMode
+  /** The model's models.dev entry (provider/model); null when it has none. */
+  priceListKey: string | null
+  /** The model behind an Azure deployment (gpt-4.1 behind prod-chat); null when upstreamModel is the model. */
+  baseModel: string | null
 }
+
+export type PriceMode = 'List' | 'Unlisted' | 'Manual'
 
 export interface CreateModelRequest {
   providerId: string
@@ -425,6 +449,10 @@ export interface CreateModelRequest {
   isEnabled: boolean
   features?: string[]
   price?: NewPrice
+  /** Optional, defaults to true: the price follows the models.dev list price when the model is listed. */
+  autoUpdatePrice?: boolean
+  description?: string | null
+  baseModel?: string | null
 }
 
 export interface UpdateModelRequest {
@@ -435,6 +463,12 @@ export interface UpdateModelRequest {
   contextWindow?: number | null
   isEnabled: boolean
   features?: string[]
+  /** Optional; omitted keeps it. */
+  autoUpdatePrice?: boolean
+  /** Optional; omitted keeps it, "" removes it. */
+  description?: string | null
+  /** Optional; omitted keeps it, "" removes it. */
+  baseModel?: string | null
 }
 
 export interface RouteTarget {
@@ -546,6 +580,23 @@ export interface LatestRelease {
   /** The release page on github.com. */
   url: string
   publishedAt: IsoDateTime | null
+}
+
+/** The daily price-list check. lastRunAt, updated and error describe the last run of the admin API instance that answered. */
+export interface ModelPriceSync {
+  /** Admin:AutoUpdatePrices is on and a price list is set (Admin:PriceListUrl). */
+  enabled: boolean
+  priceListUrl: string | null
+  lastRunAt: IsoDateTime | null
+  /** Unlocked models found in the price list at the last run. */
+  followed: number
+  /** Prices added at the last run. */
+  updated: number
+  /** Models whose empty description, capabilities or context window were filled at the last run. */
+  enriched: number
+  error: string | null
+  nextRunAt: IsoDateTime | null
+  running: boolean
 }
 
 export interface VersionInfo {
@@ -853,6 +904,8 @@ export interface CatalogModel {
   capabilities: ProviderCapability[]
   inputUsdPerMillion: number | null
   outputUsdPerMillion: number | null
+  description: string | null
+  features: string[] | null
 }
 
 export interface Catalog {
@@ -1144,6 +1197,10 @@ export interface DiscoveredModel {
   alreadyAdded: boolean
   /** Where a suggested price came from, e.g. the Azure list price meters of a Foundry deployment. */
   priceSource: string | null
+  /** From models.dev when the provider has a list. */
+  description: string | null
+  /** The model behind an Azure deployment. */
+  baseModel: string | null
 }
 
 export interface DiscoveredPrice {
@@ -1152,4 +1209,5 @@ export interface DiscoveredPrice {
   outputPerMillionUsd: number
   audioInputPerMillionUsd?: number
   audioOutputPerMillionUsd?: number
+  cacheWriteInputPerMillionUsd?: number | null
 }

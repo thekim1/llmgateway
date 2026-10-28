@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## 0.8.4 - 2026-10-29
+
+Model prices follow the open models.dev list instead of being kept by hand on every installation, and models get
+descriptions and capabilities from it; one Azure AI Foundry provider now serves Claude too; known provider types need no
+capability boxes; teams can manage their own keys; audio can be priced per second, minute or hour; and a sizing guide and
+one benchmark baseline. Migrations `AudioDurationPrecision`, `TeamCodes`, `ModelListPrices` and `ModelBaseModel`; read the
+0.8.4 section of `docs/upgrade-guide.md` before upgrading (prices of existing models can change). Rolling update: yes.
+
+**Model prices and details from models.dev.** Prices for Anthropic (also Claude on Foundry), Ollama Cloud, OpenAI and
+OpenRouter models no longer have to be kept up to date by hand on every installation. Once a day the admin API reads the
+open [models.dev](https://models.dev) list and adds a changed list price to the price history of every model that follows
+it, from the time of the check (earlier usage keeps its cost). Input, output, cached input, cache write and audio-token
+prices come from the list; a duration or per-image price is kept. Following the list is on by default and can be turned
+off per model (*Price from models.dev*) or per provider (*Prices from models.dev*); a model that follows the list cannot be
+given a price by hand, and a model that is not in the list is priced by hand until it is. *Providers › Models* shows each
+model's price mode and can filter by it, the price history shows each price's source, and changes are audited as
+`system:price-list`. The same list fills in a model's empty description (new, shown in the catalogue), capabilities and
+context window, and discovery uses it for what the provider does not report. *Settings › Model prices* shows the last
+update and has *Check now*. Configure with `Admin:PriceListUrl` (a copy of the file for an admin API without internet
+access, or empty to turn it off) and `Admin:AutoUpdatePrices`. Azure OpenAI and Foundry deployments get descriptions, capabilities and context
+windows from the list too (looked up by the model behind the deployment), and its price when they have none; Azure's own
+price is otherwise kept.
+
+**No capability boxes for known providers.** What a provider serves now follows from its type: OpenAI, Azure OpenAI and
+Foundry the whole OpenAI API, Anthropic chat and Messages, Ollama chat and embeddings, Ollama Cloud chat, and Claude on
+Foundry chat and Messages. The provider form shows what the type supports instead of eight boxes to get right; only an
+OpenAI-compatible server still has *Endpoints this server offers* (default chat, streaming and embeddings). Which model
+gets a request still follows the model's kind. Rolling update: yes.
+
+**One Azure AI Foundry provider for every model, Claude included.** A Foundry provider now discovers the project's Claude
+deployments and the gateway sends them to the resource's Anthropic API (`…/anthropic/v1`, same key), while the other
+deployments go to `…/openai/v1`; admins no longer add a second, Anthropic-type provider per Foundry resource. Models get a
+*Base model* (the model behind a deployment, set by discovery) that decides this and finds the model in models.dev.
+Existing Anthropic providers at a Foundry address keep working. Migration `ModelBaseModel`. Rolling update: yes.
+
+The configuration export now includes model capabilities. Migration
+`ModelListPrices`. Rolling update: yes.
+
 **Sizing.** *Production setup* has a *Sizing* section, and the website's Benchmarks page a *What to run it on* section:
 for up to about 50 messages/s, one host with 2 vCPU, 4 GB RAM and 20 GB disk plus usage data (about 560 bytes per
 request kept), or 1–1.5 vCPU and 1.5 GB for the gateway and admin API with your own Postgres and Redis. Measured with
