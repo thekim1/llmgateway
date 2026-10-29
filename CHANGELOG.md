@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.5 - 2026-10-29
+
+**Fix: Claude on an Azure AI Foundry provider failed with 401.** The gateway sent the provider's key to the resource's
+Anthropic API in the `api-key` header, which that API does not read; it now sends it in `x-api-key`. A Bearer token is
+sent as before. Rolling update: yes.
+
 ## 0.8.4 - 2026-10-29
 
 Model prices follow the open models.dev list instead of being kept by hand on every installation, and models get

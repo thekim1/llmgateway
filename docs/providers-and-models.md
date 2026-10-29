@@ -55,7 +55,8 @@ by the OpenAI v1 API, but Claude only by the Anthropic API. An *Azure AI Foundry
 once, with the project endpoint (`https://<resource>.services.ai.azure.com/api/projects/<project>`) and the API key
 (`api-key` header). Discovery lists every deployment of the project, Claude included, and records the model behind each
 one as its **base model** (`gpt-4.1` behind a deployment called `prod-chat`). The gateway sends a deployment whose base
-model (or, without one, deployment name) starts with `claude` to the resource's `…/anthropic/v1` with the same key, and
+model (or, without one, deployment name) starts with `claude` to the resource's `…/anthropic/v1` with the same key (in
+the `x-api-key` header the Anthropic API reads), and
 every other deployment to `…/openai/v1`. Health, circuit breaker, usage and a key's provider allow-list treat it as the
 one provider. Clients can call `/v1/chat/completions` or `/v1/messages` for Claude either way: the gateway translates.
 For a Claude deployment added by hand under a name of its own, set its *Base model* (`claude-sonnet-4-5`) in the model

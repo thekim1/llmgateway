@@ -53,9 +53,20 @@ public class FoundryEndpointTests
         view.BaseUrl.ShouldBe("https://res.services.ai.azure.com/anthropic/v1");
         view.Type.ShouldBe(ProviderType.Anthropic);
         // Same provider for credentials, health, circuit, usage and the key's provider allow-list.
-        (view.Id, view.Name, view.EncryptedCredential, view.AuthMode, view.Residency, view.TimeoutSeconds, view.IsDrained)
-            .ShouldBe((foundry.Id, foundry.Name, foundry.EncryptedCredential, foundry.AuthMode, foundry.Residency, foundry.TimeoutSeconds, foundry.IsDrained));
+        (view.Id, view.Name, view.EncryptedCredential, view.Residency, view.TimeoutSeconds, view.IsDrained)
+            .ShouldBe((foundry.Id, foundry.Name, foundry.EncryptedCredential, foundry.Residency, foundry.TimeoutSeconds, foundry.IsDrained));
         view.Capabilities.ShouldBe(ProviderCapabilities.ChatCompletions | ProviderCapabilities.AnthropicMessages | ProviderCapabilities.Streaming);
         foundry.BaseUrl.ShouldBe(baseUrl); // the provider itself is unchanged
+    }
+
+    [Theory]
+    [InlineData(ProviderAuthMode.ApiKeyHeader, ProviderAuthMode.XApiKeyHeader)] // the Anthropic API answers 401 to api-key
+    [InlineData(ProviderAuthMode.XApiKeyHeader, ProviderAuthMode.XApiKeyHeader)]
+    [InlineData(ProviderAuthMode.Bearer, ProviderAuthMode.Bearer)]
+    public void Anthropic_view_sends_the_key_where_the_Anthropic_API_reads_it(ProviderAuthMode foundryAuth, ProviderAuthMode viewAuth)
+    {
+        var foundry = Foundry();
+        foundry.AuthMode = foundryAuth;
+        FoundryEndpoint.AnthropicView(foundry).AuthMode.ShouldBe(viewAuth);
     }
 }

@@ -66,7 +66,8 @@ public static class FoundryEndpoint
     /// <summary>
     /// The resource's Anthropic API as an Anthropic provider, for the Claude deployments of a Foundry provider: the same id
     /// (so health, circuit and usage stay the provider's), name, credential, residency and switches; the address
-    /// <c>https://&lt;resource&gt;.services.ai.azure.com/anthropic/v1</c>; what an Anthropic provider serves.
+    /// <c>https://&lt;resource&gt;.services.ai.azure.com/anthropic/v1</c>; what an Anthropic provider serves. The Anthropic API
+    /// takes a key in <c>x-api-key</c>, not <c>api-key</c>, so a key moves header; a Bearer token stays one.
     /// <paramref name="foundry"/> must still have the address the admin entered.
     /// </summary>
     public static ProviderAccount AnthropicView(ProviderAccount foundry)
@@ -80,7 +81,7 @@ public static class FoundryEndpoint
             DisplayName = foundry.DisplayName,
             Type = ProviderType.Anthropic,
             BaseUrl = new UriBuilder(uri.Scheme, ServicesHost(uri.Host), uri.Port, "/anthropic/v1").Uri.ToString().TrimEnd('/'),
-            AuthMode = foundry.AuthMode,
+            AuthMode = foundry.AuthMode == ProviderAuthMode.ApiKeyHeader ? ProviderAuthMode.XApiKeyHeader : foundry.AuthMode,
             EncryptedCredential = foundry.EncryptedCredential,
             Residency = foundry.Residency,
             Capabilities = ProviderTypes.AnthropicApi,

@@ -11,6 +11,14 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.5: Claude on the Foundry provider authenticates
+
+- **Rolling update: yes.** No migration and no configuration change.
+- **Fixed:** Claude deployments of an Azure AI Foundry provider with an API key failed with 401 (502 to the client): the key
+  went to the resource's Anthropic API in `api-key`, which it does not read. It now goes in `x-api-key`.
+- **Remove workarounds:** a separate *Anthropic* provider kept only for Foundry's Claude deployments is no longer needed;
+  see [Providers and models](providers-and-models.md).
+
 ## 0.8.4: model prices from models.dev, Claude on the Foundry provider, team admins, audio priced per unit
 
 - **Rolling update: yes.** Four migrations, each adding nullable or defaulted columns or widening one, so the previous
