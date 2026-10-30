@@ -152,11 +152,11 @@ public static class ConfigurationEndpoints
             TypedResults.Ok(await ModelDiscovery.DiscoverAsync(await catalog.ProviderAsync(id, ct), clients.CreateClient(ModelDiscovery.HttpClientName), protector,
                 requireHttps: environment.IsProduction(), ct, azurePrices.GetAsync, c => modelList.GetAsync(c))))
             .WithName("DiscoverModels").WithSummary("Lists the models the provider offers");
-        providers.MapDelete("/{id:guid}", async (Guid id, ProviderCatalogService catalog, CancellationToken ct) =>
+        providers.MapDelete("/{id:guid}", async (Guid id, bool? deleteModels, ProviderCatalogService catalog, CancellationToken ct) =>
         {
-            await catalog.DeleteProviderAsync(id, ct);
+            await catalog.DeleteProviderAsync(id, deleteModels ?? false, ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteProvider").WithSummary("Deletes a provider without models");
+        }).WithName("DeleteProvider").WithSummary("Deletes a provider; one with models only with deleteModels=true, and only when no route or routing rule uses them");
 
         var models = api.MapGroup("/models").RequireAuthorization(AdminPolicies.Admin).WithTags("Models");
         models.MapGet("", async (ProviderCatalogService catalog, CancellationToken ct) => TypedResults.Ok(await catalog.ModelsAsync(ct)))

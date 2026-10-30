@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.6 - 2026-10-30
+
+**A provider can be deleted together with its models.** Removing a provider that a configuration import brought along no
+longer means deleting its models one by one: *Delete* on the provider now offers *Delete provider and N models* and
+removes them in one transaction (API: `DELETE /api/providers/{id}?deleteModels=true`). It is refused while a route or
+routing rule uses one of the models, naming it. No migration. Rolling update: yes.
+
 ## 0.8.5 - 2026-10-29
 
 **Fix: Claude on an Azure AI Foundry provider failed with 401.** The gateway sent the provider's key to the resource's

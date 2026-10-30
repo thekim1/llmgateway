@@ -3,11 +3,17 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ApiError } from '@/api/client'
 import type { Provider } from '@/api/types'
+import { inlineOverlay } from '@/test/fixtures'
 import ProviderFormDrawer from './ProviderFormDrawer.vue'
 
 const update = vi.fn()
+const remove = vi.fn()
+const loadModels = vi.fn()
 
-vi.mock('@/stores/providers', () => ({ useProvidersStore: () => ({ update: (...a: unknown[]) => update(...a), create: vi.fn(), setDrained: vi.fn(), remove: vi.fn() }) }))
+vi.mock('@/stores/providers', () => ({
+  useProvidersStore: () => ({ update: (...a: unknown[]) => update(...a), create: vi.fn(), setDrained: vi.fn(), remove: (...a: unknown[]) => remove(...a) }),
+}))
+vi.mock('@/stores/models', () => ({ useModelsStore: () => ({ loaded: true, load: () => loadModels() }) }))
 
 const saved: Provider = {
   id: 'p1',
@@ -36,6 +42,7 @@ function mountForm(provider: Provider = saved) {
       stubs: {
         UiDrawer: { template: '<div><slot /><slot name="footer" /></div>' },
         DiscoverModelsDialog: { props: ['open'], template: '<div data-test="discover" :data-open="String(open)" />' },
+        UiDialog: inlineOverlay,
       },
     },
   })
@@ -156,5 +163,52 @@ describe('ProviderFormDrawer endpoints', () => {
     await flushPromises()
 
     expect(update.mock.lastCall?.[1]).toMatchObject({ capabilities: ['ChatCompletions', 'Streaming'] })
+  })
+})
+
+describe('ProviderFormDrawer delete', () => {
+  const button = (wrapper: ReturnType<typeof mountForm>, text: string) => wrapper.findAll('button').find((b) => b.text() === text)!
+
+  beforeEach(() => {
+    remove.mockReset()
+    remove.mockResolvedValue(undefined)
+    loadModels.mockReset()
+  })
+
+  it('deletes a provider without models on its own', async () => {
+    const wrapper = mountForm()
+    await button(wrapper, 'Delete').trigger('click')
+    await button(wrapper, 'Delete provider').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('p1', false)
+    expect(loadModels).not.toHaveBeenCalled()
+  })
+
+  it('deletes a provider together with its models and reloads the models', async () => {
+    const wrapper = mountForm({ ...saved, deploymentCount: 3 })
+    expect(button(wrapper, 'Delete').attributes('disabled')).toBeUndefined()
+    await button(wrapper, 'Delete').trigger('click')
+    expect(wrapper.text()).toContain('and its 3 models are removed for good')
+
+    await button(wrapper, 'Delete provider and 3 models').trigger('click')
+    await flushPromises()
+
+    expect(remove).toHaveBeenCalledWith('p1', true)
+    expect(loadModels).toHaveBeenCalled()
+    expect(wrapper.emitted('deleted')).toHaveLength(1)
+  })
+
+  it('shows why the models cannot be deleted', async () => {
+    remove.mockImplementation(async () => {
+      throw new ApiError(409, 'DELETE', { detail: "The provider's models are used in the routes ume/chat. Remove them from the routes first." })
+    })
+    const wrapper = mountForm({ ...saved, deploymentCount: 2 })
+    await button(wrapper, 'Delete').trigger('click')
+    await button(wrapper, 'Delete provider and 2 models').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('used in the routes ume/chat')
+    expect(wrapper.emitted('deleted')).toBeUndefined()
   })
 })

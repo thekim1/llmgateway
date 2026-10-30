@@ -14,6 +14,14 @@ request then follows from the model's kind (an embedding model gets `/v1/embeddi
 | Ollama Cloud | chat completions, streaming |
 | OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server) |
 
+## Removing a provider
+
+Open the provider and choose **Delete**. A provider with models is deleted together with them (*Delete provider and
+N models*), with their price history, in one step; usage already recorded keeps its records and cost. This is meant for
+a provider brought over with a configuration import that does not belong in this environment. It is refused while a
+route or routing rule uses one of the models: the message names the route or rule, so take the models out of it first.
+Each deleted model gets its own entry in the audit log. API: `DELETE /api/providers/{id}?deleteModels=true`.
+
 ## Discovering models
 
 Instead of typing models in by hand, open a provider (**Providers & models**) and choose

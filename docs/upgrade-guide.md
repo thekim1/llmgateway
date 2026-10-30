@@ -11,6 +11,13 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.6: a provider is deleted together with its models
+
+- **Rolling update: yes.** No migration and no configuration change.
+- **New:** *Delete* on a provider with models deletes them with it (*Delete provider and N models*), in one transaction;
+  refused while a route or routing rule uses one of them. API: `DELETE /api/providers/{id}?deleteModels=true`; without
+  the flag the call is 409 as before. See [Providers and models](providers-and-models.md#removing-a-provider).
+
 ## 0.8.5: Claude on the Foundry provider authenticates
 
 - **Rolling update: yes.** No migration and no configuration change.

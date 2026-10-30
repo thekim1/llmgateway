@@ -868,6 +868,56 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task A_provider_is_deleted_with_its_models_once_no_route_uses_them()
+    {
+        using var client = await fixture.ClientAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        using var providerResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            name = "bulk-" + suffix, baseUrl = "http://localhost:12345/v1", type = "Ollama", authMode = "None", residency = "OnPrem",
+            timeoutSeconds = 10, isEnabled = true,
+        }, TestContext.Current.CancellationToken);
+        var providerId = (await AdminFixture.ReadAsync(providerResponse, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+        var modelIds = new List<Guid>();
+        foreach (var n in new[] { "a", "b", "c" })
+        {
+            using var modelResponse = await client.PostAsJsonAsync("/api/models", new
+            {
+                providerId, name = $"bulk-{suffix}/{n}", upstreamModel = n, kind = "Chat", parameterProfile = "Standard", isEnabled = true,
+                price = new { inputPerMillionUsd = 1, cachedInputPerMillionUsd = 0.5m, outputPerMillionUsd = 2 },
+            }, TestContext.Current.CancellationToken);
+            modelIds.Add((await AdminFixture.ReadAsync(modelResponse, HttpStatusCode.Created))["id"]!.GetValue<Guid>());
+        }
+        using var routeResponse = await client.PostAsJsonAsync("/api/routes", new
+        {
+            name = "bulk/route-" + suffix, kind = "Chat", targets = new[] { new { modelId = modelIds[1], priority = 0, weight = 1 } }, isEnabled = true,
+        }, TestContext.Current.CancellationToken);
+        var routeId = (await AdminFixture.ReadAsync(routeResponse, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+
+        using var withoutFlag = await client.DeleteAsync($"/api/providers/{providerId}", TestContext.Current.CancellationToken);
+        withoutFlag.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        using var usedByRoute = await client.DeleteAsync($"/api/providers/{providerId}?deleteModels=true", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(usedByRoute, HttpStatusCode.Conflict))["detail"]!.GetValue<string>().ShouldContain("bulk/route-" + suffix);
+
+        using var deleteRoute = await client.DeleteAsync($"/api/routes/{routeId}", TestContext.Current.CancellationToken);
+        deleteRoute.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        using var deleted = await client.DeleteAsync($"/api/providers/{providerId}?deleteModels=true", TestContext.Current.CancellationToken);
+        deleted.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        using var models = await client.GetAsync("/api/models", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(models)).AsArray().ShouldNotContain(m => modelIds.Contains(m!["id"]!.GetValue<Guid>()));
+        using var providers = await client.GetAsync("/api/providers", TestContext.Current.CancellationToken);
+        (await AdminFixture.ReadAsync(providers)).AsArray().ShouldNotContain(p => p!["id"]!.GetValue<Guid>() == providerId);
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+        var ids = modelIds.Select(id => id.ToString()).ToList();
+        var audited = await db.AuditLog.Where(a => a.Action == AuditActions.Delete && a.EntityType == AuditEntities.Model && ids.Contains(a.EntityId!))
+            .Select(a => a.EntityId).ToListAsync(TestContext.Current.CancellationToken);
+        modelIds.Select(id => id.ToString()).ShouldBeSubsetOf(audited);
+        (await db.ModelPrices.CountAsync(p => modelIds.Contains(p.ModelDeploymentId), TestContext.Current.CancellationToken)).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Import_rejects_plaintext_credentials_and_rolls_back_invalid_references()
     {
         using var client = await fixture.ClientAsync();

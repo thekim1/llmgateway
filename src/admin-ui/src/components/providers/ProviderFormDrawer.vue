@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { DataResidency, Provider, ProviderAuthMode, ProviderCapability, ProviderType } from '@/api/types'
 import { DATA_RESIDENCIES, PROVIDER_AUTH_MODES, PROVIDER_CAPABILITIES, PROVIDER_TYPES } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
+import { useModelsStore } from '@/stores/models'
 import { useProvidersStore } from '@/stores/providers'
 import { useUiStore } from '@/stores/ui'
 import { AUTH_MODE_LABEL, CAPABILITY_LABEL, PROVIDER_TYPE_LABEL, RESIDENCY, TYPE_CAPABILITIES, plural } from '@/utils/labels'
@@ -24,6 +25,7 @@ const props = defineProps<{ open: boolean; provider: Provider | null }>()
 const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'deleted'): void }>()
 
 const providers = useProvidersStore()
+const models = useModelsStore()
 const ui = useUiStore()
 const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   name: 'prov-name',
@@ -72,7 +74,7 @@ const confirmDrain = ref(false)
 const typeOptions = PROVIDER_TYPES.map((v) => ({ value: v, label: PROVIDER_TYPE_LABEL[v] }))
 const authOptions = PROVIDER_AUTH_MODES.map((v) => ({ value: v, label: AUTH_MODE_LABEL[v] }))
 const residencyOptions = DATA_RESIDENCIES.map((v) => ({ value: v, label: `${RESIDENCY[v].glyph} ${RESIDENCY[v].label}` }))
-const deleteBlocked = computed(() => (props.provider?.deploymentCount ?? 0) > 0)
+const modelCount = computed(() => props.provider?.deploymentCount ?? 0)
 /** Discovery uses the saved provider, so unsaved edits (a new URL or key) are saved first. */
 const dirty = computed(() => {
   const p = props.provider
@@ -208,8 +210,11 @@ async function setDrained(drained: boolean): Promise<void> {
 
 async function remove(): Promise<void> {
   if (!props.provider) return
-  await providers.remove(props.provider.id)
-  ui.notify('Provider deleted')
+  const withModels = modelCount.value > 0
+  await providers.remove(props.provider.id, withModels)
+  // Other providers' models may lose their provider/ prefix (publicName), so reload rather than filter.
+  if (withModels && models.loaded) await models.load()
+  ui.notify(withModels ? `Provider and ${plural(modelCount.value, 'model')} deleted` : 'Provider deleted')
   emit('deleted')
   emit('update:open', false)
 }
@@ -298,16 +303,23 @@ async function remove(): Promise<void> {
       <UiButton variant="primary" type="submit" form="provider-form" :loading="busy">{{ provider ? 'Save changes' : 'Create provider' }}</UiButton>
       <UiButton @click="emit('update:open', false)">Cancel</UiButton>
       <template v-if="provider">
-        <span class="ml-auto flex flex-col items-end gap-1">
-          <UiButton variant="danger" :disabled="deleteBlocked" :aria-describedby="deleteBlocked ? 'prov-delete-reason' : undefined" @click="confirmDelete = true">Delete</UiButton>
-          <span v-if="deleteBlocked" id="prov-delete-reason" class="text-caption text-fg-3">Has {{ plural(provider.deploymentCount, 'model') }}. Delete them first.</span>
-        </span>
+        <UiButton class="ml-auto" variant="danger" @click="confirmDelete = true">Delete</UiButton>
       </template>
     </template>
 
     <DiscoverModelsDialog v-model:open="discoverOpen" :provider="provider" />
-    <ConfirmDialog v-model:open="confirmDelete" title="Delete provider?" confirm-label="Delete provider" danger :action="remove">
-      <span class="font-mono">{{ provider?.name }}</span> is removed for good.
+    <ConfirmDialog
+      v-model:open="confirmDelete"
+      :title="modelCount ? 'Delete provider and its models?' : 'Delete provider?'"
+      :confirm-label="modelCount ? `Delete provider and ${plural(modelCount, 'model')}` : 'Delete provider'"
+      danger
+      :action="remove"
+    >
+      <template v-if="modelCount">
+        <span class="font-mono">{{ provider?.name }}</span> and its {{ plural(modelCount, 'model') }} are removed for good, with their prices.
+        Usage already recorded is kept. Not possible while a route or routing rule uses one of the models.
+      </template>
+      <template v-else><span class="font-mono">{{ provider?.name }}</span> is removed for good.</template>
     </ConfirmDialog>
     <ConfirmDialog
       v-model:open="confirmDrain"

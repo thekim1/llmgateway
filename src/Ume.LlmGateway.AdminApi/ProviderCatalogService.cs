@@ -49,12 +49,27 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         return ProviderDto.Of(p);
     }
 
-    public async Task DeleteProviderAsync(Guid id, CancellationToken ct)
+    /// <summary>
+    /// Deletes the provider. With <paramref name="deleteModels"/> its models go too, in the same transaction and each with
+    /// its own audit entry; refused while a route or routing rule uses one of them, as for a single model.
+    /// </summary>
+    public async Task DeleteProviderAsync(Guid id, bool deleteModels, CancellationToken ct)
     {
         var p = await ProviderAsync(id, ct);
         if (p.Deployments.Count > 0)
         {
-            throw new ApiFaultException(409, "The provider has models and cannot be deleted.");
+            if (!deleteModels) { throw new ApiFaultException(409, "The provider has models and cannot be deleted."); }
+            var ids = p.Deployments.Select(m => m.Id).ToList();
+            var routes = await ctx.Db.RouteAliases.Where(r => r.Targets.Any(t => ids.Contains(t.ModelDeploymentId)))
+                .OrderBy(r => r.Name).Select(r => r.Name).ToListAsync(ct);
+            if (routes.Count > 0)
+            {
+                throw new ApiFaultException(409, $"The provider's models are used in the routes {string.Join(", ", routes)}. Remove them from the routes first.");
+            }
+
+            await rules.EnsureNotUsedByRulesAsync([.. p.Deployments.Select(m => m.Name)], "deleted", ct);
+            foreach (var m in p.Deployments) { ctx.StageAudit(AuditActions.Delete, AuditEntities.Model, m.Id, ModelAudit.Of(m), null); }
+            ctx.Db.ModelDeployments.RemoveRange(p.Deployments);
         }
 
         ctx.Db.ProviderAccounts.Remove(p);

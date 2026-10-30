@@ -268,15 +268,21 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
     // ---- integrity: names used by rules cannot disappear -------------------------------------------------
 
     /// <summary>Throws 409 if a rule uses <paramref name="name"/> as target or fallback (a route alias or model being removed or renamed).</summary>
-    public async Task EnsureNotUsedByRulesAsync(string name, string action, CancellationToken ct)
+    public Task EnsureNotUsedByRulesAsync(string name, string action, CancellationToken ct) => EnsureNotUsedByRulesAsync([name], action, ct);
+
+    /// <summary>As above for several names (a provider's models), with one read of the rules.</summary>
+    public async Task EnsureNotUsedByRulesAsync(IReadOnlyCollection<string> names, string action, CancellationToken ct)
     {
         var rules = await ctx.Db.RoutingRules.AsNoTracking().Include(r => r.Targets).ToListAsync(ct);
-        var user = rules.FirstOrDefault(r =>
-            r.Targets.Any(t => string.Equals(t.Model, name, StringComparison.OrdinalIgnoreCase)) ||
-            r.Fallbacks.Any(f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase)));
-        if (user is not null)
+        foreach (var name in names)
         {
-            throw new ApiFaultException(409, $"'{name}' is used by the routing rule '{user.Name}' and cannot be {action}. Change the rule first.");
+            var user = rules.FirstOrDefault(r =>
+                r.Targets.Any(t => string.Equals(t.Model, name, StringComparison.OrdinalIgnoreCase)) ||
+                r.Fallbacks.Any(f => string.Equals(f, name, StringComparison.OrdinalIgnoreCase)));
+            if (user is not null)
+            {
+                throw new ApiFaultException(409, $"'{name}' is used by the routing rule '{user.Name}' and cannot be {action}. Change the rule first.");
+            }
         }
     }
 

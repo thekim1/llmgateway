@@ -120,7 +120,8 @@ export const api = {
       http.put<Provider>(`/api/providers/${id(providerId)}`, body),
     drain: (providerId: string, drained: boolean) =>
       http.post<Provider>(`/api/providers/${id(providerId)}/drain`, { drained }),
-    remove: (providerId: string) => http.del(`/api/providers/${id(providerId)}`),
+    remove: (providerId: string, deleteModels = false) =>
+      http.del(buildUrl(`/api/providers/${id(providerId)}`, { deleteModels: deleteModels || undefined })),
     discoverModels: (providerId: string) => http.post<DiscoveredModel[]>(`/api/providers/${id(providerId)}/discover-models`, {}),
   },
   models: {

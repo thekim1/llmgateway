@@ -26,8 +26,9 @@ export const useProvidersStore = defineStore('providers', () => {
     return updated
   }
 
-  async function remove(id: string): Promise<void> {
-    await api.providers.remove(id)
+  /** With deleteModels the provider's models are deleted with it. */
+  async function remove(id: string, deleteModels = false): Promise<void> {
+    await api.providers.remove(id, deleteModels)
     items.value = removeById(items.value, id)
   }
 
