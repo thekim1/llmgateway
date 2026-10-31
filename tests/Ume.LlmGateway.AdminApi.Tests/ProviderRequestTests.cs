@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Ume.LlmGateway.AdminApi.Catalog;
 using Ume.LlmGateway.Domain;
 
 namespace Ume.LlmGateway.AdminApi.Tests;

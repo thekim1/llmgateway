@@ -3,6 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Ume.LlmGateway.AdminApi.Auditing;
+using Ume.LlmGateway.AdminApi.Catalog;
+using Ume.LlmGateway.AdminApi.Reports;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
@@ -948,7 +951,7 @@ public sealed class AdminApiTests(AdminFixture fixture)
     [InlineData("a;=b")]
     public void Csv_escapes_spreadsheet_formula_cells_and_the_delimiter(string input)
     {
-        var cell = ReportEndpoints.Csv(input);
+        var cell = ReportService.Csv(input);
         if (input.Contains(';', StringComparison.Ordinal) || input.Contains('"', StringComparison.Ordinal))
         {
             cell.ShouldStartWith("\"");

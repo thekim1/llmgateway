@@ -1,3 +1,5 @@
+using Ume.LlmGateway.AdminApi.Catalog;
+using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 namespace Ume.LlmGateway.AdminApi.Tests;
 
 /// <summary>Meter names, units and prices as the Azure retail prices API lists them for Sweden Central.</summary>

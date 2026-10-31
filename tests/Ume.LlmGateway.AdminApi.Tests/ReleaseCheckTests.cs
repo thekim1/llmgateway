@@ -2,6 +2,8 @@ using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Ume.LlmGateway.AdminApi.Common;
+using Ume.LlmGateway.AdminApi.Settings;
 
 namespace Ume.LlmGateway.AdminApi.Tests;
 

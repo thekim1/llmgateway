@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Testcontainers.PostgreSql;
+using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 using Ume.LlmGateway.TestKit;
 
 [assembly: AssemblyFixture(typeof(Ume.LlmGateway.AdminApi.Tests.AdminFixture))]

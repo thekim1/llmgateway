@@ -3,6 +3,8 @@ using System.Text;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
+using Ume.LlmGateway.AdminApi.Catalog;
+using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
