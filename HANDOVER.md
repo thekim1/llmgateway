@@ -40,6 +40,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 - **Toolchain:** .NET SDK 10.0.403, Aspire CLI 13.6, Node 24, Docker. Windows/PowerShell 5.1 is the primary dev environment (use `;`, not `&&`); WSL works for most things.
 - **UI under WSL:** `src/admin-ui/node_modules` holds Windows binaries, so `npm test` / `npm run build` fail in WSL. Copy the UI without `node_modules` to a scratch directory, `npm ci` there and
   `rsync -a --delete --exclude node_modules --exclude dist <repo>/src/admin-ui/ <scratch>/ui/` before each run. Never run `npm ci` in the repo copy. Gate: `npm run lint -- --max-warnings 0`, `npm run typecheck`, `npm test`, `npm run build`.
+- **CI minutes are limited:** run `scripts/Test-BeforePush.ps1` before pushing, open pull requests as drafts, squash-merge;
+  see *CI and Actions minutes* in docs/local-development.md for what runs when. Give every new job a `timeout-minutes`.
 - **Tests:** `dotnet test --solution UmeLlmGateway.slnx` (Microsoft Testing Platform, set in `global.json`); xUnit v3 + Shouldly. Do not assert on the whole content of a shared table or list in
   AdminApi/Gateway tests; assert on your own rows (the AdminApi tests run serially because they share one database).
 - **Hot path:** the request handler, adapters, stores and caches are performance-critical. Run the benchmarks (`-- --filter *Pipeline*`, `*Provider*`) and the `audit` before and after changing them,

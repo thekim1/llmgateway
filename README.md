@@ -64,6 +64,9 @@ npm test
 The npm projects (`src/admin-ui`, `site`, `tests/e2e`) do not run package install scripts and skip package versions
 younger than 7 days ([npm packages](docs/security-and-compliance.md#npm-packages)).
 
+Before pushing, `.\scripts\Test-BeforePush.ps1` runs the same checks as CI, so a pull request passes on its first run:
+Actions minutes are limited, see [CI and Actions minutes](docs/local-development.md#ci-and-actions-minutes).
+
 Browser tests, benchmarks and the pre-commit hook: [Local development](docs/local-development.md#build-and-test) and
 [Performance](docs/performance.md#measuring).
 
