@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;

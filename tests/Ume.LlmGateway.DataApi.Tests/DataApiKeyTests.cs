@@ -39,7 +39,7 @@ public sealed class DataApiKeyTests(DataApiFixture fixture)
     {
         var (revoked, revokedSecret) = await fixture.CreateKeyAsync([DataPermissions.UsageDetail], k => k.RevokedAt = DateTimeOffset.UtcNow.AddMinutes(-1));
         var (_, expiredSecret) = await fixture.CreateKeyAsync([DataPermissions.UsageDetail], k => k.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
-        var unknown = Domain.Services.DataApiKeyHasher.Generate().PlainText;
+        var unknown = Domain.Keys.DataApiKeyHasher.Generate().PlainText;
 
         foreach (var secret in new[] { revokedSecret, expiredSecret, unknown, "ume-dk-tooshort" })
         {

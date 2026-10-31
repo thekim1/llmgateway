@@ -156,7 +156,7 @@ public sealed class RoutingRuleGatewayTests(GatewayFixture fixture) : IAsyncLife
         // The counter already exists in the shared ledger from the first request, so add the spend there too.
         var ledger = fixture.Services.GetRequiredService<Ume.LlmGateway.Infrastructure.Stores.ISpendLedger>();
         var budgetKey = Ume.LlmGateway.Infrastructure.Stores.SpendCounter.KeyFor(BudgetScope.VirtualKey, key.Id, BudgetPeriod.Monthly,
-            Ume.LlmGateway.Domain.Services.BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow).Start);
+            Ume.LlmGateway.Domain.Budgets.BudgetPeriods.GetWindow(BudgetPeriod.Monthly, DateTimeOffset.UtcNow).Start);
         await Ume.LlmGateway.Infrastructure.Stores.SpendLedgerExtensions.AddAsync(ledger,
             [new Ume.LlmGateway.Infrastructure.Stores.SpendCounter(budgetKey, 100_000_000, TimeSpan.FromDays(40))], 95_000_000, Ct);
 

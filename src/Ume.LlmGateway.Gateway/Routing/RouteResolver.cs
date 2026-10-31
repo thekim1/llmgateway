@@ -2,7 +2,6 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Gateway.Requests;
 using Ume.LlmGateway.Infrastructure.Stores;
 

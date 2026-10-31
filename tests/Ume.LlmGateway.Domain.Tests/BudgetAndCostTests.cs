@@ -1,5 +1,7 @@
+using Ume.LlmGateway.Domain.Budgets;
+using Ume.LlmGateway.Domain.ContentGuard;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Usage;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

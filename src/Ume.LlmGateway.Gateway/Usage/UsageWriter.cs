@@ -435,7 +435,7 @@ public sealed partial class UsageWriter : BackgroundService
 
         public List<UsageWork> ToWork() => [.. Records.Select((r, i) => new UsageWork(r, [.. Alerts.Where(a => a.Record == i).Select(a =>
             new AlertCandidate(new Budget { Id = a.BudgetId, Scope = a.Scope, ScopeId = a.ScopeId, LimitUsd = a.LimitUsd, Unit = a.Unit, LimitTokens = a.LimitTokens },
-                new Domain.Services.PeriodWindow(a.Start, a.End), a.ThresholdPercent, a.SpentUsd))]))];
+                new Domain.Budgets.PeriodWindow(a.Start, a.End), a.ThresholdPercent, a.SpentUsd))]))];
     }
 
     private sealed record JournalAlert(int Record, Guid BudgetId, BudgetScope Scope, Guid ScopeId, decimal LimitUsd, DateTimeOffset Start,

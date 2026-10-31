@@ -3,7 +3,8 @@ using Ume.LlmGateway.AdminApi.Auditing;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
+using Ume.LlmGateway.Domain.Networking;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 

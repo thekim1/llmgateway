@@ -1,8 +1,8 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Persistence;
 
 namespace Ume.LlmGateway.AdminApi.Settings;

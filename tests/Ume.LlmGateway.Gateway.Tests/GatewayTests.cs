@@ -7,7 +7,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Requests;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 using Ume.LlmGateway.TestKit;

@@ -1,7 +1,6 @@
-extern alias Gateway;
 extern alias Fake;
+extern alias Gateway;
 extern alias Migration;
-
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
@@ -13,7 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.TestKit;

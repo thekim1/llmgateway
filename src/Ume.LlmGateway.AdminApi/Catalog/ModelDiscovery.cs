@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Providers;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;
 

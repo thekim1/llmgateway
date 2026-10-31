@@ -164,7 +164,7 @@ public sealed class ContentGuardOptions
     public string? Model { get; set; }
 
     /// <summary>How the guard model answers: <c>LlamaGuard</c> (safe/unsafe) or <c>GraniteGuardian</c> (Yes/No).</summary>
-    public Domain.Services.GuardModelFormat Format { get; set; }
+    public Domain.ContentGuard.GuardModelFormat Format { get; set; }
 
     /// <summary>Also check complete (non-streamed) answers with the guard model and the blocked patterns.</summary>
     public bool CheckAnswers { get; set; }

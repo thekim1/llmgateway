@@ -241,7 +241,7 @@ public static class AnthropicTranslator
         return result;
     }
 
-    public static JsonObject ToOpenAIUsage(Domain.Services.TokenUsage usage) => new()
+    public static JsonObject ToOpenAIUsage(Domain.Usage.TokenUsage usage) => new()
     {
         ["prompt_tokens"] = usage.InputTokens,
         ["completion_tokens"] = usage.OutputTokens,
@@ -752,7 +752,7 @@ public sealed class AnthropicStreamTranslator(UsageAccumulator usage, bool inclu
                         ["created"] = created,
                         ["model"] = _model,
                         ["choices"] = new JsonArray(),
-                        ["usage"] = AnthropicTranslator.ToOpenAIUsage(new Domain.Services.TokenUsage(_inputTokens, _cachedTokens, _outputTokens)),
+                        ["usage"] = AnthropicTranslator.ToOpenAIUsage(new Domain.Usage.TokenUsage(_inputTokens, _cachedTokens, _outputTokens)),
                     };
                     yield return new SseEvent(null, final.ToJsonString());
                 }

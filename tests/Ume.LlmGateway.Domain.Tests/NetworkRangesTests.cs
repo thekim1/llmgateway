@@ -1,6 +1,7 @@
 using System.Net;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
+using Ume.LlmGateway.Domain.Networking;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

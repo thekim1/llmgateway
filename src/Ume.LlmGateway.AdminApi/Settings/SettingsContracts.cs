@@ -1,7 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.AdminApi.Common;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Networking;
+using Ume.LlmGateway.Domain.Usage;
 
 namespace Ume.LlmGateway.AdminApi.Settings;
 

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Providers;
+using Ume.LlmGateway.Domain.Routing;
 
 namespace Ume.LlmGateway.Gateway.Requests;
 

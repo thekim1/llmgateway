@@ -1,5 +1,5 @@
 using System.Text.Json.Nodes;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.ContentGuard;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

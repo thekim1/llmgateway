@@ -10,7 +10,7 @@ using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Providers;
 using Ume.LlmGateway.Infrastructure.Security;

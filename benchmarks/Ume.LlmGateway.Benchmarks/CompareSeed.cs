@@ -1,6 +1,6 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
 
 namespace Ume.LlmGateway.Benchmarks;

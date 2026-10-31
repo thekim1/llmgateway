@@ -121,7 +121,7 @@ public sealed class DataApiFixture : IAsyncLifetime
     public async Task<(DataApiKey Key, string Secret)> CreateKeyAsync(string[] permissions, Action<DataApiKey>? configure = null)
     {
         await TestClock.InOneBudgetDayAsync(); // aggregates count per day in Stockholm
-        var generated = Domain.Services.DataApiKeyHasher.Generate();
+        var generated = Domain.Keys.DataApiKeyHasher.Generate();
         var key = new DataApiKey { Name = "integration-" + Guid.NewGuid().ToString("N")[..8], Prefix = generated.Prefix, KeyHash = generated.Hash, Permissions = [.. permissions], CreatedAt = DateTimeOffset.UtcNow };
         configure?.Invoke(key);
         await DbAsync(db => { db.DataApiKeys.Add(key); return db.SaveChangesAsync(TestContext.Current.CancellationToken); });

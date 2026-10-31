@@ -5,7 +5,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Infrastructure.Persistence;
 
 namespace Ume.LlmGateway.AdminApi.Reports;

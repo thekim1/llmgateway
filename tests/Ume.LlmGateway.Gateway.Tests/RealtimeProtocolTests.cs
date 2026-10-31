@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Usage;
 using Ume.LlmGateway.Gateway.Realtime;
 using Ume.LlmGateway.Infrastructure.Providers;
 
