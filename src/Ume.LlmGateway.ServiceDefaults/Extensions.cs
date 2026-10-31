@@ -106,7 +106,7 @@ public static class Extensions
 
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
-        builder.Services.AddOptions<ShutdownOptions>().BindConfiguration(ShutdownOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
+        builder.Services.AddValidatedOptions<ShutdownOptions>(ShutdownOptions.SectionName);
         builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<ShutdownDrain>(sp, sp.GetService<TimeProvider>() ?? TimeProvider.System));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<ShutdownDrain>());
         builder.Services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, ShutdownDrain.StartupFilter>();

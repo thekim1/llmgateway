@@ -113,6 +113,10 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
   credential protection, client addresses, security events) and `Providers`: the shared adapter base, transport, SSE and
   usage parsing at the root, and one folder per wire protocol, `Anthropic` and `OpenAI` (the OpenAI-compatible adapter
   and the Responses bridge). A new provider protocol gets its own folder.
+- **Data API.** `Authentication` (OAuth client credentials and Data API keys, read logging) and `Feeds` (the endpoints,
+  their records and cursor paging); `DataApiServices` registers options, authentication and the per-client rate limit.
+- **ServiceDefaults.** What every host shares: telemetry, health endpoints, shutdown drain, error responses, security
+  headers, `AddValidatedOptions` (bind and validate on start) and `AddPerMinutePolicy` (fixed one-minute rate limits).
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.

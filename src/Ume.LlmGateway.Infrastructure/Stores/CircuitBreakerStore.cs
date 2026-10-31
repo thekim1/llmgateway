@@ -42,6 +42,8 @@ public interface ICircuitBreakerStore
 
 public sealed class CircuitBreakerOptions
 {
+    public const string SectionName = "CircuitBreaker";
+
     public int FailureThreshold { get; set; } = 5;
     public TimeSpan SamplingWindow { get; set; } = TimeSpan.FromSeconds(60);
     public TimeSpan BreakDuration { get; set; } = TimeSpan.FromSeconds(30);

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Infrastructure.Security;
 
-namespace Ume.LlmGateway.DataApi;
+namespace Ume.LlmGateway.DataApi.Authentication;
 
 /// <summary>
 /// Two ways in, both per integration: OAuth 2.0 client credentials (every ETL job or SIEM connector is its own client at
