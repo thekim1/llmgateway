@@ -14,7 +14,7 @@ This is a demonstrator, **not a production approval, legal compliance attestatio
 
 ## Quick start
 
-Windows with .NET SDK 10.0.401, Aspire 13.6, Docker 28+ and Node 24.15+ (PowerShell):
+Windows with .NET SDK 10.0.403, Aspire 13.6, Docker 28+ and Node 24.15+ (PowerShell):
 
 ```powershell
 Set-Location src\admin-ui
