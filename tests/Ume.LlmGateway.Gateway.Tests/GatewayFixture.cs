@@ -13,7 +13,7 @@ using Testcontainers.PostgreSql;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Usage;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.TestKit;

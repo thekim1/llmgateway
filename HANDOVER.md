@@ -61,6 +61,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
     `RoutingRuleService`, `ReportService`, `OperationsService`, `GatewaySettingsService`, ...), request and response records in its
     `*Contracts.cs`. Register a new service in `AdminServices` and map new endpoints from `AdminEndpoints`. `AdminContext` carries the signed-in user (`ctx.Keys()`, `ctx.Teams()`, `ctx.Actor`, `ctx.SaveAsync(...)`):
     never pass a `ClaimsPrincipal` around. Throw `ApiFaultException` (English message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
+  - Gateway code is grouped the same way (`src/Ume.LlmGateway.Gateway/<Feature>/`: `Requests`, `Authentication`, `Routing`, `Budgets`,
+    `Usage`, `Forms`, `Realtime`, `Operations`). Register new services in `GatewayServices`, not in `Program.cs`; all are singletons.
   - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
   - A new gateway endpoint is one entry in `GatewayEndpoints` (Domain) plus its OpenAPI summary in `GatewayRoutes`; uploads go through
     `MultipartFormReader` with their own `MultipartRules`; provider adapters read complete answers with `ReadCompleteAsync`.

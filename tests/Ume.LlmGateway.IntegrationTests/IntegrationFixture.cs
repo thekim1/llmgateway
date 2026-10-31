@@ -130,7 +130,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     }
 
     public Task FlushAsync() =>
-        GatewayServices.GetRequiredService<Gateway::Ume.LlmGateway.Gateway.Pipeline.UsageWriter>()
+        GatewayServices.GetRequiredService<Gateway::Ume.LlmGateway.Gateway.Usage.UsageWriter>()
             .FlushAsync(TestContext.Current.CancellationToken);
 
     public async ValueTask DisposeAsync()

@@ -1,7 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Authentication;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

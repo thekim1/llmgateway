@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Gateway and admin API log categories have new names.** The code is grouped into one folder per feature, and the log
+category of each class follows its namespace. A log level set for a single class needs the new name, for example
+`Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler=Debug` (was `...Gateway.Pipeline...`) to log
+every request without the admin UI; **Settings > Request logging** works as before. Levels set per project
+(`Ume.LlmGateway.Gateway`, `Ume.LlmGateway.AdminApi`) are not affected. No migration. Rolling update: yes.
+
 ## 0.8.6 - 2026-10-30
 
 **A provider can be deleted together with its models.** Removing a provider that a configuration import brought along no
