@@ -101,9 +101,13 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.
-- **Admin API.** Endpoints are thin; logic sits in services (`RoutingRuleService`, `ProviderCatalogService`,
-  `BudgetAdminService`, `ConfigTransferService`, `OwnerScopeResolver`) with typed request/response contracts and
-  dedicated audit snapshots.
+- **Admin API.** One folder (and namespace) per feature: `Organisation`, `Keys`, `DataAccess`, `Catalog` (providers,
+  models, routes; `Catalog/Pricing` for the models.dev and Azure list prices), `Budgets`, `RoutingRules`, `Reports`,
+  `Operations` and `Settings`. A feature folder holds its `*Endpoints` (routes, roles, OpenAPI text only), its service
+  (the logic) and its `*Contracts` (request and response records). Shared pieces sit in `Common` (`AdminContext`,
+  `AdminRequest` validation, `OwnerScopeResolver`, `AdminOptions`), `Auditing` (action and entity names, audit snapshots)
+  and `Security` (sign-in, roles and policies, sessions, CSRF, admin activity, rate limiting). `AdminServices` registers
+  every service and `AdminEndpoints` maps every feature under `/api`.
 - **ServiceDefaults.** `WebDefaults` (`ExitIfHealthProbeAsync`, `AddUmeWebDefaults`/`UseUmeWebDefaults`,
   `UseUmeSecurityHeaders`) and `ApiExceptionHandler` with `ApiFaultException` give the admin API and Data API the same
   JSON, problem responses, security headers and 500 message. API messages are in English.

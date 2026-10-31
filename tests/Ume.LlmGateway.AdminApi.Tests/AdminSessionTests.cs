@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Time.Testing;
+using Ume.LlmGateway.AdminApi.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi.Tests;

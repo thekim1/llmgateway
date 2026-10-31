@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
+using Ume.LlmGateway.AdminApi.Reports;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;

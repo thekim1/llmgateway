@@ -49,15 +49,17 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Redis keys and channels only in `RedisKeys` (all under `ume:`; the ACL in `deploy/redis/users.acl.example` depends on it).
   - Key rotation lineage and budget spend queries in `GatewayQueries` (Infrastructure), shared by gateway and admin API.
   - Data retention (ADR 016): usage before `GatewaySettings.UsageRetainedFrom` exists only in `UsageMonthlyTotals`. New code that sums
-    usage must read totals before that boundary and records from it on (`GatewayQueries.CostsIn`, `ReportEndpoints.Facts`, the Data API
+    usage must read totals before that boundary and records from it on (`GatewayQueries.CostsIn`, `UsageQueries.Facts`, the Data API
     aggregate SQL). Only the database function `ume_retention_step` deletes usage, refused-key, alert or audit rows; change it in a new
     migration (`CREATE OR REPLACE`), never by granting `DELETE` to an app role.
   - Gateway-wide settings live in the single `GatewaySettings` row; the gateway reads it with the catalogue (trusted proxies), so a
     change the gateway must see publishes `InvalidationKind.Config`.
   - Provider failures carry a `FailureKind`: only `Transient` counts toward the circuit breaker; `ClientError` is answered without fallback.
   - Every accepted gateway request is accounted exactly once (`AccountAsync`); new failure paths must go through it.
-  - Admin API endpoints stay thin; logic belongs in the services (`RoutingRuleService`, `ProviderCatalogService`, `BudgetAdminService`,
-    `ConfigTransferService`, `OwnerScopeResolver`). `AdminContext` carries the signed-in user (`ctx.Keys()`, `ctx.Teams()`, `ctx.Actor`, `ctx.SaveAsync(...)`):
+  - Admin API code is grouped by feature (`src/Ume.LlmGateway.AdminApi/<Feature>/`, namespace per folder; see *Code layout*). Endpoints stay
+    thin; logic belongs in the feature's service (`OrganisationService`, `KeyService`, `ProviderCatalogService`, `BudgetAdminService`,
+    `RoutingRuleService`, `ReportService`, `OperationsService`, `GatewaySettingsService`, ...), request and response records in its
+    `*Contracts.cs`. Register a new service in `AdminServices` and map new endpoints from `AdminEndpoints`. `AdminContext` carries the signed-in user (`ctx.Keys()`, `ctx.Teams()`, `ctx.Actor`, `ctx.SaveAsync(...)`):
     never pass a `ClaimsPrincipal` around. Throw `ApiFaultException` (English message) for client errors; audit with the snapshot records in `AuditSnapshots.cs`, never entities.
   - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
   - A new gateway endpoint is one entry in `GatewayEndpoints` (Domain) plus its OpenAPI summary in `GatewayRoutes`; uploads go through

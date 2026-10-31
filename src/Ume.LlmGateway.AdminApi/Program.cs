@@ -1,9 +1,8 @@
-using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Npgsql;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.AdminApi;
+using Ume.LlmGateway.AdminApi.Security;
 using Ume.LlmGateway.Infrastructure;
 
 if (await WebDefaults.ExitIfHealthProbeAsync(args))
@@ -25,43 +24,9 @@ builder.AddUmeWebDefaults(maxRequestBodySize: 1024 * 1024, errors =>
         ? new ApiFaultException(StatusCodes.Status409Conflict, "The change conflicts with existing data.")
         : null);
 });
-builder.Services.AddOptions<AdminOptions>().BindConfiguration(AdminOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
-builder.Services.AddOptions<GatewayLinkOptions>().BindConfiguration(GatewayLinkOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
-builder.Services.AddOptions<DataApiLinkOptions>().BindConfiguration(DataApiLinkOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
-builder.Services.AddOptions<OidcOptions>().BindConfiguration(OidcOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddOpenApi();
 builder.Services.AddAdminServices();
-builder.Services.AddOptions<RetentionOptions>().BindConfiguration(RetentionOptions.SectionName).ValidateDataAnnotations().ValidateOnStart();
-builder.Services.AddSingleton<RetentionService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
-builder.Services.AddSingleton<GatewayOperationsClient>();
-builder.Services.AddSingleton<AzureRetailPrices>();
-builder.Services.AddHttpClient(AzureRetailPrices.HttpClientName);
-builder.Services.AddSingleton<ModelListService>();
-builder.Services.AddHttpClient(ModelListService.HttpClientName);
-builder.Services.AddSingleton<ModelListSync>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<ModelListSync>());
-builder.Services.AddSingleton<ReleaseCheck>();
-builder.Services.AddSingleton<AdminClientAddresses>();
-builder.Services.AddSingleton<AccessDeniedThrottle>();
-builder.Services.AddHttpClient(ReleaseCheck.HttpClientName);
-builder.Services.AddHttpClient("gateway-operations").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-// One attempt within discovery's own 20 s timeout: an admin testing a connection should not sit through retries.
-builder.Services.AddHttpClient(ModelDiscovery.HttpClientName)
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, ConnectTimeout = TimeSpan.FromSeconds(10) })
-    .RemoveStandardResilienceHandler();
-builder.Services.AddRateLimiter(o =>
-{
-    o.AddPolicy(AdminPolicies.PerUserRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
-        http.User.FindFirst(AdminClaims.Subject)?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = http.RequestServices.GetRequiredService<IOptions<AdminOptions>>().Value.RequestsPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-        }));
-    o.RejectWithProblem("Too many requests. Wait a minute.");
-});
+builder.Services.AddAdminRateLimiting();
 builder.AddAdminAuthentication();
 var app = builder.Build();
 app.UseUmeWebDefaults();
@@ -81,16 +46,7 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminAntiforgeryMiddleware>();
 app.MapDefaultEndpoints();
 app.MapAdminAuthentication();
-var api = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting(AdminPolicies.PerUserRateLimit).AddEndpointFilter<AdminValidationFilter>()
-    .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
-api.MapOrganisation();
-api.MapKeys();
-api.MapConfiguration();
-api.MapSettings();
-api.MapRoutingRules();
-api.MapReports();
-api.MapOperations();
-api.MapDataAccess();
+app.MapAdminApi();
 app.MapOpenApi().RequireAuthorization(AdminPolicies.Admin);
 app.MapScalarApiReference(o => o.WithNonce().DisableDefaultFonts()).RequireAuthorization(AdminPolicies.Admin);
 app.UseDefaultFiles();
