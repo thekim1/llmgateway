@@ -35,6 +35,9 @@ public sealed class ProviderHttpClient : IDisposable
 
     internal bool RequireHttps { get; }
 
+    /// <summary>The clock a provider's <c>Retry-After</c> date is measured against.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>Whether content and credentials may be sent to <paramref name="uri"/> (production: only over TLS).</summary>
     internal bool Permits(Uri uri) => ProviderTransport.IsPermitted(uri, RequireHttps);
 
