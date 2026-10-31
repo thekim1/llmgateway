@@ -37,7 +37,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 
 ## Conventions and gotchas
 
-- **Toolchain:** .NET SDK 10.0.401, Aspire CLI 13.6, Node 24, Docker. Windows/PowerShell 5.1 is the primary dev environment (use `;`, not `&&`); WSL works for most things.
+- **Toolchain:** .NET SDK 10.0.403, Aspire CLI 13.6, Node 24, Docker. Windows/PowerShell 5.1 is the primary dev environment (use `;`, not `&&`); WSL works for most things.
 - **UI under WSL:** `src/admin-ui/node_modules` holds Windows binaries, so `npm test` / `npm run build` fail in WSL. Copy the UI without `node_modules` to a scratch directory, `npm ci` there and
   `rsync -a --delete --exclude node_modules --exclude dist <repo>/src/admin-ui/ <scratch>/ui/` before each run. Never run `npm ci` in the repo copy. Gate: `npm run lint -- --max-warnings 0`, `npm run typecheck`, `npm test`, `npm run build`.
 - **Tests:** `dotnet test --solution UmeLlmGateway.slnx` (Microsoft Testing Platform, set in `global.json`); xUnit v3 + Shouldly. Do not assert on the whole content of a shared table or list in

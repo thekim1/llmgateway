@@ -1,6 +1,6 @@
 # Local development
 
-Windows: .NET SDK 10.0.401, Aspire 13.6, Docker 28+, Node 24.15+ recommended.
+Windows: .NET SDK 10.0.403, Aspire 13.6, Docker 28+, Node 24.15+ recommended.
 Use PowerShell 5.1 and run commands separately (or chain with `;` and exit-code checks).
 
 ```powershell

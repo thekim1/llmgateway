@@ -52,7 +52,7 @@ jobs:
           docker compose -f deploy/compose.prod.yaml -f deploy/compose.rolling.yaml --profile data config --quiet
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.401
+          dotnet-version: 10.0.403
       - uses: actions/setup-node@v6
         with:
           node-version: 24
