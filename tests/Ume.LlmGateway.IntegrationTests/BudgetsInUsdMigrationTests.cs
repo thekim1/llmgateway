@@ -63,11 +63,12 @@ public sealed class BudgetsInUsdMigrationTests(BudgetsInUsdFixture fixture) : IC
 /// Three databases migrated to the last migration before <c>BudgetsInUsd</c>, given a budget of 1 200 SEK and an alert
 /// raised 10 days ago (500 of 1 000 SEK), then migrated to the current version. <c>with-rates</c> has had 10 SEK per USD
 /// since 30 days ago and 12 since yesterday; <c>without-rates</c> has no rate; <c>reverted</c> is <c>with-rates</c> again,
-/// for a test that migrates it back down.
+/// for a test that migrates it back down. It stops before <c>DropSekLeftovers</c>, which removes the rates the way back needs.
 /// </summary>
 public sealed class BudgetsInUsdFixture : IAsyncLifetime
 {
     public const string LastBeforeBudgetsInUsd = "20261015051119_RequestLogSwitch";
+    public const string LastBeforeDropSekLeftovers = "20261028225143_ModelBaseModel";
     public static readonly Guid BudgetId = Guid.Parse("0199f0a0-0000-7000-8000-000000000001");
     public static readonly Guid AlertId = Guid.Parse("0199f0a0-0000-7000-8000-000000000002");
 
@@ -82,7 +83,7 @@ public sealed class BudgetsInUsdFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await _postgres.StartAsync();
-        foreach (var (connectionString, rates) in new[] { (WithRates, true), (WithoutRates, false), (Reverted, true) })
+        foreach (var (connectionString, rates, target) in new[] { (WithRates, true, (string?)null), (WithoutRates, false, null), (Reverted, true, LastBeforeDropSekLeftovers) })
         {
             var name = new NpgsqlConnectionStringBuilder(connectionString).Database;
             await ExecuteAsync(_postgres.GetConnectionString(), $"CREATE DATABASE {name}");
@@ -92,7 +93,15 @@ public sealed class BudgetsInUsdFixture : IAsyncLifetime
             }
 
             await ExecuteAsync(connectionString, SekRows(rates));
-            await TestPostgres.MigrateAsync(connectionString);
+            if (target is null)
+            {
+                await TestPostgres.MigrateAsync(connectionString);
+            }
+            else
+            {
+                await using var db = TestPostgres.Context(connectionString);
+                await db.GetService<IMigrator>().MigrateAsync(target);
+            }
         }
     }
 

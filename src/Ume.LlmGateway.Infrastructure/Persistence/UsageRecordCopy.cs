@@ -13,7 +13,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence;
 public static class UsageRecordCopy
 {
     /// <summary>
-    /// Every column written, in <c>COPY</c> order. <c>Id</c>, <c>RecordedAt</c> and the old <c>CostSek</c> are left to their database defaults.
+    /// Every column written, in <c>COPY</c> order. <c>Id</c> and <c>RecordedAt</c> are left to their database defaults.
     /// A test checks this against the EF model, so a new <see cref="UsageRecord"/> column cannot be silently left out.
     /// </summary>
     public static IReadOnlyList<string> Columns { get; } =

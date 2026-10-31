@@ -435,7 +435,7 @@ configs:
       -- Gateway (faces the clients): what it authenticates, routes and accounts with. Not the audit log or Data API keys. It reads
       -- the Data Protection key ring but does not add keys (it only decrypts; the admin API creates and rotates them).
       GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
-        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "GatewaySettings",
         "UsageRecords", "UsageMonthlyTotals", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
       GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures" TO ume_gateway;
       GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
@@ -443,12 +443,12 @@ configs:
       -- Admin API: reads everything it shows (and the schema version for Operations); changes configuration, appends audit
       -- entries, creates Data Protection keys. Settings column by column, without UsageRetainedFrom.
       GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
-        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates", "GatewaySettings",
+        "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "GatewaySettings",
         "UsageRecords", "UsageMonthlyTotals", "AuditLog", "AlertEvents", "AuthFailures", "DataProtectionKeys",
         "__EFMigrationsHistory" TO ume_admin;
       GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
-        "Budgets", "ExchangeRates", "DataApiKeys" TO ume_admin;
+        "Budgets", "DataApiKeys" TO ume_admin;
       GRANT UPDATE ("TrustedProxies", "LogAllRequests", "LogAllRequestsUntil", "UpdatedAt", "UsageRetentionDays", "AuditRetentionDays",
         "RetentionLastRunAt", "RetentionLastRunDeleted", "RetentionLastRunError") ON "GatewaySettings" TO ume_admin;
       GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
@@ -465,7 +465,7 @@ configs:
           GRANT CONNECT ON DATABASE gatewaydb TO ume_data;
           GRANT USAGE ON SCHEMA public TO ume_data;
           GRANT SELECT ON "UsageRecords", "AuthFailures", "AuditLog", "Departments", "Teams", "ModelDeployments",
-            "ModelPrices", "Budgets", "ExchangeRates", "UsageMonthlyTotals" TO ume_data;
+            "ModelPrices", "Budgets", "UsageMonthlyTotals" TO ume_data;
           GRANT SELECT ("UsageRetainedFrom") ON "GatewaySettings" TO ume_data;
           GRANT SELECT ("Id", "TeamId", "Name", "Description", "Prefix", "IsEnabled", "CreatedAt", "CreatedBy", "ExpiresAt",
             "RevokedAt", "GraceUntil", "RotatedToKeyId", "LastUsedAt", "AllowedModels", "AllowedResidencies", "AllowedProviders",

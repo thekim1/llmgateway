@@ -66,8 +66,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Gateway refusals are a `GatewayError` from the catalogue in `GatewayErrors.cs` (status, code, English message); add new ones there, not inline.
   - A new gateway endpoint is one entry in `GatewayEndpoints` (Domain) plus its OpenAPI summary in `GatewayRoutes`; uploads go through
     `MultipartFormReader` with their own `MultipartRules`; provider adapters read complete answers with `ReadCompleteAsync`.
-  - Every cost, budget, spend counter and reservation is in USD; there is no other currency (SEK was removed in 0.8.1). The `CostSek` columns
-    and `ExchangeRates` table are left over for one release (rolling update) and dropped in the next; nothing reads or writes them.
+  - Every cost, budget, spend counter and reservation is in USD; there is no other currency (SEK was removed in 0.8.1; its last columns and
+    the `ExchangeRates` table were dropped by `DropSekLeftovers`).
   - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
   - Options are validated on start (DataAnnotations/`IValidatableObject`) through `AddValidatedOptions<T>(section)` (ServiceDefaults); add a range or `[Required]` with each new setting.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.
