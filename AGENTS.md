@@ -16,6 +16,7 @@ so CI should run once per finished change, and pass the first time.
   install that version then, because another SDK reports other unnecessary usings and the build fails in CI.
 - **Mark the pull request ready** (`gh pr ready`) only when the implementation is finished and the full script passes,
   or when you are asked for a review. After that, push follow-up fixes together in one push, not commit by commit.
-- **Do not push straight to `main`**; go through a pull request and merge with squash (the merge commit is not built
-  again). Do not re-run failed workflows to get past a flaky test: fix the test or say so in the pull request.
+- **Do not push straight to `main`**: pushes to `main` are not built, so only a pull request verifies a change before
+  the release tag does. Merge with squash. Do not re-run failed workflows to get past a flaky test: fix the test or say
+  so in the pull request.
 - Give every new workflow job a `timeout-minutes`.

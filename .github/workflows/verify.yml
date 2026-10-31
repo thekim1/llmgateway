@@ -1,20 +1,11 @@
 name: Verify POC
-# Actions minutes are limited (docs/local-development.md, "CI and Actions minutes"), so this runs once per change:
-# - a pull request is verified on the merge with main, but not while it is a draft;
-# - a push to main is verified only when it did not come from a pull request: a squash merge ("... (#123)") was
-#   verified on the pull request, and every release verifies its tag again (release.yml);
-# - documentation-only changes are not built (the website workflow builds docs/ on main).
-# A branch without a pull request can be verified from the Actions tab (workflow_dispatch).
+# Runs on what can still change the outcome, once per change (docs/local-development.md, "CI and Actions minutes"):
+# - a pull request is verified on its merge with main, but not while it is a draft;
+# - a release tag is verified again before anything is published (release.yml calls this workflow);
+# - pushes to main are not built: a pull request was verified on the merge with main, and the next tag verifies main.
+# Documentation-only changes are not built (the website workflow builds docs/). A branch without a pull request, or main,
+# can be verified from the Actions tab (workflow_dispatch).
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'site/**'
-      - 'benchmarks/compare/**'
-      - 'Design prototype/**'
-      - '.claude/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
@@ -28,29 +19,18 @@ on:
   workflow_call:
 permissions:
   contents: read
-# A newer push cancels the run in progress, on main too: the newer commit contains the older one. Release tags have their
-# own group (github.ref is the tag), so a release is never cancelled by a push.
+# A newer push to a pull request cancels the run in progress. Release tags have their own group (github.ref is the tag), so a
+# release is never cancelled by a push.
 concurrency:
   group: verify-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   verify:
-    if: >-
-      !(github.event_name == 'pull_request' && github.event.pull_request.draft) &&
-      !(github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, ' (#'))
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-        with:
-          # A pull request is checked out as its merge with main; the parent shows what the pull request changes.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
-      - name: Does the pull request change the base image
-        id: base-image
-        if: github.event_name == 'pull_request'
-        run: |
-          if git diff --quiet HEAD^1 HEAD -- Directory.Build.targets; then echo "changed=false" >> "$GITHUB_OUTPUT"
-          else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: Portainer stack is up to date
         run: |
           sh deploy/build-portainer-stack.sh
@@ -113,9 +93,8 @@ jobs:
           python -c "import json; d=json.load(open('/tmp/ume-package-audit.json')); p=[p for x in d.get('projects',[]) for f in x.get('frameworks',[]) for k in ('topLevelPackages','transitivePackages') for p in f.get(k,[]) if p.get('vulnerabilities')]; assert not p, 'Vulnerable .NET dependencies detected'"
       - name: Scan the service base image
         # The pinned runtime image (Directory.Build.targets) is shared by every service; fail on fixable HIGH/CRITICAL so a
-        # stale digest does not ship known runtime CVEs. On pull requests only when they change the image; main, the
-        # weekly flake hunt and every release scan it anyway, which also catches CVEs published since it was pinned.
-        if: github.event_name != 'pull_request' || steps.base-image.outputs.changed == 'true'
+        # stale digest does not ship known runtime CVEs. Every run scans it, which also catches CVEs published since it was
+        # pinned; the weekly flake hunt scans it too.
         run: |
           image="$(dotnet msbuild src/Ume.LlmGateway.Gateway -getProperty:ContainerBaseImage)"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.67.2 image --quiet --scanners vuln \

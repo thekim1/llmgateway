@@ -1,8 +1,8 @@
 name: Website
 # Builds site/ (the product page, Getting started, Benchmarks and every Markdown page in site/content.mjs) and publishes it
 # to GitHub Pages whenever the site, the documentation or the admin UI's design tokens change on main, in one job (each job
-# is billed at least a minute). Pull requests build it only when site/ itself changes and they are not drafts; a broken
-# link in docs/ fails the build on main, where it is fixed with the next push.
+# is billed at least a minute). Pull requests that change the same files build it without publishing, unless they are
+# drafts, so a broken link in docs/ fails the pull request rather than the deployment.
 on:
   push:
     branches: [main]
@@ -16,6 +16,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'site/**'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'src/admin-ui/src/styles/tokens.css'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 permissions:

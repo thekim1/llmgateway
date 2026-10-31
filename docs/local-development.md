@@ -127,18 +127,20 @@ CPUs make every race wider. The rules that keep them stable:
 ### CI and Actions minutes
 
 The GitHub Actions minutes of the plan are shared by every developer and repository, and every job is billed rounded up
-to a whole minute, so CI runs each check once per change:
+to a whole minute, so CI runs each check once per change: on the pull request, and again on the release tag before
+anything is published. Merging to `main` builds nothing (only the website is published), because the pull request was
+already verified on its merge with `main`; a merge followed by a tag therefore runs *Verify POC* twice, not three times.
 
 | Workflow | Runs on | Not on |
 |---|---|---|
-| *Verify POC* (about 3 min) | ready pull requests (their merge with `main`), direct pushes to `main`, release tags | draft pull requests; squash merges of a pull request (subject ends in `(#123)`, already verified on the pull request); changes to Markdown, `docs/`, `site/`, `benchmarks/compare/` or the design prototype only |
+| *Verify POC* (about 3 min) | ready pull requests (their merge with `main`), release tags | draft pull requests; pushes to `main`; changes to Markdown, `docs/`, `site/`, `benchmarks/compare/` or the design prototype only |
 | *Deploy end to end* (about 6 min) | ready pull requests that change `deploy/` or ServiceDefaults | drafts |
-| *Website* (1 min) | pushes to `main` that change the site, `docs/` or the CHANGELOG (build and publish in one job); pull requests that change `site/` | drafts; pull requests that only change `docs/` (a broken link fails the build on `main`) |
+| *Website* (1 min) | pull requests and pushes to `main` that change the site, `docs/`, the CHANGELOG or the design tokens (on `main` it builds and publishes in one job) | drafts |
 | *Release* | `v*.*.*` tags: verifies the tag again, then builds and publishes | |
 | *Flake hunt* | Mondays, or by hand (also scans the base image for new CVEs) | |
 
-Within *Verify POC*, the base image scan runs on pull requests only when they change `Directory.Build.targets`, and the
-SPDX SBOM is only generated for releases. A newer push cancels the run in progress, also on `main`.
+Within *Verify POC*, the SPDX SBOM is only generated for releases; the base image scan runs every time. A newer push to a
+pull request cancels its run in progress.
 
 Habits that keep it that way:
 
@@ -150,12 +152,12 @@ Habits that keep it that way:
 - **Open pull requests as drafts** (agents too, see [AGENTS.md](../AGENTS.md)) and push as often as you like; mark the pull request *Ready for review* when it is
   done, which runs CI once. Push follow-up fixes together rather than one commit at a time: a newer push cancels the
   run in progress, but the minutes already used are billed.
-- **Merge with squash**, so the merge commit on `main` is not built again.
-- **`[skip ci]`** in a commit message skips every workflow for that push (for example a typo fix pushed straight to
-  `main`); the next release verifies it.
+- **Merge with squash**, and tag right after merging if it is a release: the tag is the only build of `main`. A push
+  straight to `main` is not verified until the next tag, so go through a pull request.
+- **`[skip ci]`** in a commit message skips every workflow for that push.
 
-A branch without a pull request is not verified automatically: open a draft pull request and mark it ready, or run
-*Verify POC* from the Actions tab on the branch.
+A branch without a pull request, and `main` itself, is not verified automatically: open a draft pull request and mark it
+ready, or run *Verify POC* from the Actions tab on the branch.
 
 To hunt for flakes, run the workflow *Flake hunt* (Actions tab): it runs the backend tests on a CI runner several times
 and lists every test that failed. It also runs once a week.
