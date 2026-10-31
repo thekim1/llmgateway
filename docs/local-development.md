@@ -147,7 +147,7 @@ Habits that keep it that way:
   (`-Quick` skips the backend tests, `-NoUi` the UI). It warns when your .NET SDK is not the one CI uses
   (`dotnet-version` in the workflows): another SDK reports other unnecessary usings, and a build that passes locally
   then fails in CI.
-- **Open pull requests as drafts** and push as often as you like; mark the pull request *Ready for review* when it is
+- **Open pull requests as drafts** (agents too, see [AGENTS.md](../AGENTS.md)) and push as often as you like; mark the pull request *Ready for review* when it is
   done, which runs CI once. Push follow-up fixes together rather than one commit at a time: a newer push cancels the
   run in progress, but the minutes already used are billed.
 - **Merge with squash**, so the merge commit on `main` is not built again.
