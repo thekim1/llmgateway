@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Providers.OpenAI;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

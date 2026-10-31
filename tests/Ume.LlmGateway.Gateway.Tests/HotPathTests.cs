@@ -17,6 +17,8 @@ using Ume.LlmGateway.Gateway.Requests;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Providers.Anthropic;
+using Ume.LlmGateway.Infrastructure.Providers.OpenAI;
 using Ume.LlmGateway.Infrastructure.Stores;
 using Ume.LlmGateway.TestKit;
 

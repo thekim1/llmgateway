@@ -5,6 +5,7 @@ using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Usage;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Providers.OpenAI;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

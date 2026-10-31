@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Reflection;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Infrastructure.Providers.Anthropic;
 
 namespace Ume.LlmGateway.Infrastructure.Providers;
 

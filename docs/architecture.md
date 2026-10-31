@@ -108,6 +108,11 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
   namespace) per concern: `Routing` (rule sets, expressions, route selection), `Budgets`, `Usage` (cost, audio duration,
   retention), `Keys` (hashing, rotation), `Pii`, `ContentGuard`, `Providers`, `Requests` (policy, rewriting),
   `Networking` and `Export` (CSV cells). Nothing in Domain touches a database or the network.
+- **Infrastructure.** `Persistence` (the `GatewayDbContext`, migrations, shared queries), `Stores` (one file per store:
+  its contract, the in-memory version for development and tests, and the Redis version), `Security` (key hashing,
+  credential protection, client addresses, security events) and `Providers`: the shared adapter base, transport, SSE and
+  usage parsing at the root, and one folder per wire protocol, `Anthropic` and `OpenAI` (the OpenAI-compatible adapter
+  and the Responses bridge). A new provider protocol gets its own folder.
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.

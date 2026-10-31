@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 
-namespace Ume.LlmGateway.Infrastructure.Providers;
+namespace Ume.LlmGateway.Infrastructure.Providers.Anthropic;
 
 /// <summary>
 /// Anthropic Messages API. Serves /v1/messages as passthrough (usage captured) and /v1/chat/completions by

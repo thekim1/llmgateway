@@ -286,7 +286,3 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     private static RequestPolicy? DeserializePolicy(string? json) =>
         json is null ? null : System.Text.Json.JsonSerializer.Deserialize<RequestPolicy>(json, PolicyJson);
 }
-
-public sealed class UtcDateTimeOffsetConverter() : ValueConverter<DateTimeOffset, DateTimeOffset>(
-    value => value.ToUniversalTime(),
-    value => value.ToUniversalTime());
