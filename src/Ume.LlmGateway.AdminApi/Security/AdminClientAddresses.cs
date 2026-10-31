@@ -3,7 +3,7 @@ using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.AdminApi.Common;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Networking;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 

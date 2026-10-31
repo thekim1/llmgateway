@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Options;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.ContentGuard;
 using Ume.LlmGateway.Gateway.Authentication;
 using Ume.LlmGateway.Gateway.Budgets;
 using Ume.LlmGateway.Gateway.Requests;

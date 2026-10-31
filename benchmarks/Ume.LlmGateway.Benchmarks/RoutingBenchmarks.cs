@@ -2,7 +2,7 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Gateway.Budgets;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Infrastructure.Stores;

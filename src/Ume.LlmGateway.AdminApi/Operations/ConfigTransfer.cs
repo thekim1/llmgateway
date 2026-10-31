@@ -6,9 +6,9 @@ using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.AdminApi.RoutingRules;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Providers;
 using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Routing.Expressions;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi.Operations;

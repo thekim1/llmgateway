@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Usage;
 using Ume.LlmGateway.Infrastructure.Providers;
 
 namespace Ume.LlmGateway.Gateway.Tests;

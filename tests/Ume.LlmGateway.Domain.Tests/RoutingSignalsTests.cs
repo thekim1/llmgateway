@@ -1,6 +1,6 @@
+using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Routing.Expressions;
-using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

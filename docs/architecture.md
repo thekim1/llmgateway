@@ -103,6 +103,11 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
   resolution, deployment load, provider credentials), `Budgets` (reservation, alerts), `Usage` (usage writer, metrics),
   `Forms` (multipart uploads), `Realtime` (live audio) and `Operations` (the signed status endpoint for the admin API).
   `GatewayServices` registers every service and `GatewayRoutes` maps the client API.
+- **Domain.** Entities in `Entities/`, one file each; the shared enums at the root, grouped by topic (`ProviderEnums`,
+  `PolicyEnums`, `BudgetEnums`, `KeyEnums`, `UsageEnums`, `GatewayEndpoint`). Pure logic sits in one folder (and
+  namespace) per concern: `Routing` (rule sets, expressions, route selection), `Budgets`, `Usage` (cost, audio duration,
+  retention), `Keys` (hashing, rotation), `Pii`, `ContentGuard`, `Providers`, `Requests` (policy, rewriting),
+  `Networking` and `Export` (CSV cells). Nothing in Domain touches a database or the network.
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.

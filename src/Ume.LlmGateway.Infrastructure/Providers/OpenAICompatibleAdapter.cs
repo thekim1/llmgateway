@@ -2,7 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Usage;
 
 namespace Ume.LlmGateway.Infrastructure.Providers;
 

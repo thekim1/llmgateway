@@ -2,8 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.AdminApi.Auditing;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 

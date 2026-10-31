@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Primitives;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Networking;
 
 namespace Ume.LlmGateway.Infrastructure.Security;
 

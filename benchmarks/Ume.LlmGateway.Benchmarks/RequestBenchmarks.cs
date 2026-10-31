@@ -3,7 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using BenchmarkDotNet.Attributes;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Pii;
+using Ume.LlmGateway.Domain.Requests;
 using Ume.LlmGateway.Gateway.Requests;
 
 namespace Ume.LlmGateway.Benchmarks;

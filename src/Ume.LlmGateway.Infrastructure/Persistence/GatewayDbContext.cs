@@ -2,7 +2,8 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Requests;
+using Ume.LlmGateway.Domain.Usage;
 
 namespace Ume.LlmGateway.Infrastructure.Persistence;
 

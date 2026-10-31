@@ -1,5 +1,5 @@
 using System.Buffers.Binary;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Usage;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

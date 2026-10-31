@@ -3,8 +3,8 @@ using Ume.LlmGateway.AdminApi.Catalog;
 using Ume.LlmGateway.AdminApi.RoutingRules;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Requests;
 using Ume.LlmGateway.Domain.Routing;
-using Ume.LlmGateway.Domain.Services;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi.Auditing;

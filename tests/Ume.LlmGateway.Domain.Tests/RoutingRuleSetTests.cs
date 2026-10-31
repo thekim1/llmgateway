@@ -1,6 +1,5 @@
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
-using Ume.LlmGateway.Domain.Services;
 
 namespace Ume.LlmGateway.Domain.Tests;
 

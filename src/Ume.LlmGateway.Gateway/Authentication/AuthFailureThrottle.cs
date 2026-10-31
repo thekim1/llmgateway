@@ -1,6 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Options;
-using Ume.LlmGateway.Domain.Services;
+using Ume.LlmGateway.Domain.Networking;
 
 namespace Ume.LlmGateway.Gateway.Authentication;
 
