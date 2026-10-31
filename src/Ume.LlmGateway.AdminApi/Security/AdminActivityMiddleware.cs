@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi.Security;
