@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 
 namespace Ume.LlmGateway.AdminApi.Common;
 
