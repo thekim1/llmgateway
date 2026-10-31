@@ -8,6 +8,13 @@ category of each class follows its namespace. A log level set for a single class
 every request without the admin UI; **Settings > Request logging** works as before. Levels set per project
 (`Ume.LlmGateway.Gateway`, `Ume.LlmGateway.AdminApi`) are not affected. No migration. Rolling update: yes.
 
+**Security updates.** .NET 10.0.14, a security release (CVE-2026-111497, CVE-2026-70197, CVE-2026-102870,
+CVE-2026-114148): the service images are built on `aspnet:10.0.14-noble-chiseled-extra` and the ASP.NET Core, EF Core
+and Extensions packages are 10.0.14; the SDK is 10.0.403. Also Aspire 13.6.4, OpenTelemetry 1.20.1, Scalar 2.18.3 and,
+for tests, WireMock.Net 2.20.0. The admin UI's build and test tools no longer pull in `minimatch` and `glob` versions
+with the advisories GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 (neither is in the shipped bundle), and its other
+packages are updated. No migration and no configuration change. Rolling update: yes.
+
 ## 0.8.6 - 2026-10-30
 
 **A provider can be deleted together with its models.** Removing a provider that a configuration import brought along no
