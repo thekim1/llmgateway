@@ -11,7 +11,7 @@ using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 
-namespace Ume.LlmGateway.DataApi;
+namespace Ume.LlmGateway.DataApi.Authentication;
 
 /// <summary>A Data API key as the API needs it to authenticate; never the key or its hash.</summary>
 public sealed record DataApiKeyEntry(Guid Id, string Name, string Prefix, IReadOnlyList<string> Permissions, DateTimeOffset? ExpiresAt, DateTimeOffset? RevokedAt)

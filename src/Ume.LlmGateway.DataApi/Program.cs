@@ -1,7 +1,7 @@
-using System.Threading.RateLimiting;
-using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.DataApi;
+using Ume.LlmGateway.DataApi.Authentication;
+using Ume.LlmGateway.DataApi.Feeds;
 using Ume.LlmGateway.Infrastructure;
 
 if (await WebDefaults.ExitIfHealthProbeAsync(args))
@@ -13,12 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddDeploymentSecrets();
 builder.AddServiceDefaults();
 builder.AddGatewayDatabase();
-builder.Services.AddOptions<DataApiOptions>()
-    .BindConfiguration(DataApiOptions.SectionName)
-    .ValidateDataAnnotations()
-    .Validate(o => TimeZoneInfo.TryFindSystemTimeZoneById(o.TimeZone, out _), "DataApi:TimeZone is not a known time zone id.")
-    .ValidateOnStart();
-builder.AddDataApiAuthentication();
+builder.AddDataApiServices();
 builder.AddUmeWebDefaults(maxRequestBodySize: 16 * 1024);
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
@@ -28,17 +23,6 @@ builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
         + "Add format=csv or format=ndjson (or the matching Accept header) for bulk loads. See docs/data-access.md.";
     return Task.CompletedTask;
 }));
-builder.Services.AddRateLimiter(o =>
-{
-    o.AddPolicy("client", http => RateLimitPartition.GetFixedWindowLimiter(DataApiAuthentication.ClientId(http.User), _ =>
-        new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = http.RequestServices.GetRequiredService<IOptions<DataApiOptions>>().Value.RequestsPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-        }));
-    o.RejectWithProblem("Too many requests for this client. Wait a minute.");
-});
 
 var app = builder.Build();
 app.UseUmeWebDefaults();
@@ -55,7 +39,7 @@ if (app.Configuration.GetValue($"{DataApiOptions.SectionName}:{nameof(DataApiOpt
     app.MapScalarApiReference(o => o.WithTitle("LLM Gateway Data API").WithNonce().DisableDefaultFonts());
     app.MapGet("/", () => Results.Redirect("/scalar")).ExcludeFromDescription();
 }
-app.MapGroup("/v1").RequireRateLimiting("client").MapDataEndpoints();
+app.MapGroup("/v1").RequireRateLimiting(DataApiServices.PerClientRateLimit).MapDataEndpoints();
 
 await app.RunAsync();
 

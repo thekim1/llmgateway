@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -246,6 +247,23 @@ public static class WebDefaults
                 await Results.Problem(statusCode: http.Response.StatusCode, title: title).ExecuteAsync(http);
             }
         });
+    }
+
+    /// <summary>
+    /// <paramref name="policy"/>: <paramref name="permitLimit"/> requests per caller (<paramref name="partition"/>) in fixed
+    /// one-minute windows, without a queue. The limit is read when a caller's window is created, so it follows the options.
+    /// </summary>
+    public static RateLimiterOptions AddPerMinutePolicy(this RateLimiterOptions options, string policy, Func<HttpContext, string> partition,
+        Func<HttpContext, int> permitLimit)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.AddPolicy(policy, http => RateLimitPartition.GetFixedWindowLimiter(partition(http), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permitLimit(http),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+        return options;
     }
 
     /// <summary>Answers a rejected request with 429, <c>Retry-After</c> and a problem with <paramref name="detail"/>.</summary>

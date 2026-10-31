@@ -69,8 +69,4 @@ public static class AdminServices
         services.AddHostedService(sp => sp.GetRequiredService<ModelListSync>());
         return services;
     }
-
-    /// <summary>Binds <typeparamref name="T"/> to its configuration section and validates it on start (DataAnnotations and <see cref="System.ComponentModel.DataAnnotations.IValidatableObject"/>).</summary>
-    private static void AddValidatedOptions<T>(this IServiceCollection services, string section) where T : class =>
-        services.AddOptions<T>().BindConfiguration(section).ValidateDataAnnotations().ValidateOnStart();
 }

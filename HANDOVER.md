@@ -69,7 +69,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Every cost, budget, spend counter and reservation is in USD; there is no other currency (SEK was removed in 0.8.1). The `CostSek` columns
     and `ExchangeRates` table are left over for one release (rolling update) and dropped in the next; nothing reads or writes them.
   - Web hosts use the ServiceDefaults helpers (`AddUmeWebDefaults`/`UseUmeWebDefaults`, `UseUmeSecurityHeaders`, `ExitIfHealthProbeAsync`); CSV cells go through `CsvCell` (Domain).
-  - Options are validated on start (DataAnnotations/`IValidatableObject`); add a range or `[Required]` with each new setting.
+  - Options are validated on start (DataAnnotations/`IValidatableObject`) through `AddValidatedOptions<T>(section)` (ServiceDefaults); add a range or `[Required]` with each new setting.
 - **Analyzers:** warnings are errors (`AnalysisLevel latest-recommended`, some CA rules in `NoWarn`). Use `[LoggerMessage]` logging.
 - **AppHost:** `src/Ume.LlmGateway.AppHost`. Stop the exact AppHost (`aspire stop --apphost ...`) before backend builds. File-based AppHosts cannot use `DistributedApplicationTestingBuilder`, hence Testcontainers in the integration tests.
   Never use `dotnet run` for the AppHost. Project-local skills are in `.agents/skills`.

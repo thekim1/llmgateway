@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain.Export;
 using Ume.LlmGateway.ServiceDefaults;
 
-namespace Ume.LlmGateway.DataApi;
+namespace Ume.LlmGateway.DataApi.Feeds;
 
 /// <summary>A row of an incremental feed: ordered by <see cref="Id"/>, handed out once <see cref="RecordedAt"/> has settled.</summary>
 public interface IFeedItem

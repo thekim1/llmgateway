@@ -16,10 +16,7 @@ public static class GatewayServices
     /// </summary>
     public static IServiceCollection AddGatewayServices(this IServiceCollection services)
     {
-        services.AddOptions<GatewayOptions>()
-            .BindConfiguration(GatewayOptions.SectionName)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
+        services.AddValidatedOptions<GatewayOptions>(GatewayOptions.SectionName);
 
         services.AddSingleton<KeyAuthenticator>();
         services.AddSingleton<AuthFailureThrottle>();
