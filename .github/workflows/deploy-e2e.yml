@@ -2,8 +2,10 @@ name: Deploy end to end
 # Updates without downtime, tested for real (docs/zero-downtime-updates.md, docs/kubernetes.md): builds the service
 # images, then replaces every instance under load with Docker Compose (compose.rolling.yaml + rolling-update.sh behind
 # nginx) and on a kind cluster (deploy.sh + a rolling restart). Fails if a single request is lost.
+# About 6 minutes a run, so not on draft pull requests; mark the pull request ready (or run it from the Actions tab).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - deploy/**
       - src/Ume.LlmGateway.ServiceDefaults/**
@@ -17,6 +19,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   rolling-update:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -24,9 +27,16 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.403
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj', 'global.json') }}
+          restore-keys: nuget-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: src/admin-ui/package-lock.json
       - name: Build admin UI
         working-directory: src/admin-ui
         run: |

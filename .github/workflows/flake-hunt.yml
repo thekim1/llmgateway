@@ -26,6 +26,12 @@ jobs:
           dotnet-version: 10.0.403
       - name: Build
         run: dotnet build UmeLlmGateway.slnx -c Release --nologo
+      - name: Scan the service base image
+        # Pull requests scan it only when they change it (verify.yml); this catches CVEs published since it was pinned.
+        run: |
+          image="$(dotnet msbuild src/Ume.LlmGateway.Gateway -getProperty:ContainerBaseImage)"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.67.2 image --quiet --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
       - name: Run the tests repeatedly
         env:
           RUNS: ${{ inputs.runs || '5' }}

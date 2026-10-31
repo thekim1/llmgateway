@@ -1,7 +1,8 @@
 name: Website
 # Builds site/ (the product page, Getting started, Benchmarks and every Markdown page in site/content.mjs) and publishes it
-# to GitHub Pages whenever the site, the documentation or the admin UI's design tokens change on main.
-# Pull requests only build it, so a broken link fails the check before merge.
+# to GitHub Pages whenever the site, the documentation or the admin UI's design tokens change on main, in one job (each job
+# is billed at least a minute). Pull requests build it only when site/ itself changes and they are not drafts; a broken
+# link in docs/ fails the build on main, where it is fixed with the next push.
 on:
   push:
     branches: [main]
@@ -12,11 +13,9 @@ on:
       - 'src/admin-ui/src/styles/tokens.css'
       - '.github/workflows/pages.yml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'site/**'
-      - 'docs/**'
-      - 'CHANGELOG.md'
-      - 'src/admin-ui/src/styles/tokens.css'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 permissions:
@@ -26,33 +25,29 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - id: pages
-        if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+          cache: npm
+          cache-dependency-path: site/package-lock.json
       - name: Build
         working-directory: site
         env:
-          SITE_BASE: ${{ github.event_name == 'pull_request' && '/llmgateway' || steps.pages.outputs.base_path }}/
-          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+          SITE_BASE: /llmgateway/
         run: |
           npm ci
           npm audit --audit-level=low
           npm run build
-      - if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/dist
 
   deploy:
     if: github.event_name != 'pull_request'
-    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -60,5 +55,25 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - id: pages
+        uses: actions/configure-pages@v5
+      - name: Build
+        working-directory: site
+        env:
+          SITE_BASE: ${{ steps.pages.outputs.base_path }}/
+          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+        run: |
+          npm ci
+          npm audit --audit-level=low
+          npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
       - id: deployment
         uses: actions/deploy-pages@v4
