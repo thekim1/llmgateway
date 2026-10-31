@@ -200,7 +200,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
     {
         using var scope = fixture.Services.CreateScope();
         var entity = scope.ServiceProvider.GetRequiredService<GatewayDbContext>().Model.FindEntityType(typeof(UsageRecord))!;
-        var mapped = entity.GetProperties().Select(p => p.GetColumnName()).Except(["Id", "RecordedAt", GatewayDbContext.LegacyCostSek]);
+        var mapped = entity.GetProperties().Select(p => p.GetColumnName()).Except(["Id", "RecordedAt"]);
         UsageRecordCopy.Columns.Order().ShouldBe(mapped.Order());
     }
 

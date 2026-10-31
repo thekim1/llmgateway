@@ -11,6 +11,24 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.7: SEK leftovers dropped, .NET 10.0.14 security update
+
+- **Rolling update: no** (drops columns 0.8.6 reads). Stop the gateway, admin API and Data API, run the migration service
+  (migration `DropSekLeftovers`), then start the new version.
+- **Dropped:** the `CostSek` columns of `UsageRecords` and `UsageMonthlyTotals` and the `ExchangeRates` table. Nothing has
+  read or written them since 0.8.1; all costs are in `CostUsd`. Export them first if you want to keep the old SEK figures.
+- **Data retention:** the migration also redefines `ume_retention_step` without `CostSek`; owner and grants stay as they are.
+- **Database roles:** `app-roles.sql` (Compose, Kubernetes and Portainer) no longer names `ExchangeRates`. The migration
+  service applies it on start; if you run the role grants yourself, use the new file **after** the migration, because the
+  old one grants a table that no longer exists.
+- **Rolling back:** migrating down recreates the columns (0) and an empty `ExchangeRates` table, so migrating further back
+  past `BudgetsInUsd` (0.6.0) converts budgets with the fallback rate of 10 SEK per USD instead of the stored rates.
+- **Security update:** the images are built on .NET 10.0.14 (`aspnet:10.0.14-noble-chiseled-extra`), which fixes four
+  CVEs; Aspire 13.6.4 and OpenTelemetry 1.20.1. Nothing to configure.
+- **Log categories** of single classes have new names (code grouped per feature): a level set for one class needs the
+  new name, for example `Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler` (was
+  `...Gateway.Pipeline...`). Per-project levels and security events are unchanged.
+
 ## 0.8.6: a provider is deleted together with its models
 
 - **Rolling update: yes.** No migration and no configuration change.

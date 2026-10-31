@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+## 0.8.7 - 2026-10-31
+
+The .NET 10.0.14 security update and other dependency updates; the last SEK columns and the exchange rate table are
+dropped; and the backend code is grouped into one folder per feature. Migration `DropSekLeftovers`. **Rolling update:
+no**: stop the gateway, admin API and Data API, migrate, start the new version (see the 0.8.7 section of
+`docs/upgrade-guide.md`).
+
 **Gateway, admin API and Data API log categories have new names.** The code is grouped into one folder per feature, and the log
 category of each class follows its namespace. A log level set for a single class needs the new name, for example
 `Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler=Debug` (was `...Gateway.Pipeline...`) to log
 every request without the admin UI; **Settings > Request logging** works as before. Levels set per project
-(`Ume.LlmGateway.Gateway`, `Ume.LlmGateway.AdminApi`) and the security event log are not affected. No migration. Rolling update: yes.
+(`Ume.LlmGateway.Gateway`, `Ume.LlmGateway.AdminApi`) and the security event log are not affected.
+
+**The SEK leftovers are gone from the database.** Migration `DropSekLeftovers` drops the `CostSek` columns of
+`UsageRecords` and `UsageMonthlyTotals` and the `ExchangeRates` table, which nothing has read or written since 0.8.1, and
+redefines the retention function without `CostSek`. `app-roles.sql` no longer grants `ExchangeRates`. **Rolling update:
+no**: 0.8.6 and older still read `CostSek`, so stop the gateway, admin API and Data API, migrate, then start the new
+version; see `docs/upgrade-guide.md`.
 
 **Security updates.** .NET 10.0.14, a security release (CVE-2026-111497, CVE-2026-70197, CVE-2026-102870,
 CVE-2026-114148): the service images are built on `aspnet:10.0.14-noble-chiseled-extra` and the ASP.NET Core, EF Core

@@ -32,8 +32,8 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
         await ShouldBeDeniedAsync(admin, """DELETE FROM "UsageMonthlyTotals" """);
         await ShouldBeDeniedAsync(admin, """
             INSERT INTO "UsageMonthlyTotals" ("MonthStart", "VirtualKeyId", "TeamId", "DepartmentId", "Endpoint", "RequestedModel", "Requests",
-                "SuccessfulRequests", "Fallbacks", "InputTokens", "CachedInputTokens", "OutputTokens", "AudioSeconds", "CostUsd", "CostSek")
-            VALUES (now(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ChatCompletions', 'm', 1, 1, 0, 0, 0, 0, 0, 0, 0)
+                "SuccessfulRequests", "Fallbacks", "InputTokens", "CachedInputTokens", "OutputTokens", "AudioSeconds", "CostUsd")
+            VALUES (now(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'ChatCompletions', 'm', 1, 1, 0, 0, 0, 0, 0, 0)
             """);
         // Its own settings it may change.
         await ExecuteAsync(admin, """UPDATE "GatewaySettings" SET "UsageRetentionDays" = 400, "TrustedProxies" = '{10.0.0.5}' """);
@@ -144,7 +144,7 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
     }
 
     private static readonly string[] Configuration = ["Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts",
-        "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "ExchangeRates"];
+        "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets"];
 
     private static ServiceProvider DataProtection(string connectionString, bool createKeys)
     {

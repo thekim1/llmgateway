@@ -364,32 +364,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("Departments");
                 });
 
-            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ExchangeRate", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasMaxLength(3)
-                        .HasColumnType("character varying(3)");
-
-                    b.Property<DateTimeOffset>("EffectiveFrom")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("SekPerUnit")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Currency", "EffectiveFrom")
-                        .IsUnique();
-
-                    b.ToTable("ExchangeRates", (string)null);
-                });
-
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.GatewaySettings", b =>
                 {
                     b.Property<int>("Id")
@@ -817,12 +791,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<long>("CachedInputTokens")
                         .HasColumnType("bigint");
 
-                    b.Property<decimal>("CostSek")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
-                        .HasDefaultValue(0m);
-
                     b.Property<decimal>("CostUsd")
                         .HasPrecision(18, 8)
                         .HasColumnType("numeric(18,8)");
@@ -899,12 +867,6 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("CachedInputTokens")
                         .HasColumnType("bigint");
-
-                    b.Property<decimal>("CostSek")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
-                        .HasDefaultValue(0m);
 
                     b.Property<decimal>("CostUsd")
                         .HasPrecision(18, 8)
