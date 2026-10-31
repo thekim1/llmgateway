@@ -5,6 +5,7 @@ using Ume.LlmGateway.AdminApi.Security;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Networking;
 using Ume.LlmGateway.Domain.Usage;
+using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.AdminApi.Settings;
@@ -78,7 +79,7 @@ public sealed class GatewaySettingsService(AdminContext ctx, RetentionService re
 
     private static NetworkSettingsDto NetworkDto(GatewaySettings settings, HttpContext http)
     {
-        var forwarded = http.Request.Headers["X-Forwarded-For"].ToString();
+        var forwarded = http.Request.Headers[ClientAddresses.ForwardedForHeader].ToString();
         return new NetworkSettingsDto(settings.TrustedProxies, settings.UpdatedAt,
             new ObservedConnectionDto(http.Connection.RemoteIpAddress is { } remote ? NetworkRanges.Normalize(remote).ToString() : null,
                 string.IsNullOrWhiteSpace(forwarded) ? null : forwarded[..Math.Min(forwarded.Length, 500)]));

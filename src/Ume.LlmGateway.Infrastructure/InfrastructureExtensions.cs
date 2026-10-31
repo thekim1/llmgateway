@@ -129,7 +129,10 @@ public static class InfrastructureExtensions
     public static IServiceCollection AddProviderAdapters(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton(sp => new ProviderHttpClient(sp.GetRequiredService<IHostEnvironment>().IsProduction()));
+        services.TryAddSingleton(sp => new ProviderHttpClient(sp.GetRequiredService<IHostEnvironment>().IsProduction())
+        {
+            Time = sp.GetRequiredService<TimeProvider>(),
+        });
         services.AddSingleton<IProviderAdapter, AnthropicAdapter>();
         services.AddSingleton<IProviderAdapter, OpenAICompatibleAdapter>();
         services.TryAddSingleton<IRealtimeConnector, RealtimeConnector>();

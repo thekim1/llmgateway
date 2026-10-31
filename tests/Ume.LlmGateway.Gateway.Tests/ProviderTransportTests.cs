@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Time.Testing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Providers;
@@ -65,6 +66,23 @@ public sealed class ProviderTransportTests
         failure.StatusCode.ShouldBe(429);
         failure.Kind.ShouldBe(FailureKind.Transient);
         failure.RetryAfter.ShouldBe(TimeSpan.FromSeconds(12));
+    }
+
+    [Fact]
+    public async Task A_retry_after_date_is_measured_against_the_gateway_clock()
+    {
+        // A clock far from the real one: measured against DateTimeOffset.UtcNow the date would be long past.
+        var time = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        using var handler = new StatusHandler(System.Net.HttpStatusCode.ServiceUnavailable,
+            time.GetUtcNow().AddSeconds(45).ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        using var http = new ProviderHttpClient(handler) { Time = time };
+        var adapter = new OpenAICompatibleAdapter(http);
+        var call = new ProviderCall(
+            new ProviderAccount { Name = "test", BaseUrl = "https://provider/v1", Type = ProviderType.OpenAICompatible },
+            new ModelDeployment { Name = "test", UpstreamModel = "test" }, GatewayEndpoint.ChatCompletions,
+            new JsonObject { ["model"] = "test" }, false, null, false);
+        var failure = (await adapter.SendAsync(call, TestContext.Current.CancellationToken)).ShouldBeOfType<ProviderFailure>();
+        failure.RetryAfter.ShouldBe(TimeSpan.FromSeconds(45));
     }
 
     private sealed class StatusHandler(System.Net.HttpStatusCode status, string retryAfter) : HttpMessageHandler
