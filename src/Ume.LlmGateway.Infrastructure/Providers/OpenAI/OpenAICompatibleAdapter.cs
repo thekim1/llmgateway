@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Usage;
 
-namespace Ume.LlmGateway.Infrastructure.Providers;
+namespace Ume.LlmGateway.Infrastructure.Providers.OpenAI;
 
 /// <summary>
 /// OpenAI-compatible providers: OpenAI, Azure OpenAI (v1 API), Azure AI Foundry, Ollama (/v1), Ollama Cloud,

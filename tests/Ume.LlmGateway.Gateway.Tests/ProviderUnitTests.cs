@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain.Usage;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Providers.Anthropic;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

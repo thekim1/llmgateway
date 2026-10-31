@@ -4,6 +4,8 @@ using BenchmarkDotNet.Attributes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Providers;
+using Ume.LlmGateway.Infrastructure.Providers.Anthropic;
+using Ume.LlmGateway.Infrastructure.Providers.OpenAI;
 
 namespace Ume.LlmGateway.Benchmarks;
 
