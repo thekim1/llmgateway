@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Gateway and admin API log categories have new names.** The code is grouped into one folder per feature, and the log
+category of each class follows its namespace. A log level set for a single class needs the new name, for example
+`Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler=Debug` (was `...Gateway.Pipeline...`) to log
+every request without the admin UI; **Settings > Request logging** works as before. Levels set per project
+(`Ume.LlmGateway.Gateway`, `Ume.LlmGateway.AdminApi`) are not affected. No migration. Rolling update: yes.
+
 **Security updates.** .NET 10.0.14, a security release (CVE-2026-111497, CVE-2026-70197, CVE-2026-102870,
 CVE-2026-114148): the service images are built on `aspnet:10.0.14-noble-chiseled-extra` and the ASP.NET Core, EF Core
 and Extensions packages are 10.0.14; the SDK is 10.0.403. Also Aspire 13.6.4, OpenTelemetry 1.20.1, Scalar 2.18.3 and,

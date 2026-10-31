@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Authentication;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 

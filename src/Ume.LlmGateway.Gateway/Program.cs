@@ -3,10 +3,11 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway;
+using Ume.LlmGateway.Gateway.Authentication;
+using Ume.LlmGateway.Gateway.Operations;
+using Ume.LlmGateway.Gateway.Requests;
 using Ume.LlmGateway.Infrastructure;
-using Ume.LlmGateway.Infrastructure.Security;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 if (await WebDefaults.ExitIfHealthProbeAsync(args))
 {
@@ -25,37 +26,12 @@ builder.Services.AddDataProtection().DisableAutomaticKeyGeneration();
 builder.AddGatewayStores();
 builder.Services.AddProviderAdapters();
 
-builder.Services.AddOptions<GatewayOptions>()
-    .BindConfiguration(GatewayOptions.SectionName)
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
+builder.Services.AddGatewayServices();
 
 // Client addresses come only from the trusted proxies set in the admin UI (ClientAddressMiddleware).
 // ASPNETCORE_FORWARDEDHEADERS_ENABLED would believe X-Forwarded-For from any caller, so it is switched off here.
 builder.Services.PostConfigure<ForwardedHeadersOptions>(o => o.ForwardedHeaders = ForwardedHeaders.None);
 
-builder.Services.AddSingleton<KeyAuthenticator>();
-builder.Services.AddSingleton<AuthFailureThrottle>();
-builder.Services.AddSingleton<GatewayCatalog>();
-builder.Services.AddSingleton<DeploymentLoad>();
-builder.Services.AddSingleton(sp =>
-{
-    var guard = sp.GetRequiredService<IOptions<GatewayOptions>>().Value.ContentGuard;
-    return new Ume.LlmGateway.Domain.Services.ContentGuardRules(guard.PromptInjectionRules, guard.BlockedPatterns);
-});
-builder.Services.AddSingleton<IRouteResolver, RouteResolver>();
-builder.Services.AddSingleton<BudgetService>();
-builder.Services.AddSingleton<GatewayMetrics>();
-// Registered before the usage writer so it stops after it: alerts raised while the writer drains are still sent.
-builder.Services.AddSingleton<AlertNotifier>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<AlertNotifier>());
-builder.Services.AddSingleton<UsageWriter>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<UsageWriter>());
-builder.Services.AddSingleton<AuthFailureRecorder>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
-builder.Services.AddSingleton<GatewayRequestHandler>();
-// One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
-builder.Services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();
 builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
 {
     doc.Info.Title = "Umeå kommun LLM Gateway";
@@ -91,21 +67,7 @@ app.UseUmeSecurityHeaders(o =>
 app.UseApiReferencePolicy("/scalar", ScalarOptions.NonceHttpContextItemKey);
 
 app.MapDefaultEndpoints();
-app.MapGet(OperationsSignature.Path, async (HttpContext http, IOptions<GatewaySecurityOptions> security,
-    TimeProvider time, UsageWriter writer, HealthCheckService health, CancellationToken ct) =>
-{
-    if (!OperationsSignature.Verify(security.Value.KeyPepper, http.Request.Headers[OperationsSignature.TimestampHeader].ToString(),
-        http.Request.Headers[OperationsSignature.SignatureHeader].ToString(), time.GetUtcNow()))
-    {
-        return Results.Unauthorized();
-    }
-    http.Response.Headers.CacheControl = "no-store";
-    var report = await health.CheckHealthAsync(ct);
-    var status = writer.Status;
-    return Results.Ok(new GatewayOperationsStatus(
-        status.ConsecutiveFailures > 0 && report.Status == HealthStatus.Healthy ? "Degraded" : report.Status.ToString(),
-        typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown", status));
-}).ExcludeFromDescription();
+app.MapGatewayOperations();
 if (app.Configuration.GetValue($"{GatewayOptions.SectionName}:{nameof(GatewayOptions.PublishApiReference)}", true))
 {
     app.MapOpenApi();

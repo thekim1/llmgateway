@@ -4,7 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Budgets;
 using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Stores;
 

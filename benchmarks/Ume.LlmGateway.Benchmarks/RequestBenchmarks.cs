@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using BenchmarkDotNet.Attributes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Requests;
 
 namespace Ume.LlmGateway.Benchmarks;
 

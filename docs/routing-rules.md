@@ -356,4 +356,4 @@ The seeded demo environment (see [Local development](local-development.md#demo-d
 | Budget and token signals | `BudgetService.PeekUsedPercentAsync`, `IRateLimiter.PeekTokensUsedPercentAsync`; `RoutingRuleSet.References(variable)` tells the gateway which ones to fetch |
 | Loading and caching | `GatewayCatalog` compiles the rules once per catalogue snapshot; invalid rules are skipped and logged as warnings |
 | Admin API | `src/Ume.LlmGateway.AdminApi/RoutingRules/` (`RoutingRuleEndpoints`, `RoutingRuleService`, request and response records) |
-| Request routing seam | `IRouteResolver` in `src/Ume.LlmGateway.Gateway/Pipeline/RouteResolver.cs` |
+| Request routing seam | `IRouteResolver` in `src/Ume.LlmGateway.Gateway/Routing/RouteResolver.cs` |

@@ -4,8 +4,8 @@ using System.Net.WebSockets;
 using Microsoft.Extensions.Logging.Abstractions;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Gateway.Pipeline;
-using Ume.LlmGateway.Gateway.Pipeline.Realtime;
+using Ume.LlmGateway.Gateway.Realtime;
+using Ume.LlmGateway.Gateway.Requests;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Http;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Forms;
+using Ume.LlmGateway.Gateway.Requests;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

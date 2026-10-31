@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Requests;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

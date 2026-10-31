@@ -98,6 +98,11 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
   the pipeline stages in `GatewayRequestHandler` (routing, candidates, budget reservation, credentials, accounting).
   `ProviderAuth`/`ProviderTransport` hold provider authentication and HTTP details, and `FailureKind` decides fallback
   and circuit breaking. `/v1/models` and realtime input transcription models use the same eligibility rule as routing.
+  One folder (and namespace) per concern: `Requests` (the handler and its stages, errors, headers, request id),
+  `Authentication` (virtual keys, failed-attempt throttling and recording, client addresses), `Routing` (catalogue, route
+  resolution, deployment load, provider credentials), `Budgets` (reservation, alerts), `Usage` (usage writer, metrics),
+  `Forms` (multipart uploads), `Realtime` (live audio) and `Operations` (the signed status endpoint for the admin API).
+  `GatewayServices` registers every service and `GatewayRoutes` maps the client API.
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.

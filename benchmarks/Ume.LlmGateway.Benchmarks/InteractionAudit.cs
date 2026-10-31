@@ -4,7 +4,9 @@ using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using StackExchange.Redis.Profiling;
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Authentication;
+using Ume.LlmGateway.Gateway.Routing;
+using Ume.LlmGateway.Gateway.Usage;
 
 namespace Ume.LlmGateway.Benchmarks;
 

@@ -1,4 +1,4 @@
-using Ume.LlmGateway.Gateway.Pipeline;
+using Ume.LlmGateway.Gateway.Routing;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 

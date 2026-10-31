@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Services;
-using Ume.LlmGateway.Gateway.Pipeline.Realtime;
+using Ume.LlmGateway.Gateway.Realtime;
 using Ume.LlmGateway.Infrastructure.Providers;
 
 namespace Ume.LlmGateway.Gateway.Tests;
