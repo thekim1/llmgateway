@@ -11,7 +11,7 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: SEK leftovers dropped
+## 0.8.7: SEK leftovers dropped, .NET 10.0.14 security update
 
 - **Rolling update: no** (drops columns 0.8.6 reads). Stop the gateway, admin API and Data API, run the migration service
   (migration `DropSekLeftovers`), then start the new version.
@@ -23,7 +23,11 @@ See [runbook](runbook.md) for the actual deployment procedure.
   old one grants a table that no longer exists.
 - **Rolling back:** migrating down recreates the columns (0) and an empty `ExchangeRates` table, so migrating further back
   past `BudgetsInUsd` (0.6.0) converts budgets with the fallback rate of 10 SEK per USD instead of the stored rates.
-- **Log categories** of single classes have new names (code grouped per feature); see the CHANGELOG.
+- **Security update:** the images are built on .NET 10.0.14 (`aspnet:10.0.14-noble-chiseled-extra`), which fixes four
+  CVEs; Aspire 13.6.4 and OpenTelemetry 1.20.1. Nothing to configure.
+- **Log categories** of single classes have new names (code grouped per feature): a level set for one class needs the
+  new name, for example `Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler` (was
+  `...Gateway.Pipeline...`). Per-project levels and security events are unchanged.
 
 ## 0.8.6: a provider is deleted together with its models
 

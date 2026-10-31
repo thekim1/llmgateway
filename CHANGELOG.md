@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.7 - 2026-10-31
+
+The .NET 10.0.14 security update and other dependency updates; the last SEK columns and the exchange rate table are
+dropped; and the backend code is grouped into one folder per feature. Migration `DropSekLeftovers`. **Rolling update:
+no**: stop the gateway, admin API and Data API, migrate, start the new version (see the 0.8.7 section of
+`docs/upgrade-guide.md`).
+
 **Gateway, admin API and Data API log categories have new names.** The code is grouped into one folder per feature, and the log
 category of each class follows its namespace. A log level set for a single class needs the new name, for example
 `Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler=Debug` (was `...Gateway.Pipeline...`) to log
