@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Fix: signing out of the admin UI failed with "An internal error occurred." (500).** The Redis client deletes keys with
+`UNLINK`, which the gateway's Redis ACL (`deploy/redis/users.acl.example`) does not allow, so removing the admin session
+failed with NOPERM. Closing a provider's circuit by hand failed the same way, and a successful provider call did not
+reset its failure count. Keys are now deleted with `DEL`, which the ACL already allows: no change to deployed ACL
+files is needed. The integration tests now run Redis with that ACL and connect as its `gateway` user.
+
 ## 0.8.7 - 2026-10-31
 
 The .NET 10.0.14 security update and other dependency updates; the last SEK columns and the exchange rate table are

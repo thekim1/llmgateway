@@ -2,6 +2,7 @@ extern alias Fake;
 extern alias Gateway;
 extern alias Migration;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
@@ -25,9 +26,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = TestPostgres.Builder().Build();
     private static readonly string RedisPassword = TestSecrets.RandomHex();
+    // The production ACL (deploy/redis/users.acl.example): the services connect as its restricted gateway user, so a command
+    // that user may not run fails here as it would in production.
     private readonly RedisContainer _redis = new RedisBuilder("redis:8-alpine")
-        .WithEnvironment("REDIS_PASSWORD", RedisPassword)
-        .WithCommand("sh", "-c", "printf 'requirepass %s\\n' \"$REDIS_PASSWORD\" | exec redis-server -")
+        .WithResourceMapping(Encoding.UTF8.GetBytes(RedisAcl(RedisPassword)), "/etc/redis/users.acl")
+        .WithCommand("redis-server", "--aclfile", "/etc/redis/users.acl")
         .Build();
     private readonly string _pepper = TestSecrets.RandomHex();
     private WebApplicationFactory<Program> _admin = null!;
@@ -80,7 +83,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:gatewaydb", _postgres.GetConnectionString());
-        builder.UseSetting("ConnectionStrings:redis", _redis.GetConnectionString() + ",password=" + RedisPassword);
+        builder.UseSetting("ConnectionStrings:redis", _redis.GetConnectionString() + ",user=gateway,password=" + RedisPassword);
         builder.UseSetting("Security:KeyPepper", _pepper);
         builder.UseSetting("Gateway:KeyCacheSeconds", "60");
         builder.UseSetting("Gateway:CatalogCacheSeconds", "60");
@@ -139,5 +142,19 @@ public sealed class IntegrationFixture : IAsyncLifetime
         await _fake.DisposeAsync();
         await _redis.DisposeAsync();
         await _postgres.DisposeAsync();
+    }
+
+    private static string RedisAcl(string password)
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            var path = Path.Combine(dir.FullName, "deploy", "redis", "users.acl.example");
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path).Replace("#REPLACE_WITH_SHA256_PASSWORD_HASH", ">" + password, StringComparison.Ordinal);
+            }
+        }
+
+        throw new FileNotFoundException("deploy/redis/users.acl.example not found above the test output directory.");
     }
 }

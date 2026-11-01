@@ -224,7 +224,7 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
 
     /// <summary>Fire-and-forget: called on every successful provider call, before the response starts.</summary>
     public Task RecordSuccessAsync(Guid providerId, CancellationToken cancellationToken) =>
-        redis.GetDatabase().KeyDeleteAsync(FailKey(providerId), CommandFlags.FireAndForget);
+        redis.GetDatabase().DeleteKeysAsync([FailKey(providerId)], CommandFlags.FireAndForget);
 
     public async Task SetStateAsync(Guid providerId, CircuitState state, TimeSpan? openFor, CancellationToken cancellationToken)
     {
@@ -235,7 +235,7 @@ public sealed class RedisCircuitBreakerStore(IConnectionMultiplexer redis, IOpti
         }
         else
         {
-            await db.KeyDeleteAsync([OpenKey(providerId), FailKey(providerId)]);
+            await db.DeleteKeysAsync([OpenKey(providerId), FailKey(providerId)]);
         }
     }
 }

@@ -289,6 +289,9 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
 
         await circuits.SetStateAsync(provider, CircuitState.Open, TimeSpan.FromMinutes(1), Cancellation);
         (await circuits.GetStatusAsync([provider], [other], Cancellation)).IsUnavailable(provider, other).ShouldBeTrue();
+        await circuits.RecordSuccessAsync(provider, Cancellation);
+        await circuits.SetStateAsync(provider, CircuitState.Closed, null, Cancellation); // deletes with DEL, which the ACL allows
+        (await circuits.GetOpenAsync([provider], Cancellation)).ShouldBeEmpty();
         (await circuits.GetStatusAsync([], [], Cancellation)).ShouldBeSameAs(CircuitStatus.None);
     }
 

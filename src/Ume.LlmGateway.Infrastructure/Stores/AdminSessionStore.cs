@@ -53,5 +53,5 @@ public sealed class RedisAdminSessionStore(IConnectionMultiplexer redis) : IAdmi
         (byte[]?)await redis.GetDatabase().StringGetAsync(RedisKeys.AdminSession(sessionId));
 
     public Task RemoveAsync(string sessionId, CancellationToken cancellationToken) =>
-        redis.GetDatabase().KeyDeleteAsync(RedisKeys.AdminSession(sessionId));
+        redis.GetDatabase().DeleteKeysAsync([RedisKeys.AdminSession(sessionId)]);
 }
