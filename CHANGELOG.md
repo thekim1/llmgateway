@@ -2,11 +2,21 @@
 
 ## Unreleased
 
+## 0.8.8 - 2026-11-01
+
+Signing out of the admin UI works again, and CI builds each change once on its pull request and once on the release tag.
+No migration. **Rolling update: yes.**
+
 **Fix: signing out of the admin UI failed with "An internal error occurred." (500).** The Redis client deletes keys with
 `UNLINK`, which the gateway's Redis ACL (`deploy/redis/users.acl.example`) does not allow, so removing the admin session
 failed with NOPERM. Closing a provider's circuit by hand failed the same way, and a successful provider call did not
 reset its failure count. Keys are now deleted with `DEL`, which the ACL already allows: no change to deployed ACL
 files is needed. The integration tests now run Redis with that ACL and connect as its `gateway` user.
+
+**CI:** *Verify POC* runs on ready pull requests and release tags, no longer on pushes to `main` (a merge followed by a
+tag ran it three times with the same result). The base image scan runs on every pull request again, and the website
+builds on pull requests that change `docs/` or the CHANGELOG, so a broken link fails the pull request. Contributors
+and agents open pull requests as drafts and run `scripts/Test-BeforePush.ps1` before pushing (`AGENTS.md`).
 
 ## 0.8.7 - 2026-10-31
 

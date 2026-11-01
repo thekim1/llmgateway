@@ -11,6 +11,14 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.8: signing out works again
+
+- **Rolling update: yes.** No migration and no configuration change.
+- **Fix:** signing out of the admin UI answered 500 because the Redis ACL user `gateway` may not run `UNLINK`, which the
+  Redis client used to delete the session. Keys are now deleted with `DEL`, which the ACL already allows, so deployed
+  `users.acl` files stay as they are. If you added `+unlink` to the `gateway` user as a workaround, you can remove it again.
+  The same fix makes *Close circuit* in Operations work, and a successful provider call resets its failure count again.
+
 ## 0.8.7: SEK leftovers dropped, .NET 10.0.14 security update
 
 - **Rolling update: no** (drops columns 0.8.6 reads). Stop the gateway, admin API and Data API, run the migration service
