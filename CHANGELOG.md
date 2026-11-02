@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Repository:** `.gitattributes` sets `* text=auto` and marks images, PDFs and fonts as binary. Text is stored with LF
+whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
+as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).
+
 **Admin API:** the budget and alert lists keep only the owners in the user's departments in the database query, instead
 of loading every department's rows and dropping them afterwards; the key list's `status` filter is a database
 condition too (`VirtualKey.HasStatus`, checked against `GetStatus` for every combination of the key's dates). The
