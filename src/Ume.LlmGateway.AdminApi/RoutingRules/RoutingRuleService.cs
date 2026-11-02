@@ -402,7 +402,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
 
     private async Task<RoutingRule> FindAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.RoutingRules.Include(r => r.Targets).SingleOrDefaultAsync(r => r.Id == id, ct)
-        ?? throw new ApiFaultException(404, "The rule does not exist.");
+        ?? throw NotFound.Rule();
 
     /// <summary>Validates the request (field errors are a validation fault) and writes it onto the rule.</summary>
     private async Task ApplyRequestAsync(RoutingRule rule, RoutingRuleRequest request, bool isNew, CancellationToken ct)
@@ -586,7 +586,7 @@ public sealed class RoutingRuleService(AdminContext ctx, OwnerScopeResolver owne
         if (keyId is { } kid)
         {
             var key = await ctx.Db.VirtualKeys.AsNoTracking().Include(k => k.Team!).ThenInclude(t => t.Department).SingleOrDefaultAsync(k => k.Id == kid, ct)
-                ?? throw new ApiFaultException(404, "The key does not exist.");
+                ?? throw NotFound.Key();
             keyName = key.Name;
             teamId ??= key.TeamId;
             departmentId ??= key.Team?.DepartmentId;
