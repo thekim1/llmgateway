@@ -345,8 +345,8 @@ peaks: the container's user and kernel CPU over 20 s, `dotnet-counters` and a 12
   × cores busy puts the GC at about 0.009 ms per message on 4 vCPUs and 0.014 ms on 6, a small part of the 0.04 ms.
 
 So the remaining cost at 6 vCPUs is contention, mostly in the runtime and libraries: spinning in locks and in idle
-thread-pool workers, and Redis write collisions on one connection. Candidates, each to be measured on its own with
-`profile.sh` and `cores.sh`: the `User-Agent` per request instead of in the shared default headers; a lower
+thread-pool workers, and Redis write collisions on one connection. Each candidate fix was measured on its own with
+`profile.sh` and `cores.sh` (below): the `User-Agent` per request instead of in the shared default headers; a lower
 thread-pool spin limit (`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`); more than one Redis connection. Results:
 `results/cores/report.md`, `results/profile/report.md`.
 
@@ -392,6 +392,29 @@ its second run alone the saving is 1.5–2 %), within what two runs can tell apa
 still cost 1.24 times 4 vCPUs per message either way, and throughput at 6 vCPUs does not change. Not made the default:
 the gain is small and spinning is what keeps wake-up latency low when load is bursty, which this steady load does not
 test.
+
+**More Redis connections (measured 2026-11-02, not adopted).** A prototype spread the hot-path stores (admission,
+rate limit, spend, usage journal) round-robin over 1, 2 or 4 StackExchange.Redis connections, to cut write collisions on
+the one connection. Two runs per count, interleaved, streaming:
+
+| Redis connections | 4 vCPUs, 256 clients: msg/s, CPU per message | 6 vCPUs, 384 clients: msg/s, CPU per message |
+|---|---|---|
+| 1 (today) | 20 516, 0.176–0.187 ms | 23 921, 0.217–0.218 ms |
+| 2 | 19 918, 0.186–0.190 ms | 22 740, 0.229–0.230 ms |
+| 4 | 18 178, 0.193 ms | 22 162, 0.235–0.237 ms |
+
+Every added connection costs more: 2–7 % more CPU per message at 4 vCPUs and 5–9 % at 6, and 3–11 % less throughput.
+Not profiled, but the likely reason is that commands from fewer threads share a write and a read per batch on one
+connection, while with more connections each sends and reads smaller batches (more socket calls and thread wake-ups
+for the same commands), which outweighs the collisions saved. The single shared connection stays.
+
+**What this leaves.** Of the four contention sources in the trace, three were tried and none removes the rise from
+4 to 6 vCPUs: the shared header lock (removed in a trial, no change), thread-pool spinning (2–4 % at both sizes), Redis write
+collisions (more connections cost more). The rest is in the runtime and libraries: waiting for garbage collections
+(more heaps and threads take part in each), Kestrel's and System.IO.Pipelines' per-connection locks, and StackExchange.Redis's
+reader and backlog threads. No gateway-side change found that moves it; the figures to expect are 0.18 ms per message up
+to 4 vCPUs and 0.22 ms at 6, with 73 % scaling efficiency. Scaling out (more instances, plan item 4) is the way to add
+capacity beyond 4 vCPUs per instance.
 
 ## Comparison with eneo
 

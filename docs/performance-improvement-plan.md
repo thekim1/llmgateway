@@ -64,7 +64,7 @@ only when the request is allowed keeps that rule atomically. Two ordering detail
 **Done when.** `audit` shows one Redis round trip before the first byte on the common path; budget and rate-limit
 tests pass, including rules that change the model.
 
-### 2. CPU per message at 6 vCPUs (cause found 2026-11-02; fixes open)
+### 2. CPU per message at 6 vCPUs (done 2026-11-02: cause documented, no gateway-side fix)
 
 **Found.** Not the CPU layout: with 3 physical cores of its own the gateway costs the same 0.22 ms
 (`benchmarks/compare/cores.sh`). The extra 0.04 ms per message is user-mode CPU from contention: spinning in contended
@@ -74,8 +74,9 @@ write collisions on its one connection; allocation and work per message do not c
 [performance.md](performance.md#cpu-per-message-at-6-vcpus-2026-11-02)). Next, one pull request each, measured with
 both scripts at 4 and 6 vCPUs: set `User-Agent` per request instead of in `DefaultRequestHeaders` (tried, not
 adopted: the lock is gone, CPU per message unchanged within noise); a lower thread-pool spin limit (done: 2–4 % less
-CPU per message at 4 and 6 vCPUs alike, the rise from 4 to 6 unchanged; not made the default); try two to four Redis
-connections.
+CPU per message at 4 and 6 vCPUs alike, the rise from 4 to 6 unchanged; not made the default); two to four Redis
+connections (done: 2–9 % more CPU per message, not adopted). The remaining cause is in the runtime and libraries, not
+in gateway code; see performance.md.
 
 **Evidence (before the analysis).** CPU per message is flat from 1 to 4 vCPUs (0.17–0.18 ms) and rises to 0.22 ms at 6, where efficiency
 drops to 73 % (baseline 2026-11-02; on 2026-10-27, before #55 and #56, it was 0.20–0.21 and 0.25 ms, 72 %).
@@ -90,7 +91,7 @@ GC pause time, allocation rate) and a `dotnet-trace` CPU sample at 6 vCPUs, 384 
 with more cores so the 6-vCPU point does not share cores with the harness.
 
 **Done when.** CPU per message at 6 vCPUs is within about 10 % of the 2-vCPU figure, or the remaining cause is
-documented in `performance.md` (documented; the three fixes above are still to be measured).
+documented in `performance.md` (done: documented, all three candidate fixes measured).
 
 ### 3. Memory footprint under load (done 2026-11-02)
 
