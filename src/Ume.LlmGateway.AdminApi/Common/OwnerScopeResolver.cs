@@ -45,6 +45,18 @@ public sealed class OwnerScopeResolver(AdminContext ctx)
     public async Task<string?> NameAsync(Owner owner, CancellationToken ct) =>
         (await NamesAsync([owner], ct)).GetValueOrDefault(owner);
 
+    /// <summary>
+    /// The entity, if it exists and its owner is in the user's departments; otherwise <paramref name="notFound"/>. An entity
+    /// the user may not see is answered as if it did not exist, so ids outside the user's departments cannot be probed.
+    /// </summary>
+    public async Task<T> VisibleOrNotFoundAsync<T>(T? entity, Func<T, Owner> ownerOf, Func<ApiFaultException> notFound, CancellationToken ct)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(ownerOf);
+        ArgumentNullException.ThrowIfNull(notFound);
+        return entity is not null && await NameAsync(ownerOf(entity), ct) is not null ? entity : throw notFound();
+    }
+
     public async Task<bool> ExistsAsync(Owner owner, CancellationToken ct) => (await AllNamesAsync([owner], ct)).ContainsKey(owner);
 
     /// <summary>Names of the owners in the signed-in user's departments.</summary>

@@ -30,7 +30,7 @@ public sealed class KeyService(AdminContext ctx, VirtualKeyHasher hasher, Creden
 
     public async Task<KeyCreatedDto> CreateAsync(KeyRequest input, CancellationToken ct)
     {
-        var team = await ctx.KeyTeams().SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw new ApiFaultException(404, "The team does not exist.");
+        var team = await ctx.KeyTeams().SingleOrDefaultAsync(t => t.Id == input.TeamId, ct) ?? throw NotFound.Team();
         var generated = hasher.Generate();
         var key = new VirtualKey
         {
@@ -89,7 +89,7 @@ public sealed class KeyService(AdminContext ctx, VirtualKeyHasher hasher, Creden
     }
 
     private async Task<VirtualKey> FindAsync(Guid id, CancellationToken ct) =>
-        await ctx.ManagedKeys().SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "The key does not exist.");
+        await ctx.ManagedKeys().SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw NotFound.Key();
 
     private static void Apply(VirtualKey key, KeyRequest input)
     {

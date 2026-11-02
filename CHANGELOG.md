@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Repository:** `.gitattributes` sets `* text=auto` and marks images, PDFs and fonts as binary. Text is stored with LF
+whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
+as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).
+
+**Admin API (internal):** every "does not exist" answer (404) comes from one list, `NotFound` in `AdminApi/Common`, instead of
+a message written out at each lookup, and budgets and alerts outside the user's departments go through one check
+(`OwnerScopeResolver.VisibleOrNotFoundAsync`). The status codes and messages are unchanged.
+
 **Gateway (internal):** `GatewayRequestHandler` (22 dependencies, six partial files) is split along its seams: the
 stages shared by HTTP requests and live sessions are `RequestStages`, accounting is `RequestAccounting`, the content
 guard is `ContentGuardStage`, and live sessions and `/v1/models` have their own entry points (`RealtimeRequestHandler`,
