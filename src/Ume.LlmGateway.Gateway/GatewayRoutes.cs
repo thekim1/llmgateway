@@ -34,9 +34,9 @@ public static class GatewayRoutes
         {
             var endpoint = info.Endpoint;
             var route = endpoint == GatewayEndpoint.Models
-                ? llm.MapGet(info.ClientPath, (HttpContext http, GatewayRequestHandler h) => h.ListModelsAsync(http))
+                ? llm.MapGet(info.ClientPath, (HttpContext http, ModelListEndpoint h) => h.ListModelsAsync(http))
                 : info.IsRealtime
-                    ? llm.MapGet(info.ClientPath, (HttpContext http, GatewayRequestHandler h) => h.HandleRealtimeAsync(http, endpoint))
+                    ? llm.MapGet(info.ClientPath, (HttpContext http, RealtimeRequestHandler h) => h.HandleAsync(http, endpoint))
                     : llm.MapPost(info.ClientPath, (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, endpoint));
             route.WithSummary(Summaries[endpoint]);
             if (!info.IsRealtime)

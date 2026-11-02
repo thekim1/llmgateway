@@ -11,14 +11,11 @@ using Ume.LlmGateway.Domain.Pii;
 using Ume.LlmGateway.Domain.Providers;
 using Ume.LlmGateway.Domain.Requests;
 using Ume.LlmGateway.Domain.Usage;
-using Ume.LlmGateway.Gateway.Authentication;
 using Ume.LlmGateway.Gateway.Budgets;
 using Ume.LlmGateway.Gateway.Forms;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Gateway.Usage;
 using Ume.LlmGateway.Infrastructure.Providers;
-using Ume.LlmGateway.Infrastructure.Security;
-using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.Gateway.Requests;
 
@@ -26,31 +23,20 @@ namespace Ume.LlmGateway.Gateway.Requests;
 /// The data-plane pipeline: authenticate → parse → resolve model → rate limit → PII guard → route →
 /// reserve budget → call provider(s) with fallback → account. Request and response content is only held
 /// in memory for the duration of the call and is never logged or persisted. The stages shared with live sessions
-/// (<see cref="HandleRealtimeAsync"/>) are in <c>GatewayRequestHandler.Stages.cs</c>, accounting in
-/// <c>GatewayRequestHandler.Accounting.cs</c>. Once a budget is reserved, every path accounts exactly once.
+/// (<see cref="RealtimeRequestHandler"/>) are in <see cref="RequestStages"/>, accounting in <see cref="RequestAccounting"/>
+/// and the content guard in <see cref="ContentGuardStage"/>. Once a budget is reserved, every path accounts exactly once.
 /// </summary>
-public sealed partial class GatewayRequestHandler(
-    KeyAuthenticator keys,
-    AuthFailureThrottle authThrottle,
+public sealed class GatewayRequestHandler(
+    RequestStages stages,
+    RequestAccounting accounting,
+    ContentGuardStage guard,
     GatewayCatalog catalog,
     IRouteResolver router,
-    IRateLimiter rateLimiter,
-    BudgetService budgets,
-    ICircuitBreakerStore circuits,
-    IOptions<CircuitBreakerOptions> circuitOptions,
     DeploymentLoad load,
-    ContentGuardRules guardRules,
     IEnumerable<IProviderAdapter> adapters,
-    IRealtimeConnector realtime,
-    IRealtimeSessionRegistry sessions,
-    IHostApplicationLifetime lifetime,
-    CredentialProtector credentials,
     UsageWriter usageWriter,
-    AuthFailureRecorder authFailures,
-    GatewayMetrics metrics,
     IOptionsMonitor<GatewayOptions> options,
     TimeProvider time,
-    ILoggerFactory loggers,
     ILogger<GatewayRequestHandler> logger)
 {
     // A repeated property is refused (400): the parsed tree would otherwise fail later with a 500, and a provider reading the
@@ -60,7 +46,6 @@ public sealed partial class GatewayRequestHandler(
     /// <summary>Bodies this large are walked for images even when the key allows all files (see the token estimate).</summary>
     private const long AttachmentInspectBytes = 32 * 1024;
     private readonly ProviderAdapterLookup _adapters = new(adapters);
-    private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
 
     public async Task HandleAsync(HttpContext http, GatewayEndpoint endpoint)
     {
@@ -71,7 +56,7 @@ public sealed partial class GatewayRequestHandler(
         var now = time.GetUtcNow();
 
         // 1. Authenticate the virtual key.
-        var key = await AuthenticateAsync(http, endpoint, now, ct);
+        var key = await stages.AuthenticateAsync(http, endpoint, now, ct);
         if (key is null)
         {
             return;
@@ -92,7 +77,7 @@ public sealed partial class GatewayRequestHandler(
 
         if (body["model"] is not JsonValue modelValue || !modelValue.TryGetValue<string>(out var model) || string.IsNullOrWhiteSpace(model))
         {
-            await RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
             return;
         }
 
@@ -100,7 +85,7 @@ public sealed partial class GatewayRequestHandler(
 
         if (info.IsImage && RequestRewriter.IsStreaming(body))
         {
-            await RejectAsync(http, state, GatewayError.ImageStreamingNotSupported, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.ImageStreamingNotSupported, RequestOutcome.Rejected);
             return;
         }
 
@@ -112,14 +97,14 @@ public sealed partial class GatewayRequestHandler(
             : default;
         if (AttachmentScanner.Disallowed(key.AttachmentPolicy, attachments.Kinds) is var refused and not AttachmentKinds.None)
         {
-            await RejectAsync(http, state, GatewayError.AttachmentNotAllowed(refused, key.AttachmentPolicy == AttachmentPolicy.ImagesOnly), RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.AttachmentNotAllowed(refused, key.AttachmentPolicy == AttachmentPolicy.ImagesOnly), RequestOutcome.Rejected);
             return;
         }
 
         // 2c. Provider tools and storage (per key): fields that send the conversation beyond the provider's region or keep it there.
         if (ProviderFeaturePolicy.Apply(body, endpoint, key.AllowProviderTools, key.AllowProviderStorage) is { } feature)
         {
-            await RejectAsync(http, state, GatewayError.ProviderFeatureNotAllowed(feature), RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.ProviderFeatureNotAllowed(feature), RequestOutcome.Rejected);
             return;
         }
 
@@ -128,7 +113,7 @@ public sealed partial class GatewayRequestHandler(
         var resolution = router.ResolveModel(snapshot, key, endpoint, model);
         if (resolution.Rejection is { } modelRejection)
         {
-            await RejectAsync(http, state, modelRejection, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, modelRejection, RequestOutcome.Rejected);
             return;
         }
 
@@ -143,7 +128,7 @@ public sealed partial class GatewayRequestHandler(
         var estimatedInputTokens = info.IsFree ? 0 : audio is null ? CostCalculator.EstimateInputTokens(bodyLength, attachments) : audioEstimate.InputTokens;
         state.EstimatedInputTokens = estimatedInputTokens;
         state.EstimatedAudioSeconds = audioEstimate.AudioSeconds;
-        if (!await AcquireRateLimitAsync(http, state, key, ct))
+        if (!await stages.AcquireRateLimitAsync(http, state, key, ct))
         {
             return;
         }
@@ -171,7 +156,7 @@ public sealed partial class GatewayRequestHandler(
 
             if (decision == PiiDecision.Block)
             {
-                await RejectAsync(http, state, GatewayError.PiiBlocked(scan.Summary), RequestOutcome.PiiBlocked);
+                await stages.RejectAsync(http, state, GatewayError.PiiBlocked(scan.Summary), RequestOutcome.PiiBlocked);
                 return;
             }
 
@@ -183,7 +168,7 @@ public sealed partial class GatewayRequestHandler(
 
         // 5b. Content guard (optional per key): after the PII guard, so it reads the redacted text; before routing, so a
         //     refused request costs nothing more.
-        if (key.ContentGuardPolicy != ContentGuardPolicy.Off && !await GuardRequestAsync(http, state, snapshot, key, body, ct))
+        if (key.ContentGuardPolicy != ContentGuardPolicy.Off && !await guard.GuardRequestAsync(http, state, snapshot, key, body, ct))
         {
             return;
         }
@@ -195,15 +180,15 @@ public sealed partial class GatewayRequestHandler(
             piiDetected = PiiJsonScanner.Scan(body, redact: false).HasPii; // signal only: no policy action is taken
         }
 
-        var routing = await ApplyRoutingAsync(http, state, snapshot, key, model, body, estimatedInputTokens, piiDetected, ct);
+        var routing = await stages.ApplyRoutingAsync(http, state, snapshot, key, model, body, estimatedInputTokens, piiDetected, ct);
 
         // 7. Candidate providers in attempt order.
         var stream = info.SupportsStreaming && RequestRewriter.IsStreaming(body);
         state.Streamed = stream;
         // Audio and images are counted by length or picture, not in tokens a context window limits.
         var contextTokens = audio is null && !info.IsImage ? estimatedInputTokens : 0;
-        var route = await SelectRouteAsync(http, state, snapshot, key, model, requested, routing, restrictTo, stream, circuitPrefetch, ct, contextTokens,
-            SessionAffinity(http, body, key));
+        var route = await stages.SelectRouteAsync(http, state, snapshot, key, model, requested, routing, restrictTo, stream, circuitPrefetch, ct, contextTokens,
+            RequestStages.SessionAffinity(http, body, key));
         if (route is not { } selected)
         {
             return;
@@ -233,7 +218,7 @@ public sealed partial class GatewayRequestHandler(
         HashSet<DataResidency>? residencies = BudgetService.HasTokenQuota(applicable)
             ? [.. selected.Candidates.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]
             : null;
-        if (await TryReserveAsync(http, state, snapshot, applicable, estimate, ct, expectedUsage.InputTokens + expectedUsage.OutputTokens, residencies) is null)
+        if (await stages.TryReserveAsync(http, state, snapshot, applicable, estimate, ct, expectedUsage.InputTokens + expectedUsage.OutputTokens, residencies) is null)
         {
             return;
         }
@@ -245,7 +230,7 @@ public sealed partial class GatewayRequestHandler(
         }
         catch (Exception ex) when (!state.Accounted)
         {
-            if (!await AccountUnexpectedAsync(http, state, snapshot, ex))
+            if (!await stages.AccountUnexpectedAsync(http, state, snapshot, ex))
             {
                 throw;
             }
@@ -274,7 +259,7 @@ public sealed partial class GatewayRequestHandler(
             state.Fallbacks = attempt++;
             state.Deployment = deployment;
 
-            if (!TryGetCredential(snapshot, provider, out var credential))
+            if (!stages.TryGetCredential(snapshot, provider, out var credential))
             {
                 lastFailure = ProviderFailure.CredentialUnavailable;
                 continue;
@@ -299,7 +284,7 @@ public sealed partial class GatewayRequestHandler(
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 state.AddUpstreamTime(time.GetTimestamp() - sent);
-                await AccountAsync(state, deployment, new TokenUsage(state.EstimatedInputTokens, 0, 0, state.EstimatedAudioSeconds), 499, RequestOutcome.ClientCancelled, null, snapshot);
+                await accounting.AccountAsync(state, deployment, new TokenUsage(state.EstimatedInputTokens, 0, 0, state.EstimatedAudioSeconds), 499, RequestOutcome.ClientCancelled, null, snapshot);
                 return;
             }
 
@@ -309,13 +294,13 @@ public sealed partial class GatewayRequestHandler(
             switch (result)
             {
                 case ProviderFailure failure when failure.CanFallBack:
-                    await RecordFailureAsync(state, deployment, failure);
+                    await stages.RecordFailureAsync(state, deployment, failure);
                     lastFailure = failure;
                     if (i == candidates.Count - 1 && failure.IsRetryable && retriesLeft > 0)
                     {
-                        var delay = RetryDelay(retry, retry.MaxRetries - retriesLeft);
+                        var delay = RequestStages.RetryDelay(retry, retry.MaxRetries - retriesLeft);
                         retriesLeft--;
-                        LogRetrying(logger, state.RequestId, provider.Name, (long)delay.TotalMilliseconds);
+                        RequestStages.LogRetrying(logger, state.RequestId, provider.Name, (long)delay.TotalMilliseconds);
                         await Task.Delay(delay, time, ct);
                         i--; // the same candidate again
                     }
@@ -324,35 +309,35 @@ public sealed partial class GatewayRequestHandler(
 
                 case ProviderFailure failure:
                     // Client error (e.g. invalid parameter): retrying elsewhere would fail the same way.
-                    SetRoutingHeaders(http, deployment, state.Fallbacks);
+                    RequestStages.SetRoutingHeaders(http, deployment, state.Fallbacks);
                     // Only the provider's message, type, code and param are passed on (ProviderErrors).
                     http.Response.StatusCode = failure.StatusCode;
                     http.Response.ContentType = "application/json; charset=utf-8";
                     await http.Response.WriteAsync(ProviderErrors.ClientBody(state.Endpoint, failure.Body, state.RequestId), ct);
 
-                    await AccountAsync(state, deployment, default, failure.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
+                    await accounting.AccountAsync(state, deployment, default, failure.StatusCode, RequestOutcome.ProviderError, GatewayErrorCodes.ProviderRejected, snapshot);
                     return;
 
                 case ProviderJsonResult json:
                     using (json)
                     using (usageWriter.TrackPending())
                     {
-                        await RecordSuccessAsync(state, provider);
-                        if (await GuardAnswerAsync(http, state, snapshot, state.Key!, json.Body, ct) is { } withheld)
+                        await stages.RecordSuccessAsync(state, provider);
+                        if (await guard.GuardAnswerAsync(http, state, snapshot, state.Key!, json.Body, ct) is { } withheld)
                         {
                             // The provider answered (and is paid); the client gets the refusal instead of the answer.
-                            SetRoutingHeaders(http, deployment, state.Fallbacks);
+                            RequestStages.SetRoutingHeaders(http, deployment, state.Fallbacks);
                             await GatewayErrors.WriteAsync(http, state.Endpoint, withheld, options.CurrentValue.DocsUrl);
-                            await AccountAsync(state, deployment, json.Usage, withheld.StatusCode, RequestOutcome.Rejected, withheld.Code, snapshot);
+                            await accounting.AccountAsync(state, deployment, json.Usage, withheld.StatusCode, RequestOutcome.Rejected, withheld.Code, snapshot);
                             return;
                         }
 
                         var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now));
-                        SetRoutingHeaders(http, deployment, state.Fallbacks);
+                        RequestStages.SetRoutingHeaders(http, deployment, state.Fallbacks);
                         http.Response.Headers[GatewayHeaders.CostUsd] = cost.ToString("0.00000000", CultureInfo.InvariantCulture);
                         if (state.Reservation?.RemainingUsd is { } rem)
                         {
-                            SetBudgetRemainingHeaders(http, Math.Max(0, rem - cost));
+                            RequestStages.SetBudgetRemainingHeaders(http, Math.Max(0, rem - cost));
                         }
 
                         // The answer goes out first (complete, thanks to Content-Length); accounting then runs off the
@@ -361,7 +346,7 @@ public sealed partial class GatewayRequestHandler(
                         http.Response.ContentType = json.ContentType ?? "application/json";
                         http.Response.ContentLength = json.Body.Length;
                         await http.Response.Body.WriteAsync(json.Body, CancellationToken.None);
-                        await AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
+                        await accounting.AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
                     }
 
                     return;
@@ -369,7 +354,7 @@ public sealed partial class GatewayRequestHandler(
                 case ProviderStreamResult streamResult:
                     using (streamResult)
                     {
-                        await RecordSuccessAsync(state, provider);
+                        await stages.RecordSuccessAsync(state, provider);
                         await StreamAsync(http, state, deployment, state.Fallbacks, streamResult, snapshot, ct);
                     }
 
@@ -378,12 +363,12 @@ public sealed partial class GatewayRequestHandler(
         }
 
         // 10. Every candidate failed.
-        await RejectAllFailedAsync(http, state, attempt, route.ModelName, lastFailure);
+        await stages.RejectAllFailedAsync(http, state, attempt, route.ModelName, lastFailure);
     }
 
     private async Task StreamAsync(HttpContext http, RequestState state, ModelDeployment deployment, int fallbacks, ProviderStreamResult result, CatalogSnapshot snapshot, CancellationToken ct)
     {
-        SetRoutingHeaders(http, deployment, fallbacks);
+        RequestStages.SetRoutingHeaders(http, deployment, fallbacks);
         http.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
         http.Response.StatusCode = 200;
         http.Response.ContentType = "text/event-stream; charset=utf-8";
@@ -432,15 +417,15 @@ public sealed partial class GatewayRequestHandler(
         catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException)
         {
             // Upstream broke mid-stream (or sent what a translator cannot read); headers are already sent, so no fallback is possible.
-            LogStreamBroken(logger, state.RequestId, deployment.ProviderAccount!.Name, ex.GetType().Name);
+            RequestStages.LogStreamBroken(logger, state.RequestId, deployment.ProviderAccount!.Name, ex.GetType().Name);
             status = 502;
             outcome = RequestOutcome.ProviderError;
             errorCode = "stream_interrupted";
         }
 
         state.AddUpstreamTime(time.GetTimestamp() - streaming);
-        RecordStreamGaps(state, deployment, gaps);
-        await AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
+        stages.RecordStreamGaps(state, deployment, gaps);
+        await accounting.AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
     }
 
     /// <summary>
@@ -454,7 +439,7 @@ public sealed partial class GatewayRequestHandler(
             var form = await AudioFormReader.ReadAsync(http.Request, AllowBodyOf(http, options.CurrentValue.MaxAudioRequestBodyBytes), ct);
             if (form.Error is { } audioError)
             {
-                await RejectAsync(http, state, audioError, RequestOutcome.Rejected);
+                await stages.RejectAsync(http, state, audioError, RequestOutcome.Rejected);
                 return default;
             }
 
@@ -466,7 +451,7 @@ public sealed partial class GatewayRequestHandler(
             var form = await ImageFormReader.ReadAsync(http.Request, AllowBodyOf(http, options.CurrentValue.MaxImageRequestBodyBytes), ct);
             if (form.Error is { } imageError)
             {
-                await RejectAsync(http, state, imageError, RequestOutcome.Rejected);
+                await stages.RejectAsync(http, state, imageError, RequestOutcome.Rejected);
                 return default;
             }
 
@@ -477,21 +462,21 @@ public sealed partial class GatewayRequestHandler(
 
         if (!http.Request.HasJsonContentType())
         {
-            await RejectAsync(http, state, GatewayError.JsonRequired, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.JsonRequired, RequestOutcome.Rejected);
             return default;
         }
 
         var (body, length, status) = await ReadJsonAsync(http.Request, ct);
         if (status != 0)
         {
-            await RejectAsync(http, state, status == 413 ? GatewayError.RequestTooLarge : GatewayError.InvalidJson, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, status == 413 ? GatewayError.RequestTooLarge : GatewayError.InvalidJson, RequestOutcome.Rejected);
             return default;
         }
 
         if (body is null)
         {
             // Valid JSON, but not an object.
-            await RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.MissingModel, RequestOutcome.Rejected);
             return default;
         }
 

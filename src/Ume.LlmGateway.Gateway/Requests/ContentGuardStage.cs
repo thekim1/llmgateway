@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.ContentGuard;
 using Ume.LlmGateway.Domain.Entities;
@@ -15,13 +16,24 @@ namespace Ume.LlmGateway.Gateway.Requests;
 /// The content guard (docs/content-guard.md), for keys whose <see cref="VirtualKey.ContentGuardPolicy"/> is not Off:
 /// in-process rules, then the guard model on an on-prem provider. Nothing here runs for keys with the guard off.
 /// </summary>
-public sealed partial class GatewayRequestHandler
+public sealed partial class ContentGuardStage(
+    IEnumerable<IProviderAdapter> adapters,
+    ContentGuardRules guardRules,
+    RequestStages stages,
+    IOptionsMonitor<GatewayOptions> options,
+    ILoggerFactory loggers,
+    ILogger<GatewayRequestHandler> logger)
 {
+    // Logs under the GatewayRequestHandler category, as before the handler was split: operators set that category's level
+    // (Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler, docs/runbook.md) to see every request.
+    private readonly ProviderAdapterLookup _adapters = new(adapters);
+    private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
+
     /// <summary>
     /// Checks the request. Record: flags it (<c>x-ume-guard</c>, usage record, security event) and lets it through. Block:
     /// refuses it with <c>content_blocked</c>. False when the request was refused (the answer has been written).
     /// </summary>
-    private async Task<bool> GuardRequestAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, VirtualKey key, JsonObject body,
+    internal async Task<bool> GuardRequestAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, VirtualKey key, JsonObject body,
         CancellationToken ct)
     {
         var settings = options.CurrentValue.ContentGuard;
@@ -43,7 +55,7 @@ public sealed partial class GatewayRequestHandler
                 case null when !string.IsNullOrWhiteSpace(settings.Model):
                     if (!settings.FailOpen && key.ContentGuardPolicy == ContentGuardPolicy.Block)
                     {
-                        await RejectAsync(http, state, GatewayError.ContentGuardUnavailable, RequestOutcome.Rejected);
+                        await stages.RejectAsync(http, state, GatewayError.ContentGuardUnavailable, RequestOutcome.Rejected);
                         return false;
                     }
 
@@ -62,7 +74,7 @@ public sealed partial class GatewayRequestHandler
             state.RequestId, state.Endpoint.ToString(), joined, key.Id, key.Prefix, key.TeamId, key.Team?.DepartmentId ?? Guid.Empty);
         if (key.ContentGuardPolicy == ContentGuardPolicy.Block)
         {
-            await RejectAsync(http, state, GatewayError.ContentBlocked(joined), RequestOutcome.Rejected);
+            await stages.RejectAsync(http, state, GatewayError.ContentBlocked(joined), RequestOutcome.Rejected);
             return false;
         }
 
@@ -74,7 +86,7 @@ public sealed partial class GatewayRequestHandler
     /// Checks a complete answer of a chat completions, Responses or Messages request (<see cref="ContentGuardOptions.CheckAnswers"/>):
     /// the blocked patterns and the guard model. Returns the error to answer with instead when the policy is Block.
     /// </summary>
-    private async Task<GatewayError?> GuardAnswerAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, VirtualKey key,
+    internal async Task<GatewayError?> GuardAnswerAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, VirtualKey key,
         ReadOnlyMemory<byte> answer, CancellationToken ct)
     {
         var settings = options.CurrentValue.ContentGuard;
@@ -137,7 +149,7 @@ public sealed partial class GatewayRequestHandler
         // Only an on-prem deployment: the text must not leave the organisation to be checked.
         var onPrem = new RoutingConstraints(GatewayEndpoint.ChatCompletions, [DataResidency.OnPrem]);
         var target = snapshot.Resolve(settings.Model)?.Targets.FirstOrDefault(t => RouteSelector.IsEligible(t, onPrem));
-        if (target?.ModelDeployment is not { } deployment || !TryGetCredential(snapshot, deployment.ProviderAccount!, out var credential))
+        if (target?.ModelDeployment is not { } deployment || !stages.TryGetCredential(snapshot, deployment.ProviderAccount!, out var credential))
         {
             LogGuardModelMissing(logger, settings.Model, requestId);
             return null;

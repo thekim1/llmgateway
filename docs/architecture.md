@@ -94,8 +94,11 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
 ### Code layout
 
 - **Gateway.** `GatewayEndpoints` (Domain) is the one table of endpoint semantics: routing name, client and upstream
-  path, required capability, model kinds, and the audio, realtime and streaming flags. HTTP and realtime requests share
-  the pipeline stages in `GatewayRequestHandler` (routing, candidates, budget reservation, credentials, accounting).
+  path, required capability, model kinds, and the audio, realtime and streaming flags. Each kind of client request has
+  its entry point (`GatewayRequestHandler` for HTTP, `RealtimeRequestHandler` for live sessions, `ModelListEndpoint`
+  for `/v1/models`); they share the pipeline stages in `RequestStages` (authentication, rate limits, routing, candidates,
+  budget reservation, credentials, circuit recording), the content guard in `ContentGuardStage` and the accounting in
+  `RequestAccounting` (one usage record per request). All of them log under the `GatewayRequestHandler` category.
   `ProviderAuth`/`ProviderTransport` hold provider authentication and HTTP details, and `FailureKind` decides fallback
   and circuit breaking. `/v1/models` and realtime input transcription models use the same eligibility rule as routing.
   One folder (and namespace) per concern: `Requests` (the handler and its stages, errors, headers, request id),

@@ -58,7 +58,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
   - Gateway-wide settings live in the single `GatewaySettings` row; the gateway reads it with the catalogue (trusted proxies), so a
     change the gateway must see publishes `InvalidationKind.Config`.
   - Provider failures carry a `FailureKind`: only `Transient` counts toward the circuit breaker; `ClientError` is answered without fallback.
-  - Every accepted gateway request is accounted exactly once (`AccountAsync`); new failure paths must go through it.
+  - Every accepted gateway request is accounted exactly once (`RequestAccounting.AccountAsync`); new failure paths must go through it.
+    The HTTP, live-session and model-list entry points share their stages through `RequestStages`, not copies.
   - Admin API code is grouped by feature (`src/Ume.LlmGateway.AdminApi/<Feature>/`, namespace per folder; see *Code layout*). Endpoints stay
     thin; logic belongs in the feature's service (`OrganisationService`, `KeyService`, `ProviderCatalogService`, `BudgetAdminService`,
     `RoutingRuleService`, `ReportService`, `OperationsService`, `GatewaySettingsService`, ...), request and response records in its

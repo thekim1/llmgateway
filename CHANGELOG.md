@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Gateway (internal):** `GatewayRequestHandler` (22 dependencies, six partial files) is split along its seams: the
+stages shared by HTTP requests and live sessions are `RequestStages`, accounting is `RequestAccounting`, the content
+guard is `ContentGuardStage`, and live sessions and `/v1/models` have their own entry points (`RealtimeRequestHandler`,
+`ModelListEndpoint`). The code inside each stage is unchanged, and every log line keeps the
+`Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler` category, so log-level settings keep working.
+
 ## 0.8.8 - 2026-11-01
 
 Signing out of the admin UI works again, and CI builds each change once on its pull request and once on the release tag.
