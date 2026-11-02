@@ -67,7 +67,7 @@ public sealed class DataAccessService(AdminContext ctx, IOptions<DataApiLinkOpti
     }
 
     private async Task<DataApiKey> FindAsync(Guid id, CancellationToken ct) =>
-        await ctx.Db.DataApiKeys.SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw new ApiFaultException(404, "The key does not exist.");
+        await ctx.Db.DataApiKeys.SingleOrDefaultAsync(k => k.Id == id, ct) ?? throw NotFound.Key();
 
     private async Task EnsureValidAsync(DataApiKeyRequest input, Guid? id, CancellationToken ct)
     {

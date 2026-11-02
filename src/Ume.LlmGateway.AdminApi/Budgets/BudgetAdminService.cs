@@ -63,8 +63,8 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
 
     public async Task AcknowledgeAsync(Guid id, CancellationToken ct)
     {
-        var a = await ctx.Db.AlertEvents.SingleOrDefaultAsync(a => a.Id == id, ct) ?? throw new ApiFaultException(404, "The alert does not exist.");
-        if (await owners.NameAsync(Owner.Of(a.Scope, a.ScopeId), ct) is null) { throw new ApiFaultException(404, "The alert does not exist."); }
+        var a = await owners.VisibleOrNotFoundAsync(await ctx.Db.AlertEvents.SingleOrDefaultAsync(a => a.Id == id, ct),
+            a => Owner.Of(a.Scope, a.ScopeId), NotFound.Alert, ct);
         a.Acknowledged = true;
         await ctx.SaveAsync(AuditActions.Acknowledge, AuditEntities.Alert, id, null, new AlertAudit(a.Acknowledged), InvalidationKind.Config, ct);
     }
@@ -144,14 +144,11 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
     }
 
     /// <summary>The budget, if its current owner is visible to the user.</summary>
-    private async Task<Budget> FindAsync(Guid id, CancellationToken ct)
-    {
-        var b = await ctx.Db.Budgets.SingleOrDefaultAsync(b => b.Id == id, ct) ?? throw new ApiFaultException(404, "The budget does not exist.");
-        return await owners.NameAsync(Owner.Of(b.Scope, b.ScopeId), ct) is null ? throw new ApiFaultException(404, "The budget does not exist.") : b;
-    }
+    private async Task<Budget> FindAsync(Guid id, CancellationToken ct) =>
+        await owners.VisibleOrNotFoundAsync(await ctx.Db.Budgets.SingleOrDefaultAsync(b => b.Id == id, ct), b => Owner.Of(b.Scope, b.ScopeId), NotFound.Budget, ct);
 
     private async Task<string> OwnerNameAsync(BudgetRequest input, CancellationToken ct) =>
-        await owners.NameAsync(Owner.Of(input.Scope, input.ScopeId), ct) ?? throw new ApiFaultException(404, "The budget's owner does not exist.");
+        await owners.NameAsync(Owner.Of(input.Scope, input.ScopeId), ct) ?? throw NotFound.BudgetOwner();
 
     /// <summary>
     /// One cost budget per owner and period, and one token quota per owner, period and residency: counters are keyed that

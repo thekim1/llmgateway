@@ -53,7 +53,7 @@ public sealed class ReportService(AdminContext ctx)
     {
         if (requestId.Length > 64) { throw new ApiFaultException(400, "The request id is too long."); }
         var row = await UsageQueries.WithNames(ctx.Usage().Where(u => u.RequestId == requestId), ctx.Db).FirstOrDefaultAsync(ct)
-            ?? throw new ApiFaultException(404, "The request does not exist.");
+            ?? throw NotFound.Request();
         return UsageDto(row);
     }
 

@@ -6,6 +6,10 @@
 whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
 as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).
 
+**Admin API (internal):** every "does not exist" answer (404) comes from one list, `NotFound` in `AdminApi/Common`, instead of
+a message written out at each lookup, and budgets and alerts outside the user's departments go through one check
+(`OwnerScopeResolver.VisibleOrNotFoundAsync`). The status codes and messages are unchanged.
+
 ## 0.8.8 - 2026-11-01
 
 Signing out of the admin UI works again, and CI builds each change once on its pull request and once on the release tag.

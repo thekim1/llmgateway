@@ -24,7 +24,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
 
     public async Task<DepartmentDto> UpdateDepartmentAsync(Guid id, DepartmentRequest input, CancellationToken ct)
     {
-        var d = await ctx.Db.Departments.Include(d => d.Teams).SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw DepartmentNotFound();
+        var d = await ctx.Db.Departments.Include(d => d.Teams).SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw NotFound.Department();
         var before = DepartmentAudit.Of(d);
         d.Name = input.Name.Trim(); d.CostCenterCode = input.CostCenterCode.Trim(); d.IsActive = input.IsActive;
         // Keys too: an authenticated key carries its department's name and state.
@@ -35,7 +35,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
     /// <summary>Deletes an empty department; <paramref name="routingRules"/> says what happens to its routing rules.</summary>
     public async Task DeleteDepartmentAsync(Guid id, string? routingRules, CancellationToken ct)
     {
-        var d = await ctx.Db.Departments.SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw DepartmentNotFound();
+        var d = await ctx.Db.Departments.SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw NotFound.Department();
         if (await ctx.Db.Teams.AnyAsync(t => t.DepartmentId == id, ct)) { throw new ApiFaultException(409, "The department has teams and cannot be deleted."); }
         await rules.ApplyScopeRemovalAsync(RoutingScope.Department, id, routingRules, "The department", ct);
         ctx.Db.Departments.Remove(d);
@@ -52,7 +52,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
 
     public async Task<TeamDto> CreateTeamAsync(TeamRequest input, CancellationToken ct)
     {
-        var d = await ctx.Departments().SingleOrDefaultAsync(d => d.Id == input.DepartmentId, ct) ?? throw DepartmentNotFound();
+        var d = await ctx.Departments().SingleOrDefaultAsync(d => d.Id == input.DepartmentId, ct) ?? throw NotFound.Department();
         var t = new Team
         {
             Department = d, DepartmentId = d.Id, Name = input.Name.Trim(), Description = input.Description, CreatedAt = ctx.Now,
@@ -66,7 +66,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
 
     public async Task<TeamDto> UpdateTeamAsync(Guid id, TeamRequest input, CancellationToken ct)
     {
-        var t = await ctx.Teams().Include(t => t.VirtualKeys).SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw TeamNotFound();
+        var t = await ctx.Teams().Include(t => t.VirtualKeys).SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw NotFound.Team();
         var before = TeamAudit.Of(t);
         t.Name = input.Name.Trim(); t.Description = input.Description; t.IsActive = input.IsActive;
         if (input.RequestPolicy is { } policy) { t.RequestPolicy = policy.IsEmpty ? null : policy; }
@@ -78,7 +78,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
     /// <summary>Deletes a team without keys; <paramref name="routingRules"/> says what happens to its routing rules.</summary>
     public async Task DeleteTeamAsync(Guid id, string? routingRules, CancellationToken ct)
     {
-        var t = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw TeamNotFound();
+        var t = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw NotFound.Team();
         if (await ctx.Db.VirtualKeys.AnyAsync(k => k.TeamId == id, ct)) { throw new ApiFaultException(409, "The team has keys and cannot be deleted."); }
         await rules.ApplyScopeRemovalAsync(RoutingScope.Team, id, routingRules, "The team", ct);
         ctx.Db.Teams.Remove(t);
@@ -100,7 +100,4 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
         }
         return trimmed;
     }
-
-    private static ApiFaultException DepartmentNotFound() => new(404, "The department does not exist.");
-    private static ApiFaultException TeamNotFound() => new(404, "The team does not exist.");
 }

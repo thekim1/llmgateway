@@ -24,7 +24,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
 
     public async Task<ProviderAccount> ProviderAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ProviderAccounts.Include(p => p.Deployments).SingleOrDefaultAsync(p => p.Id == id, ct)
-        ?? throw new ApiFaultException(404, "The provider does not exist.");
+        ?? throw NotFound.Provider();
 
     public async Task<ProviderDto> CreateProviderAsync(ProviderRequest input, CancellationToken ct)
     {
@@ -124,7 +124,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
 
     public async Task<ModelDeployment> ModelAsync(Guid id, CancellationToken ct) =>
         await ctx.Db.ModelDeployments.Include(m => m.ProviderAccount).Include(m => m.Prices).SingleOrDefaultAsync(m => m.Id == id, ct)
-        ?? throw new ApiFaultException(404, "The model does not exist.");
+        ?? throw NotFound.Model();
 
     public async Task<ModelDto> CreateModelAsync(ModelRequest input, CancellationToken ct)
     {
@@ -241,7 +241,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         [.. (await Routes().OrderBy(r => r.Name).ToListAsync(ct)).Select(RouteDto.Of)];
 
     private async Task<RouteAlias> RouteAsync(Guid id, CancellationToken ct) =>
-        await Routes().SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw new ApiFaultException(404, "The route does not exist.");
+        await Routes().SingleOrDefaultAsync(r => r.Id == id, ct) ?? throw NotFound.Route();
 
     public async Task<RouteDto> CreateRouteAsync(RouteRequest input, CancellationToken ct)
     {
