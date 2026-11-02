@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Linq.Expressions;
 using System.Net;
 using Ume.LlmGateway.Domain.Networking;
 using Ume.LlmGateway.Domain.Requests;
@@ -105,6 +106,23 @@ public sealed class VirtualKey
 
         return KeyStatus.Active;
     }
+
+    /// <summary>
+    /// <see cref="GetStatus"/> as a query condition, so a list filtered by status is filtered in the database. Keep the two in
+    /// step (<c>KeyStatusAndRotationTests</c> compares them for every combination of the fields).
+    /// </summary>
+    public static Expression<Func<VirtualKey, bool>> HasStatus(KeyStatus status, DateTimeOffset now) => status switch
+    {
+        KeyStatus.Revoked => k => (k.RevokedAt != null && k.RevokedAt <= now)
+            || (k.IsEnabled && (k.ExpiresAt == null || k.ExpiresAt > now) && k.GraceUntil != null && k.GraceUntil <= now),
+        KeyStatus.Disabled => k => (k.RevokedAt == null || k.RevokedAt > now) && !k.IsEnabled,
+        KeyStatus.Expired => k => (k.RevokedAt == null || k.RevokedAt > now) && k.IsEnabled && k.ExpiresAt != null && k.ExpiresAt <= now,
+        KeyStatus.InGracePeriod => k => (k.RevokedAt == null || k.RevokedAt > now) && k.IsEnabled && (k.ExpiresAt == null || k.ExpiresAt > now)
+            && k.GraceUntil != null && k.GraceUntil > now,
+        KeyStatus.Active => k => (k.RevokedAt == null || k.RevokedAt > now) && k.IsEnabled && (k.ExpiresAt == null || k.ExpiresAt > now)
+            && k.GraceUntil == null,
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown key status."),
+    };
 
     public bool IsUsable(DateTimeOffset now) => GetStatus(now) is KeyStatus.Active or KeyStatus.InGracePeriod;
 

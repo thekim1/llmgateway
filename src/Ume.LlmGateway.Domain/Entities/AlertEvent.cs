@@ -1,6 +1,6 @@
 namespace Ume.LlmGateway.Domain.Entities;
 
-public sealed class AlertEvent
+public sealed class AlertEvent : IBudgetScoped
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid BudgetId { get; set; }

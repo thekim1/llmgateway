@@ -6,6 +6,11 @@
 whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
 as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).
 
+**Admin API:** the budget and alert lists keep only the owners in the user's departments in the database query, instead
+of loading every department's rows and dropping them afterwards; the key list's `status` filter is a database
+condition too (`VirtualKey.HasStatus`, checked against `GetStatus` for every combination of the key's dates). The
+answers are unchanged.
+
 **Admin API (internal):** every "does not exist" answer (404) comes from one list, `NotFound` in `AdminApi/Common`, instead of
 a message written out at each lookup, and budgets and alerts outside the user's departments go through one check
 (`OwnerScopeResolver.VisibleOrNotFoundAsync`). The status codes and messages are unchanged.

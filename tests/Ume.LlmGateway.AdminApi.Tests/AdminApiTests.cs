@@ -189,6 +189,91 @@ public sealed class AdminApiTests(AdminFixture fixture)
         budget.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Budget_and_alert_lists_show_a_department_admin_only_their_own_departments()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var admin = await fixture.ClientAsync();
+        var own = await fixture.OrganisationAsync(admin);
+        var other = await fixture.OrganisationAsync(admin);
+        using var keyResponse = await admin.PostAsJsonAsync("/api/keys", KeyBody(own.Team), ct);
+        var ownKey = (await AdminFixture.ReadAsync(keyResponse, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        async Task<Guid> BudgetAsync(string scope, Guid scopeId)
+        {
+            using var created = await admin.PostAsJsonAsync("/api/budgets",
+                new { scope, scopeId, limitUsd = 100, period = "Monthly", alertThresholds = new[] { 80 }, isActive = true }, ct);
+            return (await AdminFixture.ReadAsync(created, HttpStatusCode.Created))["id"]!.GetValue<Guid>();
+        }
+
+        // One budget per owner kind in the user's department, one in another department.
+        var ownBudgets = new Dictionary<Guid, (BudgetScope Scope, Guid ScopeId)>
+        {
+            [await BudgetAsync("Department", own.Department)] = (BudgetScope.Department, own.Department),
+            [await BudgetAsync("Team", own.Team)] = (BudgetScope.Team, own.Team),
+            [await BudgetAsync("VirtualKey", ownKey)] = (BudgetScope.VirtualKey, ownKey),
+        };
+        var otherBudget = await BudgetAsync("Team", other.Team);
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            foreach (var (budgetId, owner) in ownBudgets.Append(new(otherBudget, (BudgetScope.Team, other.Team))))
+            {
+                db.AlertEvents.Add(new AlertEvent
+                {
+                    BudgetId = budgetId, Scope = owner.Scope, ScopeId = owner.ScopeId, PeriodStart = DateTimeOffset.UtcNow.AddDays(-1),
+                    ThresholdPercent = 80, SpentUsd = 80, LimitUsd = 100, Timestamp = DateTimeOffset.UtcNow,
+                });
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        var mine = ownBudgets.Keys.Append(otherBudget).ToHashSet();
+        async Task<List<Guid>> BudgetIdsAsync(HttpClient client, string path, string idField)
+        {
+            using var response = await client.GetAsync(path, ct);
+            return [.. (await AdminFixture.ReadAsync(response)).AsArray().Select(row => row![idField]!.GetValue<Guid>()).Where(mine.Contains)];
+        }
+
+        using var departmentAdmin = await fixture.ClientAsync("department-admin", own.Code);
+        (await BudgetIdsAsync(departmentAdmin, "/api/budgets", "id")).ShouldBe(ownBudgets.Keys, ignoreOrder: true);
+        (await BudgetIdsAsync(departmentAdmin, "/api/alerts", "budgetId")).ShouldBe(ownBudgets.Keys, ignoreOrder: true);
+        (await BudgetIdsAsync(departmentAdmin, "/api/alerts?acknowledged=false", "budgetId")).ShouldBe(ownBudgets.Keys, ignoreOrder: true);
+        (await BudgetIdsAsync(admin, "/api/budgets", "id")).ShouldBe(mine, ignoreOrder: true);
+        (await BudgetIdsAsync(admin, "/api/alerts", "budgetId")).ShouldBe(mine, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Key_list_filters_by_status()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        async Task<Guid> KeyAsync()
+        {
+            using var created = await client.PostAsJsonAsync("/api/keys", KeyBody(org.Team), ct);
+            return (await AdminFixture.ReadAsync(created, HttpStatusCode.Created))["key"]!["id"]!.GetValue<Guid>();
+        }
+
+        var active = await KeyAsync();
+        var revoked = await KeyAsync();
+        using (var revoke = await client.PostAsync($"/api/keys/{revoked}/revoke", null, ct))
+        {
+            revoke.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        async Task<List<Guid>> IdsAsync(string query)
+        {
+            using var response = await client.GetAsync($"/api/keys?teamId={org.Team}{query}", ct);
+            return [.. (await AdminFixture.ReadAsync(response)).AsArray().Select(k => k!["id"]!.GetValue<Guid>())];
+        }
+
+        (await IdsAsync("")).ShouldBe([active, revoked], ignoreOrder: true);
+        (await IdsAsync("&status=Active")).ShouldBe([active]);
+        (await IdsAsync("&status=Revoked")).ShouldBe([revoked]);
+        (await IdsAsync("&status=Expired")).ShouldBeEmpty();
+    }
+
     /// <summary>Sets a team code (as a gateway admin) and returns it.</summary>
     private static async Task<string> SetTeamCodeAsync(HttpClient admin, (Guid Department, Guid Team, string Code) org)
     {

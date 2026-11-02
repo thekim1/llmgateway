@@ -22,8 +22,9 @@ public sealed class KeyService(AdminContext ctx, VirtualKeyHasher hasher, Creden
         var query = ctx.ManagedKeys();
         if (teamId is { } team) { query = query.Where(k => k.TeamId == team); }
         if (departmentId is { } department) { query = query.Where(k => k.Team!.DepartmentId == department); }
+        if (status is { } wanted) { query = query.Where(VirtualKey.HasStatus(wanted, ctx.Now)); }
         var items = await query.OrderBy(k => k.Name).ToListAsync(ct);
-        return [.. items.Where(k => status is null || k.GetStatus(ctx.Now) == status).Select(k => KeyDto.Of(k, ctx.Now))];
+        return [.. items.Select(k => KeyDto.Of(k, ctx.Now))];
     }
 
     public async Task<KeyDto> GetAsync(Guid id, CancellationToken ct) => KeyDto.Of(await FindAsync(id, ct), ctx.Now);
