@@ -82,6 +82,9 @@ services:
       DOTNET_GCDynamicAdaptationMode: ${GC_DATAS:-1}
       DOTNET_GCConserveMemory: ${GC_CONSERVE:-0}
       DOTNET_GCHeapCount: ${GC_HEAP_COUNT:-0}
+      # Thread pool: a variable of this name in the shell reaches the gateway (cores.sh, DOTNET_ variables are hexadecimal);
+      # unset, the runtime's default applies.
+      DOTNET_ThreadPool_UnfairSemaphoreSpinLimit:
     ports: ["127.0.0.1:18080:8080"]
 
   # ---------- eneo (image built from the ENEO_VERSION tag, see README.md) ----------
