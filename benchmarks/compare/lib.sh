@@ -48,14 +48,14 @@ redis_calls() {
 
 services_for() {
   case "$1" in
-    ume) echo "ume-gateway ume-db ume-redis fake-llm" ;;
+    ume) echo "ume-gateway $(for i in $(seq 2 "${REPLICAS:-1}"); do printf 'ume-gateway-%s ' "$i"; done)ume-db ume-redis fake-llm" ;;
     eneo) echo "eneo-backend eneo-worker eneo-db eneo-redis fake-llm" ;;
     fake) echo "fake-llm" ;;
   esac
 }
 
 k6() { # target stream vus duration out
-  "${COMPOSE[@]}" --profile tools run --rm -e TARGET="$1" -e STREAM="$2" -e VUS="$3" -e DURATION="$4" -e OUT="$5" -e KEY="${KEY:-}" -e NO_REUSE="${NO_REUSE:-false}" \
+  "${COMPOSE[@]}" --profile tools run --rm -e TARGET="$1" -e STREAM="$2" -e VUS="$3" -e DURATION="$4" -e OUT="$5" -e KEY="${KEY:-}" -e NO_REUSE="${NO_REUSE:-false}" -e UME_TARGETS="${UME_TARGETS:-}" \
     -e ENEO_ASSISTANT="${ENEO_ASSISTANT:-}" -e ENEO_KEY="${ENEO_KEY:-}" \
     k6 run -q /scripts/chat.js 2>&1 | grep -vE '^\s*$|level=warn' || true
 }

@@ -170,7 +170,15 @@ user and kernel CPU, runtime counters (GC, allocation, lock contention, thread p
 where threads spend their time. The tools run in an SDK container that shares the gateway's process namespace; they are
 installed into `results/profile/tools` on the first run. `profile_report.py` writes `results/profile/report.md`.
 
+**Several instances** (`scale-out.sh`, about 3 minutes per configuration and repeat): R gateway instances of V vCPUs
+(`1x2 2x2 3x2 1x4 2x3 1x6`) on one shared Postgres and Redis, with the load generator spreading its clients over them
+(no load balancer, so the measurement is the gateway tier and the shared components). Reports throughput, p99, gateway
+CPU per message and how busy Redis, Postgres and the fake LLM were in `results/scale-out/report.md`; the extra instances
+are `ume-gateway-2` and `ume-gateway-3` in `compose.yaml`.
+
 ```bash
+benchmarks/compare/scale-out.sh
+CONFIGS="1x2 2x2 3x2" REPEATS=1 benchmarks/compare/scale-out.sh
 benchmarks/compare/cores.sh
 LAYOUTS="4own 6own" REPEATS=1 benchmarks/compare/cores.sh
 benchmarks/compare/profile.sh
@@ -191,6 +199,7 @@ the fake LLM's answer, so an error can never pass as a fast response.
 | `scale.sh` | Load and resource scaling (see above) |
 | `gc.sh` | Memory, throughput and latency per garbage collector configuration (see above) |
 | `cores.sh` | Gateway CPU per message by CPU layout (see above) |
+| `scale-out.sh` | Several gateway instances on shared Postgres and Redis (see above) |
 | `profile.sh`, `profile_report.py` | CPU split, runtime counters and a stack sample inside the gateway at its peak (see above) |
 | `sizing/` | A small host with PII and content guard on (see above) |
 | `latency.sh`, `latency_report.py` | Streaming latency with real-provider timing (see above), via the stream probe |

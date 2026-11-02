@@ -102,8 +102,17 @@ Workstation GC, 1 GiB and 512 MB limits) then differ by noise, so the runtime de
 [performance.md](performance.md#memory-and-the-garbage-collector-2026-11-02); tool: `benchmarks/compare/gc.sh`. The
 baseline of 2026-11-02 is measured with the fix.
 
-### 4. Verify horizontal scaling
+### 4. Verify horizontal scaling (done 2026-11-03)
 
+Measured with `benchmarks/compare/scale-out.sh`: instances add up (1 → 2 → 3 instances of 2 vCPUs: 11.3 k → 19.4 k →
+22.5 k messages/s, no errors), but several small instances cost 3–8 % throughput and 8–11 % more CPU per message than
+one large one, and the usage writer's batches shrink with the number of instances (Postgres statements per message
+0.086 → 0.206 from one to three). Redis, at 0.77 of its one command thread with three instances, is the shared
+component that limits it, near 29 k messages/s (extrapolated). Details:
+[performance.md](performance.md#several-instances-2026-11-03). Follow-up worth a look: a minimum interval or size for the
+usage writer's batches, so that the statements per message do not grow with the instance count.
+
+**Evidence (before the measurement).**
 **Evidence.** Not measured yet. Each instance has its own usage writer and caches and shares Redis and Postgres, so
 several instances should add up until Redis or Postgres saturates. At the 4-vCPU peak Redis used about half of its one
 command thread, so it is the first shared component to watch.
@@ -111,7 +120,7 @@ command thread, so it is the first shared component to watch.
 **Approach.** Extend `benchmarks/compare` with 2 and 3 gateway replicas behind a small load balancer (nginx or HAProxy
 container), same total vCPUs as one larger instance, and record throughput, p99 and Redis/Postgres CPU.
 
-**Done when.** `performance.md` has a table for 1/2/3 instances and names the shared component that limits it.
+**Done when.** `performance.md` has a table for 1/2/3 instances and names the shared component that limits it (done).
 
 ### 5. Guard against regressions
 

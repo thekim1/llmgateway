@@ -58,7 +58,7 @@ services:
     # up as latency spikes under load. The gateway's counters do not need to survive a restart of this stack.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
 
-  ume-gateway:
+  ume-gateway: &gateway
     profiles: [ume]
     image: ume-llm-gateway/gateway:compare
     <<: *app-cpus
@@ -86,6 +86,17 @@ services:
       # unset, the runtime's default applies.
       DOTNET_ThreadPool_UnfairSemaphoreSpinLimit:
     ports: ["127.0.0.1:18080:8080"]
+
+  # More instances of the same gateway for scale-out.sh (profile `ume`, started by name): own CPU set and host port, same database
+  # and Redis. The load generator spreads its clients over them (UME_TARGETS); there is no load balancer in between.
+  ume-gateway-2:
+    <<: *gateway
+    cpuset: "${APP2_CPUS:-10-11}"
+    ports: ["127.0.0.1:18081:8080"]
+  ume-gateway-3:
+    <<: *gateway
+    cpuset: "${APP3_CPUS:-12-13}"
+    ports: ["127.0.0.1:18082:8080"]
 
   # ---------- eneo (image built from the ENEO_VERSION tag, see README.md) ----------
   eneo-db:
