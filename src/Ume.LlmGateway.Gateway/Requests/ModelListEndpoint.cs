@@ -2,17 +2,18 @@ using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Providers;
 using Ume.LlmGateway.Domain.Routing;
+using Ume.LlmGateway.Gateway.Routing;
 
 namespace Ume.LlmGateway.Gateway.Requests;
 
 /// <summary><c>GET /v1/models</c>: what the key can use, decided by the same eligibility rule as routing.</summary>
-public sealed partial class GatewayRequestHandler
+public sealed class ModelListEndpoint(RequestStages stages, GatewayCatalog catalog, TimeProvider time)
 {
     public async Task ListModelsAsync(HttpContext http)
     {
         ArgumentNullException.ThrowIfNull(http);
         var ct = http.RequestAborted;
-        var key = await AuthenticateAsync(http, GatewayEndpoint.Models, time.GetUtcNow(), ct);
+        var key = await stages.AuthenticateAsync(http, GatewayEndpoint.Models, time.GetUtcNow(), ct);
         if (key is null)
         {
             return;

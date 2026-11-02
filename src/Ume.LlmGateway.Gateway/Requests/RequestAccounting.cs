@@ -1,17 +1,28 @@
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
-using Ume.LlmGateway.Domain.Routing;
 using Ume.LlmGateway.Domain.Usage;
 using Ume.LlmGateway.Gateway.Budgets;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Gateway.Usage;
 using Ume.LlmGateway.Infrastructure.Security;
+using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.Gateway.Requests;
 
 /// <summary>Accounting: every request that got past authentication ends in exactly one usage record.</summary>
-public sealed partial class GatewayRequestHandler
+public sealed partial class RequestAccounting(
+    BudgetService budgets,
+    IRateLimiter rateLimiter,
+    UsageWriter usageWriter,
+    GatewayMetrics metrics,
+    TimeProvider time,
+    ILoggerFactory loggers,
+    ILogger<GatewayRequestHandler> logger)
 {
+    // Logs under the GatewayRequestHandler category, as before the handler was split: operators set that category's level
+    // (Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler, docs/runbook.md) to see every request.
+    private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
+
     /// <summary>
     /// How long accounting may wait for the shared stores, and then again for room in the usage queue, after the client
     /// is done. A store that does not answer in time is logged and the usage record still queued; a record that cannot be
@@ -24,7 +35,7 @@ public sealed partial class GatewayRequestHandler
     /// from <paramref name="usage"/> at the deployment's price unless given (live sessions with two priced models).
     /// Runs once per request: later calls are ignored.
     /// </summary>
-    private async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot, decimal? knownCostUsd = null)
+    internal async Task AccountAsync(RequestState state, ModelDeployment? deployment, TokenUsage usage, int status, RequestOutcome outcome, string? errorCode, CatalogSnapshot? snapshot, decimal? knownCostUsd = null)
     {
         if (state.Accounted)
         {
@@ -136,6 +147,36 @@ public sealed partial class GatewayRequestHandler
         }
     }
 
+    /// <summary>Releases the extra budget blocks a session reserved while it ran. Never throws.</summary>
+    internal async Task ReleaseAsync(List<BudgetReservation> extra, string requestId)
+    {
+        if (extra.Count == 0)
+        {
+            return;
+        }
+
+        using var release = new CancellationTokenSource(AccountingTimeout);
+        foreach (var more in extra)
+        {
+            try
+            {
+                await budgets.CommitAsync(more, 0, release.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Only our own timeout is passed in: give up on the rest, the counters expire with their period.
+                LogAccountingTimedOut(logger, requestId);
+                break;
+            }
+            catch (Exception ex)
+            {
+                LogAccountingFailed(logger, ex, requestId);
+            }
+        }
+
+        extra.Clear();
+    }
+
     private static int Milliseconds(TimeSpan elapsed) => (int)Math.Min(int.MaxValue, elapsed.TotalMilliseconds);
 
     /// <summary>The <c>Action</c> attribute of the <c>gateway.pii.action</c> security event.</summary>
@@ -147,54 +188,11 @@ public sealed partial class GatewayRequestHandler
         _ => "detected",
     };
 
-    private sealed class RequestState(string requestId, GatewayEndpoint endpoint, long startTimestamp)
-    {
-        public string RequestId { get; } = requestId;
-        public GatewayEndpoint Endpoint { get; } = endpoint;
-        public long StartTimestamp { get; } = startTimestamp;
-        public VirtualKey? Key { get; set; }
-        public string? RequestedModel { get; set; }
-        public long EstimatedInputTokens { get; set; }
-        public decimal EstimatedAudioSeconds { get; set; }
-        public bool Streamed { get; set; }
-        public int Fallbacks { get; set; }
-        public PiiPolicy? PiiAction { get; set; }
-        public string? PiiCategories { get; set; }
-
-        /// <summary>What the content guard flagged (<c>request:…</c>, <c>answer:…</c>), for the usage record.</summary>
-        public string? GuardFlags { get; set; }
-        public BudgetReservation? Reservation { get; set; }
-        public AppliedRule? Rule { get; set; }
-
-        /// <summary>The deployment of the current (or last) attempt.</summary>
-        public ModelDeployment? Deployment { get; set; }
-
-        /// <summary>Set by the one <see cref="AccountAsync"/> call that counts.</summary>
-        public bool Accounted { get; set; }
-
-        /// <summary>
-        /// <see cref="TimeProvider.GetTimestamp"/> ticks spent waiting on providers: every attempt, failed fallbacks included,
-        /// and the relayed stream. Null when no provider was called (the request was refused first, or a live session).
-        /// </summary>
-        public long? UpstreamTicks { get; private set; }
-
-        /// <summary>When the first stream event was sent to the client; 0 when none was (not streamed, or failed first).</summary>
-        public long FirstEventTimestamp { get; set; }
-
-        /// <summary>When the current (or last) attempt was sent to its provider.</summary>
-        public long AttemptTimestamp { get; set; }
-
-        /// <summary>When the first stream event arrived from the provider that answered; 0 when none did.</summary>
-        public long ProviderFirstEventTimestamp { get; set; }
-
-        public void AddUpstreamTime(long ticks) => UpstreamTicks = (UpstreamTicks ?? 0) + ticks;
-    }
-
     [LoggerMessage(Message = "Request {RequestId} key {KeyPrefix} model {Model} provider {Provider} status {Status} in {LatencyMs} ms (fallbacks {Fallbacks})")]
     private static partial void LogCompleted(ILogger logger, LogLevel level, string requestId, string keyPrefix, string model, string provider, int status, int latencyMs, int fallbacks);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Accounting failed for request {RequestId}")]
-    private static partial void LogAccountingFailed(ILogger logger, Exception ex, string requestId);
+    internal static partial void LogAccountingFailed(ILogger logger, Exception ex, string requestId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Accounting for request {RequestId} timed out in the shared store; budget and token counters may be off until the period ends, the usage record is still written")]
     private static partial void LogAccountingTimedOut(ILogger logger, string requestId);

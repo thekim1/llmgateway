@@ -41,7 +41,13 @@ public static class GatewayServices
         services.AddSingleton<AuthFailureRecorder>();
         services.AddHostedService(sp => sp.GetRequiredService<AuthFailureRecorder>());
 
+        // The request pipeline: shared stages and accounting, and one entry point per kind of client request.
+        services.AddSingleton<RequestAccounting>();
+        services.AddSingleton<RequestStages>();
+        services.AddSingleton<ContentGuardStage>();
         services.AddSingleton<GatewayRequestHandler>();
+        services.AddSingleton<RealtimeRequestHandler>();
+        services.AddSingleton<ModelListEndpoint>();
         // One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
         services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();
         return services;

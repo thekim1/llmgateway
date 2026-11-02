@@ -59,7 +59,7 @@ documented in `performance.md`.
 circuit-state lookup) and the budget reservation script.
 
 **Where.** `RedisRateLimiter`, `RedisSpendLedger` (`src/Ume.LlmGateway.Infrastructure/Stores/RateLimiter.cs`, `SpendLedger.cs`),
-`GatewayRequestHandler` steps 4–8, `BudgetService.ReserveAsync`.
+`GatewayRequestHandler.HandleAsync` steps 4–8 (the stages are in `RequestStages`), `BudgetService.ReserveAsync`.
 
 **Approach.** The budget estimate depends on the routing result, which runs between the two. Options: reserve with an
 upper-bound estimate computed from the requested model's most expensive target at rate-limit time (when no routing

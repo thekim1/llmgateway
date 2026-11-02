@@ -57,7 +57,7 @@ public sealed class AccountingTests(GatewayFixture fixture)
             services.RemoveAll<ISpendLedger>();
             services.AddSingleton<ISpendLedger, HangingCommitLedger>();
         });
-        gateway.Services.GetRequiredService<GatewayRequestHandler>().AccountingTimeout = TimeSpan.FromMilliseconds(200);
+        gateway.Services.GetRequiredService<RequestAccounting>().AccountingTimeout = TimeSpan.FromMilliseconds(200);
         var key = await fixture.CreateKeyAsync();
         await fixture.AddBudgetAsync(BudgetScope.VirtualKey, key.Id, 10);
 
