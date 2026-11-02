@@ -381,6 +381,9 @@ log records in the category `Ume.LlmGateway.Security`; event names and fields ar
    (RFC 5424 over TLS), with Splunk HEC, Elastic and Azure Monitor (Sentinel) as commented alternatives.
 2. Set `UME_OTEL_ENDPOINT` (for example `https://otel-collector.internal:4317`) in `deploy/.env` or the Portainer
    stack. Both services then export logs, traces and metrics over OTLP; when it is empty nothing is exported.
+   Traces cover requests and provider calls, not single Redis commands: Redis command tracing holds every traced
+   request in memory for 10 s, about 400 MB at 16 000 requests/s. Turn it on for a short investigation only, with
+   `Aspire__StackExchange__Redis__DisableTracing=false`.
    `SSL_CERT_FILE` points the services at the internal CA bundle, so the collector's certificate must chain to a CA in
    `ca.pem`.
 3. Check that events arrive: a request with a made-up key produces a `gateway.auth.failed` event within

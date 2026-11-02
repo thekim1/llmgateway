@@ -148,6 +148,19 @@ benchmarks/compare/sizing/run.sh
 RATES="50" DURATION=5m benchmarks/compare/sizing/run.sh
 ```
 
+**Garbage collector settings** (`gc.sh`, about 4 minutes per configuration): the gateway's memory against throughput
+and latency under each GC configuration in the script (Server GC with and without DATAS, `GCConserveMemory`, a fixed
+heap count, Workstation GC, and the default under a 1 GiB container limit as in `deploy/kubernetes`). Each runs on a
+fresh stack; the gateway container's memory is sampled every second during the load. The settings reach the gateway as
+`DOTNET_*` variables through `compose.yaml` (`GC_SERVER`, `GC_DATAS`, `GC_CONSERVE`, `GC_HEAP_COUNT`, `APP_MEM`).
+
+```bash
+benchmarks/compare/gc.sh
+CONFIGS="default conserve5" VUS="64" benchmarks/compare/gc.sh
+```
+
+It writes `results/gc/report.md`.
+
 The report is written to `results/report.md` (raw k6 summaries and CPU samples next to it). Per scenario it shows
 requests/s, median/p95/p99 latency and overhead over the fake LLM, time to first byte, container CPU per request
 (platform and its Postgres + Redis), Postgres statements and Redis commands per request (including background
@@ -161,6 +174,7 @@ the fake LLM's answer, so an error can never pass as a fast response.
 | `compose.yaml` | Fake LLM, both platforms (profiles `ume`, `eneo`) and k6 (profile `tools`) |
 | `run.sh` | Starts each platform on fresh databases, seeds it, warms up, runs the scenarios, samples CPU and query counts |
 | `scale.sh` | Load and resource scaling (see above) |
+| `gc.sh` | Memory, throughput and latency per garbage collector configuration (see above) |
 | `sizing/` | A small host with PII and content guard on (see above) |
 | `latency.sh`, `latency_report.py` | Streaming latency with real-provider timing (see above), via the stream probe |
 | `lib.sh` | Shared shell helpers (start/seed platforms, k6, CPU and query sampling) |

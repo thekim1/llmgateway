@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**Fix: the gateway used 1–1.7 GB under load and crashed in a 1 GiB container.** Aspire's Redis client traced every
+Redis command, and the OpenTelemetry instrumentation keeps each traced request and its commands in memory until it
+turns them into spans every 10 seconds: about 400 MB of live objects at 16 000 requests/s. With the 1 GiB limit of
+`deploy/kubernetes` the gateway ran out of memory within a minute at 64 clients. Redis command tracing is now off unless
+`Aspire:StackExchange:Redis:DisableTracing` is `false` (`Aspire__StackExchange__Redis__DisableTracing=false`); requests
+and provider calls are still traced. At 64 clients (4 vCPUs): peak memory 1.59 GB → 156 MB, 15 300 → 19 100–21 000
+non-streamed requests/s, p99 16 → 7–8 ms, CPU per request 0.22 → 0.17 ms; no errors under 1 GiB or 512 MB limits.
+No garbage collector setting changes: with the fix the settings differ by noise (`docs/performance.md`, *Memory and the
+garbage collector*). New: `benchmarks/compare/gc.sh` compares GC settings and container limits.
+
 **Gateway: one Redis round trip before the first byte instead of two.** When no routing rule can apply to the key and
 the key has a rate limit, the rate limit and the budget reservation are one Lua script (`IAdmissionStore`), pipelined
 with the circuit-state lookup: the reservation is made only when the rate limit admits the request, as before. Without

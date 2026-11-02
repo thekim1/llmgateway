@@ -258,6 +258,38 @@ The Redis rows are mostly round trips, which cost more in Docker on WSL2 (0.3–
 | Resolve client address, no trusted proxies / through a proxy (2 hops) | 0.4 / 47 ns | 0 / 72 B |
 | Key address allow-list: none / 5 networks, last matching | 0.1 / 6.2 ns | 0 B |
 
+## Memory and the garbage collector (2026-11-02)
+
+**Redis command tracing kept every traced request in memory.** The baseline's 1.0–1.7 GB under load was not the
+garbage collector's choice: the OpenTelemetry Redis instrumentation (enabled by Aspire's `AddRedisClient`) records each
+command into a profiling session per traced request and turns them into spans only every 10 seconds, so the request's
+activity and its commands stay alive until then. Under load that was 427 MB of live objects (3.9 million) at 64 clients;
+with a 1 GiB container limit, the limit in `deploy/kubernetes`, the gateway ran out of memory and crashed within a minute
+at 64 clients. Redis command tracing is now off unless `Aspire:StackExchange:Redis:DisableTracing` is set to `false`;
+requests and provider calls are still traced. The live heap under the same load is now about 12 MB.
+
+`benchmarks/compare/gc.sh`, same harness as the baseline (gateway on 4 vCPUs), commit after #55, 30 s per scenario. At
+64 clients:
+
+| | Requests/s (not streamed / streamed) | p99 ms | Peak memory | CPU ms per request (not streamed) |
+|---|---|---|---|---|
+| Before the fix, Server GC with DATAS (default) | 15 269 / 11 928 | 16.3 / 16.4 | 1.59 GB | 0.224 |
+| Before the fix, 1 GiB container limit | crashed (out of memory) | | | |
+| Default (Server GC with DATAS) | 19 098 / 13 504 | 7.9 / 9.4 | 156–161 MB | 0.178 |
+| DATAS off (one heap per core) | 20 808 / 14 190 | 7.6 / 8.9 | 373–375 MB | 0.167 |
+| `GCConserveMemory=5` | 20 743 / 14 401 | 7.0 / 8.8 | 153–165 MB | 0.165 |
+| Workstation GC | 20 653 / 14 243 | 6.7 / 8.6 | 165–169 MB | 0.167 |
+| Default, 1 GiB limit | 20 971 / 14 435 | 6.9 / 8.5 | 151–161 MB | 0.163 |
+| Default, 512 MB limit | 20 970 / 14 349 | 6.8 / 8.8 | 162–182 MB | 0.163 |
+
+- The fix is worth more than any GC setting: a tenth of the memory, and 25–35 % more throughput with half the p99, since
+  the collector no longer copies hundreds of megabytes of live objects.
+- After the fix the GC settings differ by run-to-run noise (the first configuration of the run, `default`, was a few per
+  cent slower than the same settings later on), except DATAS off, which uses twice the memory for no measurable gain.
+  The runtime's default stays; no GC setting is needed in `deploy/`.
+- 512 MB is ample for this load; the 1 GiB Kubernetes limit leaves room for large uploads (audio, images) in flight.
+- The throughput figures in the baseline above predate the fix; they are re-measured with the next full baseline.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
@@ -308,7 +340,7 @@ fake LLM's answer. Raw results: `benchmarks/compare/results/2026-10-27-combined/
 | CPU per message, its Postgres + Redis (16 clients, streaming) | **0.14 ms** | 6.4 ms |
 | Postgres statements per message | **0.7** (background, batched) | 78 |
 | Redis commands per message (incl. inside Lua scripts) | 21 | 31 |
-| Memory, platform process | 0.4–1.7 GB | 2.2 GB |
+| Memory, platform process | 0.4–1.7 GB (about 160 MB since Redis command tracing is off, 2026-11-02) | 2.2 GB |
 
 Load (streaming, 4 vCPUs, 20 s per point):
 
@@ -352,8 +384,8 @@ the API key):
 - **The gateway slows down instead of failing.** At 256 clients requests queue a little longer (median 12.5 ms) and
   none fail.
 - With one client, both platforms' CPU per message includes idle background work spread over few messages; the
-  16-client figures are the marginal cost. The gateway's memory grows with load because .NET's server GC keeps a larger
-  heap when there is work; it is not a leak.
+  16-client figures are the marginal cost. The gateway's memory grew with load because Redis command tracing kept
+  every traced request alive for 10 s; it is off by default since 2026-11-02 (see *Memory and the garbage collector*).
 - k6 keeps one connection per client open. gunicorn's workers share one listening socket and each accepts a burst of
   new connections at once, so with many workers in one container a few of them can end up with every client.
   `NO_REUSE=true` makes k6 open a new connection per message to check this; scaling eneo is better done with several
