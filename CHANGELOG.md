@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Gateway:** a request on a route with a fallback no longer copies its parsed body for each candidate before the first
+attempt. The few fields rewritten per deployment are saved and put back before a fallback attempt instead. A 64 KB chat
+request allocates about 20 KB (5 %) less per request; short requests and inline images are unchanged (their large
+strings were never copied).
+
 ## 0.8.8 - 2026-11-01
 
 Signing out of the admin UI works again, and CI builds each change once on its pull request and once on the release tag.
