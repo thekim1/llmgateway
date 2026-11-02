@@ -16,7 +16,6 @@ COUNTERS = {
     'dotnet.gc.pause.time': ('Time in GC pauses', '%', 100 / 2, False),
     'dotnet.monitor.lock_contentions': ('Lock contentions/s', '', 1 / 2, False),
     'dotnet.thread_pool.work_item.count': ('Thread-pool work items per request', '', 1, True),
-    'dotnet.thread_pool.queue.length': ('Thread-pool queue length', '', 1, False),
 }
 
 
