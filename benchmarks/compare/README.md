@@ -27,8 +27,8 @@ layout (set in `lib.sh`; hardware threads on an 8-core / 16-thread machine, sibl
 | Fake LLM | 0–3 (`FAKE_CPUS`) | As many threads as the platform, telemetry off (`OTEL_SDK_DISABLED`), so it is never the limit |
 | Load generator ([k6](https://k6.io/), stream probe) | 4–7 (`K6_CPUS`) | As many threads as the platform |
 
-Straight to the fake LLM (the `fake` target) this harness serves about 55 000 streamed requests/s (2026-10-27), three
-times what the gateway reaches on 4 vCPUs. Each report ends with a *harness check*: how many threads the fake LLM,
+Straight to the fake LLM (the `fake` target) this harness serves about 54 000 streamed requests/s (2026-11-02), about
+2.5 times what the gateway reaches on 4 vCPUs. Each report ends with a *harness check*: how many threads the fake LLM,
 Postgres and Redis kept busy in every gateway scenario, so a run where one of them was the limit is visible. One
 platform runs at a time on fresh, in-memory databases.
 
