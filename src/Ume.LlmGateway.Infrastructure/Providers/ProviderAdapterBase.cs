@@ -43,6 +43,8 @@ public abstract class ProviderAdapterBase(ProviderHttpClient http) : IProviderAd
             return (null, ProviderFailure.HttpsRequired);
         }
 
+        request.Headers.UserAgent.Add(ProviderTransport.UserAgent);
+
         if (call.Stream)
         {
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));

@@ -78,6 +78,9 @@ public static class ProviderTransport
     /// <summary><c>Ume-LlmGateway/{version}</c>: the assembly's informational version, without build metadata.</summary>
     public static ProductInfoHeaderValue UserAgent { get; } = new("Ume-LlmGateway", InformationalVersion());
 
+    /// <summary><see cref="UserAgent"/> as header text, for the realtime WebSocket handshake.</summary>
+    public static string UserAgentText { get; } = UserAgent.ToString();
+
     public static TimeSpan RequestTimeout(ProviderAccount provider)
     {
         ArgumentNullException.ThrowIfNull(provider);

@@ -85,6 +85,42 @@ public sealed class ProviderTransportTests
         failure.RetryAfter.ShouldBe(TimeSpan.FromSeconds(45));
     }
 
+    [Fact]
+    public async Task Every_provider_request_carries_the_user_agent_without_shared_default_headers()
+    {
+        using var handler = new CaptureHandler();
+        using var http = new ProviderHttpClient(handler);
+        // Default headers are copied into every request under a lock on the shared header (contended under load).
+        http.Client.DefaultRequestHeaders.ShouldBeEmpty();
+        http.StreamClient.DefaultRequestHeaders.ShouldBeEmpty();
+
+        var provider = new ProviderAccount { Name = "p", BaseUrl = "https://provider/v1", Type = ProviderType.OpenAI };
+        var deployment = new ModelDeployment { Name = "m", UpstreamModel = "m" };
+        foreach (var stream in new[] { false, true })
+        {
+            var call = new ProviderCall(provider, deployment, GatewayEndpoint.ChatCompletions, new JsonObject { ["model"] = "m" }, stream, null, false);
+            await new OpenAICompatibleAdapter(http).SendAsync(call, TestContext.Current.CancellationToken);
+        }
+
+        var (socket, _) = await new RealtimeConnector(http).ConnectAsync(
+            new RealtimeCall(provider, deployment, GatewayEndpoint.Realtime, null, [], []), TestContext.Current.CancellationToken);
+        socket.ShouldBeNull();
+
+        handler.UserAgents.Count.ShouldBe(3);
+        handler.UserAgents.ShouldAllBe(agent => agent == ProviderTransport.UserAgentText);
+    }
+
+    private sealed class CaptureHandler : HttpMessageHandler
+    {
+        public List<string> UserAgents { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            UserAgents.Add(request.Headers.UserAgent.ToString());
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{}") });
+        }
+    }
+
     private sealed class StatusHandler(System.Net.HttpStatusCode status, string retryAfter) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

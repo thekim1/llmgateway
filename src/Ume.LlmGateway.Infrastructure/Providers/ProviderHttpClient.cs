@@ -58,10 +58,8 @@ public sealed class ProviderHttpClient : IDisposable
         AllowAutoRedirect = false,
     };
 
-    private static HttpClient Create(HttpMessageHandler handler)
-    {
-        var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        client.DefaultRequestHeaders.UserAgent.Add(ProviderTransport.UserAgent);
-        return client;
-    }
+    // No DefaultRequestHeaders: HttpClient copies them into every request under a lock on the shared header, which
+    // threads contend for under load (docs/performance.md, CPU per message at 6 vCPUs). Callers set User-Agent per
+    // request (ProviderTransport.UserAgent).
+    private static HttpClient Create(HttpMessageHandler handler) => new(handler) { Timeout = Timeout.InfiniteTimeSpan };
 }

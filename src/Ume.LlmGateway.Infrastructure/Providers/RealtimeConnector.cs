@@ -57,6 +57,7 @@ public sealed class RealtimeConnector(ProviderHttpClient http) : IRealtimeConnec
         var socket = new ClientWebSocket();
         socket.Options.CollectHttpResponseDetails = true;
         socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+        socket.Options.SetRequestHeader("User-Agent", ProviderTransport.UserAgentText);
         foreach (var (name, value) in call.Headers)
         {
             socket.Options.SetRequestHeader(name, value);
