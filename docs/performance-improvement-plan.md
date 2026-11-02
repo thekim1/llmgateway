@@ -14,9 +14,9 @@ after a change, and replace the figures there and here, so numbers never come fr
 | Peak throughput, streaming, 1 / 2 / 4 / 6 vCPUs | 4 751 / 9 616 / 17 772 / 20 550 msg/s | `scale.sh`, resource sweep |
 | CPU per message at those peaks | 0.21 / 0.20 / 0.21 / 0.25 ms | same |
 | What limits the peak | The gateway's own CPU (3.6 of 4 vCPUs busy); fake LLM, Postgres and Redis well below their limits | harness check in the reports |
-| Redis round trips per request | 2 before the first byte, 1 after (9 commands, 21 counting those inside Lua scripts) | `audit`, `run.sh` |
+| Redis round trips per request | 1 before the first byte (2 when a routing rule can apply to the key), 1 after; 8 commands (since #55) | `audit`, `run.sh` |
 | Postgres on the request path | 0 statements (warm caches); 0.2–0.7 per message in the background writer under load | `audit`, `run.sh` |
-| Memory of the gateway process under load | 1.0–1.7 GB at 16–64 clients | `run.sh` |
+| Memory of the gateway process under load | 128–161 MB at 16–64 clients (was 1.0–1.7 GB before Redis command tracing was turned off, 2026-11-02) | `gc.sh` |
 | Errors under overload (256 clients, 4 vCPUs) | 0 % (median 12.5 ms) | `scale.sh` |
 
 ## How to measure (always before and after)
@@ -37,7 +37,12 @@ Usage-writer queue depth under load can be read from `GET /health/operations` (H
 
 ## Work items, in priority order
 
-### 1. Rate limit and budget in one Redis round trip
+### 1. Rate limit and budget in one Redis round trip (done 2026-11-02, #55)
+
+One Lua script checks the rate limit and reserves the budget when no routing rule can apply to the key: 8 Redis commands
+per chat request instead of 9, Redis-backed Pipeline benchmark 1.51 → 1.08 ms per chat request. The rest of this item
+is kept as it was planned.
+
 
 **Evidence.** Two Redis round trips remain before the first byte: the rate-limit script (pipelined with the
 circuit-state lookup) and the budget reservation script.
@@ -75,20 +80,14 @@ with more cores so the 6-vCPU point does not share cores with the harness.
 **Done when.** CPU per message at 6 vCPUs is within about 10 % of the 2-vCPU figure, or the remaining cause is
 documented in `performance.md`.
 
-### 3. Memory footprint under load
+### 3. Memory footprint under load (done 2026-11-02)
 
-**Evidence.** The gateway process grows to 1.0–1.7 GB at 16–64 concurrent clients (server GC keeps large heaps on many
-cores). Not a leak, but it sets the container memory limit and the cost per instance.
-
-**Approach.** DATAS is already on: since .NET 9 it is the default with Server GC, and the gateway (a Web SDK project)
-runs Server GC, so the figures above include it (checked on SDK 10.0.403: `GC.GetConfigurationVariables()` reports
-`GCDynamicAdaptationMode=1`). Measure `DOTNET_GCConserveMemory` (try 3–7), a heap hard limit
-(`DOTNET_GCHeapHardLimitPercent`) and a fixed `DOTNET_GCHeapCount` against throughput and p99, and DATAS off
-(`DOTNET_GCDynamicAdaptationMode=0`) as the comparison. Confirm the heap count under load with `dotnet-counters`. Pick a
-default for `deploy/compose.prod.yaml` and document it.
-
-**Done when.** Steady-state memory at 64 clients is at most half of today's with less than 5 % throughput loss, or the
-trade-off is documented.
+The 1.0–1.7 GB was Redis command tracing holding every traced request for 10 s, not the garbage collector; with a 1 GiB
+container limit the gateway crashed. Redis command tracing is off by default now: peak memory at 64 clients 156 MB
+instead of 1.59 GB, and 25–35 % more throughput. GC settings (DATAS off, `GCConserveMemory`, fixed heap count,
+Workstation GC, 1 GiB and 512 MB limits) then differ by noise, so the runtime default stays. Details:
+[performance.md](performance.md#memory-and-the-garbage-collector-2026-11-02); tool: `benchmarks/compare/gc.sh`. The
+throughput and CPU figures above (and item 2's) predate the fix: re-measure the whole baseline before starting item 2.
 
 ### 4. Verify horizontal scaling
 

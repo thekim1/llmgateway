@@ -81,6 +81,9 @@ public static class InfrastructureExtensions
         return builder;
     }
 
+    /// <summary>Set to <c>false</c> to trace Redis commands (Aspire's own setting; off by default here, see below).</summary>
+    public const string RedisTracingSetting = "Aspire:StackExchange:Redis:DisableTracing";
+
     /// <summary>
     /// Shared counters/state. Uses Redis when a <c>redis</c> connection string is configured, otherwise
     /// single-instance in-memory stores (local tests only – not suitable for multiple gateway replicas).
@@ -103,7 +106,13 @@ public static class InfrastructureExtensions
 
         if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(RedisResourceName)))
         {
-            builder.AddRedisClient(RedisResourceName);
+            // Redis command tracing is off unless configured (Aspire:StackExchange:Redis:DisableTracing=false): the
+            // instrumentation records every command into a session per traced request and drains them only every 10 s,
+            // so under load it keeps hundreds of thousands of requests' activities alive (about 400 MB at 16 000
+            // requests/s, enough for an out-of-memory crash in a 1 GiB container). Requests and provider calls are
+            // still traced; Redis time shows as the gap between them.
+            builder.AddRedisClient(RedisResourceName, settings =>
+                settings.DisableTracing = builder.Configuration.GetValue<bool?>(RedisTracingSetting) ?? true);
             builder.Services.TryAddSingleton<IRateLimiter, RedisRateLimiter>();
             builder.Services.TryAddSingleton<ISpendLedger, RedisSpendLedger>();
             builder.Services.TryAddSingleton<IAdmissionStore, RedisAdmissionStore>();
