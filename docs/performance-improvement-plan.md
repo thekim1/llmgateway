@@ -37,7 +37,29 @@ Usage-writer queue depth under load can be read from `GET /health/operations` (H
 
 ## Work items, in priority order
 
-### 1. CPU per message at 6 vCPUs
+### 1. Rate limit and budget in one Redis round trip
+
+**Evidence.** Two Redis round trips remain before the first byte: the rate-limit script (pipelined with the
+circuit-state lookup) and the budget reservation script.
+
+**Where.** `RedisRateLimiter`, `RedisSpendLedger` (`src/Ume.LlmGateway.Infrastructure/Stores/RateLimiter.cs`, `SpendLedger.cs`),
+`GatewayRequestHandler.HandleAsync` steps 4–8 (the stages are in `RequestStages`), `BudgetService.ReserveAsync`.
+
+**Approach.** The budget estimate depends on the routing result, which runs between the two. Options: reserve with an
+upper-bound estimate computed from the requested model's most expensive target at rate-limit time (when no routing
+rule is configured, which is the common case), falling back to today's two-step path when rules apply. Keep the
+semantics: a rate-limited request must not reserve budget. One Lua script that checks the rate limit and reserves
+only when the request is allowed keeps that rule atomically. Two ordering details:
+
+- The PII check and the content guard run between the two steps today, so a request they refuse after the combined
+  script must release its reservation (an extra round trip, but only on the refusal path).
+- The request policy's prompt addition counts towards the estimate; it depends only on the key, so it can be computed
+  before the combined script.
+
+**Done when.** `audit` shows one Redis round trip before the first byte on the common path; budget and rate-limit
+tests pass, including rules that change the model.
+
+### 2. CPU per message at 6 vCPUs
 
 **Evidence.** CPU per message is flat from 1 to 4 vCPUs (0.20–0.21 ms) and rises to 0.25 ms at 6, where efficiency
 drops to 72 %. Part of it is the machine (two of the six threads share a physical core with the fake LLM and Postgres),
@@ -53,29 +75,17 @@ with more cores so the 6-vCPU point does not share cores with the harness.
 **Done when.** CPU per message at 6 vCPUs is within about 10 % of the 2-vCPU figure, or the remaining cause is
 documented in `performance.md`.
 
-### 2. Rate limit and budget in one Redis round trip
-
-**Evidence.** Two Redis round trips remain before the first byte: the rate-limit script (pipelined with the
-circuit-state lookup) and the budget reservation script.
-
-**Where.** `RedisRateLimiter`, `RedisSpendLedger` (`src/Ume.LlmGateway.Infrastructure/Stores/RateLimiter.cs`, `SpendLedger.cs`),
-`GatewayRequestHandler.HandleAsync` steps 4–8 (the stages are in `RequestStages`), `BudgetService.ReserveAsync`.
-
-**Approach.** The budget estimate depends on the routing result, which runs between the two. Options: reserve with an
-upper-bound estimate computed from the requested model's most expensive target at rate-limit time (when no routing
-rule is configured, which is the common case), falling back to today's two-step path when rules apply. Keep the
-semantics: a rate-limited request must not reserve budget.
-
-**Done when.** `audit` shows one Redis round trip before the first byte on the common path; budget and rate-limit
-tests pass, including rules that change the model.
-
 ### 3. Memory footprint under load
 
 **Evidence.** The gateway process grows to 1.0–1.7 GB at 16–64 concurrent clients (server GC keeps large heaps on many
 cores). Not a leak, but it sets the container memory limit and the cost per instance.
 
-**Approach.** Measure with `DOTNET_GCHeapAffinitizeMask`/`DOTNET_GCHeapCount`, DATAS (`DOTNET_GCDynamicAdaptationMode=1`)
-and `DOTNET_GCConserveMemory`, against throughput and p99. Pick a default for `deploy/compose.prod.yaml` and document it.
+**Approach.** DATAS is already on: since .NET 9 it is the default with Server GC, and the gateway (a Web SDK project)
+runs Server GC, so the figures above include it (checked on SDK 10.0.403: `GC.GetConfigurationVariables()` reports
+`GCDynamicAdaptationMode=1`). Measure `DOTNET_GCConserveMemory` (try 3–7), a heap hard limit
+(`DOTNET_GCHeapHardLimitPercent`) and a fixed `DOTNET_GCHeapCount` against throughput and p99, and DATAS off
+(`DOTNET_GCDynamicAdaptationMode=0`) as the comparison. Confirm the heap count under load with `dotnet-counters`. Pick a
+default for `deploy/compose.prod.yaml` and document it.
 
 **Done when.** Steady-state memory at 64 clients is at most half of today's with less than 5 % throughput loss, or the
 trade-off is documented.
@@ -96,6 +106,9 @@ container), same total vCPUs as one larger instance, and record throughput, p99 
 **Approach.** Add a short CI job (or a documented pre-release step) that runs `--filter '*Pipeline*'` and the `audit`
 and fails when allocations per request grow by more than 20 % or the request path gains a Postgres statement or a
 Redis round trip. BenchmarkDotNet timing in shared CI is noisy, so gate on allocations and call counts, not time.
+Timing is noisy on the WSL dev machine too: the same streaming benchmark measured 479 and 766 µs in two runs of one day,
+while allocations agreed to the kilobyte. Actions minutes are limited, so a documented pre-release step is preferred to
+a job on every pull request.
 
 **Done when.** The job exists and is described in `docs/runbook.md` or `HANDOVER.md`.
 
@@ -106,12 +119,21 @@ Redis round trip. BenchmarkDotNet timing in shared CI is noisy, so gate on alloc
 - **Responses + MCP relay** still builds a JSON tree per delta, as the Anthropic translator did before it moved to
   `Utf8JsonReader`/`Utf8JsonWriter`.
 
+### Measured and dropped
+
+- **Copying the request body per fallback attempt** (`DeepClone` in `GatewayRequestHandler.AttemptAsync`). A clone of a
+  parsed `JsonNode` tree shares its string values, so it costs about 1 KB for a 1.3 MB image request and about 20 KB
+  (5 % of the request's allocations) for a 64 KB chat, with no measurable time difference. Undoing the rewrite instead
+  (pull request #51) was closed as not worth the extra code.
+- **Benchmark harness flake:** a `Pipeline` run can report `NA` for the Redis rows when the Redis test container refuses
+  connections at start; re-run the benchmark rather than reading it as a regression.
+
 ## Starting the next session
 
 Suggested opening prompt:
 
-> Read `docs/performance-improvement-plan.md` and `docs/performance.md`. Start with item 1 (CPU per message at 6
-> vCPUs). Measure with `PLATFORMS="fake ume" benchmarks/compare/scale.sh` and the `audit`, implement the change with
+> Read `docs/performance-improvement-plan.md` and `docs/performance.md`. Start with item 1 (rate limit and budget in one
+> Redis round trip). Measure with `PLATFORMS="fake ume" benchmarks/compare/scale.sh` and the `audit`, implement the change with
 > tests, then re-run the whole baseline (see *Measuring* in `docs/performance.md`) and update `docs/performance.md`,
 > the website (`site/content.mjs`), `CHANGELOG.md` and this plan with the results.
 
