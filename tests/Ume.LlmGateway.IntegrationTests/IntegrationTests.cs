@@ -239,6 +239,46 @@ public sealed class IntegrationTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task Redis_admission_reserves_only_what_the_rate_limit_admits_in_one_script()
+    {
+        var admission = fixture.GatewayServices.GetRequiredService<IAdmissionStore>();
+        admission.ShouldBeOfType<RedisAdmissionStore>();
+        var ledger = fixture.GatewayServices.GetRequiredService<ISpendLedger>();
+        var key = Guid.NewGuid();
+        var budget = new SpendCounter("ume:integration:" + Guid.NewGuid().ToString("N"), 250, TimeSpan.FromMinutes(1));
+        var tokens = new SpendCounter("ume:integration:" + Guid.NewGuid().ToString("N"), 1000, TimeSpan.FromMinutes(1));
+        await ledger.InitializeAsync(budget.Key, 0, budget.TimeToLive, Cancellation);
+        await ledger.InitializeAsync(tokens.Key, 0, tokens.TimeToLive, Cancellation);
+        var rate = new RateLimitRequest(key, 3, null, 2, "first");
+
+        var admitted = await admission.AdmitAsync(rate, [budget, tokens], [100, 10], Cancellation);
+        admitted.Rate.Allowed.ShouldBeTrue();
+        admitted.Rate.RequestsRemaining.ShouldBe(2);
+        admitted.Spend!.Reserved.ShouldBeTrue();
+        admitted.Spend.ValuesBefore.ShouldBe([0L, 0L]);
+
+        // Admitted, but the budget is too small: the request counts against the rate limit, nothing is reserved.
+        var exhausted = await admission.AdmitAsync(rate with { LeaseId = "second" }, [budget, tokens], [200, 10], Cancellation);
+        exhausted.Rate.Allowed.ShouldBeTrue();
+        exhausted.Spend!.ExhaustedIndex.ShouldBe(0);
+        (await ledger.GetAsync([budget.Key, tokens.Key], Cancellation)).ShouldBe([100L, 10L]);
+
+        // Both in-flight slots are taken: refused by the rate limit, so the budget is not touched.
+        var refused = await admission.AdmitAsync(rate with { LeaseId = "third" }, [budget, tokens], [100, 10], Cancellation);
+        refused.Rate.Allowed.ShouldBeFalse();
+        refused.Rate.Reason.ShouldBe("concurrency");
+        refused.Spend.ShouldBeNull();
+        (await ledger.GetAsync([budget.Key, tokens.Key], Cancellation)).ShouldBe([100L, 10L]);
+
+        // A missing counter is reported for seeding, after the rate limit counted the request.
+        var missing = new SpendCounter("ume:integration:" + Guid.NewGuid().ToString("N"), 1000, TimeSpan.FromMinutes(1));
+        var cold = await admission.AdmitAsync(new RateLimitRequest(Guid.NewGuid(), 10, null, null, null), [budget, missing], [1, 1], Cancellation);
+        cold.Rate.Allowed.ShouldBeTrue();
+        cold.Spend!.Missing.ShouldBe([1]);
+        (await ledger.GetAsync([budget.Key], Cancellation)).ShouldBe([100L]);
+    }
+
+    [Fact]
     public async Task Redis_usage_journal_holds_batches_up_to_its_cap_and_hands_over_abandoned_ones()
     {
         var redis = fixture.GatewayServices.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>();

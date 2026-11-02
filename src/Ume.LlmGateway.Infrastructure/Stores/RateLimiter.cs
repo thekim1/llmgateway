@@ -225,55 +225,82 @@ public sealed class RedisRateLimiter(IConnectionMultiplexer redis, TimeProvider 
 {
     // KEYS: requests this minute, tokens this minute, requests last minute, tokens last minute, in-flight set.
     // ARGV: rpm, tpm, counter TTL (s), weight of last minute, max in flight, now (ms), lease expiry (ms), lease id, set TTL (ms).
-    // Returns {status, this minute's count, last minute's count}: status -1 requests, -2 tokens, -3 in flight, else the
-    // request count including this one. Only an admitted request is counted.
-    private const string Script = """
-        local w = tonumber(ARGV[4])
-        local tpm = tonumber(ARGV[2])
-        if tpm > 0 then
-          local tok = tonumber(redis.call('GET', KEYS[2]) or '0')
-          local prevTok = tonumber(redis.call('GET', KEYS[4]) or '0')
-          if tok + prevTok * w >= tpm then return {-2, tok, prevTok} end
+    // rate() returns {status, this minute's count, last minute's count}: status -1 requests, -2 tokens, -3 in flight, else
+    // the request count including this one. Only an admitted request is counted. A function, so the admission script
+    // (RedisAdmissionStore) can run it before the budget reservation.
+    internal const string RateFunction = """
+        local function rate()
+          local w = tonumber(ARGV[4])
+          local tpm = tonumber(ARGV[2])
+          if tpm > 0 then
+            local tok = tonumber(redis.call('GET', KEYS[2]) or '0')
+            local prevTok = tonumber(redis.call('GET', KEYS[4]) or '0')
+            if tok + prevTok * w >= tpm then return {-2, tok, prevTok} end
+          end
+          local rpm = tonumber(ARGV[1])
+          local prevReq = 0
+          if rpm > 0 then
+            local req = tonumber(redis.call('GET', KEYS[1]) or '0')
+            prevReq = tonumber(redis.call('GET', KEYS[3]) or '0')
+            if req + prevReq * w + 1 > rpm then return {-1, req, prevReq} end
+          end
+          local max = tonumber(ARGV[5])
+          if max > 0 then
+            redis.call('ZREMRANGEBYSCORE', KEYS[5], '-inf', ARGV[6])
+            if redis.call('ZCARD', KEYS[5]) >= max then return {-3, 0, 0} end
+            redis.call('ZADD', KEYS[5], ARGV[7], ARGV[8])
+            redis.call('PEXPIRE', KEYS[5], ARGV[9])
+          end
+          local n = redis.call('INCR', KEYS[1])
+          if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
+          return {n, n, prevReq}
         end
-        local rpm = tonumber(ARGV[1])
-        local prevReq = 0
-        if rpm > 0 then
-          local req = tonumber(redis.call('GET', KEYS[1]) or '0')
-          prevReq = tonumber(redis.call('GET', KEYS[3]) or '0')
-          if req + prevReq * w + 1 > rpm then return {-1, req, prevReq} end
-        end
-        local max = tonumber(ARGV[5])
-        if max > 0 then
-          redis.call('ZREMRANGEBYSCORE', KEYS[5], '-inf', ARGV[6])
-          if redis.call('ZCARD', KEYS[5]) >= max then return {-3, 0, 0} end
-          redis.call('ZADD', KEYS[5], ARGV[7], ARGV[8])
-          redis.call('PEXPIRE', KEYS[5], ARGV[9])
-        end
-        local n = redis.call('INCR', KEYS[1])
-        if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
-        return {n, n, prevReq}
+
         """;
+
+    /// <summary>The number of keys and arguments <see cref="RateFunction"/> takes, before any that follow them.</summary>
+    internal const int KeyCount = 5, ArgCount = 9;
+
+    private const string Script = RateFunction + "return rate()";
 
     public async Task<RateLimitDecision> AcquireAsync(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId,
         CancellationToken cancellationToken)
     {
-        var concurrency = maxConcurrent is > 0 && leaseId is not null ? maxConcurrent.Value : 0;
-        if (requestsPerMinute is not > 0 && tokensPerMinute is not > 0 && concurrency == 0)
+        if (!IsLimited(requestsPerMinute, tokensPerMinute, maxConcurrent, leaseId))
         {
             return RateLimitDecision.Unlimited;
         }
 
-        var now = time.GetUtcNow();
+        var command = Command(keyId, requestsPerMinute, tokensPerMinute, maxConcurrent, leaseId, time.GetUtcNow());
+        var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(Script, command.Keys, command.Args))!;
+        return Decide(result, command);
+    }
+
+    /// <summary>Whether any limit applies; without one nothing is counted (and Redis is not asked).</summary>
+    internal static bool IsLimited(int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId) =>
+        requestsPerMinute is > 0 || tokensPerMinute is > 0 || (maxConcurrent is > 0 && leaseId is not null);
+
+    /// <summary>The keys and arguments of <see cref="RateFunction"/>, and what <see cref="Decide"/> needs to read its result.</summary>
+    internal sealed record RateCommand(RedisKey[] Keys, RedisValue[] Args, int? RequestsPerMinute, int? TokensPerMinute, double Elapsed);
+
+    internal static RateCommand Command(Guid keyId, int? requestsPerMinute, int? tokensPerMinute, int? maxConcurrent, string? leaseId, DateTimeOffset now)
+    {
+        var concurrency = maxConcurrent is > 0 && leaseId is not null ? maxConcurrent.Value : 0;
         var (minute, elapsed) = RateLimitWindow.Sliding(now);
         var nowMs = now.ToUnixTimeMilliseconds();
         var lease = (long)RateLimitWindow.InFlightLease.TotalMilliseconds;
-        var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(
-            Script,
+        return new RateCommand(
             [RedisKeys.RateRequests(keyId, minute), RedisKeys.RateTokens(keyId, minute), RedisKeys.RateRequests(keyId, minute - 1),
              RedisKeys.RateTokens(keyId, minute - 1), RedisKeys.InFlight(keyId)],
             [requestsPerMinute ?? 0, tokensPerMinute ?? 0, RedisKeys.RateWindowSeconds, 1 - elapsed, concurrency, nowMs, nowMs + lease,
-             leaseId ?? string.Empty, lease]))!;
+             leaseId ?? string.Empty, lease],
+            requestsPerMinute, tokensPerMinute, elapsed);
+    }
 
+    /// <summary>The decision from <c>rate()</c>'s result.</summary>
+    internal static RateLimitDecision Decide(RedisResult[] result, RateCommand command)
+    {
+        var (requestsPerMinute, tokensPerMinute, elapsed) = (command.RequestsPerMinute, command.TokensPerMinute, command.Elapsed);
         var (status, current, previous) = ((long)result[0], (long)result[1], (long)result[2]);
         return status switch
         {

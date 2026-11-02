@@ -43,6 +43,13 @@ public interface IRouteResolver
     CircuitPrefetch PrefetchCircuits(ResolvedModel model, CancellationToken ct);
 
     /// <summary>
+    /// The targets of <paramref name="model"/> that <see cref="SelectCandidatesAsync"/> may return for the key without a
+    /// PII restriction, in no particular order: provider health only reorders candidates, so this is the candidate set
+    /// before a PII restriction or the context window narrows it. The budget estimate is the most expensive of them.
+    /// </summary>
+    IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream);
+
+    /// <summary>
     /// Orders the eligible targets of <paramref name="models"/> into the attempt list. With <paramref name="affinity"/> (a
     /// session id) the same session goes to the same target first within a priority (rendezvous hashing).
     /// </summary>
@@ -140,6 +147,17 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
         return new CircuitPrefetch(ids, deployments, status);
     }
 
+    public IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(key);
+        var constraints = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null), null, key.AllowedProviders);
+        return [.. model.Targets.Where(t => RouteSelector.IsEligible(t, constraints) && CanStream(t, stream))];
+    }
+
+    private static bool CanStream(RouteTarget target, bool stream) =>
+        !stream || target.ModelDeployment!.ProviderAccount!.SupportedCapabilities.HasFlag(ProviderCapabilities.Streaming);
+
     public async Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct,
         CircuitPrefetch? prefetch = null, string? affinity = null)
     {
@@ -178,7 +196,7 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
         var candidates = new List<RouteTarget>(ordered.Count);
         candidates.AddRange(ordered.Where(t => !status.IsUnavailable(t.ModelDeployment!.ProviderAccountId, t.ModelDeploymentId)));
         candidates.AddRange(ordered.Where(t => status.IsUnavailable(t.ModelDeployment!.ProviderAccountId, t.ModelDeploymentId)));
-        candidates = [.. candidates.Where(t => !stream || t.ModelDeployment!.ProviderAccount!.SupportedCapabilities.HasFlag(ProviderCapabilities.Streaming))];
+        candidates = [.. candidates.Where(t => CanStream(t, stream))];
         if (candidates.Count > 0)
         {
             return new CandidateSelection(candidates, null);

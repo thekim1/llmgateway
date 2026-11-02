@@ -36,6 +36,9 @@ public sealed class BudgetReservation
     public bool Allowed => Exceeded is null;
 }
 
+/// <summary>What a reservation asks the ledger for: one amount per counter (micro-USD or tokens), see <see cref="BudgetService.Prepare"/>.</summary>
+public sealed record BudgetRequest(IReadOnlyList<BudgetCheck> Checks, IReadOnlyList<SpendCounter> Counters, IReadOnlyList<long> Amounts, long MicroUsd, long Tokens);
+
 /// <summary>A crossed alert threshold. <c>SpentUsd</c> is the budget's use in its unit: USD, or tokens for a token budget.</summary>
 public sealed record AlertCandidate(Budget Budget, PeriodWindow Window, int ThresholdPercent, decimal SpentUsd);
 
@@ -96,12 +99,27 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
     public async Task<BudgetReservation> ReserveAsync(IReadOnlyList<Budget> budgets, decimal estimatedUsd, long estimatedTokens,
         IReadOnlyCollection<DataResidency>? residencies, CancellationToken cancellationToken)
     {
+        if (Prepare(budgets, estimatedUsd, estimatedTokens, residencies) is not { } request)
+        {
+            return BudgetReservation.None;
+        }
+
+        return await CompleteAsync(request, await ledger.ReserveAsync(request.Counters, request.Amounts, missingAsZero: false, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>
+    /// The counters and amounts <see cref="ReserveAsync(IReadOnlyList{Budget}, decimal, long, IReadOnlyCollection{DataResidency}?, CancellationToken)"/>
+    /// reserves, for a caller that makes the ledger call itself (with the rate limit, <see cref="IAdmissionStore"/>) and
+    /// then passes the result to <see cref="CompleteAsync"/>. Null when no budget applies.
+    /// </summary>
+    public BudgetRequest? Prepare(IReadOnlyList<Budget> budgets, decimal estimatedUsd, long estimatedTokens, IReadOnlyCollection<DataResidency>? residencies)
+    {
         ArgumentNullException.ThrowIfNull(budgets);
         var applicable = residencies is null || !HasTokenQuota(budgets) ? budgets
             : [.. budgets.Where(b => b.Unit != BudgetUnit.Tokens || b.Residency is not { } r || residencies.Contains(r))];
         if (applicable.Count == 0)
         {
-            return BudgetReservation.None;
+            return null;
         }
 
         var checks = BuildChecks(applicable);
@@ -115,12 +133,23 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
             amounts[i] = checks[i].Budget.Unit == BudgetUnit.Tokens ? tokens : micro;
         }
 
-        var result = await ledger.ReserveAsync(counters, amounts, missingAsZero: false, cancellationToken);
+        return new BudgetRequest(checks, counters, amounts, micro, tokens);
+    }
+
+    /// <summary>
+    /// The reservation from the ledger's answer to <paramref name="request"/>. Counters missing from the shared store
+    /// (cold start, new period) are seeded from the usage table and the reservation is retried.
+    /// </summary>
+    public async Task<BudgetReservation> CompleteAsync(BudgetRequest request, SpendReservation result, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(result);
+        var (checks, counters) = (request.Checks, request.Counters);
         if (result.Missing.Count > 0)
         {
             await SeedAsync([.. result.Missing.Select(i => checks[i])], cancellationToken);
             // A counter can only vanish again if it expired in between; count it from zero rather than loop.
-            result = await ledger.ReserveAsync(counters, amounts, missingAsZero: true, cancellationToken);
+            result = await ledger.ReserveAsync(counters, request.Amounts, missingAsZero: true, cancellationToken);
         }
 
         decimal? remaining = null;
@@ -134,7 +163,7 @@ public sealed class BudgetService(ISpendLedger ledger, IServiceScopeFactory scop
         }
         return result.ExhaustedIndex >= 0
             ? new BudgetReservation(checks, 0, checks[result.ExhaustedIndex], remaining)
-            : new BudgetReservation(checks, micro, null, remaining, tokens);
+            : new BudgetReservation(checks, request.MicroUsd, null, remaining, request.Tokens);
     }
 
     /// <summary>

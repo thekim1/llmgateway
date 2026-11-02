@@ -106,6 +106,7 @@ public static class InfrastructureExtensions
             builder.AddRedisClient(RedisResourceName);
             builder.Services.TryAddSingleton<IRateLimiter, RedisRateLimiter>();
             builder.Services.TryAddSingleton<ISpendLedger, RedisSpendLedger>();
+            builder.Services.TryAddSingleton<IAdmissionStore, RedisAdmissionStore>();
             builder.Services.TryAddSingleton<IInvalidationBus, RedisInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, RedisCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, RedisRealtimeSessionRegistry>();
@@ -116,6 +117,7 @@ public static class InfrastructureExtensions
         {
             builder.Services.TryAddSingleton<IRateLimiter, InMemoryRateLimiter>();
             builder.Services.TryAddSingleton<ISpendLedger, InMemorySpendLedger>();
+            builder.Services.TryAddSingleton<IAdmissionStore, SequentialAdmissionStore>();
             builder.Services.TryAddSingleton<IInvalidationBus, InMemoryInvalidationBus>();
             builder.Services.TryAddSingleton<ICircuitBreakerStore, InMemoryCircuitBreakerStore>();
             builder.Services.TryAddSingleton<IRealtimeSessionRegistry, InMemoryRealtimeSessionRegistry>();

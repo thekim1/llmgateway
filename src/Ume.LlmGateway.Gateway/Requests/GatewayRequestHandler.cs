@@ -21,7 +21,8 @@ namespace Ume.LlmGateway.Gateway.Requests;
 
 /// <summary>
 /// The data-plane pipeline: authenticate → parse → resolve model → rate limit → PII guard → route →
-/// reserve budget → call provider(s) with fallback → account. Request and response content is only held
+/// reserve budget → call provider(s) with fallback → account. When no routing rule can apply to the key, the budget is
+/// reserved together with the rate limit, in one round trip to Redis. Request and response content is only held
 /// in memory for the duration of the call and is never logged or persisted. The stages shared with live sessions
 /// (<see cref="RealtimeRequestHandler"/>) are in <see cref="RequestStages"/>, accounting in <see cref="RequestAccounting"/>
 /// and the content guard in <see cref="ContentGuardStage"/>. Once a budget is reserved, every path accounts exactly once.
@@ -128,7 +129,29 @@ public sealed class GatewayRequestHandler(
         var estimatedInputTokens = info.IsFree ? 0 : audio is null ? CostCalculator.EstimateInputTokens(bodyLength, attachments) : audioEstimate.InputTokens;
         state.EstimatedInputTokens = estimatedInputTokens;
         state.EstimatedAudioSeconds = audioEstimate.AudioSeconds;
-        if (!await stages.AcquireRateLimitAsync(http, state, key, ct))
+        // The team's and key's request policy, applied in 7b; needed now when the estimate is made here.
+        var policy = audio is null && images is null ? RequestPolicy.Merge(key.Team?.RequestPolicy, key.RequestPolicy) : null;
+        var stream = info.SupportsStreaming && RequestRewriter.IsStreaming(body);
+        var applicable = BudgetService.ApplicableBudgets(snapshot, key);
+        var reserved = false;
+        if (requested is not null && applicable.Count > 0 && RequestStages.HasRateLimit(key)
+            && !snapshot.Rules.AnyFor(key.Id, snapshot.KeyLineage(key.Id), key.TeamId, key.Team?.DepartmentId)
+            && router.EligibleTargets(requested, key, endpoint, stream) is { Count: > 0 } eligible)
+        {
+            // 4 + 8 in one round trip. Without routing rules for the key the model cannot change, so the budget estimate
+            // is known now: the most expensive target the request may use (a PII restriction or the context window can
+            // only narrow them). A request refused after this point releases the reservation when it is accounted.
+            var (promptCharacters, counts) = RequestPolicies.Preview(body, endpoint, policy);
+            var expected = ExpectedUsage(info, audio, audioEstimate, estimatedInputTokens + PolicyPromptTokens(info, promptCharacters), counts);
+            var (usd, tokens, residencies) = Estimate(eligible, expected, applicable, now);
+            if (!await stages.AdmitAsync(http, state, key, applicable, usd, tokens, residencies, ct))
+            {
+                return;
+            }
+
+            reserved = true;
+        }
+        else if (!await stages.AcquireRateLimitAsync(http, state, key, ct))
         {
             return;
         }
@@ -183,7 +206,6 @@ public sealed class GatewayRequestHandler(
         var routing = await stages.ApplyRoutingAsync(http, state, snapshot, key, model, body, estimatedInputTokens, piiDetected, ct);
 
         // 7. Candidate providers in attempt order.
-        var stream = info.SupportsStreaming && RequestRewriter.IsStreaming(body);
         state.Streamed = stream;
         // Audio and images are counted by length or picture, not in tokens a context window limits.
         var contextTokens = audio is null && !info.IsImage ? estimatedInputTokens : 0;
@@ -196,31 +218,20 @@ public sealed class GatewayRequestHandler(
 
         // 7b. The team's and key's request policy (output-token cap, system prompt, parameter defaults and overrides).
         //     After the PII guard and the rules, which see what the client sent; before the budget estimate it changes.
-        if (audio is null && images is null && RequestPolicy.Merge(key.Team?.RequestPolicy, key.RequestPolicy) is { } policy)
+        if (policy is not null && PolicyPromptTokens(info, RequestPolicies.Apply(body, endpoint, policy)) is > 0 and var promptTokens)
         {
-            var promptCharacters = RequestPolicies.Apply(body, endpoint, policy);
-            if (promptCharacters > 0 && !info.IsFree)
-            {
-                estimatedInputTokens += CostCalculator.EstimateTokens(promptCharacters);
-                state.EstimatedInputTokens = estimatedInputTokens;
-            }
+            estimatedInputTokens += promptTokens;
+            state.EstimatedInputTokens = estimatedInputTokens;
         }
 
-        // 8. Budget reservation across key, team and förvaltning.
-        long maxOutput = info.HasOutputTokens ? RequestRewriter.RequestedMaxOutputTokens(body) ?? options.CurrentValue.DefaultOutputTokenEstimate : 0;
-        var expectedUsage = info.IsFree ? default
-            : audio is not null ? audioEstimate
-            : info.IsImage ? CostCalculator.EstimateImages(estimatedInputTokens, RequestRewriter.RequestedImageCount(body))
-            : new TokenUsage(estimatedInputTokens, 0, maxOutput);
-        var estimate = selected.Candidates.Max(t => CostCalculator.Calculate(expectedUsage, t.ModelDeployment!.PriceAt(now)));
-        var applicable = BudgetService.ApplicableBudgets(snapshot, key);
-        // Token quotas limited to a residency need the candidates' residencies; without one, nothing extra is computed.
-        HashSet<DataResidency>? residencies = BudgetService.HasTokenQuota(applicable)
-            ? [.. selected.Candidates.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]
-            : null;
-        if (await stages.TryReserveAsync(http, state, snapshot, applicable, estimate, ct, expectedUsage.InputTokens + expectedUsage.OutputTokens, residencies) is null)
+        // 8. Budget reservation across key, team and förvaltning (made with the rate limit in step 4 when it could be).
+        if (!reserved)
         {
-            return;
+            var (usd, tokens, residencies) = Estimate(selected.Candidates, ExpectedUsage(info, audio, audioEstimate, estimatedInputTokens, body), applicable, now);
+            if (await stages.TryReserveAsync(http, state, snapshot, applicable, usd, ct, tokens, residencies) is null)
+            {
+                return;
+            }
         }
 
         // 9. Attempt candidates in order. From here on the reservation must be reconciled whatever happens.
@@ -235,6 +246,37 @@ public sealed class GatewayRequestHandler(
                 throw;
             }
         }
+    }
+
+    /// <summary>Tokens a request policy's system prompt adds to the estimate (none for a free endpoint).</summary>
+    private static long PolicyPromptTokens(GatewayEndpointInfo info, int promptCharacters) =>
+        promptCharacters > 0 && !info.IsFree ? CostCalculator.EstimateTokens(promptCharacters) : 0;
+
+    /// <summary>
+    /// What the request is expected to use: <paramref name="inputTokens"/> and the output tokens or pictures asked for in
+    /// <paramref name="counts"/> (the body, or <see cref="RequestPolicies.Preview"/>'s counts as the policy will leave them).
+    /// </summary>
+    private TokenUsage ExpectedUsage(GatewayEndpointInfo info, AudioUpload? audio, TokenUsage audioEstimate, long inputTokens, JsonObject counts)
+    {
+        long maxOutput = info.HasOutputTokens ? RequestRewriter.RequestedMaxOutputTokens(counts) ?? options.CurrentValue.DefaultOutputTokenEstimate : 0;
+        return info.IsFree ? default
+            : audio is not null ? audioEstimate
+            : info.IsImage ? CostCalculator.EstimateImages(inputTokens, RequestRewriter.RequestedImageCount(counts))
+            : new TokenUsage(inputTokens, 0, maxOutput);
+    }
+
+    /// <summary>
+    /// The budget estimate: <paramref name="expected"/> at the most expensive of <paramref name="targets"/>, in USD and in
+    /// tokens, and the targets' residencies when a token quota needs them (null otherwise: nothing extra is computed).
+    /// </summary>
+    private static (decimal Usd, long Tokens, HashSet<DataResidency>? Residencies) Estimate(IReadOnlyList<RouteTarget> targets, TokenUsage expected,
+        IReadOnlyList<Budget> applicable, DateTimeOffset now)
+    {
+        var usd = targets.Max(t => CostCalculator.Calculate(expected, t.ModelDeployment!.PriceAt(now)));
+        HashSet<DataResidency>? residencies = BudgetService.HasTokenQuota(applicable)
+            ? [.. targets.Select(t => t.ModelDeployment!.ProviderAccount!.Residency)]
+            : null;
+        return (usd, expected.InputTokens + expected.OutputTokens, residencies);
     }
 
     /// <summary>

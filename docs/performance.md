@@ -11,13 +11,14 @@ models, routes, budgets, rules) are cached in memory; usage records are written 
 background writer.
 
 Redis is used for shared counters (rate limits, budgets, circuit state). Before the first byte reaches the client a
-request makes **2 Redis round trips** (rate limit pipelined with the circuit-state lookup; budget reservation); after the
-response it makes **1** (budget reconciliation and token count, pipelined), off the client's critical path:
+request makes **1 Redis round trip** (rate limit and budget reservation in one Lua script, pipelined with the
+circuit-state lookup); after the response it makes **1** (budget reconciliation and token count, pipelined), off the
+client's critical path. When a routing rule can apply to the key, the reservation waits for routing (the rule may change
+the model, and with it the estimate): 2 round trips before the first byte.
 
 | Step | Round trips | Notes |
 |---|---|---|
-| Rate limit + circuit state | 1 | One Lua script plus one `MGET`, issued together so they are pipelined. |
-| Budget reservation | 1 | One Lua script reads, checks and reserves every applicable budget (key lineage, team, förvaltning) and reports counters that need seeding. |
+| Rate limit + budget reservation + circuit state | 1 | One Lua script checks the rate limit and, only when it admits the request, reads, checks and reserves every applicable budget (key lineage, team, förvaltning) and reports counters that need seeding; one `MGET` for circuit state, issued with it so they are pipelined. With a routing rule for the key, the reservation is its own script after routing (+1). |
 | Circuit reset on success | 0 | Fire-and-forget. |
 | Budget reconciliation + token count | 1 | Pipelined, after the response has been written. |
 | Usage record | 0 | Queued in memory; written in batches of up to 5 000 with one binary `COPY`, budget alerts and `LastUsedAt` (one statement for all keys, each at most once a minute) in the same transaction. |

@@ -175,6 +175,41 @@ public static class RequestPolicies
         return added;
     }
 
+    /// <summary>The fields the budget estimate reads that <see cref="Apply"/> may change: output tokens and pictures.</summary>
+    private static readonly string[] EstimatedFields = ["max_tokens", "max_completion_tokens", "max_output_tokens", "n"];
+
+    /// <summary>
+    /// What <see cref="Apply"/> will do to the budget estimate, without changing <paramref name="body"/>: the characters
+    /// of system prompt it adds, and the output-token and picture fields (<c>max_*</c>, <c>n</c>) as it will leave them,
+    /// in a small object for <see cref="RequestRewriter.RequestedMaxOutputTokens"/> and <see cref="RequestRewriter.RequestedImageCount"/>.
+    /// It runs <see cref="Apply"/> on a copy of those fields, so the two cannot disagree. Without a policy the counts are
+    /// <paramref name="body"/> itself.
+    /// </summary>
+    public static (int PromptCharacters, JsonObject Counts) Preview(JsonObject body, GatewayEndpoint endpoint, RequestPolicy? policy)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (policy is null || policy.IsEmpty)
+        {
+            return (0, body);
+        }
+
+        var counts = new JsonObject();
+        foreach (var name in EstimatedFields)
+        {
+            if (body[name] is { } value)
+            {
+                counts[name] = value.DeepClone();
+            }
+        }
+
+        if (body["messages"] is JsonArray)
+        {
+            counts["messages"] = new JsonArray(); // a chat's system prompt is only added to a body with messages
+        }
+
+        return (Apply(counts, endpoint, policy), counts);
+    }
+
     /// <summary>Lowers every output-token parameter the client sent to <paramref name="cap"/>, or sets the endpoint's own one.</summary>
     private static void CapOutputTokens(JsonObject body, GatewayEndpoint endpoint, int cap)
     {

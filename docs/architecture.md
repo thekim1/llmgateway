@@ -35,6 +35,13 @@ bounded JSON request -> HMAC authentication -> key address allow-list -> key att
 rate limit (sliding minute, requests in progress) -> optional PII policy -> routing rules (optional, see routing-rules.md) ->
 residency/capability/context-window route filter -> team and key request policy -> hierarchical budget reservation -> provider
 invocation (fallback; the last candidate retried once) -> usage reconciliation -> metadata writer.
+When no routing rule can apply to the key (none for the key, its team, its department or globally) and the key has a
+rate limit, the budget is reserved together with the rate limit, in one Lua script (`IAdmissionStore`): the model cannot
+change, so the estimate is known before routing, at the most expensive target the key may use (the PII restriction and
+the context-window filter only narrow them, and the team and key request policy is counted before it is applied). A
+rate-limited request still reserves nothing; a request refused after the reservation (PII, content guard, no eligible
+target) gives it back when it is accounted. Such a key's exhausted budget is reported (402) before the PII and routing
+checks rather than after them.
 Fallback occurs for transient failures (408, 409, 429, 5xx, timeouts, connection errors, invalid JSON) and
 provider-configuration failures (upstream 401/403/404, plain HTTP in production, an undecryptable credential, an
 endpoint the provider type cannot serve), never after streaming has sent bytes. Only transient failures count
@@ -52,9 +59,9 @@ queue stays full for 10 s.
 Anthropic/OpenAI translation covers the implemented text/image/document/tool/streaming paths; content the Messages API
 cannot take (audio, other file types) is rejected with `unsupported_content` rather than dropped.
 
-With warm caches the request path makes no Postgres calls and two Redis round trips before the first byte (rate limit
-pipelined with circuit state; one atomic budget reservation), plus one pipelined round trip for reconciliation after the
-response. Key and catalogue caches are refreshed in the background when they expire and dropped immediately on an admin
+With warm caches the request path makes no Postgres calls and one Redis round trip before the first byte (rate limit and
+budget reservation in one script, pipelined with circuit state; two when a routing rule can apply to the key, since the
+reservation then waits for routing), plus one pipelined round trip for reconciliation after the response. Key and catalogue caches are refreshed in the background when they expire and dropped immediately on an admin
 invalidation. Details and benchmarks: [performance.md](performance.md).
 
 ### Routing rules

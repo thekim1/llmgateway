@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**Gateway: one Redis round trip before the first byte instead of two.** When no routing rule can apply to the key and
+the key has a rate limit, the rate limit and the budget reservation are one Lua script (`IAdmissionStore`), pipelined
+with the circuit-state lookup: the reservation is made only when the rate limit admits the request, as before. Without
+a rule the model cannot change, so the estimate is made before routing, at the most expensive target the key may use;
+the team and key request policy is counted before it is applied (`RequestPolicies.Preview`). A request refused after
+the reservation (PII, content guard, no eligible target) gives it back. One visible difference for such keys: an
+exhausted budget is answered with 402 before the PII and routing checks. With a rule for the key, its team, its
+department or a global rule, the two steps stay as they were. Audit (in-process, Redis in Docker): 8 Redis commands per
+chat request instead of 9, one `EVAL` instead of two; mean chat latency 1.89 → 1.42 ms. Pipeline benchmark with Redis:
+chat 1.51 → 1.08 ms, streaming 2.01 → 1.44 ms, embeddings 2.34 → 1.90 ms (about 0.7 KB more allocated per request).
+
 **Repository:** `.gitattributes` sets `* text=auto` and marks images, PDFs and fonts as binary. Text is stored with LF
 whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
 as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).

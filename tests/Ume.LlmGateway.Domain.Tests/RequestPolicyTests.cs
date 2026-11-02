@@ -127,4 +127,44 @@ public sealed class RequestPolicyTests
         RequestPolicies.Apply(body, GatewayEndpoint.ChatCompletions, new RequestPolicy { Overrides = policy.Overrides });
         body["model"]!.GetValue<string>().ShouldBe("chosen");
     }
+
+    [Theory]
+    [InlineData(GatewayEndpoint.ChatCompletions, """{"model":"m","messages":[{"role":"user","content":"Hej"}],"max_tokens":4000}""")]
+    [InlineData(GatewayEndpoint.ChatCompletions, """{"model":"m","messages":[{"role":"user","content":"Hej"}],"max_completion_tokens":100}""")]
+    [InlineData(GatewayEndpoint.ChatCompletions, """{"model":"m","messages":[{"role":"user","content":"Hej"}],"max_tokens":0}""")]
+    [InlineData(GatewayEndpoint.ChatCompletions, """{"model":"m","prompt":"no messages"}""")]
+    [InlineData(GatewayEndpoint.Responses, """{"model":"m","input":"Hej","instructions":"Var kort."}""")]
+    [InlineData(GatewayEndpoint.AnthropicMessages, """{"model":"m","system":[{"type":"text","text":"x"}],"messages":[],"max_tokens":9000}""")]
+    [InlineData(GatewayEndpoint.AnthropicCountTokens, """{"model":"m","messages":[]}""")]
+    [InlineData(GatewayEndpoint.ImageGenerations, """{"model":"m","prompt":"en katt","n":2}""")]
+    [InlineData(GatewayEndpoint.ImageGenerations, """{"model":"m","prompt":"en katt"}""")]
+    [InlineData(GatewayEndpoint.Embeddings, """{"model":"m","input":"Hej"}""")]
+    public void Preview_tells_the_estimate_what_Apply_will_do_without_changing_the_body(GatewayEndpoint endpoint, string json)
+    {
+        var policy = Policy with
+        {
+            MaxOutputTokens = 300,
+            Defaults = new Dictionary<string, JsonElement> { ["n"] = Json("3") },
+            Overrides = new Dictionary<string, JsonElement> { ["user"] = Json("\"municipal\"") },
+        };
+        var body = JsonNode.Parse(json)!.AsObject();
+        var applied = body.DeepClone().AsObject();
+        var added = RequestPolicies.Apply(applied, endpoint, policy);
+
+        var (characters, counts) = RequestPolicies.Preview(body, endpoint, policy);
+
+        body.ToJsonString().ShouldBe(json);
+        characters.ShouldBe(added);
+        RequestRewriter.RequestedMaxOutputTokens(counts).ShouldBe(RequestRewriter.RequestedMaxOutputTokens(applied));
+        RequestRewriter.RequestedImageCount(counts).ShouldBe(RequestRewriter.RequestedImageCount(applied));
+    }
+
+    [Fact]
+    public void Preview_without_a_policy_reads_the_body_itself()
+    {
+        var body = JsonNode.Parse("""{"model":"m","messages":[],"max_tokens":10}""")!.AsObject();
+        var (characters, counts) = RequestPolicies.Preview(body, GatewayEndpoint.ChatCompletions, null);
+        characters.ShouldBe(0);
+        counts.ShouldBeSameAs(body);
+    }
 }

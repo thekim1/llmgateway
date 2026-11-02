@@ -57,6 +57,35 @@ public sealed class RoutingRuleSet
     public bool References(string variable) => _variables.Contains(variable);
 
     /// <summary>
+    /// Whether any enabled rule can apply to a request of the key (or a key it replaced, <paramref name="keyLineage"/>),
+    /// its team or its department: a global rule, or one shared with one of them. When none can, the model the client
+    /// asked for is the one used.
+    /// </summary>
+    public bool AnyFor(Guid keyId, IEnumerable<Guid> keyLineage, Guid? teamId, Guid? departmentId)
+    {
+        ArgumentNullException.ThrowIfNull(keyLineage);
+        if (_rules.Length == 0)
+        {
+            return false;
+        }
+
+        if (_globalRules.Length > 0 || _keyRules.ContainsKey(keyId) || Lookup(_teamRules, teamId).Length > 0 || Lookup(_departmentRules, departmentId).Length > 0)
+        {
+            return true;
+        }
+
+        foreach (var id in keyLineage)
+        {
+            if (_keyRules.ContainsKey(id))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Compiles rule definitions. Invalid rules are reported in the errors and left out; disabled rules are validated
     /// but not evaluated.
     /// </summary>
