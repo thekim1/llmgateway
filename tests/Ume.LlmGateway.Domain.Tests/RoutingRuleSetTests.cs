@@ -464,4 +464,24 @@ public class RoutingRuleSetTests
         var set = Build(Rule("split", """headers["x-tier"] == "premium" """, targets: [new RuleTarget("a", 1), new RuleTarget("b", 1)]));
         Parallel.For(0, 2000, _ => set.Evaluate(Ctx(headers: new() { ["x-tier"] = "premium" }), new Random()).Matched.ShouldBeTrue());
     }
+
+    [Fact]
+    public void AnyFor_is_true_only_when_a_rule_can_apply_to_the_key_its_team_or_department()
+    {
+        var oldKey = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        RoutingRuleSet.Empty.AnyFor(KeyA, [KeyA], TeamA, DeptA).ShouldBeFalse();
+        Build(Rule("g")).AnyFor(KeyA, [KeyA], TeamA, DeptA).ShouldBeTrue();
+
+        var scoped = Build(
+            Rule("k", scope: RoutingScope.VirtualKey, scopeId: oldKey),
+            Rule("t", scope: RoutingScope.Team, scopeId: TeamA),
+            Rule("d", scope: RoutingScope.Department, scopeId: DeptA),
+            Rule("off", scope: RoutingScope.VirtualKey, scopeId: other, enabled: false));
+        scoped.AnyFor(other, [other], null, null).ShouldBeFalse(); // a disabled rule does not count
+        scoped.AnyFor(KeyA, [KeyA, oldKey], null, null).ShouldBeTrue(); // a rule of the key it replaced
+        scoped.AnyFor(KeyA, [KeyA], TeamA, null).ShouldBeTrue();
+        scoped.AnyFor(KeyA, [KeyA], Guid.NewGuid(), DeptA).ShouldBeTrue();
+        scoped.AnyFor(KeyA, [KeyA], Guid.NewGuid(), Guid.NewGuid()).ShouldBeFalse();
+    }
 }

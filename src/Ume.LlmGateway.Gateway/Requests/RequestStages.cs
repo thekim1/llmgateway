@@ -30,6 +30,7 @@ public sealed partial class RequestStages(
     AuthFailureRecorder authFailures,
     IRouteResolver router,
     IRateLimiter rateLimiter,
+    IAdmissionStore admission,
     BudgetService budgets,
     ICircuitBreakerStore circuits,
     IOptions<CircuitBreakerOptions> circuitOptions,
@@ -106,11 +107,56 @@ public sealed partial class RequestStages(
     /// </summary>
     internal async Task<bool> AcquireRateLimitAsync(HttpContext http, RequestState state, VirtualKey key, CancellationToken ct, bool inFlight = true)
     {
+        var request = RateLimitFor(key, inFlight);
+        var rate = await rateLimiter.AcquireAsync(request.KeyId, request.RequestsPerMinute, request.TokensPerMinute, request.MaxConcurrent, request.LeaseId, ct);
+        return await ApplyRateLimitAsync(http, state, key, request, rate);
+    }
+
+    /// <summary>
+    /// The rate limit and the budget reservation in one round trip (<see cref="IAdmissionStore"/>): the reservation is
+    /// made only when the rate limit admits the request. Answers as <see cref="AcquireRateLimitAsync"/> and then
+    /// <see cref="TryReserveAsync"/> would; false when refused (the 429 or 402 has been written).
+    /// </summary>
+    internal async Task<bool> AdmitAsync(HttpContext http, RequestState state, VirtualKey key, IReadOnlyList<Budget> applicable, decimal estimateUsd,
+        long estimateTokens, IReadOnlyCollection<DataResidency>? residencies, CancellationToken ct)
+    {
+        if (budgets.Prepare(applicable, estimateUsd, estimateTokens, residencies) is not { } budget)
+        {
+            // No budget applies to these targets (token quotas of another residency): only the rate limit is left.
+            if (!await AcquireRateLimitAsync(http, state, key, ct))
+            {
+                return false;
+            }
+
+            state.Reservation = BudgetReservation.None;
+            return true;
+        }
+
+        var request = RateLimitFor(key, inFlight: true);
+        var admitted = await admission.AdmitAsync(request, budget.Counters, budget.Amounts, ct);
+        if (!await ApplyRateLimitAsync(http, state, key, request, admitted.Rate))
+        {
+            return false;
+        }
+
+        return await ApplyReservationAsync(http, state, await budgets.CompleteAsync(budget, admitted.Spend!, ct)) is not null;
+    }
+
+    private static RateLimitRequest RateLimitFor(VirtualKey key, bool inFlight)
+    {
         var maxConcurrent = inFlight ? key.MaxConcurrentRequests : null;
         // Not the request id: a client may set that, and repeating it would share one slot.
         var lease = maxConcurrent is > 0 ? Guid.NewGuid().ToString("N") : null;
-        var rate = await rateLimiter.AcquireAsync(key.Id, key.RequestsPerMinute, key.TokensPerMinute, maxConcurrent, lease, ct);
-        if (rate.Allowed && lease is not null)
+        return new RateLimitRequest(key.Id, key.RequestsPerMinute, key.TokensPerMinute, maxConcurrent, lease);
+    }
+
+    /// <summary>Whether the key has a rate limit to check (otherwise no store is asked).</summary>
+    internal static bool HasRateLimit(VirtualKey key) =>
+        key.RequestsPerMinute is > 0 || key.TokensPerMinute is > 0 || key.MaxConcurrentRequests is > 0;
+
+    private async Task<bool> ApplyRateLimitAsync(HttpContext http, RequestState state, VirtualKey key, RateLimitRequest request, RateLimitDecision rate)
+    {
+        if (rate.Allowed && request.LeaseId is { } lease)
         {
             var (limiter, keyId) = (rateLimiter, key.Id);
             http.Response.OnCompleted(() =>
@@ -236,7 +282,11 @@ public sealed partial class RequestStages(
     internal async Task<BudgetReservation?> TryReserveAsync(HttpContext http, RequestState state, CatalogSnapshot snapshot, IReadOnlyList<Budget> applicable,
         decimal estimateUsd, CancellationToken ct, long estimateTokens = 0, IReadOnlyCollection<DataResidency>? residencies = null)
     {
-        var reservation = await budgets.ReserveAsync(applicable, estimateUsd, estimateTokens, residencies, ct);
+        return await ApplyReservationAsync(http, state, await budgets.ReserveAsync(applicable, estimateUsd, estimateTokens, residencies, ct));
+    }
+
+    private async Task<BudgetReservation?> ApplyReservationAsync(HttpContext http, RequestState state, BudgetReservation reservation)
+    {
         state.Reservation = reservation;
         if (reservation.RemainingUsd is { } remainingBefore)
         {

@@ -141,30 +141,39 @@ public sealed class InMemorySpendLedger : ISpendLedger
 
 public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedger
 {
-    // ARGV: missing-as-zero, then per counter: amount, limit, TTL (s).
-    // Returns {-2, missing indexes} | {exhausted index, values before} | {-1, values before}.
-    private const string ReserveScript = """
-        local values = redis.call('MGET', unpack(KEYS))
-        local missing = {}
-        for i = 1, #KEYS do
-          if not values[i] then
-            if ARGV[1] == '1' then values[i] = 0 else missing[#missing + 1] = i - 1 end
-          else
-            values[i] = tonumber(values[i])
+    // reserve(ko, ao) reads the counters from KEYS[ko + 1] on and its arguments from ARGV[ao + 1] on: missing-as-zero,
+    // then per counter: amount, limit, TTL (s). Returns {-2, missing indexes} | {exhausted index, values before} |
+    // {-1, values before}. A function with offsets, so the admission script (RedisAdmissionStore) can run it after the
+    // rate limit's keys and arguments.
+    internal const string ReserveFunction = """
+        local function reserve(ko, ao)
+          local keys = {}
+          for i = ko + 1, #KEYS do keys[#keys + 1] = KEYS[i] end
+          local values = redis.call('MGET', unpack(keys))
+          local missing = {}
+          for i = 1, #keys do
+            if not values[i] then
+              if ARGV[ao + 1] == '1' then values[i] = 0 else missing[#missing + 1] = i - 1 end
+            else
+              values[i] = tonumber(values[i])
+            end
           end
+          if #missing > 0 then return {-2, missing} end
+          for i = 1, #keys do
+            local amount = tonumber(ARGV[ao + i * 3 - 1])
+            local limit = tonumber(ARGV[ao + i * 3])
+            if values[i] >= limit or amount > limit - values[i] then return {i - 1, values} end
+          end
+          for i = 1, #keys do
+            redis.call('INCRBY', keys[i], ARGV[ao + i * 3 - 1])
+            redis.call('EXPIRE', keys[i], ARGV[ao + i * 3 + 1])
+          end
+          return {-1, values}
         end
-        if #missing > 0 then return {-2, missing} end
-        for i = 1, #KEYS do
-          local amount = tonumber(ARGV[i * 3 - 1])
-          local limit = tonumber(ARGV[i * 3])
-          if values[i] >= limit or amount > limit - values[i] then return {i - 1, values} end
-        end
-        for i = 1, #KEYS do
-          redis.call('INCRBY', KEYS[i], ARGV[i * 3 - 1])
-          redis.call('EXPIRE', KEYS[i], ARGV[i * 3 + 1])
-        end
-        return {-1, values}
+
         """;
+
+    private const string ReserveScript = ReserveFunction + "return reserve(0, 0)";
 
     public async Task<IReadOnlyList<long?>> GetAsync(IReadOnlyList<string> keys, CancellationToken cancellationToken)
     {
@@ -187,6 +196,15 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
             return new SpendReservation(-1, [], []);
         }
 
+        var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(ReserveScript, CounterKeys(counters), ReserveArgs(counters, amounts, missingAsZero)))!;
+        return Reservation(result);
+    }
+
+    internal static RedisKey[] CounterKeys(IReadOnlyList<SpendCounter> counters) => [.. counters.Select(c => (RedisKey)c.Key)];
+
+    /// <summary>The arguments of <see cref="ReserveFunction"/>.</summary>
+    internal static RedisValue[] ReserveArgs(IReadOnlyList<SpendCounter> counters, IReadOnlyList<long> amounts, bool missingAsZero)
+    {
         var args = new RedisValue[1 + (counters.Count * 3)];
         args[0] = missingAsZero ? 1 : 0;
         for (var i = 0; i < counters.Count; i++)
@@ -196,7 +214,12 @@ public sealed class RedisSpendLedger(IConnectionMultiplexer redis) : ISpendLedge
             args[3 + (i * 3)] = (long)Math.Max(60, counters[i].TimeToLive.TotalSeconds);
         }
 
-        var result = (RedisResult[])(await redis.GetDatabase().ScriptEvaluateAsync(ReserveScript, [.. counters.Select(c => (RedisKey)c.Key)], args))!;
+        return args;
+    }
+
+    /// <summary>The reservation from <c>reserve()</c>'s result.</summary>
+    internal static SpendReservation Reservation(RedisResult[] result)
+    {
         var status = (int)result[0];
         var items = (RedisResult[])result[1]!;
         return status == -2
