@@ -345,8 +345,8 @@ peaks: the container's user and kernel CPU over 20 s, `dotnet-counters` and a 12
   × cores busy puts the GC at about 0.009 ms per message on 4 vCPUs and 0.014 ms on 6, a small part of the 0.04 ms.
 
 So the remaining cost at 6 vCPUs is contention, mostly in the runtime and libraries: spinning in locks and in idle
-thread-pool workers, and Redis write collisions on one connection. Candidates, each to be measured on its own with
-`profile.sh` and `cores.sh`: the `User-Agent` per request instead of in the shared default headers; a lower
+thread-pool workers, and Redis write collisions on one connection. Each candidate fix was measured on its own with
+`profile.sh` and `cores.sh` (below): the `User-Agent` per request instead of in the shared default headers; a lower
 thread-pool spin limit (`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`); more than one Redis connection. Results:
 `results/cores/report.md`, `results/profile/report.md`.
 
@@ -409,7 +409,7 @@ connection, while with more connections each sends and reads smaller batches (mo
 for the same commands), which outweighs the collisions saved. The single shared connection stays.
 
 **What this leaves.** Of the four contention sources in the trace, three were tried and none removes the rise from
-4 to 6 vCPUs: the shared header lock (gone, no change), thread-pool spinning (2–4 % at both sizes), Redis write
+4 to 6 vCPUs: the shared header lock (removed in a trial, no change), thread-pool spinning (2–4 % at both sizes), Redis write
 collisions (more connections cost more). The rest is in the runtime and libraries: waiting for garbage collections
 (more heaps and threads take part in each), Kestrel's and System.IO.Pipelines' per-connection locks, and StackExchange.Redis's
 reader and backlog threads. No gateway-side change found that moves it; the figures to expect are 0.18 ms per message up
