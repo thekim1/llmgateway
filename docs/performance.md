@@ -350,6 +350,49 @@ thread-pool workers, and Redis write collisions on one connection. Candidates, e
 thread-pool spin limit (`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`); more than one Redis connection. Results:
 `results/cores/report.md`, `results/profile/report.md`.
 
+**`User-Agent` per request (tried 2026-11-02, not adopted).** The provider client set its `User-Agent` in
+`DefaultRequestHeaders`, which `HttpClient` copies into every request under a lock on the shared header. Setting it on
+each request instead removed that lock from the trace, but CPU per message did not change beyond noise (before and
+after interleaved, two runs each, `cores.sh`):
+
+| Gateway CPU per message | Before | After |
+|---|---:|---:|
+| 4 vCPUs, 256 clients | 0.180 / 0.180 ms | 0.180 / 0.181 ms |
+| 6 vCPUs, 384 clients | 0.222 / 0.221 ms | 0.221 / 0.224 ms |
+| 6 vCPUs, 384 clients (`profile.sh`) | 0.226 ms | 0.224 ms |
+
+That lock was about 0.6 % of managed thread time (6 % of the 9 % in contended locks), too little to show. The change
+is not in the code.
+
+**`User-Agent` per request (measured 2026-11-02).** The provider client no longer has default headers; the adapters and
+the realtime handshake set `User-Agent` on each request. The `CloneHeaderInfo` lock is gone from the trace, but CPU per
+message does not change beyond noise (before and after interleaved, two runs each, `cores.sh`):
+
+| Gateway CPU per message | Before | After |
+|---|---:|---:|
+| 4 vCPUs, 256 clients | 0.180 / 0.180 ms | 0.180 / 0.181 ms |
+| 6 vCPUs, 384 clients | 0.222 / 0.221 ms | 0.221 / 0.224 ms |
+| 6 vCPUs, 384 clients (`profile.sh`) | 0.226 ms | 0.224 ms |
+
+That lock was about 0.6 % of managed thread time (6 % of the 9 % in contended locks), too little to show.
+
+**Thread-pool spin limit (measured 2026-11-02).** Idle thread-pool workers spin before they sleep
+(`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`, hexadecimal; `cores.sh` passes it on when set in the shell). Two runs per
+value, interleaved with the default, streaming:
+
+| Spin limit | 4 vCPUs, 256 clients: msg/s, CPU per message | 6 vCPUs, 384 clients: msg/s, CPU per message |
+|---|---|---|
+| default | 19 659, 0.181 ms | 23 516, 0.225 ms |
+| 0 (no spinning) | 21 006, 0.174 ms | 22 750, 0.217 ms |
+| 0x10 (16) | 20 488, 0.174 ms | 23 756, 0.215 ms |
+| 0x100 (256) | 20 912, 0.179 ms | 23 683, 0.226 ms |
+
+Less spinning saves 2–4 % CPU per message at both sizes (the default's first run was the slowest of its pair; against
+its second run alone the saving is 1.5–2 %), within what two runs can tell apart. It does not touch the rise: 6 vCPUs
+still cost 1.24 times 4 vCPUs per message either way, and throughput at 6 vCPUs does not change. Not made the default:
+the gain is small and spinning is what keeps wake-up latency low when load is bursty, which this steady load does not
+test.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)

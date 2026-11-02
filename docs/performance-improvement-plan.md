@@ -72,8 +72,10 @@ locks and in idle thread-pool workers, a lock on the provider client's shared de
 write collisions on its one connection; allocation and work per message do not change
 (`benchmarks/compare/profile.sh`; details in
 [performance.md](performance.md#cpu-per-message-at-6-vcpus-2026-11-02)). Next, one pull request each, measured with
-both scripts at 4 and 6 vCPUs: set `User-Agent` per request instead of in `DefaultRequestHeaders`; try a lower
-thread-pool spin limit; try two to four Redis connections.
+both scripts at 4 and 6 vCPUs: set `User-Agent` per request instead of in `DefaultRequestHeaders` (tried, not
+adopted: the lock is gone, CPU per message unchanged within noise); a lower thread-pool spin limit (done: 2–4 % less
+CPU per message at 4 and 6 vCPUs alike, the rise from 4 to 6 unchanged; not made the default); try two to four Redis
+connections.
 
 **Evidence (before the analysis).** CPU per message is flat from 1 to 4 vCPUs (0.17–0.18 ms) and rises to 0.22 ms at 6, where efficiency
 drops to 73 % (baseline 2026-11-02; on 2026-10-27, before #55 and #56, it was 0.20–0.21 and 0.25 ms, 72 %).
