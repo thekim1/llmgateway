@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Repository:** `.gitattributes` sets `* text=auto` and marks images, PDFs and fonts as binary. Text is stored with LF
+whatever `core.autocrlf` says, so a Windows checkout read by another git (WSL, a container) no longer shows every file
+as modified. The stored files are unchanged (`git add --renormalize .` finds nothing to convert).
+
 ## 0.8.8 - 2026-11-01
 
 Signing out of the admin UI works again, and CI builds each change once on its pull request and once on the release tag.
