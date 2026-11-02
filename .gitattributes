@@ -1,3 +1,7 @@
+# Text files are stored with LF in the repository, whatever the client's core.autocrlf says. Without this, a Windows
+# checkout read by another git (WSL, a container, an IDE's built-in git) shows every CRLF file as modified.
+* text=auto
+
 # Files mounted into Linux containers or run by sh must keep LF on every checkout (CRLF breaks
 # redis.conf, pg_hba.conf, the Redis ACL and shell scripts).
 *.sh text eol=lf
@@ -5,3 +9,13 @@ deploy/**/*.yaml text eol=lf
 deploy/**/*.conf text eol=lf
 deploy/**/*.sql text eol=lf
 deploy/**/*.example text eol=lf
+
+# Binary: never converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
