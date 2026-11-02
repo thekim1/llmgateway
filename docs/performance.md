@@ -350,6 +350,18 @@ thread-pool workers, and Redis write collisions on one connection. Candidates, e
 thread-pool spin limit (`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`); more than one Redis connection. Results:
 `results/cores/report.md`, `results/profile/report.md`.
 
+**`User-Agent` per request (measured 2026-11-02).** The provider client no longer has default headers; the adapters and
+the realtime handshake set `User-Agent` on each request. The `CloneHeaderInfo` lock is gone from the trace, but CPU per
+message does not change beyond noise (before and after interleaved, two runs each, `cores.sh`):
+
+| Gateway CPU per message | Before | After |
+|---|---:|---:|
+| 4 vCPUs, 256 clients | 0.180 / 0.180 ms | 0.180 / 0.181 ms |
+| 6 vCPUs, 384 clients | 0.222 / 0.221 ms | 0.221 / 0.224 ms |
+| 6 vCPUs, 384 clients (`profile.sh`) | 0.226 ms | 0.224 ms |
+
+That lock was about 0.6 % of managed thread time (6 % of the 9 % in contended locks), too little to show.
+
 ## Comparison with eneo
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
