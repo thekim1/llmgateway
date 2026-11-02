@@ -161,6 +161,21 @@ CONFIGS="default conserve5" VUS="64" benchmarks/compare/gc.sh
 
 It writes `results/gc/report.md`.
 
+**CPU layout** (`cores.sh`, about 6 minutes per layout and repeat): the gateway's CPU per message on 4 and 6 vCPUs with
+physical cores of its own or shared with the harness, to tell the machine from the gateway. Writes
+`results/cores/report.md`.
+
+**Inside the gateway** (`profile.sh`, about 2 minutes per layout): at the 4- and 6-vCPU peaks, the gateway container's
+user and kernel CPU, runtime counters (GC, allocation, lock contention, thread pool) and a `dotnet-trace` sample of
+where threads spend their time. The tools run in an SDK container that shares the gateway's process namespace; they are
+installed into `results/profile/tools` on the first run. `profile_report.py` writes `results/profile/report.md`.
+
+```bash
+benchmarks/compare/cores.sh
+LAYOUTS="4own 6own" REPEATS=1 benchmarks/compare/cores.sh
+benchmarks/compare/profile.sh
+```
+
 The report is written to `results/report.md` (raw k6 summaries and CPU samples next to it). Per scenario it shows
 requests/s, median/p95/p99 latency and overhead over the fake LLM, time to first byte, container CPU per request
 (platform and its Postgres + Redis), Postgres statements and Redis commands per request (including background
@@ -175,6 +190,8 @@ the fake LLM's answer, so an error can never pass as a fast response.
 | `run.sh` | Starts each platform on fresh databases, seeds it, warms up, runs the scenarios, samples CPU and query counts |
 | `scale.sh` | Load and resource scaling (see above) |
 | `gc.sh` | Memory, throughput and latency per garbage collector configuration (see above) |
+| `cores.sh` | Gateway CPU per message by CPU layout (see above) |
+| `profile.sh`, `profile_report.py` | CPU split, runtime counters and a stack sample inside the gateway at its peak (see above) |
 | `sizing/` | A small host with PII and content guard on (see above) |
 | `latency.sh`, `latency_report.py` | Streaming latency with real-provider timing (see above), via the stream probe |
 | `lib.sh` | Shared shell helpers (start/seed platforms, k6, CPU and query sampling) |
