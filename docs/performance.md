@@ -327,7 +327,6 @@ peaks: the container's user and kernel CPU over 20 s, `dotnet-counters` and a 12
 | Time in GC pauses | 4.3 % | 5.4 % |
 | Lock contentions/s | 2 654 | 1 884 |
 | Thread-pool work items per message | 6.7 | 7.0 |
-| Thread-pool queue length | 9 | 56 |
 
 - The extra 0.04 ms is user mode; the kernel (sockets, syscalls) adds almost nothing.
 - Work per message does not grow: allocation, work items and the gateway's own code (authentication, routing, JSON,
