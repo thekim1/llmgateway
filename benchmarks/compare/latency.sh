@@ -25,7 +25,7 @@ source ./lib.sh
 OUT="results/latency/$PROFILE"
 BIN="$REPO/benchmarks/Ume.LlmGateway.Benchmarks/bin/Release/net10.0"
 [[ -f "$BIN/Ume.LlmGateway.Benchmarks.dll" ]] || { echo "Build the benchmarks in Release first" >&2; exit 1; }
-mkdir -p "$OUT"
+results_dir "results/latency" && results_dir "$OUT"
 
 url_of() { case $1 in fake) echo http://fake-llm:8080 ;; ume) echo http://ume-gateway:8080 ;; eneo) echo http://eneo-backend:8000/api/v1 ;; esac; }
 

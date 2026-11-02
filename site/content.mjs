@@ -102,8 +102,8 @@ var reply = await chat.CompleteChatAsync("Sammanfatta ärendet");` },
 export const ENDPOINTS = ['/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/embeddings', '/v1/audio/transcriptions', '/v1/images/generations', '/v1/realtime', '/v1/models']
 
 export const PROOF = [
-  { value: '1.0 ms', label: 'Added latency', sub: 'Median overhead per chat request, one client' },
-  { value: '17 888', label: 'Messages per second', sub: 'Streaming chat on 4 vCPUs' },
+  { value: '0.6 ms', label: 'Added latency', sub: 'Median overhead per chat request, one client' },
+  { value: '20 868', label: 'Messages per second', sub: 'Streaming chat on 4 vCPUs' },
   { value: '0', label: 'Database calls per request', sub: 'Keys and routing are cached in memory' },
   { value: '0', label: 'Prompts stored', sub: 'Usage metadata only, by design' },
 ]
@@ -184,29 +184,29 @@ export const GLOSSARY = [
   ['Routing rule', 'A condition on the request, such as a header or how much of the budget is left, that sends it to a different model. The x-ume-rule response header shows which rule applied.'],
 ]
 
-/** docs/performance.md, Results (baseline 2026-10-27). All gateway figures on the site come from that one run. */
-export const BENCH_DATE = '27 Oct 2026'
+/** docs/performance.md, Results (baseline 2026-11-02). All gateway figures on the site come from that one run. */
+export const BENCH_DATE = '2 Nov 2026'
 
 export const BENCH_STATS = [
-  { label: 'Added latency', value: '0.97 ms', sub: 'Median, non-streaming, 1 client' },
-  { label: 'Time to first byte', value: '1.28 ms', sub: 'Streaming, 1 client' },
-  { label: 'Peak throughput', value: '17 888', sub: 'Streamed msg/s on 4 vCPUs' },
-  { label: 'CPU per message', value: '0.21 ms', sub: 'Gateway process, 4 vCPUs' },
+  { label: 'Added latency', value: '0.61 ms', sub: 'Median, non-streaming, 1 client' },
+  { label: 'Time to first byte', value: '0.92 ms', sub: 'Streaming, 1 client' },
+  { label: 'Peak throughput', value: '20 868', sub: 'Streamed msg/s on 4 vCPUs' },
+  { label: 'CPU per message', value: '0.18 ms', sub: 'Gateway process, 4 vCPUs' },
 ]
 
-/** docs/performance.md, Results (baseline 2026-10-27), Scaling (streaming chat, msg/s). */
+/** docs/performance.md, Results (baseline 2026-11-02), Scaling (streaming chat, msg/s). */
 export const SCALE = [
-  { id: 'clients', tab: 'By clients', label: 'Concurrent clients (4 vCPUs)', x: ['1', '4', '16', '64', '128', '256'], v: [607, 2356, 6179, 12612, 15489, 17888] },
-  { id: 'vcpu', tab: 'By vCPUs', label: 'vCPUs (peak)', x: ['1', '2', '4', '6'], v: [4751, 9616, 17772, 20550] },
+  { id: 'clients', tab: 'By clients', label: 'Concurrent clients (4 vCPUs)', x: ['1', '4', '16', '64', '128', '256'], v: [754, 2689, 7558, 15039, 18072, 20868] },
+  { id: 'vcpu', tab: 'By vCPUs', label: 'vCPUs (peak)', x: ['1', '2', '4', '6'], v: [5539, 11627, 21097, 24114] },
 ]
 
-/** docs/production-setup.md, Sizing; measured in docs/performance.md, A small host (2026-10-27). */
+/** docs/production-setup.md, Sizing; measured in docs/performance.md, A small host (2026-11-02). */
 export const SIZING = {
   measured: [
-    { label: 'Gateway CPU at 50 msg/s', value: '0.39', sub: 'vCPU on average, limit 0.5' },
-    { label: 'Gateway memory', value: '236 MB', sub: 'Highest, 100 msg/s, ~560 open streams' },
+    { label: 'Gateway CPU at 50 msg/s', value: '0.36', sub: 'vCPU on average, limit 0.5' },
+    { label: 'Gateway memory', value: '225 MB', sub: 'Highest, 100 msg/s, ~560 open streams' },
     { label: 'Added latency', value: 'None', sub: 'Measurable at 50 and 100 msg/s' },
-    { label: 'Per usage record', value: '563 B', sub: 'Postgres, with indexes' },
+    { label: 'Per usage record', value: '554 B', sub: 'Postgres, with indexes' },
   ],
   rows: [
     ['Gateway', '0.5 vCPU, up to 1', '256 MB, up to 512 MB', '–'],
@@ -218,22 +218,21 @@ export const SIZING = {
     ['One host for everything', '2 vCPU', '4 GB', '20 GB + usage data'],
     ['Gateway and admin API only', '1–1.5 vCPU', '1.5 GB', '5 GB'],
   ],
-  disk: [['5 msg/s average', '≈ 90 GB'], ['10 msg/s average', '≈ 180 GB'], ['50 msg/s around the clock', '≈ 890 GB']],
+  disk: [['5 msg/s average', '≈ 90 GB'], ['10 msg/s average', '≈ 175 GB'], ['50 msg/s around the clock', '≈ 870 GB']],
 }
 
 export const COST_ROWS = [
   { step: 'Key and catalogue lookup', when: 'Before first byte', rt: '0', how: 'In memory; refreshed in the background' },
-  { step: 'Rate limit + circuit state', when: 'Before first byte', rt: '1', how: 'One Lua script and one MGET, pipelined' },
-  { step: 'Budget reservation', when: 'Before first byte', rt: '1', how: 'One script checks key, team and department budgets' },
+  { step: 'Rate limit, budgets + circuit state', when: 'Before first byte', rt: '1', how: 'One Lua script checks the rate limit and reserves key, team and department budgets; one MGET, pipelined' },
   { step: 'Budget reconciliation', when: 'After response', rt: '1', how: 'Pipelined, off the client\'s critical path' },
   { step: 'Usage record', when: 'Background', rt: '0', how: 'Batched, about ten records per Postgres COPY statement' },
 ]
 
-/** docs/performance.md, Comparison with eneo, eneo v2.2.3 (2026-10-27, same run as the baseline; streaming, 4 vCPUs each). */
+/** docs/performance.md, Comparison with eneo, eneo v2.2.3 (2026-11-02, same run as the baseline; streaming, 4 vCPUs each). */
 export const COMPARE = [
-  { label: 'Time per streamed answer, 1 client (median)', max: 68.1, rows: [['Ume gateway', 1.58, '1.6 ms'], ['eneo v2.2.3', 68.1, '68.1 ms']] },
-  { label: 'CPU per message, 16 clients', max: 79.2, rows: [['Ume gateway', 0.49, '0.49 ms'], ['eneo v2.2.3', 79.2, '79.2 ms']] },
-  { label: 'Postgres statements per message', max: 78, rows: [['Ume gateway', 0.7, '0.7, batched'], ['eneo v2.2.3', 78, '78']] },
+  { label: 'Time per streamed answer, 1 client (median)', max: 66.7, rows: [['Ume gateway', 1.21, '1.2 ms'], ['eneo v2.2.3', 66.7, '66.7 ms']] },
+  { label: 'CPU per message, 16 clients', max: 80.7, rows: [['Ume gateway', 0.41, '0.41 ms'], ['eneo v2.2.3', 80.7, '80.7 ms']] },
+  { label: 'Postgres statements per message', max: 78, rows: [['Ume gateway', 0.6, '0.6, batched'], ['eneo v2.2.3', 78, '78']] },
 ]
 
 export const BENCH_CODE = `# All BenchmarkDotNet benchmarks (~10 min)

@@ -29,8 +29,8 @@ The POC is not a production approval, legal attestation or WCAG certification (s
 3. **Decide:** the "Skip to main content" link is hidden from 768 px (`md:hidden`); the sidebar has about 15 tab stops before `main`. Landmarks are sufficient, but a skip link is cheap.
 4. **Test gap:** `DiscoverModelsDialog.vue` has no automated UI test (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
 5. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
-6. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Current numbers:** the baseline of 2026-10-27 in
-   [docs/performance.md](docs/performance.md#results-baseline-2026-10-27) (17 888 streamed messages/s on 4 vCPUs,
+6. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Current numbers:** the baseline of 2026-11-02 in
+   [docs/performance.md](docs/performance.md#results-baseline-2026-11-02) (20 868 streamed messages/s on 4 vCPUs,
    close to linear from 1 to 4 vCPUs, the gateway's own CPU the limit). Re-measure everything in one session (see
    *Measuring* there) and update the baseline, the website (`site/content.mjs`), the platform comparison slides and the
    other docs from it, so numbers never come from mixed runs. Do not keep older figures anywhere.

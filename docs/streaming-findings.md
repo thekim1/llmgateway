@@ -1,7 +1,7 @@
 # Streaming findings
 
 Why streams start fast and then fall behind with long chunk gaps: what was found, what was changed, and how to check
-it again. Figures are from the baseline in [performance.md](performance.md#results-baseline-2026-10-27) (2026-10-27).
+it again. Figures are from the baseline in [performance.md](performance.md#results-baseline-2026-11-02) (2026-11-02).
 
 ## Findings
 
@@ -70,7 +70,7 @@ Scope: `/v1/chat/completions`, `/v1/responses` and `/v1/messages` streams relaye
 
 With a fake LLM that waits 400 ms for the first token and paces 200 words at 25 ms ±30 %, the gateway adds no
 measurable time to the first token and no chunk gaps at 1–256 concurrent streams; the differences are smaller than the
-fake LLM's own jitter. See *Streaming with real-provider timing* in [performance.md](performance.md#results-baseline-2026-10-27).
+fake LLM's own jitter. See *Streaming with real-provider timing* in [performance.md](performance.md#results-baseline-2026-11-02).
 
 ## Next steps
 
