@@ -27,7 +27,7 @@ non-interactively (`--help`); `--renew-certs` re-issues the service certificates
 
 For a quiet installation, up to about 50 messages per second with room for bursts. Measured with PII detection and the
 content guard on ([performance](performance.md#a-small-host-benchmarkscomparesizingrunsh)): the gateway carried
-100 streamed messages/s in 0.5 vCPU and 236 MB without adding latency.
+100 streamed messages/s in 0.5 vCPU and 225 MB without adding latency.
 
 | | CPU | Memory | Disk |
 |---|---|---|---|
@@ -39,16 +39,16 @@ content guard on ([performance](performance.md#a-small-host-benchmarkscomparesiz
 | **Gateway and admin API only** (your own Postgres and Redis) | **1–1.5 vCPU** | **1.5 GB** | **5 GB** |
 
 At 50 messages/s your own Postgres gets about 50 inserts per second (in batches, from a background writer) and your
-own Redis about 450 commands per second, using a few MB.
+own Redis about 400 commands per second, using a few MB.
 
-Disk grows with usage records: about 560 bytes per request, kept for the retention period (365 days by default,
+Disk grows with usage records: about 550 bytes per request, kept for the retention period (365 days by default,
 *Settings > Data retention*). Size by the average rate over the day, not the peak:
 
 | Average rate | Per year |
 |---|---|
 | 5 messages/s (peaks of 50 in office hours) | about 90 GB |
-| 10 messages/s | about 180 GB |
-| 50 messages/s around the clock | about 890 GB |
+| 10 messages/s | about 175 GB |
+| 50 messages/s around the clock | about 870 GB |
 
 The admin API was not measured under load; its figures are estimates. A guard model for the content guard runs on your
 own inference server and is not included. For two gateway instances ([updates without downtime](zero-downtime-updates.md)),

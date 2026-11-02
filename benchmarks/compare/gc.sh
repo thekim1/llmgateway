@@ -39,8 +39,7 @@ for config in $CONFIGS; do
   export GC_SERVER GC_DATAS GC_CONSERVE GC_HEAP_COUNT APP_MEM
   log "$config (gcServer=$GC_SERVER, DATAS=$GC_DATAS, ConserveMemory=$GC_CONSERVE, HeapCount=$GC_HEAP_COUNT, memory limit $APP_MEM)"
   rm -rf "results/gc/$config"
-  mkdir -p "results/gc/$config"
-  chmod a+rwx "results/gc" "results/gc/$config" # k6 writes its summary here as another user
+  results_dir "results/gc" && results_dir "results/gc/$config"
   start_platform ume
   container_stats ume-gateway | cut -d' ' -f2 > "results/gc/$config/idle.memory"
   warm_up ume

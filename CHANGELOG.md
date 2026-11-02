@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**New performance baseline (2026-11-02), gateway and eneo v2.2.3 measured in one session.** With the two changes
+above, on the same machine and harness as the 2026-10-27 baseline: median overhead for one client 0.97 → 0.61 ms
+(streaming 1.27 → 0.90 ms), streamed peak on 4 vCPUs 17 772 → 21 097 msg/s (1 / 2 / 6 vCPUs: 5 539 / 11 627 / 24 114),
+CPU per streamed message 0.21 → 0.18 ms, p99 at 64 non-streamed clients 13.8 → 6.9 ms, memory under load about 160 MB.
+`docs/performance.md`, the website, the platform comparison slides (HTML and PDF), the sizing guide and the
+performance plan quote the new run. `benchmarks/compare`: the result folders the scripts create are writable for k6
+and the stream probe, which run as another user (`scale.sh` and `latency.sh` lost their results in a fresh checkout).
+
 **Fix: the gateway used 1–1.7 GB under load and crashed in a 1 GiB container.** Aspire's Redis client traced every
 Redis command, and the OpenTelemetry instrumentation keeps each traced request and its commands in memory until it
 turns them into spans every 10 seconds: about 400 MB of live objects at 16 000 requests/s. With the 1 GiB limit of

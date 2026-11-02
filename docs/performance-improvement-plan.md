@@ -2,7 +2,7 @@
 
 Work list for the next round of data-plane performance work, written so it can be picked up in a new session without
 the history. Each item has the evidence that motivates it, where to look, a suggested approach, and how to prove it
-worked. All figures are from the baseline of 2026-10-27 in [performance.md](performance.md#results-baseline-2026-10-27)
+worked. All figures are from the baseline of 2026-11-02 in [performance.md](performance.md#results-baseline-2026-11-02)
 (8 cores / 16 threads, Docker on WSL2; "vCPU" means one hardware thread). Re-measure the whole baseline in one session
 after a change, and replace the figures there and here, so numbers never come from mixed runs.
 
@@ -10,14 +10,14 @@ after a change, and replace the figures there and here, so numbers never come fr
 
 | | Value | Source |
 |---|---|---|
-| Gateway overhead per message, 1 client (median) | 0.97 ms non-streaming, 1.27 ms streaming | `run.sh` |
-| Peak throughput, streaming, 1 / 2 / 4 / 6 vCPUs | 4 751 / 9 616 / 17 772 / 20 550 msg/s | `scale.sh`, resource sweep |
-| CPU per message at those peaks | 0.21 / 0.20 / 0.21 / 0.25 ms | same |
-| What limits the peak | The gateway's own CPU (3.6 of 4 vCPUs busy); fake LLM, Postgres and Redis well below their limits | harness check in the reports |
+| Gateway overhead per message, 1 client (median) | 0.61 ms non-streaming, 0.90 ms streaming | `run.sh` |
+| Peak throughput, streaming, 1 / 2 / 4 / 6 vCPUs | 5 539 / 11 627 / 21 097 / 24 114 msg/s | `scale.sh`, resource sweep |
+| CPU per message at those peaks | 0.18 / 0.17 / 0.18 / 0.22 ms | same |
+| What limits the peak | The gateway's own CPU (3.7 of 4 vCPUs busy); fake LLM, Postgres and Redis well below their limits | harness check in the reports |
 | Redis round trips per request | 1 before the first byte (2 when a routing rule can apply to the key), 1 after; 8 commands (since #55) | `audit`, `run.sh` |
 | Postgres on the request path | 0 statements (warm caches); 0.2–0.7 per message in the background writer under load | `audit`, `run.sh` |
-| Memory of the gateway process under load | 128–161 MB at 16–64 clients (was 1.0–1.7 GB before Redis command tracing was turned off, 2026-11-02) | `gc.sh` |
-| Errors under overload (256 clients, 4 vCPUs) | 0 % (median 12.5 ms) | `scale.sh` |
+| Memory of the gateway process under load | 124–186 MB at 1–64 clients (was 1.0–1.7 GB before Redis command tracing was turned off, #56) | `run.sh`, `gc.sh` |
+| Errors under overload (256 clients, 4 vCPUs) | 0 % (median 11.4 ms) | `scale.sh` |
 
 ## How to measure (always before and after)
 
@@ -66,8 +66,9 @@ tests pass, including rules that change the model.
 
 ### 2. CPU per message at 6 vCPUs
 
-**Evidence.** CPU per message is flat from 1 to 4 vCPUs (0.20–0.21 ms) and rises to 0.25 ms at 6, where efficiency
-drops to 72 %. Part of it is the machine (two of the six threads share a physical core with the fake LLM and Postgres),
+**Evidence.** CPU per message is flat from 1 to 4 vCPUs (0.17–0.18 ms) and rises to 0.22 ms at 6, where efficiency
+drops to 73 % (baseline 2026-11-02; on 2026-10-27, before #55 and #56, it was 0.20–0.21 and 0.25 ms, 72 %).
+Part of it is the machine (two of the six threads share a physical core with the fake LLM and Postgres),
 part may be contention (locks, thread pool, the single Redis multiplexer connection).
 
 **Where.** Whole pipeline; suspects: `StackExchange.Redis` multiplexer (one connection for all commands),
@@ -87,7 +88,7 @@ container limit the gateway crashed. Redis command tracing is off by default now
 instead of 1.59 GB, and 25–35 % more throughput. GC settings (DATAS off, `GCConserveMemory`, fixed heap count,
 Workstation GC, 1 GiB and 512 MB limits) then differ by noise, so the runtime default stays. Details:
 [performance.md](performance.md#memory-and-the-garbage-collector-2026-11-02); tool: `benchmarks/compare/gc.sh`. The
-throughput and CPU figures above (and item 2's) predate the fix: re-measure the whole baseline before starting item 2.
+baseline of 2026-11-02 is measured with the fix.
 
 ### 4. Verify horizontal scaling
 

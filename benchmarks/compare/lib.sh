@@ -11,7 +11,8 @@ COMPOSE=(docker compose)
 # application is at its peak; report.py and scale_report.py show how busy each one was.
 export FAKE_CPUS="${FAKE_CPUS:-0-3}" K6_CPUS="${K6_CPUS:-4-7}" APP_CPUS="${APP_CPUS:-8-11}"
 export PG_CPUS="${PG_CPUS:-12-13}" REDIS_CPUS="${REDIS_CPUS:-14-15}"
-mkdir -p results
+results_dir() { mkdir -p "$1" && chmod a+rwx "$1"; } # k6 and the probe write there as another user
+results_dir results
 
 log() { printf '\n== %s\n' "$*"; }
 
@@ -104,7 +105,7 @@ start_platform() {
 measure() { # platform stream vus duration out
   local platform=$1 out=$5 s cpu mem first pg_before=0 pg_after=0 redis_before=0 redis_after=0
   local -A before=()
-  mkdir -p "results/$(dirname "$out")"
+  results_dir "results/$(dirname "$out")"
   for s in $(services_for "$platform"); do before[$s]=$(container_stats "$s" | cut -d' ' -f1); done
   # A failed probe (e.g. Postgres out of connections) must not abort the run: the count is then reported as null.
   if [[ $platform != fake ]]; then pg_before=$(pg_calls "$platform" || true); redis_before=$(redis_calls "$platform" || true); fi

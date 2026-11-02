@@ -35,7 +35,7 @@ with the organisation (departments, teams, keys, budgets) and its rules in Postg
 | Telemetry | OpenTelemetry GenAI semantic conventions (`gen_ai.client.token.usage`, `gen_ai.server.request.duration`, time to first token, time per output token, inter-chunk latency) | Own `ume.gateway.*` metrics including overhead, TTFT, stream gaps | Them on interoperability (standard dashboards work); us on gateway-overhead visibility |
 | MCP / A2A | Full MCP and A2A gateways | Removed (out of scope) | Them; deliberately not ours |
 | Deployment | Kubernetes controller (Gateway API), xDS, single binary | Aspire, Compose with hardening, Kubernetes manifests, zero-downtime updates, backup/restore | Different targets |
-| Performance | Rust, no GC; designed as a general proxy | .NET 10, measured 0 Postgres calls and 2 Redis round trips before the first byte, about 17 900 streamed msg/s on 4 vCPUs per instance (2026-10-27 baseline) | Not measured head to head |
+| Performance | Rust, no GC; designed as a general proxy | .NET 10, measured 0 Postgres calls and 1 Redis round trip before the first byte, about 21 000 streamed msg/s on 4 vCPUs per instance (2026-11-02 baseline) | Not measured head to head |
 
 ### What they do better that matters to us
 
@@ -89,9 +89,9 @@ catalogue (prices are contractual for us; the Azure lookup covers the main provi
 
 ## Results of items 1 to 3
 
-No extra round trip: cooldowns are read in the circuit-state `MGET`, so a chat request still makes 9 Redis commands
+No extra round trip: cooldowns are read in the circuit-state `MGET`, so a chat request still makes 8 Redis commands
 (`audit`), and the per-attempt bookkeeping (one dictionary lookup, a few atomics, one small allocation) does not show
-in the benchmarks. Current figures: the baseline in [performance.md](performance.md#results-baseline-2026-10-27).
+in the benchmarks. Current figures: the baseline in [performance.md](performance.md#results-baseline-2026-11-02).
 
 ## MCP and A2A: how agentgateway does it, and whether it fits us
 
