@@ -110,6 +110,34 @@ public sealed class GatewayTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task A_fallback_gets_the_client_body_not_the_rewrite_for_the_failed_candidate()
+    {
+        // The first candidate's reasoning profile drops temperature and renames max_tokens; the fallback must not see that.
+        var reasoning = await fixture.AddDeploymentAsync("eu", "fail503", contextWindow: null, ParameterProfile.OpenAIReasoning);
+        var route = await fixture.CreateRouteAsync(reasoning, "onprem/ok");
+        var marker = "fallback-body-" + Guid.NewGuid().ToString("N");
+        var body = new JsonObject
+        {
+            ["model"] = route,
+            ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = marker }),
+            ["max_tokens"] = 33, ["temperature"] = 0.25, ["stream"] = false,
+        };
+
+        using var response = await fixture.SendRawAsync(await fixture.CreateKeyAsync(), "/v1/chat/completions", body.ToJsonString());
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.GetValues("x-ume-fallbacks").Single().ShouldBe("1");
+        var sent = (await fixture.UpstreamRequestsAsync(e => GatewayFixture.Body(e).Contains(marker, StringComparison.Ordinal), atLeast: 2))
+            .Select(e => JsonNode.Parse(GatewayFixture.Body(e))!.AsObject())
+            .ToDictionary(b => b["model"]!.GetValue<string>());
+        sent["eu-fail503"]["temperature"].ShouldBeNull();
+        sent["eu-fail503"]["max_completion_tokens"]!.GetValue<int>().ShouldBe(33);
+        sent["onprem-ok"]["temperature"]!.GetValue<double>().ShouldBe(0.25);
+        sent["onprem-ok"]["max_tokens"]!.GetValue<int>().ShouldBe(33);
+        sent["onprem-ok"]["max_completion_tokens"].ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Provider_time_to_first_token_leaves_out_the_failed_attempt()
     {
         // The slow provider is given up on after its 1 s timeout; that second is the client's wait, not onprem's.

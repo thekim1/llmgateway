@@ -16,6 +16,7 @@ public class PipelineBenchmarks
     private GatewayHost _host = null!;
     private byte[] _chat = null!;
     private byte[] _chatStream = null!;
+    private byte[] _largeChat = null!;
     private byte[] _embeddings = null!;
 
     [Params(StoreKind.InMemory, StoreKind.Redis)]
@@ -27,6 +28,7 @@ public class PipelineBenchmarks
         _host = GatewayHost.StartAsync(Store).GetAwaiter().GetResult();
         _chat = Encoding.UTF8.GetBytes(Payloads.ChatRequest(GatewayHost.ChatAlias));
         _chatStream = Encoding.UTF8.GetBytes(Payloads.ChatRequest(GatewayHost.ChatAlias, stream: true));
+        _largeChat = Encoding.UTF8.GetBytes(Payloads.LargeChatRequest(GatewayHost.ChatAlias));
         _embeddings = Encoding.UTF8.GetBytes(Payloads.EmbeddingsRequest(GatewayHost.EmbeddingsAlias));
         Chat().GetAwaiter().GetResult();
     }
@@ -36,6 +38,9 @@ public class PipelineBenchmarks
 
     [Benchmark(Description = "POST /v1/chat/completions")]
     public Task<int> Chat() => _host.SendAsync("/v1/chat/completions", _chat);
+
+    [Benchmark(Description = "POST /v1/chat/completions (64 KB request)")]
+    public Task<int> LargeChat() => _host.SendAsync("/v1/chat/completions", _largeChat);
 
     [Benchmark(Description = "POST /v1/chat/completions stream (300 chunks)")]
     public Task<int> ChatStream() => _host.SendAsync("/v1/chat/completions", _chatStream);

@@ -267,6 +267,10 @@ public sealed partial class GatewayRequestHandler(
         var retry = options.CurrentValue.Retry;
         var retriesLeft = retry.MaxRetries;
         var attempt = 0;
+        // The rewrite changes a few top-level fields of the body. When another candidate may follow, the client's values
+        // of those fields are saved and put back before the next rewrite, instead of copying the whole body per attempt.
+        var original = candidates.Count > 1 ? RequestRewriter.Capture(body) : null;
+        var rewritten = false;
         for (var i = 0; i < candidates.Count; i++)
         {
             var deployment = candidates[i].ModelDeployment!;
@@ -280,10 +284,14 @@ public sealed partial class GatewayRequestHandler(
                 continue;
             }
 
-            // The rewrite mutates the body; only keep a pristine copy when a fallback attempt may still need it. A retry
-            // of the last candidate reuses its body: the rewrite for the same deployment gives the same result.
-            var attemptBody = i == candidates.Count - 1 ? body : (JsonObject)body.DeepClone();
-            RequestRewriter.Apply(attemptBody, state.Endpoint, deployment.UpstreamModel, deployment.ParameterProfile, state.Streamed);
+            // A retry of the same candidate rewrites the restored body again, which gives the same result.
+            if (rewritten && original is not null)
+            {
+                RequestRewriter.Restore(body, original);
+            }
+
+            RequestRewriter.Apply(body, state.Endpoint, deployment.UpstreamModel, deployment.ParameterProfile, state.Streamed);
+            rewritten = true;
 
             ProviderResult result;
             // In flight until the attempt ends (a relayed stream included); feeds least-loaded balancing.
@@ -293,7 +301,7 @@ public sealed partial class GatewayRequestHandler(
             try
             {
                 result = await _adapters.Resolve(provider.Type)
-                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, attemptBody, state.Streamed, credential, clientWantsStreamUsage, audio, images,
+                    .SendAsync(new ProviderCall(provider, deployment, state.Endpoint, body, state.Streamed, credential, clientWantsStreamUsage, audio, images,
                         options.CurrentValue.PromptCaching), ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

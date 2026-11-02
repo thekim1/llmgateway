@@ -11,6 +11,50 @@ public static class RequestRewriter
 {
     private static readonly string[] ReasoningUnsupported = ["temperature", "top_p", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs", "logit_bias"];
 
+    /// <summary>Every top-level field <see cref="Apply"/> may set, remove or change; <see cref="Capture"/> saves these.</summary>
+    private static readonly string[] Rewritten = ["model", "max_tokens", "max_completion_tokens", "stream_options", .. ReasoningUnsupported];
+
+    /// <summary>
+    /// Saves the client's values of the fields <see cref="Apply"/> rewrites, so <see cref="Restore"/> can undo a rewrite
+    /// before the body is rewritten for another deployment. Only these few small values are copied, not the body (which can
+    /// hold megabytes of inline images).
+    /// </summary>
+    public static RewriteSnapshot Capture(JsonObject body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var values = new JsonNode?[Rewritten.Length];
+        var present = new bool[Rewritten.Length];
+        for (var i = 0; i < Rewritten.Length; i++)
+        {
+            if (body.TryGetPropertyValue(Rewritten[i], out var value))
+            {
+                present[i] = true;
+                values[i] = value?.DeepClone();
+            }
+        }
+
+        return new RewriteSnapshot(values, present);
+    }
+
+    /// <summary>Puts back the values <see cref="Capture"/> saved; the body is then as the client sent it.</summary>
+    public static void Restore(JsonObject body, RewriteSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        for (var i = 0; i < Rewritten.Length; i++)
+        {
+            if (snapshot.Present[i])
+            {
+                // A copy: the saved value stays unparented for the next restore.
+                body[Rewritten[i]] = snapshot.Values[i]?.DeepClone();
+            }
+            else
+            {
+                body.Remove(Rewritten[i]);
+            }
+        }
+    }
+
     public static void Apply(JsonObject body, GatewayEndpoint endpoint, string upstreamModel, ParameterProfile profile, bool streaming)
     {
         ArgumentNullException.ThrowIfNull(body);
@@ -79,4 +123,18 @@ public static class RequestRewriter
         ArgumentNullException.ThrowIfNull(body);
         return body["stream"] is JsonValue v && v.TryGetValue<bool>(out var s) && s;
     }
+}
+
+/// <summary>The client's values of the fields <see cref="RequestRewriter.Apply"/> rewrites (see <see cref="RequestRewriter.Capture"/>).</summary>
+public sealed class RewriteSnapshot
+{
+    internal RewriteSnapshot(JsonNode?[] values, bool[] present)
+    {
+        Values = values;
+        Present = present;
+    }
+
+    internal JsonNode?[] Values { get; }
+
+    internal bool[] Present { get; }
 }

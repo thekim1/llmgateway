@@ -325,6 +325,42 @@ public class RequestRewriterTests
         body["stream_options"]!["foo"]!.GetValue<bool>().ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("""{"model":"ume/smart","max_tokens":500,"temperature":0.7,"top_p":0.9,"messages":[{"role":"user","content":"hi"}]}""")]
+    [InlineData("""{"model":"x","stream":true,"stream_options":{"foo":true},"logit_bias":{"1":2},"max_completion_tokens":9}""")]
+    [InlineData("""{"model":"x","stream":true,"max_tokens":null,"temperature":null}""")]
+    [InlineData("""{"model":"x"}""")]
+    public void Restore_undoes_every_rewrite(string json)
+    {
+        var body = JsonNode.Parse(json)!.AsObject();
+        var snapshot = RequestRewriter.Capture(body);
+        foreach (var profile in new[] { ParameterProfile.OpenAIReasoning, ParameterProfile.Standard, ParameterProfile.OpenAIReasoning })
+        {
+            RequestRewriter.Apply(body, GatewayEndpoint.ChatCompletions, "upstream", profile, streaming: true);
+            RequestRewriter.Restore(body, snapshot);
+            JsonNode.DeepEquals(body, JsonNode.Parse(json)).ShouldBeTrue(body.ToJsonString());
+        }
+    }
+
+    [Fact]
+    public void A_restored_body_is_rewritten_as_if_it_had_never_been_rewritten()
+    {
+        const string json = """{"model":"ume/smart","stream":true,"max_tokens":500,"temperature":0.7,"stream_options":{"foo":true}}""";
+        var body = JsonNode.Parse(json)!.AsObject();
+        var snapshot = RequestRewriter.Capture(body);
+        RequestRewriter.Apply(body, GatewayEndpoint.ChatCompletions, "gpt-6", ParameterProfile.OpenAIReasoning, streaming: true);
+
+        RequestRewriter.Restore(body, snapshot);
+        RequestRewriter.Apply(body, GatewayEndpoint.ChatCompletions, "llama", ParameterProfile.Standard, streaming: false);
+
+        var fresh = JsonNode.Parse(json)!.AsObject();
+        RequestRewriter.Apply(fresh, GatewayEndpoint.ChatCompletions, "llama", ParameterProfile.Standard, streaming: false);
+        JsonNode.DeepEquals(body, fresh).ShouldBeTrue(body.ToJsonString());
+        body["temperature"]!.GetValue<double>().ShouldBe(0.7);
+        body["max_tokens"]!.GetValue<int>().ShouldBe(500);
+        body["stream_options"]!["include_usage"].ShouldBeNull();
+    }
+
     [Fact]
     public void Reads_requested_max_output_tokens_and_stream_flag()
     {

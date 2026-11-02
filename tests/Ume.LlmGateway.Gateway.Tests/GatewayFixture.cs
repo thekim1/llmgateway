@@ -451,12 +451,13 @@ public sealed class GatewayFixture : IAsyncLifetime
     public Guid DeploymentId(string model) => _models[model].Id;
 
     /// <summary>A new deployment on an existing provider, answered like that provider's <paramref name="like"/> model.</summary>
-    public async Task<string> AddDeploymentAsync(string provider, string like, int? contextWindow)
+    public async Task<string> AddDeploymentAsync(string provider, string like, int? contextWindow, ParameterProfile profile = ParameterProfile.Standard)
     {
         var template = _models[provider + "/" + like];
         var deployment = new ModelDeployment
         {
             Name = $"{provider}/{like}-{Guid.NewGuid():N}", UpstreamModel = template.UpstreamModel, Kind = template.Kind, ContextWindow = contextWindow,
+            ParameterProfile = profile,
             ProviderAccountId = template.ProviderAccountId,
             Prices = [new ModelPrice { InputPerMillionUsd = 1, OutputPerMillionUsd = 2, EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1) }],
         };
@@ -555,7 +556,7 @@ public sealed class GatewayFixture : IAsyncLifetime
         return bodies.ShouldHaveSingleItem();
     }
 
-    private static string Body(ILogEntry entry, Encoding? encoding) =>
+    internal static string Body(ILogEntry entry, Encoding? encoding = null) =>
         entry.RequestMessage!.BodyAsBytes is { } bytes ? (encoding ?? Encoding.UTF8).GetString(bytes) : entry.RequestMessage.Body ?? string.Empty;
 
     public async Task<UsageRecord> UsageAsync(HttpResponseMessage response)
