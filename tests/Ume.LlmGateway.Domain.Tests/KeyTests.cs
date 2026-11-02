@@ -80,6 +80,31 @@ public class KeyStatusAndRotationTests
     };
 
     [Fact]
+    public void Status_query_agrees_with_GetStatus_for_every_combination()
+    {
+        DateTimeOffset?[] times = [null, Now.AddDays(-1), Now, Now.AddDays(1)];
+        var conditions = Enum.GetValues<KeyStatus>().ToDictionary(s => s, s => VirtualKey.HasStatus(s, Now).Compile());
+        var checkedKeys = 0;
+        foreach (var revoked in times)
+        foreach (var enabled in new[] { true, false })
+        foreach (var expires in times)
+        foreach (var grace in times)
+        {
+            var key = NewKey();
+            (key.RevokedAt, key.IsEnabled, key.ExpiresAt, key.GraceUntil) = (revoked, enabled, expires, grace);
+            var status = key.GetStatus(Now);
+            foreach (var (candidate, matches) in conditions)
+            {
+                matches(key).ShouldBe(candidate == status, $"{candidate} for revoked={revoked}, enabled={enabled}, expires={expires}, grace={grace} (is {status})");
+            }
+
+            checkedKeys++;
+        }
+
+        checkedKeys.ShouldBe(128);
+    }
+
+    [Fact]
     public void Status_reflects_flags_and_dates()
     {
         var key = NewKey();

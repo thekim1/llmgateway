@@ -15,7 +15,8 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
 {
     public async Task<List<BudgetDto>> ListAsync(BudgetScope? scope, Guid? scopeId, CancellationToken ct)
     {
-        var budgets = await ctx.Db.Budgets.AsNoTracking().Where(b => (scope == null || b.Scope == scope) && (scopeId == null || b.ScopeId == scopeId)).ToListAsync(ct);
+        var budgets = await owners.Visible(ctx.Db.Budgets.AsNoTracking().Where(b => (scope == null || b.Scope == scope) && (scopeId == null || b.ScopeId == scopeId)))
+            .ToListAsync(ct);
         var names = await owners.NamesAsync(budgets.Select(b => Owner.Of(b.Scope, b.ScopeId)), ct);
         var visible = budgets.Where(b => names.ContainsKey(Owner.Of(b.Scope, b.ScopeId))).ToList();
         var spent = await SpentAsync(visible, ct);
@@ -53,7 +54,8 @@ public sealed class BudgetAdminService(AdminContext ctx, OwnerScopeResolver owne
 
     public async Task<List<AlertDto>> AlertsAsync(bool? acknowledged, CancellationToken ct)
     {
-        var alerts = await ctx.Db.AlertEvents.AsNoTracking().Where(a => acknowledged == null || a.Acknowledged == acknowledged).OrderByDescending(a => a.Timestamp).ToListAsync(ct);
+        var alerts = await owners.Visible(ctx.Db.AlertEvents.AsNoTracking().Where(a => acknowledged == null || a.Acknowledged == acknowledged))
+            .OrderByDescending(a => a.Timestamp).ToListAsync(ct);
         var names = await owners.NamesAsync(alerts.Select(a => Owner.Of(a.Scope, a.ScopeId)), ct);
         return [.. alerts
             .Where(a => names.ContainsKey(Owner.Of(a.Scope, a.ScopeId)))

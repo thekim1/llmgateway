@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.Domain;
+using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
 
 namespace Ume.LlmGateway.AdminApi.Common;
@@ -55,6 +56,21 @@ public sealed class OwnerScopeResolver(AdminContext ctx)
         ArgumentNullException.ThrowIfNull(ownerOf);
         ArgumentNullException.ThrowIfNull(notFound);
         return entity is not null && await NameAsync(ownerOf(entity), ct) is not null ? entity : throw notFound();
+    }
+
+    /// <summary>
+    /// The rows whose owner exists and is in the user's departments (what <see cref="NamesAsync"/> finds), filtered in the
+    /// database, so a list does not load other departments' rows to drop them.
+    /// </summary>
+    public IQueryable<T> Visible<T>(IQueryable<T> source) where T : class, IBudgetScoped
+    {
+        var departments = ctx.Departments();
+        var teams = ctx.Teams();
+        var keys = ctx.Keys();
+        return source.Where(x =>
+            (x.Scope == BudgetScope.Department && departments.Any(d => d.Id == x.ScopeId))
+            || (x.Scope == BudgetScope.Team && teams.Any(t => t.Id == x.ScopeId))
+            || (x.Scope == BudgetScope.VirtualKey && keys.Any(k => k.Id == x.ScopeId)));
     }
 
     public async Task<bool> ExistsAsync(Owner owner, CancellationToken ct) => (await AllNamesAsync([owner], ct)).ContainsKey(owner);

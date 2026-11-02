@@ -1,6 +1,6 @@
 namespace Ume.LlmGateway.Domain.Entities;
 
-public sealed class Budget
+public sealed class Budget : IBudgetScoped
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
     public BudgetScope Scope { get; set; }
