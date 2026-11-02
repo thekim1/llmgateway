@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Why CPU per message rises at 6 vCPUs (performance plan item 2).** Not the CPU layout: with physical cores of its own the gateway still costs 0.22 ms per message at 6 vCPUs against 0.18 ms at 4. The extra is user-mode CPU from contention (spinning in contended locks and idle thread-pool workers, a lock on the provider client's shared default headers, StackExchange.Redis write collisions on one connection); work and allocation per message do not change. New harness scripts `benchmarks/compare/cores.sh` (CPU per message by CPU layout) and `benchmarks/compare/profile.sh` (CPU split, runtime counters and a stack sample inside the gateway). Details in `docs/performance.md`.
+
 **New performance baseline (2026-11-02), gateway and eneo v2.2.3 measured in one session.** With the two changes
 above, on the same machine and harness as the 2026-10-27 baseline: median overhead for one client 0.97 → 0.61 ms
 (streaming 1.27 → 0.90 ms), streamed peak on 4 vCPUs 17 772 → 21 097 msg/s (1 / 2 / 6 vCPUs: 5 539 / 11 627 / 24 114),
