@@ -175,8 +175,8 @@ marginal cost.
 
 The gateway scales close to linearly up to 4 vCPUs and costs about 0.18 ms of CPU per streamed message; there were no
 errors at any load. From 4 to 6 vCPUs it still gains 14 %, but CPU per message rises (0.22 ms), so each extra vCPU buys
-less: on this machine two of the six threads share a physical core with the fake LLM and Postgres, and the median at
-the peak grows to 13.6 ms (p99 40 ms, 384 clients).
+less, and the median at the peak grows to 13.6 ms (p99 40 ms, 384 clients). That rise is contention inside the gateway,
+not the shared cores; see [CPU per message at 6 vCPUs](#cpu-per-message-at-6-vcpus-2026-11-02).
 
 The 6-vCPU point borrows one thread from the fake LLM (left with 3) and one from Postgres (left with 1). To check that
 this does not limit the gateway, the 4-vCPU peak was measured on that smaller harness too (2026-10-27): the same within
@@ -296,6 +296,59 @@ requests and provider calls are still traced. The live heap under the same load 
   The runtime's default stays; no GC setting is needed in `deploy/`.
 - 512 MB is ample for this load; the 1 GiB Kubernetes limit leaves room for large uploads (audio, images) in flight.
 - The baseline above (2026-11-02) is measured with the fix.
+
+## CPU per message at 6 vCPUs (2026-11-02)
+
+**Not the CPU layout.** `benchmarks/compare/cores.sh` runs the gateway on four layouts, streaming, 32 and 64 clients per
+vCPU, 20 s per point, twice (both runs agree within 2 %; the table gives the range):
+
+| Layout | Gateway threads | Clients | Requests/s | Gateway CPU per message |
+|---|---|---:|---:|---:|
+| `4own`: 2 physical cores of its own (the baseline's 4 vCPUs) | 8–11 | 128 / 256 | 17 702–18 252 / 20 325–21 050 | 0.199–0.203 / 0.178–0.181 ms |
+| `4own-1core`: as `4own`, Postgres and Redis on one thread each | 8–11 | 128 / 256 | 17 587–17 812 / 20 479–20 600 | 0.203 / 0.179 ms |
+| `6shared`: two threads shared with the fake LLM and Postgres (the baseline's 6 vCPUs) | 3, 8–12 | 192 / 384 | 21 191–22 009 / 22 694–23 832 | 0.230–0.234 / 0.214–0.218 ms |
+| `6own`: 3 physical cores of its own | 8–13 | 192 / 384 | 21 193–21 554 / 22 976–23 476 | 0.236–0.237 / 0.220–0.221 ms |
+
+With 3 physical cores of its own the gateway costs as much per message as on the shared layout, and giving Postgres
+and Redis less does not change the 4-vCPU figure. CPU per message also falls with more clients per vCPU (0.20 → 0.18 ms
+on 4 vCPUs): fuller batches per socket read and write.
+
+**Contention in the gateway.** `benchmarks/compare/profile.sh` measures inside the gateway at the `4own` and `6own`
+peaks: the container's user and kernel CPU over 20 s, `dotnet-counters` and a 12 s `dotnet-trace` sample.
+
+| | 4 vCPUs, 256 clients | 6 vCPUs, 384 clients |
+|---|---:|---:|
+| Requests/s (counters and trace running) | 19 612 | 22 953 |
+| Cores busy | 3.73 of 4 | 5.31 of 6 |
+| CPU per message | 0.190 ms | 0.231 ms |
+| – user mode | 0.135 ms | 0.172 ms |
+| – kernel | 0.055 ms | 0.059 ms |
+| Allocated per message | 72 KB | 73 KB |
+| Time in GC pauses | 4.3 % | 5.4 % |
+| Lock contentions/s | 2 654 | 1 884 |
+| Thread-pool work items per message | 6.7 | 7.0 |
+
+- The extra 0.04 ms is user mode; the kernel (sockets, syscalls) adds almost nothing.
+- Work per message does not grow: allocation, work items and the gateway's own code (authentication, routing, JSON,
+  SSE: 1–2 % of the sampled time, the same share on both) stay the same.
+- What grows is threads getting in each other's way. The trace (sampled thread time: which managed frame each thread is
+  in, about 100 times a second; wall clock, not CPU) shows these shares of managed thread time from 4 to 6 vCPUs:
+  waiting for a GC 16.8 → 20.7 %, contended locks (`Monitor.Enter` slow path, which spins before it blocks) 8.0 →
+  9.1 %, thread-pool workers waiting for work (they spin before they sleep) 4.4 → 5.7 %, and StackExchange.Redis waking
+  its backlog thread 2.8 → 3.8 %.
+- The contended locks: 6 % are `HttpHeaders.CloneHeaderInfo` from `HttpClient.PrepareRequestMessage`. The provider
+  client sets its `User-Agent` in `DefaultRequestHeaders` (`ProviderHttpClient`), and .NET copies the default headers
+  into every request under a lock on the shared header. 5 % are StackExchange.Redis's write lock on its one connection;
+  when a writer finds it taken, the command goes to a backlog and a dedicated thread is woken (all of the `SetEvent`
+  time). The rest are Kestrel's and System.IO.Pipelines' per-connection locks.
+- The GC: allocation per message is unchanged, but more heaps and threads take part in each collection. Pause share
+  × cores busy puts the GC at about 0.009 ms per message on 4 vCPUs and 0.014 ms on 6, a small part of the 0.04 ms.
+
+So the remaining cost at 6 vCPUs is contention, mostly in the runtime and libraries: spinning in locks and in idle
+thread-pool workers, and Redis write collisions on one connection. Candidates, each to be measured on its own with
+`profile.sh` and `cores.sh`: the `User-Agent` per request instead of in the shared default headers; a lower
+thread-pool spin limit (`DOTNET_ThreadPool_UnfairSemaphoreSpinLimit`); more than one Redis connection. Results:
+`results/cores/report.md`, `results/profile/report.md`.
 
 ## Comparison with eneo
 
