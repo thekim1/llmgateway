@@ -82,6 +82,9 @@ dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- --filter
 
 # Postgres/Redis calls per request, plus a 15 s concurrent load test
 dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- audit
+
+# Regression guard (about 1 minute): fails when a request allocates more or calls Postgres or Redis more than the baseline
+dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- check
 ```
 
 | Benchmark | What it measures |
@@ -91,7 +94,25 @@ dotnet run -c Release --project benchmarks\Ume.LlmGateway.Benchmarks -- audit
 | `RequestBenchmarks` | Parsing the client body, PII scan, per-attempt rewrite and serialisation (0.5 KB and 64 KB requests). |
 | `RoutingBenchmarks` | Model resolution and candidate selection, budget lookup (with 0 and 10 000 rotated keys), key hashing. |
 | `ClientAddressBenchmarks` | Resolving the client address behind trusted proxies and checking a key's address allow-list, with and without the features in use. |
+| `check` | The regression guard, described below. |
 | `audit` | Postgres statements on the request path vs. in the background writer, and Redis commands, per request; then requests/s and tail latency for 64 concurrent streaming clients with 1 s cache TTLs. |
+
+### Regression guard (`check`)
+
+`check` runs five scenarios (chat, streamed chat and embeddings with warm caches, chat with a key and catalog cache
+miss, and an unknown key) and compares what one request costs with `regression-baseline.json` beside the benchmark
+source. It gates on **allocated bytes per request** (fails above +20 %), **Postgres statements on the request path** and
+**Redis commands** per request (fail on any increase), and on a scenario that is missing from either side. It does not
+gate on time: timing is noisy on shared machines (the same streaming benchmark measured 479 and 766 µs in two runs of
+one day) while two runs of `check` agree within 0.3 % on allocations and exactly on call counts. Background Postgres
+writes are printed by `audit`, not gated, because they depend on how the usage writer batches.
+
+Run it before tagging a release, not on every pull request (Actions minutes are limited). It exits 1 and prints one
+`REGRESSION:` line per failed scenario. When the change is intended (a feature that needs another Redis command, a
+cache that now allocates), run `check --update`, commit the new `regression-baseline.json` and give the reason in the
+pull request. The baseline holds the 2026-11-03 values: 61.8 KB per warm chat, 596.6 KB per streamed chat (300 chunks),
+680.5 KB per embeddings request (16×1536), 264.3 KB and 9 statements for a cache miss, 18.6 KB for a 401, and 8 Redis
+commands for every request that passes authentication.
 
 Absolute numbers depend on the machine; compare runs on the same host. In the results below, Postgres and Redis run in
 Docker on WSL2, so a Redis round trip costs roughly 0.3–0.5 ms; in production (same network segment) it is usually

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Performance regression guard (performance plan item 5).** New `check` command in the benchmark project
+(`dotnet run -c Release --project benchmarks/Ume.LlmGateway.Benchmarks -- check`, about a minute, needs Docker). It measures
+allocations, Postgres statements and Redis commands per request in five scenarios and fails when allocations grow by
+more than 20 % or a request makes another Postgres statement or Redis call than `regression-baseline.json`. It is a step
+before tagging a release (`docs/runbook.md`), not a job on every pull request. `check --update` rewrites the baseline.
+
 **Horizontal scaling measured (performance plan item 4).** New `benchmarks/compare/scale-out.sh` runs 1–3 gateway instances on one Postgres and one Redis. They add up (1 → 2 → 3 instances of 2 vCPUs: 11.3 k → 19.4 k → 22.5 k messages/s, no errors), but several small instances cost 3–8 % throughput against one large one for the same vCPUs, because each instance's usage writer writes smaller batches (Postgres statements per message 0.086 → 0.206 from one to three instances). Redis, at 0.77 of its command thread with three instances, is the first shared component to saturate, near 29 k messages/s. Details in `docs/performance.md`.
 
 **Why CPU per message rises at 6 vCPUs (performance plan item 2).** Not the CPU layout: with physical cores of its own the gateway still costs 0.22 ms per message at 6 vCPUs against 0.18 ms at 4. The extra is user-mode CPU from contention (spinning in contended locks and idle thread-pool workers, a lock on the provider client's shared default headers, StackExchange.Redis write collisions on one connection); work and allocation per message do not change. New harness scripts `benchmarks/compare/cores.sh` (CPU per message by CPU layout) and `benchmarks/compare/profile.sh` (CPU split, runtime counters and a stack sample inside the gateway). Details in `docs/performance.md`.

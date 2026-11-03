@@ -122,7 +122,7 @@ container), same total vCPUs as one larger instance, and record throughput, p99 
 
 **Done when.** `performance.md` has a table for 1/2/3 instances and names the shared component that limits it (done).
 
-### 5. Guard against regressions
+### 5. Guard against regressions (done 2026-11-03: `check`, a documented pre-release step)
 
 **Approach.** Add a short CI job (or a documented pre-release step) that runs `--filter '*Pipeline*'` and the `audit`
 and fails when allocations per request grow by more than 20 % or the request path gains a Postgres statement or a
@@ -132,6 +132,10 @@ while allocations agreed to the kilobyte. Actions minutes are limited, so a docu
 a job on every pull request.
 
 **Done when.** The job exists and is described in `docs/runbook.md` or `HANDOVER.md`.
+
+**Result.** `-- check` in the benchmark project (see *Regression guard* in `docs/performance.md`), run as a step before
+tagging a release (`docs/runbook.md`, *Releases*). It gates on allocations (+20 %) and on Postgres and Redis calls per
+request, in five scenarios, and leaves out time.
 
 ### Lower priority
 

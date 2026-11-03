@@ -1,0 +1,27 @@
+{
+  "chat (key \u002B catalog cache miss)": {
+    "AllocatedBytes": 270626.37333333335,
+    "PostgresOnRequestPath": 9,
+    "RedisCommands": 8
+  },
+  "chat (warm caches)": {
+    "AllocatedBytes": 63282.346666666665,
+    "PostgresOnRequestPath": 0,
+    "RedisCommands": 8
+  },
+  "chat stream (warm caches)": {
+    "AllocatedBytes": 610936.6933333334,
+    "PostgresOnRequestPath": 0,
+    "RedisCommands": 8
+  },
+  "chat, unknown key (401)": {
+    "AllocatedBytes": 19026.88,
+    "PostgresOnRequestPath": 0,
+    "RedisCommands": 0
+  },
+  "embeddings (warm caches)": {
+    "AllocatedBytes": 696802.2933333333,
+    "PostgresOnRequestPath": 0,
+    "RedisCommands": 8
+  }
+}

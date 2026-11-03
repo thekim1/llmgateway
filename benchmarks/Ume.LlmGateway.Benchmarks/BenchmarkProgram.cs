@@ -4,7 +4,8 @@ namespace Ume.LlmGateway.Benchmarks;
 
 /// <summary>
 /// <c>dotnet run -c Release -- --filter *</c> runs BenchmarkDotNet (see <c>--help</c>); <c>audit</c> counts Postgres and
-/// Redis round trips per request and runs a short load test. Both need Docker for the Postgres/Redis containers.
+/// Redis round trips per request and runs a short load test; <c>check</c> compares allocations and call counts with
+/// <c>regression-baseline.json</c> (<c>check --update</c> rewrites it). All three need Docker for the Postgres/Redis containers.
 /// </summary>
 public static class BenchmarkProgram
 {
@@ -15,6 +16,13 @@ public static class BenchmarkProgram
             var requests = args.Length > 1 ? int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture) : 500;
             await InteractionAudit.RunAsync(requests, loadDuration: TimeSpan.FromSeconds(15), concurrency: 64);
             return 0;
+        }
+
+        if (args is ["check", ..])
+        {
+            // Run from the repository root or from this project's folder; the baseline sits beside the source.
+            var baseline = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "regression-baseline.json");
+            return await RegressionCheck.RunAsync(Path.GetFullPath(baseline), update: args is [_, "--update", ..]);
         }
 
         if (args is ["stream-probe", var target, var baseUrl, var vus, var seconds, var outPath, ..])
