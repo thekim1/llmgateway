@@ -416,7 +416,47 @@ reader and backlog threads. No gateway-side change found that moves it; the figu
 to 4 vCPUs and 0.22 ms at 6, with 73 % scaling efficiency. Scaling out (more instances, plan item 4) is the way to add
 capacity beyond 4 vCPUs per instance.
 
-## Comparison with eneo
+## Several instances (2026-11-03)
+
+`benchmarks/compare/scale-out.sh` runs R gateway instances ("RxV": R instances of V vCPUs each) against one shared
+Postgres and one shared Redis, streaming, 64 clients per vCPU in all, 20 s, two runs per configuration (the range is
+given). k6 sends client *n* to instance *n* mod R; there is no load balancer, so a real one adds its own cost on top.
+Postgres had one hardware thread, Redis one (its command thread), the fake LLM four.
+
+| Instances | vCPUs in all | Messages/s | p99 ms | Gateway CPU per message | Redis busy | Postgres busy | Postgres statements per message |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1×2 | 2 | 11 338 (11 197–11 480) | 19.6 | 0.164 ms | 0.34 | 0.19 | 0.125 |
+| 2×2 | 4 | 19 415 (19 145–19 685) | 29.0 | 0.197 ms | 0.59 | 0.39 | 0.156 |
+| 3×2 | 6 | 22 537 (22 208–22 866) | 42.0 | 0.246 ms | 0.77 | 0.57 | 0.206 |
+| 1×4 (one larger instance) | 4 | 21 012 (20 804–21 220) | 27.7 | 0.178 ms | 0.57 | 0.31 | 0.081 |
+| 1×6 | 6 | 23 203 (22 259–24 147) | 41.3 | 0.221 ms | 0.71 | 0.39 | 0.086 |
+| 2×3 | 6 | 22 919 (22 743–23 095) | 43.2 | 0.240 ms | 0.76 | 0.49 | 0.147 |
+
+No errors in any run. Redis executed 21 commands per message (counting those inside Lua scripts) at every size.
+
+- **Instances add up.** One 2-vCPU instance gives 11.3 k messages/s, two give 19.4 k (1.71 times), three 22.5 k
+  (1.99 times). A single larger instance does the same with the same vCPUs.
+- **But splitting costs a little.** For the same vCPUs, several small instances are 3–8 % slower than one large one
+  (1×4 → 2×2: −8 %; 1×6 → 3×2: −3 %, within the 8 % spread of the 1×6 runs) and the gateway spends 8–11 % more CPU per
+  message (0.178 → 0.197, 0.221 → 0.240 and 0.246). So the rise from 4 to 6 vCPUs in one instance
+  ([above](#cpu-per-message-at-6-vcpus-2026-11-02)) is not avoided by running more, smaller instances.
+- **Why: the usage writer.** Redis work per message is the same, but Postgres statements per message are 2.4 times
+  higher with three instances (0.206) than with one (0.086), and Postgres is busy 0.57 instead of 0.39 of its thread
+  at the same throughput. Each instance drains its own queue as soon as it has records (`UsageWriter`, up to 5 000 per
+  batch), so an instance with a third of the traffic writes smaller batches, and the statements per message grow with
+  the number of instances. This is Postgres load, not request latency: the usage is written after the response.
+- **The shared component to watch is Redis.** Its command thread was 0.77 busy at 22.5 k messages/s with three
+  instances, 0.034 ms of Redis time per message, so one Redis saturates near 29 k messages/s (an extrapolation: this
+  machine has no threads left for more gateway instances). Postgres, with one thread here, would follow at about 40 k
+  and sooner as the statements per message grow with the instance count. Redis time per message is the
+  single-command-thread limit of Redis itself; going beyond it means sharding the rate-limit and budget keys over more
+  Redis instances, which the gateway does not do.
+- **Memory** per instance is 150–210 MB (larger with more vCPUs), so the instances' total grows with their number.
+
+What follows for sizing: add instances for capacity or for availability, 2 vCPUs each is fine. The second instance adds
+about 70 % throughput; the third only 16 %, about what going from 4 to 6 vCPUs gives one instance, so there the limit is
+the CPU cost per message at that size and not the number of instances. Look at Redis CPU (and the usage writer's
+batches) before adding the fourth.
 
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
 (open in a browser, step with the arrow keys; works offline) and [reports/platform-comparison.pdf](reports/platform-comparison.pdf).

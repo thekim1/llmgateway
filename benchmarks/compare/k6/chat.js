@@ -6,6 +6,7 @@
 //   OUT      results file name         KEY       Ume virtual key (TARGET=ume)
 //   ENEO_KEY, ENEO_ASSISTANT   eneo service API key and its assistant (lib.sh with ENEO_AUTH=apikey): messages are sent
 //            the way an external application sends them. Without them: as the signed-in default user, like eneo's web app.
+//   UME_TARGETS  comma-separated gateway base URLs (scale-out.sh): client n sends to URL n mod count. Default: one gateway.
 //   NO_REUSE true: a new connection per message. eneo's gunicorn workers each accept a burst of new connections, so
 //            with kept-alive connections a few workers can end up with every client while the rest stay idle.
 //
@@ -24,6 +25,8 @@ const BASE = {
   eneo: 'http://eneo-backend:8000/api/v1',
   fake: 'http://fake-llm:8080',
 }[TARGET];
+
+const UME_BASES = (__ENV.UME_TARGETS || '').split(',').filter(Boolean);
 
 export const options = {
   scenarios: {
@@ -77,7 +80,8 @@ export default function (data) {
     : { model: TARGET === 'ume' ? 'ume/chat' : 'fake-chat', messages: [{ role: 'user', content: QUESTION }], max_tokens: 400, stream: STREAM };
   const path = TARGET === 'eneo' ? '/conversations/' : '/v1/chat/completions';
 
-  const res = http.post(`${BASE}${path}`, JSON.stringify(body), { headers, timeout: '60s' });
+  const base = TARGET === 'ume' && UME_BASES.length > 0 ? UME_BASES[(__VU - 1) % UME_BASES.length] : BASE;
+  const res = http.post(`${base}${path}`, JSON.stringify(body), { headers, timeout: '60s' });
   check(res, {
     'status 200': (r) => r.status === 200,
     'answer from fake LLM': (r) => typeof r.body === 'string' && r.body.includes(ANSWER_MARKER),
