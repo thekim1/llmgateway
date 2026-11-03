@@ -85,6 +85,8 @@ services:
       # Thread pool: a variable of this name in the shell reaches the gateway (cores.sh, DOTNET_ variables are hexadecimal);
       # unset, the runtime's default applies.
       DOTNET_ThreadPool_UnfairSemaphoreSpinLimit:
+      # Usage writer batch window in ms (the gateway default is 50; 0 writes as soon as a record arrives).
+      Gateway__UsageBatchWindowMs: ${USAGE_WINDOW_MS:-50}
     ports: ["127.0.0.1:18080:8080"]
 
   # More instances of the same gateway for scale-out.sh (profile `ume`, started by name): own CPU set and host port, same database

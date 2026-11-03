@@ -51,6 +51,7 @@ public sealed partial class UsageWriter : BackgroundService
     private readonly ILogger<UsageWriter> _logger;
     private readonly IUsageJournal? _journal;
     private readonly UsageJournalOptions _journalOptions;
+    private readonly TimeSpan _batchWindow;
 
     /// <summary>This instance's journaled batches not yet in the database, oldest first: added by the writer loop, written by the journal loop.</summary>
     private readonly List<string> _journaled = [];
@@ -71,6 +72,7 @@ public sealed partial class UsageWriter : BackgroundService
         _alerts = alerts;
         _time = time;
         _logger = logger;
+        _batchWindow = TimeSpan.FromMilliseconds(options?.Value.UsageBatchWindowMs ?? 0);
         _journalOptions = options?.Value.UsageJournal ?? new UsageJournalOptions { Mode = UsageJournalMode.Off };
         _journal = _journalOptions.Mode == UsageJournalMode.Off ? null : journal;
         metrics.ObserveQueueDepth(() => _channel.Reader.Count);
@@ -155,6 +157,13 @@ public sealed partial class UsageWriter : BackgroundService
                 Interlocked.Increment(ref _inFlight);
                 try
                 {
+                    // Let the first records collect: a write costs several statements however small it is. Not when a
+                    // full batch is waiting already (the writer is the bottleneck then, and waiting would only add to the queue).
+                    if (_batchWindow > TimeSpan.Zero && _channel.Reader.Count < MaxBatch)
+                    {
+                        await Task.Delay(_batchWindow, stoppingToken);
+                    }
+
                     while (batch.Count < MaxBatch && _channel.Reader.TryRead(out var item))
                     {
                         batch.Add(item);

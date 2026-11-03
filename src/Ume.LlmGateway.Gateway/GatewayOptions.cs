@@ -72,6 +72,15 @@ public sealed class GatewayOptions
     [ValidateObjectMembers]
     public ContentGuardOptions ContentGuard { get; set; } = new();
 
+    /// <summary>
+    /// How long the usage writer lets records collect after the first one arrives before it writes them, in milliseconds.
+    /// Each write is one transaction of several statements whatever its size, so with a window an instance that gets
+    /// little traffic (one of several behind a load balancer) writes the same few statements for hundreds of records
+    /// instead of for a handful. Usage shows up in the admin UI that much later. 0 writes as soon as a record arrives.
+    /// </summary>
+    [Range(0, 5000)]
+    public int UsageBatchWindowMs { get; set; } = 50;
+
     /// <summary>Where usage records wait while the database cannot take them (see <see cref="UsageJournalOptions"/>).</summary>
     [ValidateObjectMembers]
     public UsageJournalOptions UsageJournal { get; set; } = new();

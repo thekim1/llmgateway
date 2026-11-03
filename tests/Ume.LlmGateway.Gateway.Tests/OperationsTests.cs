@@ -87,6 +87,37 @@ public sealed class OperationsTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task Writer_collects_records_arriving_within_the_batch_window_into_one_write()
+    {
+        var key = await fixture.CreateKeyAsync();
+        var scopes = new CountingScopeFactory(fixture.Services);
+        using var writer = new UsageWriter(scopes, fixture.Services.GetRequiredService<AlertNotifier>(), TimeProvider.System,
+            NullLogger<UsageWriter>.Instance, fixture.Services.GetRequiredService<GatewayMetrics>(), null,
+            Options.Create(new GatewayOptions { UsageBatchWindowMs = 500 }));
+        await writer.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var ids = Enumerable.Range(0, 20).Select(_ => Guid.NewGuid().ToString("N")).ToArray();
+            foreach (var id in ids)
+            {
+                await writer.EnqueueAsync(new UsageWork(new UsageRecord
+                {
+                    RequestId = id, VirtualKeyId = key.Id, TeamId = key.TeamId, DepartmentId = fixture.DepartmentId,
+                    Timestamp = DateTimeOffset.UtcNow, RequestedModel = "test", StatusCode = 200,
+                }, []), TestContext.Current.CancellationToken);
+                await Task.Delay(5, TestContext.Current.CancellationToken);
+            }
+
+            await writer.FlushAsync(TestContext.Current.CancellationToken);
+            scopes.Created.ShouldBe(1);
+            using var scope = fixture.Services.CreateScope();
+            (await scope.ServiceProvider.GetRequiredService<GatewayDbContext>().UsageRecords.CountAsync(r => ids.Contains(r.RequestId),
+                TestContext.Current.CancellationToken)).ShouldBe(20);
+        }
+        finally { await writer.StopAsync(TestContext.Current.CancellationToken); }
+    }
+
+    [Fact]
     public async Task Writer_retains_failed_batch_and_reports_recovery()
     {
         var key = await fixture.CreateKeyAsync();
@@ -214,6 +245,18 @@ public sealed class OperationsTests(GatewayFixture fixture)
         request.Headers.Add(OperationsSignature.TimestampHeader, timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture));
         request.Headers.Add(OperationsSignature.SignatureHeader, signature ?? OperationsSignature.Sign(pepper, timestamp));
         return request;
+    }
+
+    private sealed class CountingScopeFactory(IServiceProvider services) : IServiceScopeFactory
+    {
+        private int _created;
+        public int Created => Volatile.Read(ref _created);
+
+        public IServiceScope CreateScope()
+        {
+            Interlocked.Increment(ref _created);
+            return services.CreateScope();
+        }
     }
 
     private sealed class OutageScopeFactory(IServiceProvider services, Func<bool> outage) : IServiceScopeFactory
