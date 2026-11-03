@@ -479,6 +479,31 @@ about 70 % throughput; the third only 16 %, about what going from 4 to 6 vCPUs g
 the CPU cost per message at that size and not the number of instances. Look at Redis CPU (and the usage writer's
 batches) before adding the fourth.
 
+### Usage writer batch window (2026-11-03)
+
+`Gateway:UsageBatchWindowMs` (default 50, 0–5000): after the first record arrives, the usage writer waits this long
+before it writes, so the records of a busy 50 ms go into one transaction. 0 is the previous behaviour. The wait is
+skipped when a full batch (5 000) is already queued. Measured with `scale-out.sh` (streaming, 64 clients per vCPU, two
+runs each, window 0 and 50 in one session, no errors):
+
+| | Window 0 | Window 50 |
+|---|---:|---:|
+| 1×2: messages/s · gateway CPU ms/msg · Postgres busy | 12 349 · 0.159 · 0.21 | 12 706 · 0.152 · 0.10 |
+| 1×6: messages/s · gateway CPU ms/msg · Postgres busy | 22 933 · 0.223 · 0.39 | 24 205 · 0.216 · 0.24 |
+| 3×2: messages/s · gateway CPU ms/msg · Postgres busy | 22 384 · 0.252 · 0.57 | 23 265 · 0.234 · 0.30 |
+| 3×2 against 1×6: CPU per message | +13 % | +8 % |
+
+- **Postgres load halves** (busy 0.57 → 0.30 with three instances, 0.21 → 0.10 with one small one) and no longer grows
+  as fast with the number of instances.
+- **The gateway gets slightly cheaper**: 3–7 % less CPU per message. Throughput is 3–5 % higher, but 1×6 gained as
+  much as 3×2, and the runs differ by up to 8 % (21.9 k to 23.9 k for 1×6 at window 0), so read this as no loss and a
+  small gain, not as a measured gain.
+- **Splitting still costs something**: the gap between three small instances and one large one went from 13 % to 8 % in
+  CPU per message; the rest is the contention in runtime and libraries described
+  [above](#cpu-per-message-at-6-vcpus-2026-11-02).
+- **Cost**: usage shows up in the admin UI up to 50 ms later (the queue depth and the journal are unchanged, so nothing
+  is at risk in a crash that was not before: records wait in memory in the queue either way).
+
 A presentation version for non-technical readers is in [reports/platform-comparison.html](reports/platform-comparison.html)
 (open in a browser, step with the arrow keys; works offline) and [reports/platform-comparison.pdf](reports/platform-comparison.pdf).
 Its numbers are from the eneo v2.2.3 run below (2026-11-02); the data-protection slides were tested on v2.2.1, whose

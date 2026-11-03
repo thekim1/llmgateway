@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Usage writer batches records for 50 ms (`Gateway:UsageBatchWindowMs`).** The writer used to write as soon as a record arrived, so an instance with little traffic (one of several) wrote a transaction of several statements for a handful of records. It now lets records collect for 50 ms first (0 restores the old behaviour, range 0–5000; skipped when a full batch is already queued). With three instances Postgres was busy 0.30 instead of 0.57 of its thread and the gateway used 7 % less CPU per message. Usage appears in the admin UI up to 50 ms later. Details in `docs/performance.md`.
+
 **Performance regression guard (performance plan item 5).** New `check` command in the benchmark project
 (`dotnet run -c Release --project benchmarks/Ume.LlmGateway.Benchmarks -- check`, about a minute, needs Docker). It measures
 allocations, Postgres statements and Redis commands per request in five scenarios and fails when allocations grow by

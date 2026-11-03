@@ -112,6 +112,10 @@ component that limits it, near 29 k messages/s (extrapolated). Details:
 [performance.md](performance.md#several-instances-2026-11-03). Follow-up worth a look: a minimum interval or size for the
 usage writer's batches, so that the statements per message do not grow with the instance count.
 
+*Follow-up done 2026-11-03:* `Gateway:UsageBatchWindowMs` (50 ms by default) halves Postgres load (busy 0.57 → 0.30 with
+three instances) and cuts the gateway's CPU per message by 3–7 %; see
+[performance.md](performance.md#usage-writer-batch-window-2026-11-03).
+
 **Evidence (before the measurement).**
 **Evidence.** Not measured yet. Each instance has its own usage writer and caches and shares Redis and Postgres, so
 several instances should add up until Redis or Postgres saturates. At the 4-vCPU peak Redis used about half of its one
