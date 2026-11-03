@@ -11,6 +11,18 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.8.9: gateway memory fix, fewer Redis round trips
+
+- **Rolling update: yes.** No migration; Compose, Kubernetes and Redis ACL files are unchanged (the rate limit and budget
+  reservation script runs with `+eval`/`+evalsha`, which the `gateway` user already has).
+- **Fix:** the gateway no longer traces every Redis command (`Aspire__StackExchange__Redis__DisableTracing`, default
+  `true`), which kept about 400 MB of objects alive at 16 000 requests/s and crashed it in a 1 GiB container. Set it to
+  `false` to trace Redis commands again. Requests and provider calls are still traced.
+- **Behaviour:** for keys without a routing rule, the rate limit and budget reservation are one Redis call, so an
+  exhausted budget is answered with 402 before the PII and routing checks.
+- **New setting:** `Gateway__UsageBatchWindowMs` (default 50, `0` = write at once, range 0-5000). Usage shows in the
+  admin UI up to 50 ms later; Postgres load drops with several gateway instances.
+
 ## 0.8.8: signing out works again
 
 - **Rolling update: yes.** No migration and no configuration change.
