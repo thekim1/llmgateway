@@ -1,3 +1,7 @@
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain.ContentGuard;
 using Ume.LlmGateway.Domain.Entities;
 
@@ -78,6 +82,51 @@ public static class CostCalculator
     public static long EstimateInputTokens(long bodyBytes, AttachmentScan attachments) =>
         EstimateTokens((int)Math.Clamp(bodyBytes - attachments.ImageChars, 0, int.MaxValue))
         + (long)attachments.Images * ImageTokenEstimate;
+
+    /// <summary>
+    /// Estimated tokens of the longest input of an embeddings <c>input</c>: a string, an array of strings, a token array
+    /// or an array of token arrays (counted exactly). A model's context window limits each input of a batch, not the
+    /// batch. Text is measured on the parsed UTF-8 at ≈4 bytes per token, like <see cref="EstimateInputTokens"/>, without
+    /// copying it. Null when the shape is none of these (the caller keeps the whole-body estimate).
+    /// </summary>
+    public static long? EstimateLongestInputTokens(JsonNode? input)
+    {
+        switch (input)
+        {
+            case JsonValue value when value.GetValueKind() == JsonValueKind.String:
+                return EstimateTokens(Utf8Length(value));
+            case JsonArray array when array.Count > 0:
+                if (array[0] is JsonValue first && first.GetValueKind() == JsonValueKind.Number)
+                {
+                    return array.Count; // one input, already tokenised
+                }
+
+                long longest = 0;
+                for (var i = 0; i < array.Count; i++) // indexed: JsonArray's enumerator is boxed
+                {
+                    long tokens = array[i] switch
+                    {
+                        JsonValue text when text.GetValueKind() == JsonValueKind.String => EstimateTokens(Utf8Length(text)),
+                        JsonArray tokenIds => tokenIds.Count,
+                        _ => -1,
+                    };
+                    if (tokens < 0)
+                    {
+                        return null;
+                    }
+
+                    longest = Math.Max(longest, tokens);
+                }
+
+                return longest;
+            default:
+                return null;
+        }
+
+        static int Utf8Length(JsonValue text) => text.TryGetValue<JsonElement>(out var element)
+            ? Math.Max(0, JsonMarshal.GetRawUtf8Value(element).Length - 2) // without the quotes
+            : Encoding.UTF8.GetByteCount(text.GetValue<string>());
+    }
 
     /// <summary>Audio input tokens per second for token-billed speech models (gpt-4o-transcribe: about 1 000 per minute).</summary>
     public const int AudioTokensPerSecond = 17;

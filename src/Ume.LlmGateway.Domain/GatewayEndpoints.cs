@@ -38,6 +38,12 @@ public sealed record GatewayEndpointInfo(
     /// </summary>
     public bool IsFree { get; init; }
 
+    /// <summary>
+    /// The body is a batch of independent inputs (embeddings): a model's context window limits each input, not the
+    /// whole request, so the context check uses the longest input (<see cref="Usage.CostCalculator.EstimateLongestInputTokens"/>).
+    /// </summary>
+    public bool ContextWindowPerInput { get; init; }
+
     /// <summary>The answer is billed per generated image (and per token for models that report tokens).</summary>
     public bool IsImage => Serves(ModelKind.Image);
 
@@ -59,7 +65,7 @@ public static class GatewayEndpoints
         new(GatewayEndpoint.ChatCompletions, "chat_completions", "/v1/chat/completions", "chat/completions", ProviderCapabilities.ChatCompletions,
             IsAudio: false, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Chat),
         new(GatewayEndpoint.Embeddings, "embeddings", "/v1/embeddings", "embeddings", ProviderCapabilities.Embeddings,
-            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Embedding),
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Embedding) { ContextWindowPerInput = true },
         new(GatewayEndpoint.Responses, "responses", "/v1/responses", "responses", ProviderCapabilities.Responses,
             IsAudio: false, IsRealtime: false, SupportsStreaming: true, HasOutputTokens: true, ModelKind.Chat),
         new(GatewayEndpoint.AnthropicMessages, "anthropic_messages", "/v1/messages", "messages", ProviderCapabilities.AnthropicMessages,

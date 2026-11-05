@@ -229,6 +229,26 @@ public sealed class GatewayTests(GatewayFixture fixture)
     }
 
     [Fact]
+    public async Task An_embeddings_batch_is_checked_per_input_against_the_context_window()
+    {
+        var model = await fixture.AddDeploymentAsync("eu", "embedding", contextWindow: 100);
+        var key = await fixture.CreateKeyAsync();
+        var input = string.Concat(Enumerable.Repeat("lorem ipsum ", 30)); // ≈ 90 tokens each, ≈ 720 for the batch
+
+        // The whole batch is far above the window, every input is within it.
+        var batch = new JsonObject { ["model"] = model, ["input"] = new JsonArray([.. Enumerable.Repeat(input, 8).Select(i => JsonValue.Create(i))]) };
+        using (var served = await fixture.SendRawAsync(key, "/v1/embeddings", batch.ToJsonString()))
+        {
+            served.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        // One input above the window is still refused before the provider is called.
+        var tooLong = new JsonObject { ["model"] = model, ["input"] = new JsonArray("short", input + input) };
+        using var refused = await fixture.SendRawAsync(key, "/v1/embeddings", tooLong.ToJsonString());
+        await AssertErrorAsync(refused, 400, "context_length_exceeded");
+    }
+
+    [Fact]
     [Trait(TestCategory.Name, TestCategory.Flaky)] // timing: needs the first request still in flight 300 ms later on a busy runner
     public async Task Requests_in_flight_are_limited_per_key()
     {

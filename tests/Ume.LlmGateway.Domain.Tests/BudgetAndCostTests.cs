@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Ume.LlmGateway.Domain.Budgets;
 using Ume.LlmGateway.Domain.ContentGuard;
 using Ume.LlmGateway.Domain.Entities;
@@ -300,5 +301,40 @@ public class CostCalculatorTests
         CostCalculator.EstimateInputTokens(400, default).ShouldBe(100);
         // Documents, audio and video stay size-based.
         CostCalculator.EstimateInputTokens(4_000_000, new AttachmentScan(AttachmentKinds.Video, 0, 0)).ShouldBe(1_000_000);
+    }
+
+    [Theory]
+    [InlineData("\"0123456789ab\"", 3L)] // one string: 12 bytes
+    [InlineData("[\"0123\", \"0123456789abcdef\", \"01\"]", 4L)] // a batch: the longest input, not the sum
+    [InlineData("[\"åäö åäö\"]", 3L)] // measured in UTF-8 bytes (13), like the body estimate
+    [InlineData("[1, 2, 3, 4, 5]", 5L)] // one tokenised input: counted exactly
+    [InlineData("[[1, 2], [1, 2, 3, 4, 5, 6, 7], [1]]", 7L)] // tokenised batch
+    [InlineData("[\"0123\", [1, 2, 3]]", 3L)]
+    [InlineData("\"\"", 1L)]
+    [InlineData("[]", null)]
+    [InlineData("[{\"text\": \"x\"}]", null)] // unknown shape: the caller keeps the whole-body estimate
+    [InlineData("42", null)]
+    public void Embeddings_context_check_uses_the_longest_input(string input, long? expected)
+    {
+        var body = JsonNode.Parse("{\"input\": " + input + "}")!;
+        CostCalculator.EstimateLongestInputTokens(body["input"]).ShouldBe(expected);
+        CostCalculator.EstimateLongestInputTokens(null).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Embeddings_input_built_in_code_is_measured_too()
+    {
+        CostCalculator.EstimateLongestInputTokens(new JsonArray("0123", "0123456789ab")).ShouldBe(3);
+    }
+
+    [Fact]
+    public void Embeddings_context_estimate_allocates_nothing()
+    {
+        var input = JsonNode.Parse("[\"0123\", \"0123456789abcdef\", [1, 2, 3]]");
+        CostCalculator.EstimateLongestInputTokens(input); // warm up
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var tokens = CostCalculator.EstimateLongestInputTokens(input);
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+        tokens.ShouldBe(4);
     }
 }
