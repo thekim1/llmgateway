@@ -453,20 +453,25 @@ public sealed class AdminApiTests(AdminFixture fixture)
         var key = (await AdminFixture.ReadAsync(create, HttpStatusCode.Created))["key"]!;
         key["allowProviderTools"]!.GetValue<bool>().ShouldBeFalse();
         key["allowProviderStorage"]!.GetValue<bool>().ShouldBeFalse();
+        key["requireMaxResidency"]!.GetValue<bool>().ShouldBeFalse();
         var keyId = key["id"]!.GetValue<Guid>();
 
         using var allow = await client.PutAsJsonAsync($"/api/keys/{keyId}", new
         {
             basic.name, basic.allowedModels, basic.allowedResidencies, basic.piiPolicy, allowProviderTools = true, allowProviderStorage = true,
+            requireMaxResidency = true,
         }, ct);
         (await AdminFixture.ReadAsync(allow))["allowProviderTools"]!.GetValue<bool>().ShouldBeTrue();
         using var omit = await client.PutAsJsonAsync($"/api/keys/{keyId}", new { basic.name, basic.allowedModels, basic.allowedResidencies, basic.piiPolicy }, ct);
-        (await AdminFixture.ReadAsync(omit))["allowProviderStorage"]!.GetValue<bool>().ShouldBeTrue();
+        var kept = await AdminFixture.ReadAsync(omit);
+        kept["allowProviderStorage"]!.GetValue<bool>().ShouldBeTrue();
+        kept["requireMaxResidency"]!.GetValue<bool>().ShouldBeTrue();
 
         using var rotate = await client.PostAsJsonAsync($"/api/keys/{keyId}/rotate", new { mode = "RevokeImmediately" }, ct);
         var rotated = (await AdminFixture.ReadAsync(rotate))["key"]!;
         rotated["allowProviderTools"]!.GetValue<bool>().ShouldBeTrue();
         rotated["allowProviderStorage"]!.GetValue<bool>().ShouldBeTrue();
+        rotated["requireMaxResidency"]!.GetValue<bool>().ShouldBeTrue();
     }
 
     [Fact]

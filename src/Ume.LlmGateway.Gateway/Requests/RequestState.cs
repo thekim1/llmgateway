@@ -13,6 +13,9 @@ internal sealed class RequestState(string requestId, GatewayEndpoint endpoint, l
     public long StartTimestamp { get; } = startTimestamp;
     public VirtualKey? Key { get; set; }
     public string? RequestedModel { get; set; }
+
+    /// <summary>The request's residency ceiling (<see cref="GatewayHeaders.MaxResidency"/>); null = none.</summary>
+    public DataResidency? MaxResidency { get; set; }
     public long EstimatedInputTokens { get; set; }
     public decimal EstimatedAudioSeconds { get; set; }
     public bool Streamed { get; set; }

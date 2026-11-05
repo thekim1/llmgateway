@@ -65,6 +65,15 @@ public sealed class GatewayRequestHandler(
 
         state.Key = key;
 
+        // 1b. The request's residency ceiling (optional; required by keys with RequireMaxResidency), before the body is read.
+        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        {
+            await stages.RejectAsync(http, state, ceilingError, RequestOutcome.Rejected);
+            return;
+        }
+
+        state.MaxResidency = ceiling;
+
         // 2. Parse body (strict JSON object with a model name; the audio endpoints take a multipart upload instead).
         var (body, bodyLength, audio, images) = await ReadBodyAsync(http, state, info, ct);
         if (body is null)
@@ -136,7 +145,7 @@ public sealed class GatewayRequestHandler(
         var reserved = false;
         if (requested is not null && applicable.Count > 0 && RequestStages.HasRateLimit(key)
             && !snapshot.Rules.AnyFor(key.Id, snapshot.KeyLineage(key.Id), key.TeamId, key.Team?.DepartmentId)
-            && router.EligibleTargets(requested, key, endpoint, stream) is { Count: > 0 } eligible)
+            && router.EligibleTargets(requested, key, endpoint, stream, ceiling) is { Count: > 0 } eligible)
         {
             // 4 + 8 in one round trip. Without routing rules for the key the model cannot change, so the budget estimate
             // is known now: the most expensive target the request may use (a PII restriction or the context window can

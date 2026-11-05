@@ -47,14 +47,16 @@ public interface IRouteResolver
     /// PII restriction, in no particular order: provider health only reorders candidates, so this is the candidate set
     /// before a PII restriction or the context window narrows it. The budget estimate is the most expensive of them.
     /// </summary>
-    IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream);
+    IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream, DataResidency? ceiling = null);
 
     /// <summary>
     /// Orders the eligible targets of <paramref name="models"/> into the attempt list. With <paramref name="affinity"/> (a
-    /// session id) the same session goes to the same target first within a priority (rendezvous hashing).
+    /// session id) the same session goes to the same target first within a priority (rendezvous hashing). With a
+    /// <paramref name="ceiling"/> no target above it is returned; when that leaves none, the rejection is 403
+    /// <c>max_residency_not_met</c> if no target within it is configured at all, else 503 (they are unavailable now).
     /// </summary>
     Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct,
-        CircuitPrefetch? prefetch = null, string? affinity = null);
+        CircuitPrefetch? prefetch = null, string? affinity = null, DataResidency? ceiling = null);
 }
 
 /// <param name="circuits">Circuit and cooldown state.</param>
@@ -147,11 +149,11 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
         return new CircuitPrefetch(ids, deployments, status);
     }
 
-    public IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream)
+    public IReadOnlyList<RouteTarget> EligibleTargets(ResolvedModel model, VirtualKey key, GatewayEndpoint endpoint, bool stream, DataResidency? ceiling = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(key);
-        var constraints = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null), null, key.AllowedProviders);
+        var constraints = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null, ceiling), null, key.AllowedProviders);
         return [.. model.Targets.Where(t => RouteSelector.IsEligible(t, constraints) && CanStream(t, stream))];
     }
 
@@ -159,12 +161,12 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
         !stream || target.ModelDeployment!.ProviderAccount!.SupportedCapabilities.HasFlag(ProviderCapabilities.Streaming);
 
     public async Task<CandidateSelection> SelectCandidatesAsync(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency? restrictTo, bool stream, CancellationToken ct,
-        CircuitPrefetch? prefetch = null, string? affinity = null)
+        CircuitPrefetch? prefetch = null, string? affinity = null, DataResidency? ceiling = null)
     {
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(key);
 
-        var residencies = RouteSelector.EffectiveResidencies(key.AllowedResidencies, restrictTo);
+        var residencies = RouteSelector.EffectiveResidencies(key.AllowedResidencies, restrictTo, ceiling);
         var providerIds = ProviderIds(models);
         var deploymentIds = DeploymentIds(models);
         var status = prefetch is not null && prefetch.ProviderIds.IsSupersetOf(providerIds) && prefetch.DeploymentIds.IsSupersetOf(deploymentIds)
@@ -202,8 +204,27 @@ public sealed class RouteResolver(ICircuitBreakerStore circuits, DeploymentLoad?
             return new CandidateSelection(candidates, null);
         }
 
+        // The PII restriction's message wins: on-prem is within every ceiling, so it alone decided.
+        if (ceiling is { } max && restrictTo is null && models.Count > 0)
+        {
+            return new CandidateSelection(candidates, ConfiguredWithin(models, key, endpoint, max)
+                ? GatewayError.NoProviderWithin(models[0].Name, max)
+                : GatewayError.MaxResidencyNotMet(models[0].Name, max));
+        }
+
         return new CandidateSelection(candidates, GatewayError.NoEligibleProvider(onPremOnly: restrictTo == DataResidency.OnPrem));
     }
+
+    /// <summary>
+    /// Whether any target of <paramref name="models"/> within <paramref name="ceiling"/> is one the key may use for the
+    /// endpoint, whatever its state (disabled, drained, open circuit). Only asked on the failure path.
+    /// </summary>
+    private static bool ConfiguredWithin(IReadOnlyList<ResolvedModel> models, VirtualKey key, GatewayEndpoint endpoint, DataResidency ceiling) =>
+        models.SelectMany(m => m.Targets).Any(t => t.ModelDeployment?.ProviderAccount is { } provider
+            && provider.Residency <= ceiling
+            && (key.AllowedResidencies.Count == 0 || key.AllowedResidencies.Contains(provider.Residency))
+            && RouteSelector.IsProviderAllowed(provider, key.AllowedProviders)
+            && provider.Supports(endpoint));
 
     private static HashSet<Guid> ProviderIds(IEnumerable<ResolvedModel> models) =>
         [.. models.SelectMany(m => m.Targets).Where(t => t.ModelDeployment is not null).Select(t => t.ModelDeployment!.ProviderAccountId)];

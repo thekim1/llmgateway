@@ -127,6 +127,7 @@ public class KeyStatusAndRotationTests
     public void Rotate_immediately_revokes_old_key_and_copies_policy()
     {
         var old = NewKey();
+        old.RequireMaxResidency = true;
         var generated = Hasher.Generate();
 
         var replacement = KeyRotation.Rotate(old, generated, KeyRotationMode.RevokeImmediately, Now, "admin@umea.se");
@@ -142,6 +143,7 @@ public class KeyStatusAndRotationTests
         replacement.AllowedProviders.ShouldBe(old.AllowedProviders);
         replacement.AllowedProviders.ShouldNotBeSameAs(old.AllowedProviders);
         replacement.PiiPolicy.ShouldBe(PiiPolicy.RerouteToOnPrem);
+        replacement.RequireMaxResidency.ShouldBeTrue();
         replacement.RequestsPerMinute.ShouldBe(60);
         replacement.TokensPerMinute.ShouldBe(10_000);
         replacement.CreatedBy.ShouldBe("admin@umea.se");

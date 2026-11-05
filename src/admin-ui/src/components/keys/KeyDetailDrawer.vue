@@ -4,7 +4,7 @@ import { api } from '@/api'
 import type { VirtualKey } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, modelsLabel } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -105,6 +105,10 @@ const reason = computed(() => {
           <span v-else class="flex flex-wrap gap-x-3">
             <ResidencyLabel v-for="r in keyData.allowedResidencies" :key="r" :residency="r" />
           </span>
+        </DetailRow>
+        <DetailRow label="Residency header">
+          {{ keyData.requireMaxResidency ? 'Required' : 'Optional' }}
+          <span class="block text-small text-fg-3">{{ REQUIRE_MAX_RESIDENCY_HINT }}</span>
         </DetailRow>
         <DetailRow label="Providers">
           <span v-if="!keyData.allowedProviders?.length">Any provider</span>

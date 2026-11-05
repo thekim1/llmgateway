@@ -30,7 +30,9 @@ public sealed record KeyRequest(
     // On top of the team's policy. Omitted = unchanged on update; {} clears it.
     RequestPolicy? RequestPolicy = null,
     // The on-prem content guard (docs/content-guard.md). Omitted = Off on create, unchanged on update.
-    [property: EnumDataType(typeof(ContentGuardPolicy))] ContentGuardPolicy? ContentGuardPolicy = null) : AdminRequest, IValidatableObject
+    [property: EnumDataType(typeof(ContentGuardPolicy))] ContentGuardPolicy? ContentGuardPolicy = null,
+    // Requests must send x-ume-max-residency. Omitted = off on create, unchanged on update.
+    bool? RequireMaxResidency = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -69,14 +71,15 @@ public sealed record KeyDto(
     DateTimeOffset? GraceUntil, DateTimeOffset? LastUsedAt, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
     Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage,
-    int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off)
+    int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off,
+    bool RequireMaxResidency = false)
 {
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
         k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests,
-        k.RequestPolicy, k.ContentGuardPolicy);
+        k.RequestPolicy, k.ContentGuardPolicy, k.RequireMaxResidency);
 }
 
 /// <summary>A new key with its secret, which is shown this once.</summary>

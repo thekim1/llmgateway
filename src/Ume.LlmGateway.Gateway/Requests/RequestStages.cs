@@ -102,6 +102,33 @@ public sealed partial class RequestStages(
     }
 
     /// <summary>
+    /// Step 1b: the request's residency ceiling (<see cref="GatewayHeaders.MaxResidency"/>). Null when it is absent and
+    /// the key does not require it, or when it is valid; otherwise the 400 to answer with. Two values (a repeated header or
+    /// a list) are refused: a ceiling that is not understood must not be ignored. Allocates nothing.
+    /// </summary>
+    internal static GatewayError? ReadMaxResidency(HttpRequest request, VirtualKey key, out DataResidency? ceiling)
+    {
+        ceiling = null;
+        var values = request.Headers[GatewayHeaders.MaxResidency];
+        if (values.Count == 0)
+        {
+            return key.RequireMaxResidency ? GatewayError.MaxResidencyMissing : null;
+        }
+
+        if (values.Count > 1 || !ResidencyCeiling.TryParse(values[0], out var parsed))
+        {
+            return GatewayError.InvalidMaxResidency;
+        }
+
+        ceiling = parsed;
+        return null;
+    }
+
+    /// <summary>Answers with <paramref name="error"/> without accounting it (endpoints that record no usage, such as the model list).</summary>
+    internal Task WriteErrorAsync(HttpContext http, GatewayEndpoint endpoint, GatewayError error) =>
+        GatewayErrors.WriteAsync(http, endpoint, error, options.CurrentValue.ErrorDocsUrl);
+
+    /// <summary>
     /// Counts the request against the key's per-minute limits and, with <paramref name="inFlight"/>, takes one of the
     /// key's in-flight slots until the response has completed (or the client went away). When refused, the 429 has been written.
     /// </summary>
@@ -247,9 +274,16 @@ public sealed partial class RequestStages(
             return null;
         }
 
-        var selection = await router.SelectCandidatesAsync(plan.Models, key, state.Endpoint, restrictTo, stream, ct, prefetch, affinity);
+        var selection = await router.SelectCandidatesAsync(plan.Models, key, state.Endpoint, restrictTo, stream, ct, prefetch, affinity, state.MaxResidency);
         if (selection.Rejection is { } selectionRejection)
         {
+            if (selectionRejection.StatusCode == 503 && state.MaxResidency is not null && restrictTo is null)
+            {
+                // Targets within the ceiling exist but are drained or disabled: the caller waits instead of retrying with
+                // a wider ceiling (a 403 says none is configured).
+                http.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(circuitOptions.Value.BreakDuration.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+            }
+
             await RejectAsync(http, state, selectionRejection, RequestOutcome.Rejected);
             return null;
         }

@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, RESIDENCY } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
@@ -67,6 +67,7 @@ const values = reactive({
   attachmentPolicy: 'Allowed' as AttachmentPolicy,
   allowProviderTools: false,
   allowProviderStorage: false,
+  requireMaxResidency: false,
   allowAll: true,
   models: [] as string[],
   allProviders: true,
@@ -142,6 +143,7 @@ function reset(): void {
   values.attachmentPolicy = key?.attachmentPolicy ?? 'Allowed'
   values.allowProviderTools = key?.allowProviderTools ?? false
   values.allowProviderStorage = key?.allowProviderStorage ?? false
+  values.requireMaxResidency = key?.requireMaxResidency ?? false
   values.allowAll = key ? key.allowedModels.length === 0 : true
   values.models = [...(key?.allowedModels ?? [])]
   values.allProviders = key ? (key.allowedProviders ?? []).length === 0 : true
@@ -221,6 +223,7 @@ async function submit(): Promise<void> {
     attachmentPolicy: values.attachmentPolicy,
     allowProviderTools: values.allowProviderTools,
     allowProviderStorage: values.allowProviderStorage,
+    requireMaxResidency: values.requireMaxResidency,
     requestsPerMinute: parseInteger(values.requestsPerMinute),
     tokensPerMinute: parseInteger(values.tokensPerMinute),
     maxConcurrentRequests: parseInteger(values.maxConcurrentRequests),
@@ -289,6 +292,7 @@ async function submit(): Promise<void> {
             </div>
             <span class="text-small text-fg-3">{{ values.residencies.length === 0 ? 'No selection means any residency.' : 'Requests only reach providers in the selected locations.' }}</span>
             <span v-if="errors.allowedResidencies" class="text-small text-danger">{{ errors.allowedResidencies }}</span>
+            <CheckField v-model="values.requireMaxResidency" label="Require residency header" :description="REQUIRE_MAX_RESIDENCY_HINT" />
           </div>
 
           <div :id="ids.piiPolicy" class="flex flex-col gap-1.5" tabindex="-1">

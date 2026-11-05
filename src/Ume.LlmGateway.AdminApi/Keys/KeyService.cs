@@ -100,6 +100,7 @@ public sealed class KeyService(AdminContext ctx, VirtualKeyHasher hasher, Creden
         if (input.AttachmentPolicy is { } attachments) { key.AttachmentPolicy = attachments; }
         if (input.AllowProviderTools is { } tools) { key.AllowProviderTools = tools; }
         if (input.AllowProviderStorage is { } storage) { key.AllowProviderStorage = storage; }
+        if (input.RequireMaxResidency is { } requireCeiling) { key.RequireMaxResidency = requireCeiling; }
         if (input.AllowedIpRanges is not null) { NetworkRanges.Normalize(input.AllowedIpRanges, out var ranges); key.AllowedIpRanges = ranges; }
         key.RequestsPerMinute = input.RequestsPerMinute; key.TokensPerMinute = input.TokensPerMinute; key.IsEnabled = input.IsEnabled;
         key.MaxConcurrentRequests = input.MaxConcurrentRequests;
