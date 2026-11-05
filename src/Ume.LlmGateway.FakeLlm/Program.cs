@@ -99,6 +99,14 @@ app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
         return failure;
     }
 
+    // The size from `dimensions` or a `-<n>` model suffix (fake-embed-1024); the original 8 values otherwise.
+    if (!Ume.LlmGateway.FakeLlm.FakeEmbeddings.TryGetDimensions(body["dimensions"], model, out var size))
+    {
+        return Results.Json(new { error = new { message = $"dimensions must be an integer from 1 to {Ume.LlmGateway.FakeLlm.FakeEmbeddings.MaxDimensions}.", type = "invalid_request_error", param = "dimensions", code = "invalid_value" } },
+            statusCode: 400);
+    }
+
+    var base64 = body["encoding_format"]?.GetValue<string>() == "base64";
     var inputs = body["input"] switch
     {
         JsonArray a => a.Select(n => n?.ToString() ?? string.Empty).ToList(),
@@ -110,7 +118,12 @@ app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
     {
         @object = "list",
         model,
-        data = inputs.Select((text, i) => new { @object = "embedding", index = i, embedding = Vector(text) }),
+        data = inputs.Select((text, i) => new
+        {
+            @object = "embedding",
+            index = i,
+            embedding = Ume.LlmGateway.FakeLlm.FakeEmbeddings.Encode(Ume.LlmGateway.FakeLlm.FakeEmbeddings.Vector(text, size), base64),
+        }),
         usage = new { prompt_tokens = tokens, total_tokens = tokens },
     });
 });
@@ -491,12 +504,6 @@ static IEnumerable<string> Words(string text)
     {
         yield return i == 0 ? parts[i] : " " + parts[i];
     }
-}
-
-static float[] Vector(string text)
-{
-    var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text));
-    return [.. hash.Take(8).Select(b => (b - 128) / 128f)];
 }
 
 // Emits the answer one word per event, paced by the latency profile (instant when it is off).
