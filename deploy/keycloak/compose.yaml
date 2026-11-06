@@ -1,0 +1,119 @@
+# Optional Keycloak for the gateway's admin sign-in (and for other systems that share the realm), run on the gateway
+# host and operated with it. The gateway does not need it: it works with any OIDC provider (docs/identity-and-roles.md).
+#
+#   1. ./deploy/keycloak/init-keycloak.sh --host auth.example.se     certificates, secrets, deploy/keycloak/.env
+#   2. add the database once (existing installations only; new ones get it from postgres/init.sql), see docs/keycloak.md
+#   3. docker compose -f deploy/keycloak/compose.yaml --env-file deploy/keycloak/.env up -d --build --wait
+#
+# Its database is `keycloak` (role ume_keycloak) in the gateway's Postgres, reached over the gateway project's internal
+# `data` network, so the gateway's backup procedure covers it (Backup-Database.ps1 -Database keycloak).
+# realm-import applies the realm files with keycloak-config-cli on every `up`: realm/*.json (this repository), then
+# additions/*.json (other systems' parts of the realm), in name order. See docs/keycloak.md.
+name: ume-keycloak
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp]
+
+services:
+  keycloak:
+    <<: *hardened
+    build: {context: ., dockerfile: Dockerfile}
+    image: ${KEYCLOAK_IMAGE:-ume-llm-gateway/keycloak:26.8.1-1}
+    user: "1000:0"
+    restart: unless-stopped
+    # Keycloak writes temporary files and caches under data/; nothing there needs to survive a restart.
+    tmpfs: [/tmp, "/opt/keycloak/data:uid=1000,gid=0,mode=0770"]
+    mem_limit: ${UME_KEYCLOAK_MEMORY:-1536m}
+    # Secrets are files; Keycloak reads these three only from the environment, so they are set for the process here
+    # (they do not appear in `docker inspect`).
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        export KC_DB_PASSWORD="$$(cat /run/kc-secrets/db_password)"
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/kc-secrets/admin_password)"
+        export KC_BOOTSTRAP_ADMIN_CLIENT_SECRET="$$(cat /run/kc-secrets/import_client_secret)"
+        exec /opt/keycloak/bin/kc.sh start --optimized
+    environment:
+      KC_HOSTNAME: https://${UME_KEYCLOAK_HOST:?Run deploy/keycloak/init-keycloak.sh first}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_PORT: "8443"
+      KC_HTTPS_CERTIFICATE_FILE: /run/certs/keycloak.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /run/certs/keycloak.key
+      KC_HTTP_MANAGEMENT_SCHEME: http
+      KC_HTTP_MAX_QUEUED_REQUESTS: ${UME_KEYCLOAK_MAX_QUEUED_REQUESTS:-1000}
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak?sslmode=verify-full&sslrootcert=/run/certs/ca.pem
+      KC_DB_USERNAME: ume_keycloak
+      KC_DB_POOL_MAX_SIZE: ${UME_KEYCLOAK_DB_POOL:-20}
+      # Created on the first start only: a temporary admin for the master realm (replace it, docs/keycloak.md) and the
+      # service-account client realm-import signs in with.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${UME_KEYCLOAK_ADMIN_USER:-bootstrap-admin}
+      KC_BOOTSTRAP_ADMIN_CLIENT_ID: ume-realm-import
+      KC_TRUSTSTORE_PATHS: /run/certs/ca.pem
+      KC_LOG_LEVEL: ${UME_KEYCLOAK_LOG_LEVEL:-info}
+    ports: ["${UME_KEYCLOAK_BIND:-127.0.0.1}:${UME_KEYCLOAK_PORT:-11443}:8443"]
+    volumes:
+      - ${UME_CERTS_DIR:?Run deploy/keycloak/init-keycloak.sh first}/keycloak:/run/certs:ro
+      - ${UME_SECRETS_DIR:?Run deploy/keycloak/init-keycloak.sh first}/keycloak:/run/kc-secrets:ro
+    networks: [edge, gateway-data]
+    healthcheck:
+      # The image has no curl: a plain HTTP request to the management port, which is never published.
+      test: [CMD-SHELL, "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 8
+
+  realm-import:
+    <<: *hardened
+    image: docker.io/adorsys/keycloak-config-cli:6.5.1-26.5.5@sha256:0955d98c8a341898b7aa177477edf8a1e90569ae50bbe7598141c1270b773274
+    restart: "no"
+    environment:
+      KEYCLOAK_URL: https://keycloak:8443
+      KEYCLOAK_GRANTTYPE: client_credentials
+      KEYCLOAK_CLIENTID: ume-realm-import
+      KEYCLOAK_AVAILABILITYCHECK_ENABLED: "true"
+      KEYCLOAK_AVAILABILITYCHECK_TIMEOUT: 120s
+      # The client secret and the realm files' secrets come from files (Spring config tree / file: lookups).
+      SPRING_CONFIG_IMPORT: configtree:/run/import-secrets/config/
+      IMPORT_FILES_LOCATIONS: file:/config/realm/*.json,file:/config/additions/*.json
+      IMPORT_VARSUBSTITUTION_ENABLED: "true"
+      # A realm file may only add and change what it declares; nothing another file (or an administrator) made is
+      # deleted. Remove a client or role by hand when a file drops it (docs/keycloak.md).
+      IMPORT_MANAGED_CLIENT: no-delete
+      IMPORT_MANAGED_ROLE: no-delete
+      IMPORT_MANAGED_CLIENTSCOPE: no-delete
+      IMPORT_MANAGED_AUTHENTICATIONFLOW: no-delete
+      IMPORT_MANAGED_IDENTITYPROVIDER: no-delete
+      IMPORT_MANAGED_IDENTITYPROVIDERMAPPER: no-delete
+      IMPORT_MANAGED_GROUP: no-delete
+      IMPORT_MANAGED_COMPONENT: no-delete
+      IMPORT_MANAGED_SUBCOMPONENT: no-delete
+      IMPORT_MANAGED_REQUIREDACTION: no-delete
+      IMPORT_MANAGED_CLIENTAUTHORIZATIONRESOURCES: no-delete
+      IMPORT_MANAGED_SCOPEMAPPING: no-delete
+      IMPORT_MANAGED_CLIENTSCOPEMAPPING: no-delete
+      # Values for the realm files' $(env:...) placeholders.
+      UME_ADMIN_PUBLIC_URL: ${UME_ADMIN_PUBLIC_URL:?Set the admin UI's public URL in deploy/keycloak/.env}
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/run/certs/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12
+    env_file:
+      - path: ${UME_KEYCLOAK_IMPORT_ENV:-/dev/null}
+        required: false
+    volumes:
+      - ./realm:/config/realm:ro
+      - ${UME_KEYCLOAK_ADDITIONS_DIR:-./additions}:/config/additions:ro
+      - ${UME_CERTS_DIR}/keycloak-import:/run/certs:ro
+      - ${UME_SECRETS_DIR}/keycloak-import:/run/import-secrets:ro
+    depends_on:
+      keycloak: {condition: service_healthy}
+    networks: [edge]
+
+networks:
+  edge: {driver: bridge}
+  gateway-data:
+    external: true
+    name: ${UME_GATEWAY_DATA_NETWORK:-ume-gateway_data}

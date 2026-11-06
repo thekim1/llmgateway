@@ -1,0 +1,29 @@
+name: Keycloak end to end
+# The optional Keycloak project (docs/keycloak.md), tested for real with Docker: production-mode start, realm import of
+# the gateway's file plus another system's, brokered sign-in, backup and restore. About 4 minutes a run, so only when its
+# files change and not on draft pull requests; mark the pull request ready (or run it from the Actions tab).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - deploy/keycloak/**
+      - deploy/postgres/**
+      - deploy/Backup-Database.ps1
+      - deploy/Restore-Database.ps1
+      - deploy/tests/keycloak-e2e.sh
+      - .github/workflows/keycloak-e2e.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: keycloak-e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  keycloak:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keycloak end to end (pwsh on the runner also tests the backup and restore scripts)
+        run: deploy/tests/keycloak-e2e.sh

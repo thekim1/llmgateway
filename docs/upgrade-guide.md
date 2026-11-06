@@ -11,6 +11,13 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: optional Keycloak project
+
+- **Rolling update: yes.** Nothing changes unless you set up `deploy/keycloak` ([Keycloak](keycloak.md)).
+- `deploy/postgres/pg_hba.conf` gains a line for the optional role `ume_keycloak` (database `keycloak` only) and
+  `init.sql` creates them when `secrets/postgres/keycloak_password` exists. Kubernetes and Portainer copies are updated.
+- `Backup-Database.ps1` and `Restore-Database.ps1` take `-Database` (default `gatewaydb`, as before).
+
 ## Unreleased: optional reranking endpoint
 
 - **Rolling update: yes.** No migration (model kinds and capabilities are stored as names and flags).

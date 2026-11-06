@@ -5,7 +5,10 @@ The gateway itself never sees those users; applications call it with virtual key
 then how to set up each identity provider so the admin API gets the roles, departments and teams it needs.
 
 The bundled Keycloak realm in `dev/keycloak` is for local runs only. In production, `UME_OIDC_AUTHORITY` in `deploy/.env`
-points at your own provider. The settings below are also in the [runbook](runbook.md), *Identity provider*.
+points at your own provider. The settings below are also in the [runbook](runbook.md), *Identity provider*. Without a
+provider of your own, the optional [Keycloak project](keycloak.md) runs a production Keycloak next to the gateway, with
+the realm below already set up; it can also broker Entra ID, AD FS or Active Directory, so the same token shape comes
+from the organisation's directory.
 
 ## Access levels
 
@@ -131,8 +134,9 @@ only codes that a team has grant anything.
 
 ## Keycloak
 
-Use a realm you already have (for example one federated to Active Directory). The development realm
-`dev/keycloak/ume-realm.json` is a working example of every setting below.
+Use a realm you already have (for example one federated to Active Directory), or the optional
+[Keycloak project](keycloak.md), whose realm file `deploy/keycloak/realm/10-gateway.json` does every step below. The
+development realm `dev/keycloak/ume-realm.json` is a working example too.
 
 1. **Client.** *Clients → Create client*: client ID `ume-admin`, OpenID Connect. Turn on *Standard flow* only. *Client
    authentication* on gives a confidential client (copy the secret from *Credentials*), off a public one. Under
@@ -216,8 +220,9 @@ AD FS 2016 or later.
 
 ## Check the setup
 
-Only the Keycloak defaults are tested end to end. The Entra ID and AD FS steps are the intended mapping; check them
-against your own provider:
+Only the Keycloak defaults are tested end to end, including a brokered sign-in through a stand-in provider
+([Keycloak](keycloak.md#identity-providers-brokered-or-direct)). The Entra ID and AD FS steps are the intended mapping;
+check them against your own provider:
 
 1. Sign in to the admin UI, then open `https://<admin host>/bff/user`. It shows the `roles` and `departmentCodes` the API
    received after mapping, without the tokens.

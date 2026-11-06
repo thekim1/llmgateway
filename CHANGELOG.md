@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Optional Keycloak project (`deploy/keycloak`, `docs/keycloak.md`).** For organisations without an OIDC provider of
+their own: Keycloak 26.8.1 in production mode (optimized build, fixed hostname, TLS, `http-max-queued-requests`,
+read-only file system) as a Compose project of its own on the gateway host, with database `keycloak` (role
+`ume_keycloak`) in the gateway's Postgres. `init-keycloak.sh` issues its certificate from the gateway's CA and creates
+its secrets. Realm `ume` comes from realm files applied by keycloak-config-cli on every start: the gateway's
+(`realm/10-gateway.json`: client `ume-admin` with *full scope* off, the gateway's roles, password policy, brute-force
+protection, the user profile with `departmentCodes`/`teamCodes`, no test users, no OTP requirement) and other systems'
+files in `additions/`; the import adds and updates, never deletes. Brokering Entra ID, AD FS or AD is documented; a
+brokered sign-in is tested with a stand-in provider. `Backup-Database.ps1` and `Restore-Database.ps1` take
+`-Database keycloak` (its own archive). `init.sql` and `pg_hba.conf` know the optional role and database;
+`add-keycloak-database.sql` adds them to an existing installation. New end-to-end test `deploy/tests/keycloak-e2e.sh`.
+Nothing changes for installations that do not use it. **Rolling update: yes.**
+
 **Licence: EUPL-1.2.** The repository now has a `LICENSE` (the European Union Public Licence v. 1.2, the SPDX text
 unchanged) and a *Licence* section in the README: copyright Kim Vallén, Nichlas Löfdahl and Umeå kommun.
 

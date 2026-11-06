@@ -13,7 +13,13 @@ BEGIN
     EXECUTE format('CREATE ROLE ume_data LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
       btrim(pg_read_file('/run/postgres-secrets/data_password'), E'\r\n '));
   END IF;
+  -- Optional Keycloak (deploy/keycloak, docs/keycloak.md): its own role and database, only when provisioned.
+  IF (pg_stat_file('/run/postgres-secrets/keycloak_password', true)).size IS NOT NULL THEN
+    EXECUTE format('CREATE ROLE ume_keycloak LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+      btrim(pg_read_file('/run/postgres-secrets/keycloak_password'), E'\r\n '));
+  END IF;
 END $$;
+SELECT 'CREATE DATABASE keycloak OWNER ume_keycloak' WHERE EXISTS (SELECT FROM pg_roles WHERE rolname = 'ume_keycloak')\gexec
 CREATE DATABASE gatewaydb OWNER ume_migrator;
 REVOKE ALL ON DATABASE gatewaydb FROM PUBLIC;
 GRANT CONNECT ON DATABASE gatewaydb TO ume_gateway, ume_admin;
