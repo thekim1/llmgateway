@@ -203,8 +203,12 @@ rule chain that exists; if no rule matches, it is `404 model_not_found`, just la
 ### Rules never widen access
 
 Rules only choose among destinations. A key's allowed providers, allowed residencies, the PII
-on-prem restriction, endpoint compatibility and disabled or drained providers are applied **after**
-the rules, so a rule cannot send a request somewhere the key may not go. A key's model allow-list
+on-prem restriction, the request's residency ceiling (`x-ume-max-residency`, see the
+[API reference](admin-api.md#residency-ceiling-per-request)), endpoint compatibility and disabled or drained providers
+are applied **after** the rules, so a rule cannot send a request somewhere the key or the request does not allow. A rule
+whose targets are all above the ceiling ends in `403 max_residency_not_met`, not in the model the client asked for. A
+condition can read the header like any other, for example `headers["x-ume-max-residency"] == "OnPrem"` (the value as
+the client sent it). A key's model allow-list
 applies to the model the client asks for.
 
 ## Managing rules in the admin UI

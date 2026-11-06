@@ -79,6 +79,7 @@ public static class KeyRotation
             AttachmentPolicy = oldKey.AttachmentPolicy,
             AllowProviderTools = oldKey.AllowProviderTools,
             AllowProviderStorage = oldKey.AllowProviderStorage,
+            RequireMaxResidency = oldKey.RequireMaxResidency,
             RequestsPerMinute = oldKey.RequestsPerMinute,
             TokensPerMinute = oldKey.TokensPerMinute,
             MaxConcurrentRequests = oldKey.MaxConcurrentRequests,

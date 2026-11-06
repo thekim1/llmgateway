@@ -11,6 +11,20 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: residency ceiling per request
+
+- **Rolling update: yes.** Migration `KeyResidencyCeiling` adds `VirtualKeys.RequireMaxResidency` (`false` by
+  default); the previous version does not read it.
+- **New request header** `x-ume-max-residency: OnPrem | Eu | External`: a request can lower the residencies it may reach,
+  never raise them. New error `403 max_residency_not_met` (no target within the ceiling is configured); `503
+  no_eligible_provider` with `Retry-After` when targets within it are disabled or drained. `GET /v1/models` honours it.
+  `x-ume-residency` is now documented. Nothing changes for clients that do not send the header.
+- **New key setting** *Require residency header* (`requireMaxResidency`). Turn it on only after every gateway instance
+  runs this version: an older instance ignores the header and does not refuse requests without it. Do not rotate such a
+  key until the admin API is upgraded everywhere: an older admin API does not copy the setting to the replacement.
+- During the rollout an older instance ignores the header: a client that must be sure checks `x-ume-residency` on the
+  answer.
+
 ## 0.8.9: gateway memory fix, fewer Redis round trips
 
 - **Rolling update: yes.** No migration; Compose, Kubernetes and Redis ACL files are unchanged (the rate limit and budget

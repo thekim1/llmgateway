@@ -138,6 +138,9 @@ export const PROVIDER_TOOLS_HINT =
 export const PROVIDER_STORAGE_HINT =
   'Lets requests ask the provider to keep the conversation (store, background responses, conversations). Off: refused, and Responses API requests are sent with store: false.'
 
+export const REQUIRE_MAX_RESIDENCY_HINT =
+  'Every request must send the x-ume-max-residency header (OnPrem, Eu or External), or it is refused. The header can only narrow the residencies above.'
+
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }
 export const ROUTING_SCOPE_PLURAL: Record<RoutingScope, string> = { VirtualKey: 'Keys', Team: 'Teams', Department: 'Departments', Global: 'Everyone' }

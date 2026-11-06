@@ -70,6 +70,12 @@ public sealed class VirtualKey
     /// </summary>
     public bool AllowProviderStorage { get; set; }
 
+    /// <summary>
+    /// Every request must state its residency ceiling (<c>x-ume-max-residency</c>), or it is refused (400): a client
+    /// whose code forgets the header fails instead of running without one. The ceiling never widens the key's residencies.
+    /// </summary>
+    public bool RequireMaxResidency { get; set; }
+
     public int? RequestsPerMinute { get; set; }
     public int? TokensPerMinute { get; set; }
 

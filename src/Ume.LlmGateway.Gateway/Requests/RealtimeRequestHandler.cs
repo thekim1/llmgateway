@@ -57,6 +57,13 @@ public sealed partial class RealtimeRequestHandler(
         }
 
         state.Key = key;
+        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        {
+            await stages.RejectAsync(http, state, ceilingError, RequestOutcome.Rejected);
+            return;
+        }
+
+        state.MaxResidency = ceiling;
         if (!http.WebSockets.IsWebSocketRequest)
         {
             await stages.RejectAsync(http, state, GatewayError.WebSocketRequired, RequestOutcome.Rejected);
@@ -233,7 +240,7 @@ public sealed partial class RealtimeRequestHandler(
             await stages.RecordSuccessAsync(state, account);
 
             // An input transcription model the client picks must be one the key may use, on this provider, and eligible.
-            var transcription = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null), null, key.AllowedProviders);
+            var transcription = new RoutingConstraints(endpoint, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null, state.MaxResidency), null, key.AllowedProviders);
             var sessionPolicy = policy = new RealtimeEventPolicy(deployment, name => SameProviderTranscription(snapshot, key, account, transcription, name),
                 key.PiiPolicy, account.Residency == DataResidency.OnPrem, key.AllowProviderTools);
             var sessionMeter = meter = new RealtimeMeter();

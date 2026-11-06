@@ -6,7 +6,10 @@ using Ume.LlmGateway.Gateway.Routing;
 
 namespace Ume.LlmGateway.Gateway.Requests;
 
-/// <summary><c>GET /v1/models</c>: what the key can use, decided by the same eligibility rule as routing.</summary>
+/// <summary>
+/// <c>GET /v1/models</c>: what the key can use, decided by the same eligibility rule as routing, within the request's
+/// residency ceiling when it sends one (so a client can ask what it may use at that level).
+/// </summary>
 public sealed class ModelListEndpoint(RequestStages stages, GatewayCatalog catalog, TimeProvider time)
 {
     public async Task ListModelsAsync(HttpContext http)
@@ -19,9 +22,15 @@ public sealed class ModelListEndpoint(RequestStages stages, GatewayCatalog catal
             return;
         }
 
+        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        {
+            await stages.WriteErrorAsync(http, GatewayEndpoint.Models, ceilingError);
+            return;
+        }
+
         var snapshot = await catalog.GetAsync(ct);
         // The endpoint is not used: a model is listed when some endpoint of its kind could route to it.
-        var constraints = new RoutingConstraints(GatewayEndpoint.Models, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null), null, key.AllowedProviders);
+        var constraints = new RoutingConstraints(GatewayEndpoint.Models, RouteSelector.EffectiveResidencies(key.AllowedResidencies, null, ceiling), null, key.AllowedProviders);
 
         var data = new JsonArray();
         foreach (var route in snapshot.Routes.Values.Where(r => r.IsEnabled && key.IsModelAllowed(r.Name)).OrderBy(r => r.Name, StringComparer.Ordinal))

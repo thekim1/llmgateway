@@ -218,6 +218,8 @@ export interface VirtualKey {
   allowProviderTools?: boolean
   /** Conversations kept at the provider (store, background, conversations). False: refused, Responses get store: false. */
   allowProviderStorage?: boolean
+  /** Every request must send x-ume-max-residency (400 otherwise). */
+  requireMaxResidency?: boolean
 }
 
 export interface KeyFilter {
@@ -250,6 +252,7 @@ export interface CreateKeyRequest {
   /** Omitted = false on create, unchanged on update. */
   allowProviderTools?: boolean
   allowProviderStorage?: boolean
+  requireMaxResidency?: boolean
 }
 
 export interface CreateKeyResponse {
@@ -276,6 +279,7 @@ export interface UpdateKeyRequest {
   allowedIpRanges?: string[]
   allowProviderTools?: boolean
   allowProviderStorage?: boolean
+  requireMaxResidency?: boolean
   isEnabled: boolean
 }
 

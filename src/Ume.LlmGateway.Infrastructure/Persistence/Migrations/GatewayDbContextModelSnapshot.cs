@@ -18,7 +18,7 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -1086,6 +1086,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<int?>("RequestsPerMinute")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("RequireMaxResidency")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .IsConcurrencyToken()

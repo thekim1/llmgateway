@@ -97,7 +97,7 @@ Roles (OIDC `roles` claim):
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
 allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean, maxConcurrentRequests: number|null,
-requestPolicy: RequestPolicy|null }`
+requestPolicy: RequestPolicy|null, requireMaxResidency: boolean }`
 (`contentGuardPolicy`: `Off` (default), `Record` or `Block`, see [content guard](content-guard.md); omitted on update = unchanged.
 `maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
 get 429 `rate_limited`. Live audio sessions have their own limit. `requestPolicy`: see *Organisation*; omitted on update =
@@ -110,13 +110,15 @@ unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 (`attachmentPolicy` omitted = `Allowed` on create, unchanged on update; it is copied to the replacement key on rotation)
 (`allowProviderTools` / `allowProviderStorage` omitted = `false` on create, unchanged on update; copied on rotation; see
 [provider tools and storage](#gateway-data-plane--for-the-developer-portal-snippets))
+(`requireMaxResidency`: every request must send `x-ume-max-residency`, see [residency ceiling](#residency-ceiling-per-request);
+omitted = `false` on create, unchanged on update; copied on rotation)
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
 
 - `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]` (the keys the user manages: own departments, or own teams for a team admin)
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
   → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
@@ -379,14 +381,18 @@ and invalidate the gateway catalogue.
   attachments, so keys set to `None` get `attachment_not_allowed` on edits. Billing: the number of pictures in `data` ×
   `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
-- Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-fallbacks`, `x-ume-cost-usd`,
+- Request headers the gateway reads (not passed to providers): `x-ume-session` (keeps a conversation on one target),
+  `x-ume-max-residency` ([residency ceiling](#residency-ceiling-per-request)).
+- Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-residency` (`OnPrem`, `Eu` or `External`: the
+  residency of the provider that answered), `x-ume-fallbacks`, `x-ume-cost-usd`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-usd`,
-  `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)).
+  `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)), `x-ume-pii` ([personal data](personal-data.md)), `x-ume-guard` ([content guard](content-guard.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
   `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
   client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
+  `max_residency_not_met` (403, see [residency ceiling](#residency-ceiling-per-request)), `context_length_exceeded`,
   `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two
   `model` fields),
   `internal_error` (500: an unexpected failure inside the gateway after the request was accepted; it is recorded as usage
@@ -402,7 +408,30 @@ and invalidate the gateway catalogue.
   breaker. Other client errors (e.g. 400) are returned to the client, see below.
 - `GET /v1/models` lists only aliases and models the key may use and that some endpoint of their kind can reach, by the
   same rule as routing: model and provider enabled and not drained, a provider capability for that endpoint, and the
-  key's provider and residency allow-lists.
+  key's provider and residency allow-lists, within the request's `x-ume-max-residency` when it sends one (an alias's
+  `ume.residencies` then shows only residencies within it).
+
+### Residency ceiling per request
+
+A request may lower the residencies it can reach with `x-ume-max-residency: OnPrem | Eu | External` (the
+`DataResidency` names, case-insensitive; `OnPrem` < `Eu` < `External`). It never raises them: the residencies used
+are the key's allowed residencies, the PII guard's on-prem restriction and the ceiling, intersected. Omit the header for
+no ceiling (`Any` is not a value). Anything else, an empty value or two values is `400 invalid_request`: a ceiling the
+gateway does not understand is refused, never ignored.
+
+- The ceiling is applied after routing rules and fallback lists are worked out ([routing rules](routing-rules.md)), so
+  no rule, fallback, lower-priority target or retry reaches a provider above it. A rule may still choose a model within
+  it (its conditions see the header like any header).
+- No target of the planned models within the ceiling is configured (for the key's residencies, providers and the
+  endpoint) → `403 max_residency_not_met`. Do not retry with a wider ceiling unless the data allows it.
+- Targets within the ceiling exist but are disabled or drained → `503 no_eligible_provider` with `Retry-After`: wait
+  and retry. Targets that fail are retried and fall back like any request, within the ceiling (`502`/`504` when all fail).
+- Every endpoint that reaches a provider applies it, live sessions included (send it on the WebSocket upgrade), and so
+  does `GET /v1/models`.
+- A key with `requireMaxResidency` refuses requests without the header (`400 invalid_request`), so a client that forgets
+  it fails instead of running without a ceiling.
+- `x-ume-residency` on the answer says where the request went. A client that must be sure checks it: during a rolling
+  update an older gateway instance ignores the request header.
 - Outgoing requests to providers carry `User-Agent: Ume-LlmGateway/<version>`.
   A provider-side refusal is returned with the provider's status, but only its `message`, `type`, `code` and `param`, in
   the client's error shape (OpenAI, or Anthropic on `/v1/messages`) with the gateway's `request_id`; the rest of the

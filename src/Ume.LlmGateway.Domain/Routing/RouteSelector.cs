@@ -221,4 +221,35 @@ public static class RouteSelector
         // A restriction must never widen access.
         return keyAllowed.Count == 0 || keyAllowed.Contains(only) ? [only] : [];
     }
+
+    /// <summary>
+    /// As <see cref="EffectiveResidencies(IReadOnlyCollection{DataResidency}, DataResidency?)"/>, also limited to the
+    /// request's <paramref name="ceiling"/> (<see cref="ResidencyCeiling"/>): the intersection of the three, never wider
+    /// than any of them. Answers with one of eight shared arrays, so the request path allocates nothing.
+    /// </summary>
+    public static IReadOnlyCollection<DataResidency>? EffectiveResidencies(IReadOnlyCollection<DataResidency> keyAllowed, DataResidency? restrictTo, DataResidency? ceiling)
+    {
+        ArgumentNullException.ThrowIfNull(keyAllowed);
+        if (ceiling is not { } max)
+        {
+            return EffectiveResidencies(keyAllowed, restrictTo);
+        }
+
+        var mask = 0;
+        for (var residency = DataResidency.OnPrem; residency <= max; residency++)
+        {
+            if ((keyAllowed.Count == 0 || keyAllowed.Contains(residency)) && (restrictTo is null || restrictTo == residency))
+            {
+                mask |= 1 << (int)residency;
+            }
+        }
+
+        return mask == AllResidencies ? null : ResidencySets[mask];
+    }
+
+    private const int AllResidencies = (1 << ((int)DataResidency.External + 1)) - 1;
+
+    /// <summary>Every subset of the residencies, indexed by its bit mask (bit n = residency n).</summary>
+    private static readonly DataResidency[][] ResidencySets = [.. Enumerable.Range(0, AllResidencies + 1)
+        .Select(mask => Enum.GetValues<DataResidency>().Where(r => (mask & (1 << (int)r)) != 0).ToArray())];
 }

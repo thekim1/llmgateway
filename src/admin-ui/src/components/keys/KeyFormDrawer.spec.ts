@@ -165,19 +165,19 @@ describe('KeyFormDrawer provider then model selection', () => {
     expect(wrapper.text()).toContain('Allow provider tools')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(create.mock.calls[0]![0]).toMatchObject({ allowProviderTools: false, allowProviderStorage: false })
+    expect(create.mock.calls[0]![0]).toMatchObject({ allowProviderTools: false, allowProviderStorage: false, requireMaxResidency: false })
 
     update.mockResolvedValue({})
     const existing = {
       id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'App', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
       allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', attachmentPolicy: 'Allowed', requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
-      allowProviderTools: true, allowProviderStorage: false,
+      allowProviderTools: true, allowProviderStorage: false, requireMaxResidency: true,
     } as unknown as VirtualKey
     const edit = mountForm(existing)
     await flushPromises()
     await edit.find('form').trigger('submit')
     await flushPromises()
-    expect(update.mock.calls[0]![1]).toMatchObject({ allowProviderTools: true, allowProviderStorage: false })
+    expect(update.mock.calls[0]![1]).toMatchObject({ allowProviderTools: true, allowProviderStorage: false, requireMaxResidency: true })
   })
 })
 

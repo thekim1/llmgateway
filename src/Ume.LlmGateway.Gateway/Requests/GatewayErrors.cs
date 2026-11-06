@@ -31,6 +31,9 @@ public static class GatewayErrorCodes
     public const string ToolNotAllowed = "tool_not_allowed";
     public const string StorageNotAllowed = "storage_not_allowed";
     public const string NoEligibleProvider = "no_eligible_provider";
+
+    /// <summary>No provider of the model is configured within the request's residency ceiling (<c>x-ume-max-residency</c>).</summary>
+    public const string MaxResidencyNotMet = "max_residency_not_met";
     public const string BudgetExceeded = "budget_exceeded";
     public const string AllProvidersFailed = "all_providers_failed";
     public const string ProviderRejected = "provider_rejected";
@@ -114,6 +117,14 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
         $"The model '{name}' cannot be used with this endpoint.");
     public static GatewayError RuleTargetsUnusable(string model) => new(503, GatewayErrorCodes.NoEligibleProvider,
         $"The routing rule for '{model}' points to models that do not exist or cannot be used with this endpoint.");
+    public static GatewayError MaxResidencyNotMet(string model, DataResidency ceiling) => new(403, GatewayErrorCodes.MaxResidencyNotMet,
+        $"No provider for '{ModelNames.Truncate(model)}' is configured at or below the residency '{ceiling}' that the request allows.");
+    public static GatewayError NoProviderWithin(string model, DataResidency ceiling) => new(503, GatewayErrorCodes.NoEligibleProvider,
+        $"No provider for '{ModelNames.Truncate(model)}' within the residency '{ceiling}' is available right now. Try again later.");
+    public static GatewayError InvalidMaxResidency { get; } = new(400, GatewayErrorCodes.InvalidRequest,
+        $"{GatewayHeaders.MaxResidency} must be one of OnPrem, Eu, External.");
+    public static GatewayError MaxResidencyMissing { get; } = new(400, GatewayErrorCodes.InvalidRequest,
+        $"This API key requires the {GatewayHeaders.MaxResidency} header (OnPrem, Eu or External).");
     public static GatewayError NoEligibleProvider(bool onPremOnly) => new(503, GatewayErrorCodes.NoEligibleProvider, onPremOnly
         ? "The request contains personal data and may only be sent to a local (on-prem) model, but this alias has none."
         : "No available provider can handle the request for this alias within the key's restrictions.");

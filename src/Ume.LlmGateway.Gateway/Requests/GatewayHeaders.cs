@@ -32,6 +32,12 @@ public static class GatewayHeaders
     /// <summary>Request header: a session or conversation id that keeps the session on one target (prompt cache reuse).</summary>
     public const string Session = "x-ume-session";
 
+    /// <summary>
+    /// Request header: the highest residency the request may go to (<c>OnPrem</c>, <c>Eu</c> or <c>External</c>). It only
+    /// narrows the key's residencies; <see cref="Residency"/> reports where the request went.
+    /// </summary>
+    public const string MaxResidency = "x-ume-max-residency";
+
     /// <summary>What the PII guard did: detected, redacted, blocked or rerouted-onprem.</summary>
     public const string Pii = "x-ume-pii";
 

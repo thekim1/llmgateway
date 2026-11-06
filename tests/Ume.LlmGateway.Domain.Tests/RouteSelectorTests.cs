@@ -131,6 +131,102 @@ public class RouteSelectorTests
     }
 
     [Fact]
+    public void The_ceiling_order_is_the_order_of_the_residencies()
+    {
+        // ResidencyCeiling and EffectiveResidencies rely on it: a new member must not silently change what a ceiling means.
+        Enum.GetValues<DataResidency>().ShouldBe([DataResidency.OnPrem, DataResidency.Eu, DataResidency.External]);
+        ((int)DataResidency.OnPrem).ShouldBeLessThan((int)DataResidency.Eu);
+        ((int)DataResidency.Eu).ShouldBeLessThan((int)DataResidency.External);
+    }
+
+    [Theory]
+    [InlineData("OnPrem", DataResidency.OnPrem)]
+    [InlineData("onprem", DataResidency.OnPrem)]
+    [InlineData("ONPREM", DataResidency.OnPrem)]
+    [InlineData("Eu", DataResidency.Eu)]
+    [InlineData("EU", DataResidency.Eu)]
+    [InlineData(" eu ", DataResidency.Eu)]
+    [InlineData("External", DataResidency.External)]
+    [InlineData("external\t", DataResidency.External)]
+    public void Ceiling_names_are_read_in_any_case(string value, DataResidency expected)
+    {
+        ResidencyCeiling.TryParse(value, out var ceiling).ShouldBeTrue();
+        ceiling.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("Any")]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("EU-West")]
+    [InlineData("Eu,OnPrem")]
+    [InlineData("Eu OnPrem")]
+    [InlineData("On-Prem")]
+    public void Anything_else_is_not_a_ceiling(string value) => ResidencyCeiling.TryParse(value, out _).ShouldBeFalse();
+
+    public static TheoryData<DataResidency[], DataResidency?, DataResidency> CeilingCases()
+    {
+        var data = new TheoryData<DataResidency[], DataResidency?, DataResidency>();
+        DataResidency[][] keyLists = [[], [DataResidency.OnPrem], [DataResidency.Eu], [DataResidency.OnPrem, DataResidency.Eu], [DataResidency.External],
+            [DataResidency.OnPrem, DataResidency.Eu, DataResidency.External]];
+        foreach (var key in keyLists)
+        {
+            foreach (var restrictTo in new DataResidency?[] { null, DataResidency.OnPrem, DataResidency.Eu })
+            {
+                foreach (var ceiling in Enum.GetValues<DataResidency>())
+                {
+                    data.Add(key, restrictTo, ceiling);
+                }
+            }
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(CeilingCases))]
+    public void A_ceiling_is_the_intersection_and_never_widens(DataResidency[] key, DataResidency? restrictTo, DataResidency ceiling)
+    {
+        var result = RouteSelector.EffectiveResidencies(key, restrictTo, ceiling);
+        var expected = Enum.GetValues<DataResidency>()
+            .Where(r => r <= ceiling && (key.Length == 0 || key.Contains(r)) && (restrictTo is null || r == restrictTo))
+            .ToArray();
+
+        if (result is null)
+        {
+            expected.Length.ShouldBe(3); // null = any
+        }
+        else
+        {
+            result.ShouldBe(expected);
+        }
+
+        // Never wider than the same request without a ceiling.
+        var without = RouteSelector.EffectiveResidencies(key, restrictTo);
+        if (without is not null)
+        {
+            (result ?? Enum.GetValues<DataResidency>()).ShouldAllBe(r => without.Contains(r));
+        }
+    }
+
+    [Fact]
+    public void Without_a_ceiling_the_result_is_unchanged_and_with_one_nothing_is_allocated()
+    {
+        List<DataResidency> key = [DataResidency.OnPrem, DataResidency.Eu];
+        RouteSelector.EffectiveResidencies(key, null, null).ShouldBeSameAs(key);
+        RouteSelector.EffectiveResidencies([], null, null).ShouldBeNull();
+        RouteSelector.EffectiveResidencies([], null, DataResidency.External).ShouldBeNull();
+
+        RouteSelector.EffectiveResidencies(key, null, DataResidency.Eu); // warm up
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = RouteSelector.EffectiveResidencies(key, null, DataResidency.OnPrem);
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+        result.ShouldBe([DataResidency.OnPrem]);
+    }
+
+    [Fact]
     public void Provider_allowlist_removes_other_providers_and_empty_means_all()
     {
         var a = Target("a", 0);

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**Residency ceiling per request (ADR 018).** A request can lower the residencies it may reach with
+`x-ume-max-residency: OnPrem | Eu | External` (case-insensitive); it never widens the key's. The ceiling is intersected
+with the key's residencies and the PII on-prem restriction after routing rules and fallback lists, and before routing
+where the budget is reserved with the rate limit, so no rule, fallback, retry or token quota goes above it. No target
+within it configured: `403 max_residency_not_met`; targets within it disabled or drained: `503 no_eligible_provider`
+with `Retry-After`. A malformed, empty or repeated value is `400 invalid_request`. Applies to every endpoint that reaches
+a provider, live sessions and `GET /v1/models` included. New key setting *Require residency header*
+(`requireMaxResidency`, migration `KeyResidencyCeiling`, copied on rotation): requests without the header are refused.
+`x-ume-residency` is now documented. No allocation and no round trip is added; clients that send no header see no
+change. **Rolling update: yes** (see the upgrade guide before turning the key setting on).
+
 **Fix: an embeddings batch was compared with the context window as a whole.** The gateway estimated the whole request
 (body size / 4) and refused it with 400 `context_length_exceeded` when that exceeded the model's context window, but
 the window limits each input of an embeddings batch, not the batch: 64 chunks of 500 tokens were refused by a model
