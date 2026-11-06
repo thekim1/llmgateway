@@ -131,7 +131,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         var provider = await ProviderAsync(input.ProviderId, ct);
         await EnsureModelNameFreeAsync(input.Name.Trim(), null, provider.Id, ct);
         var m = new ModelDeployment { Name = input.Name.Trim(), UpstreamModel = input.UpstreamModel, ProviderAccount = provider, ProviderAccountId = provider.Id };
-        Apply(m, input);
+        Apply(m, input, provider);
         if (input.Price is { } price) { m.Prices.Add(NewPrice(price)); }
         ctx.Db.ModelDeployments.Add(m);
         await ctx.SaveAsync(AuditActions.Create, AuditEntities.Model, m.Id, null, ModelAudit.Of(m), InvalidationKind.Config, ct);
@@ -145,7 +145,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         await EnsureModelNameFreeAsync(input.Name.Trim(), id, m.ProviderAccountId, ct);
         if (!string.Equals(m.Name, input.Name.Trim(), StringComparison.OrdinalIgnoreCase)) { await rules.EnsureNotUsedByRulesAsync(m.Name, "renamed", ct); }
         var before = ModelAudit.Of(m);
-        Apply(m, input);
+        Apply(m, input, m.ProviderAccount!);
         await ctx.SaveAsync(AuditActions.Update, AuditEntities.Model, id, before, ModelAudit.Of(m), InvalidationKind.Config, ct);
         return await DtoAsync(m, ct);
     }
@@ -168,13 +168,27 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         }
     }
 
-    public void Apply(ModelDeployment m, ModelRequest input)
+    /// <summary>Copies the request onto the model of <paramref name="provider"/>; 400 for a request address the provider cannot use.</summary>
+    public void Apply(ModelDeployment m, ModelRequest input, ProviderAccount provider)
     {
+        ArgumentNullException.ThrowIfNull(provider);
         m.Name = input.Name.Trim(); m.UpstreamModel = input.UpstreamModel.Trim(); m.Kind = input.Kind; m.ParameterProfile = input.ParameterProfile;
         m.ContextWindow = input.ContextWindow; m.IsEnabled = input.IsEnabled;
+        m.Residency = input.Residency; m.RequestAuthMode = input.RequestAuthMode;
         if (input.AutoUpdatePrice is { } auto) { m.AutoUpdatePrice = auto; }
         if (input.Description is { } description) { m.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(); }
         if (input.BaseModel is { } baseModel) { m.BaseModel = string.IsNullOrWhiteSpace(baseModel) ? null : baseModel.Trim(); }
+        if (input.Publisher is { } publisher) { m.Publisher = string.IsNullOrWhiteSpace(publisher) ? null : publisher.Trim(); }
+        if (input.RequestBaseUrl is { } url) { m.RequestBaseUrl = string.IsNullOrWhiteSpace(url) ? null : url.Trim(); }
+        if ((m.RequestBaseUrl is not null || m.RequestAuthMode is not null) && !FoundryEndpoint.IsRerank(provider, m))
+        {
+            throw new ApiFaultException(400, "A request address or authentication can only be set for a rerank model of an Azure AI Foundry provider.");
+        }
+        if (m.RequestBaseUrl is { } address && !FoundryEndpoint.IsOnResource(provider.BaseUrl, address))
+        {
+            // The provider's credential is sent to it.
+            throw new ApiFaultException(400, "The request address must be on the provider's Foundry resource (the same host as its base URL).");
+        }
         if (input.Features is not null)
         {
             m.Features = [.. input.Features.Select(f => f.Trim().ToLowerInvariant()).Where(f => f.Length is > 0 and <= 40).Distinct().Take(20).Order()];
@@ -315,12 +329,12 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
         var routes = await Routes().Where(r => r.IsEnabled).ToListAsync(ct);
         return new CatalogDto(
             gatewayBaseUrl,
-            [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.ProviderAccount!.Residency, Capabilities(FoundryEndpoint.Capabilities(m.ProviderAccount, m)),
+            [.. models.Select(m => new CatalogModelDto(names[m.Id], m.Kind, m.EffectiveResidency(m.ProviderAccount!), Capabilities(FoundryEndpoint.Capabilities(m.ProviderAccount!, m)),
                 m.PriceAt(now)?.InputPerMillionUsd, m.PriceAt(now)?.OutputPerMillionUsd, m.Description, m.Features))],
             [.. routes.Where(r => r.Targets.Any(t => byId.ContainsKey(t.ModelDeploymentId))).Select(r =>
             {
                 var targets = r.Targets.Where(t => byId.ContainsKey(t.ModelDeploymentId)).Select(t => byId[t.ModelDeploymentId]).ToArray();
-                return new CatalogRouteDto(r.Name, r.Description, r.Kind, [.. targets.Select(m => m.ProviderAccount!.Residency).Distinct()],
+                return new CatalogRouteDto(r.Name, r.Description, r.Kind, [.. targets.Select(m => m.EffectiveResidency(m.ProviderAccount!)).Distinct()],
                     Capabilities(targets.Aggregate(ProviderCapabilities.None, (a, m) => a | FoundryEndpoint.Capabilities(m.ProviderAccount!, m))),
                     targets.Max(m => m.PriceAt(now)?.InputPerMillionUsd), targets.Max(m => m.PriceAt(now)?.OutputPerMillionUsd));
             })]);

@@ -460,6 +460,22 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProviderAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Publisher")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestAuthMode")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("RequestBaseUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Residency")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("UpstreamModel")
                         .IsRequired()
                         .HasMaxLength(200)

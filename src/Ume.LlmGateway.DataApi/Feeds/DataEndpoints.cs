@@ -102,7 +102,7 @@ public static class DataEndpoints
                 .Select(p => new { p.Id, p.Name, p.DisplayName, p.Type, p.Residency, p.IsEnabled }).ToListAsync(ct)));
         catalog.MapGet("/models", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelDeployments.AsNoTracking().OrderBy(m => m.Name)
-                .Select(m => new { m.Id, m.Name, m.UpstreamModel, m.Kind, ProviderId = m.ProviderAccountId, m.IsEnabled }).ToListAsync(ct)));
+                .Select(m => new { m.Id, m.Name, m.UpstreamModel, m.Kind, ProviderId = m.ProviderAccountId, m.IsEnabled, m.Residency }).ToListAsync(ct)));
         catalog.MapGet("/prices", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ModelPrices.AsNoTracking().OrderBy(p => p.ModelDeploymentId).ThenBy(p => p.EffectiveFrom)
                 .Select(p => new { ModelId = p.ModelDeploymentId, p.EffectiveFrom, p.InputPerMillionUsd, p.CachedInputPerMillionUsd, p.OutputPerMillionUsd, p.AudioPerMinuteUsd, p.AudioInputPerMillionUsd, p.AudioOutputPerMillionUsd, p.PerImageUsd, p.CacheWriteInputPerMillionUsd }).ToListAsync(ct)));
@@ -177,14 +177,16 @@ public static class DataEndpoints
             """).ToListAsync(ct);
 
         var departments = await db.Departments.AsNoTracking().Select(d => new { d.Id, d.Name, d.CostCenterCode }).ToDictionaryAsync(d => d.Id, ct);
-        var models = await db.ModelDeployments.AsNoTracking().Select(m => new { m.Id, m.Name }).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        var models = await db.ModelDeployments.AsNoTracking().Select(m => new { m.Id, m.Name, m.Residency }).ToDictionaryAsync(m => m.Id, ct);
         var providers = await db.ProviderAccounts.AsNoTracking().Select(p => new { p.Id, p.Name, p.Residency }).ToDictionaryAsync(p => p.Id, ct);
         return [.. rows.Select(r =>
         {
             var department = r.DepartmentId is { } d ? departments.GetValueOrDefault(d) : null;
             var provider = r.ProviderId is { } p ? providers.GetValueOrDefault(p) : null;
+            var model = r.ModelId is { } m ? models.GetValueOrDefault(m) : null;
+            // Where it was processed: the deployment's own residency when it has one, else its provider's.
             return new AggregateItem(r.Period, r.DepartmentId, department?.CostCenterCode, department?.Name, r.ModelId,
-                r.ModelId is { } m ? models.GetValueOrDefault(m) : null, r.ProviderId, provider?.Name, provider?.Residency, r.Endpoint,
+                model?.Name, r.ProviderId, provider?.Name, model?.Residency ?? provider?.Residency, r.Endpoint,
                 r.Requests, r.SuccessfulRequests, r.InputTokens, r.CachedInputTokens, r.OutputTokens, r.CostUsd, r.AudioSeconds);
         })];
     }

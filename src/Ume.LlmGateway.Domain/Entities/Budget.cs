@@ -16,8 +16,8 @@ public sealed class Budget : IBudgetScoped
     public long LimitTokens { get; set; }
 
     /// <summary>
-    /// Token budgets only: count only requests served by providers of this residency (e.g. <see cref="DataResidency.OnPrem"/>
-    /// for a quota on on-prem capacity). Null counts every request.
+    /// Token budgets only: count only requests served in this residency, the deployment's or else its provider's (e.g.
+    /// <see cref="DataResidency.OnPrem"/> for a quota on on-prem capacity). Null counts every request.
     /// </summary>
     public DataResidency? Residency { get; set; }
 

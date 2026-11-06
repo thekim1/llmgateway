@@ -440,6 +440,16 @@ export interface Model {
   priceListKey: string | null
   /** The model behind an Azure deployment (gpt-4.1 behind prod-chat); null when upstreamModel is the model. */
   baseModel: string | null
+  /** Where the model processes data when it differs from its provider; null = the provider's. `residency` is the one in effect. */
+  residencyOverride: DataResidency | null
+  /** The publisher of the model behind a Foundry deployment (Cohere), from discovery. */
+  publisher: string | null
+  /** A Foundry reranker's request base URL as set; null = derived from the publisher. */
+  requestBaseUrl: string | null
+  /** How a Foundry reranker sends the provider's credential; null = as the provider does. */
+  requestAuthMode: ProviderAuthMode | null
+  /** Where a Foundry reranker is called (the gateway appends /rerank); null when it has no address or is not one. */
+  rerankBaseUrl: string | null
 }
 
 export type PriceMode = 'List' | 'Unlisted' | 'Manual'
@@ -458,6 +468,12 @@ export interface CreateModelRequest {
   autoUpdatePrice?: boolean
   description?: string | null
   baseModel?: string | null
+  /** Null or omitted = the provider's. */
+  residency?: DataResidency | null
+  publisher?: string | null
+  /** Only for a reranker of an Azure AI Foundry provider, on the provider's resource. */
+  requestBaseUrl?: string | null
+  requestAuthMode?: ProviderAuthMode | null
 }
 
 export interface UpdateModelRequest {
@@ -474,6 +490,14 @@ export interface UpdateModelRequest {
   description?: string | null
   /** Optional; omitted keeps it, "" removes it. */
   baseModel?: string | null
+  /** Null or omitted = the provider's: a PUT replaces it, so send the model's residencyOverride to keep it. */
+  residency?: DataResidency | null
+  /** Optional; omitted keeps it, "" removes it. */
+  publisher?: string | null
+  /** Optional; omitted keeps it, "" removes it (the address derived from the publisher is used). */
+  requestBaseUrl?: string | null
+  /** Null or omitted = as the provider does: a PUT replaces it, so send the model's requestAuthMode to keep it. */
+  requestAuthMode?: ProviderAuthMode | null
 }
 
 export interface RouteTarget {
@@ -1206,6 +1230,10 @@ export interface DiscoveredModel {
   description: string | null
   /** The model behind an Azure deployment. */
   baseModel: string | null
+  /** The publisher of a Foundry deployment's model (Cohere). */
+  publisher: string | null
+  /** Where the deployment processes data, suggested from its deployment type; null = the provider's. */
+  residency: DataResidency | null
 }
 
 export interface DiscoveredPrice {

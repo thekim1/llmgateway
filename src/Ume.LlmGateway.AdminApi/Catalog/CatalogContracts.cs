@@ -3,6 +3,7 @@ using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
+using Ume.LlmGateway.Domain.Providers;
 
 namespace Ume.LlmGateway.AdminApi.Catalog;
 
@@ -47,7 +48,7 @@ public sealed record ProviderRequest(
         }
     }
 
-    private static bool HasSecretParameter(string query) =>
+    internal static bool HasSecretParameter(string query) =>
         query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(p => Uri.UnescapeDataString(p.Split('=')[0]).ToLowerInvariant())
             .Any(name => name.Contains("key", StringComparison.Ordinal) || name.Contains("token", StringComparison.Ordinal) ||
@@ -85,7 +86,36 @@ public sealed record ModelRequest(
     // Omitted = unchanged; empty removes it.
     [property: StringLength(1000)] string? Description = null,
     // The model behind an Azure deployment (gpt-4.1 behind prod-chat). Omitted = unchanged; empty removes it.
-    [property: StringLength(200)] string? BaseModel = null) : AdminRequest;
+    [property: StringLength(200)] string? BaseModel = null,
+    // Where the deployment processes data when it differs from its provider. Null or omitted = the provider's (like
+    // ContextWindow, a PUT replaces it).
+    [property: EnumDataType(typeof(DataResidency))] DataResidency? Residency = null,
+    // The publisher of the model behind a Foundry deployment (Cohere), set by discovery. Omitted = unchanged; empty removes it.
+    [property: StringLength(100)] string? Publisher = null,
+    // A Foundry rerank deployment's request base URL, when the one derived from the publisher is wrong. Omitted = unchanged;
+    // empty removes it (the derived one is used).
+    [property: StringLength(500)] string? RequestBaseUrl = null,
+    // How a Foundry rerank deployment sends the provider's credential. Null or omitted = as the provider does (a PUT replaces it).
+    [property: EnumDataType(typeof(ProviderAuthMode))] ProviderAuthMode? RequestAuthMode = null) : AdminRequest, IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (string.IsNullOrWhiteSpace(RequestBaseUrl))
+        {
+            yield break;
+        }
+
+        if (!Uri.TryCreate(RequestBaseUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Fragment))
+        {
+            yield return new ValidationResult("Enter an absolute address without credentials or a fragment.", [nameof(RequestBaseUrl)]);
+        }
+        else if (ProviderRequest.HasSecretParameter(uri.Query))
+        {
+            yield return new ValidationResult("The query string must not contain keys or tokens. The provider's credential is sent.", [nameof(RequestBaseUrl)]);
+        }
+    }
+}
 
 /// <summary>Limits of route aliases, shared by the API and the configuration document.</summary>
 public static class RouteLimits
@@ -137,7 +167,9 @@ public sealed record PriceDto(
 public sealed record ModelDto(
     Guid Id, Guid ProviderId, string? ProviderName, DataResidency? Residency, string Name, string UpstreamModel, ModelKind Kind,
     ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice, string PublicName,
-    string? Description, bool AutoUpdatePrice, PriceMode PriceMode, string? PriceListKey, string? BaseModel)
+    string? Description, bool AutoUpdatePrice, PriceMode PriceMode, string? PriceListKey, string? BaseModel,
+    DataResidency? ResidencyOverride = null, string? Publisher = null, string? RequestBaseUrl = null, ProviderAuthMode? RequestAuthMode = null,
+    string? RerankBaseUrl = null)
 {
     /// <summary>
     /// The model; <c>publicName</c> is what clients call it: its name, or provider/name when another provider has the same name.
@@ -145,13 +177,18 @@ public sealed record ModelDto(
     /// <c>Unlisted</c> is not in the list (admins set the price until it is), <c>Manual</c> has automatic prices turned off for
     /// the model, its provider or the gateway, or is an Azure deployment (priced by Azure's list; the models.dev price only
     /// fills a missing one). <c>priceListKey</c> is the model's models.dev entry, null when it has none. <c>baseModel</c>: the
-    /// model behind an Azure deployment.
+    /// model behind an Azure deployment. <c>residency</c> is where the model processes data: <c>residencyOverride</c>, its own,
+    /// else its provider's. <c>publisher</c>, <c>requestBaseUrl</c> and <c>requestAuthMode</c> are stored as set;
+    /// <c>rerankBaseUrl</c> is where a rerank model of an Azure AI Foundry provider is called (the gateway appends
+    /// <c>/rerank</c>), null when it has no address (it is then not routed) or is not such a model.
     /// </summary>
     public static ModelDto Of(ModelDeployment m, DateTimeOffset now, string publicName, ModelList list, bool updatesOn) => new(
-        m.Id, m.ProviderAccountId, m.ProviderAccount?.Name, m.ProviderAccount?.Residency, m.Name, m.UpstreamModel, m.Kind,
+        m.Id, m.ProviderAccountId, m.ProviderAccount?.Name, m.ProviderAccount is { } provider ? m.EffectiveResidency(provider) : m.Residency,
+        m.Name, m.UpstreamModel, m.Kind,
         m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null, publicName,
         m.Description, m.AutoUpdatePrice, list.Mode(m, updatesOn),
-        list.Find(m)?.Key, m.BaseModel);
+        list.Find(m)?.Key, m.BaseModel, m.Residency, m.Publisher, m.RequestBaseUrl, m.RequestAuthMode,
+        m.ProviderAccount is { } owner && FoundryEndpoint.IsRerank(owner, m) ? FoundryEndpoint.RerankBaseUrl(owner, m) : null);
 }
 
 public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, RouteTargetDto[] Targets)
@@ -159,7 +196,8 @@ public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKi
     public static RouteDto Of(RouteAlias r) => new(
         r.Id, r.Name, r.Description, r.Kind, r.IsEnabled,
         [.. r.Targets.OrderBy(t => t.Priority).Select(t => new RouteTargetDto(
-            t.ModelDeploymentId, t.ModelDeployment?.Name, t.ModelDeployment?.ProviderAccount?.Name, t.ModelDeployment?.ProviderAccount?.Residency,
+            t.ModelDeploymentId, t.ModelDeployment?.Name, t.ModelDeployment?.ProviderAccount?.Name,
+            t.ModelDeployment is { ProviderAccount: { } provider } model ? model.EffectiveResidency(provider) : null,
             t.Priority, t.Weight))]);
 }
 

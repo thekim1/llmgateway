@@ -141,6 +141,47 @@ public sealed class ModelDiscoveryTests(AdminFixture fixture)
         models[1].Features.ShouldBe(["agentsv2"]);
     }
 
+    [Fact]
+    public async Task Foundry_rerankers_get_the_kind_Rerank_their_publisher_and_a_residency_from_the_deployment_type()
+    {
+        using var list = new FakeProvider("""
+            {"value":[
+              {"type":"ModelDeployment","name":"Cohere-rerank-v5-fast","modelName":"Cohere-rerank-v5-fast","modelVersion":"1","modelPublisher":"Cohere",
+               "capabilities":{},"sku":{"name":"DataZoneStandard","capacity":1}},
+              {"type":"ModelDeployment","name":"ranker","modelName":"new-ranker","modelVersion":"1","modelPublisher":"Jina AI",
+               "capabilities":{"rerank":"true"},"sku":{"name":"GlobalStandard"}},
+              {"type":"ModelDeployment","name":"gpt-4.1","modelName":"gpt-4.1","modelVersion":"2025-04-14","modelPublisher":"OpenAI",
+               "capabilities":{"chat_completion":"true"},"sku":{"name":"Standard"}},
+              {"type":"ModelDeployment","name":"gpt-4.1-dz","modelName":"gpt-4.1","modelVersion":"2025-04-14","capabilities":{},"sku":{}}]}
+            """);
+        var provider = Provider("https://res.services.ai.azure.com/api/projects/umea", ProviderType.AzureAIFoundry, ProviderAuthMode.ApiKeyHeader);
+        provider.Residency = DataResidency.Eu;
+
+        var models = (await DiscoverAsync(provider, list)).ToDictionary(m => m.Id);
+
+        // The name says rerank, or the capabilities do; the publisher comes from the deployment, not from code.
+        (models["Cohere-rerank-v5-fast"].Kind, models["Cohere-rerank-v5-fast"].Publisher, models["Cohere-rerank-v5-fast"].Residency)
+            .ShouldBe((ModelKind.Rerank, "Cohere", DataResidency.Eu)); // an EU resource's data zone
+        (models["ranker"].Kind, models["ranker"].Publisher, models["ranker"].Residency).ShouldBe((ModelKind.Rerank, "Jina AI", DataResidency.External)); // global
+        models["ranker"].Features.ShouldNotContain("rerank");
+        (models["gpt-4.1"].Kind, models["gpt-4.1"].Residency).ShouldBe((ModelKind.Chat, (DataResidency?)null)); // regional: the provider's
+        (models["gpt-4.1-dz"].Publisher, models["gpt-4.1-dz"].Residency).ShouldBe(((string?)null, (DataResidency?)null));
+    }
+
+    [Theory]
+    [InlineData("GlobalStandard", DataResidency.Eu, DataResidency.External)]
+    [InlineData("GlobalProvisionedManaged", DataResidency.Eu, DataResidency.External)]
+    [InlineData("GlobalBatch", DataResidency.External, DataResidency.External)]
+    [InlineData("DataZoneStandard", DataResidency.Eu, DataResidency.Eu)]
+    [InlineData("DataZoneProvisionedManaged", DataResidency.Eu, DataResidency.Eu)]
+    [InlineData("DataZoneStandard", DataResidency.External, DataResidency.External)] // the US data zone
+    [InlineData("Standard", DataResidency.Eu, null)]
+    [InlineData("ProvisionedManaged", DataResidency.Eu, null)]
+    [InlineData("SomethingNew", DataResidency.Eu, null)]
+    [InlineData(null, DataResidency.Eu, null)]
+    public void The_deployment_type_suggests_where_a_deployment_processes_data(string? sku, DataResidency provider, DataResidency? expected) =>
+        ModelDiscovery.SuggestedResidency(sku, provider).ShouldBe(expected);
+
     private const string MixedDeployments = """
         {"value":[
           {"type":"ModelDeployment","name":"gpt-4.1","modelName":"gpt-4.1","modelVersion":"2025-04-14","modelPublisher":"OpenAI","capabilities":{},"sku":{"name":"GlobalStandard"}},

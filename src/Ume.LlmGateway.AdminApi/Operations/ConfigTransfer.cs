@@ -70,7 +70,8 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             [.. providers.Select(p => new ConfigProvider(new ProviderRequest(p.Name, p.BaseUrl, p.Type, p.AuthMode, p.Residency, ProviderCatalogService.Capabilities(p.SupportedCapabilities), p.TimeoutSeconds, p.IsEnabled, p.DisplayName, AutoUpdatePrices: p.AutoUpdatePrices)))],
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, Features: m.Features,
-                    AutoUpdatePrice: m.AutoUpdatePrice, Description: m.Description, BaseModel: m.BaseModel),
+                    AutoUpdatePrice: m.AutoUpdatePrice, Description: m.Description, BaseModel: m.BaseModel, Residency: m.Residency,
+                    Publisher: m.Publisher, RequestBaseUrl: m.RequestBaseUrl, RequestAuthMode: m.RequestAuthMode),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd, price.CacheWriteInputPerMillionUsd))])))],
             [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
             RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);
@@ -134,7 +135,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
                     await catalog.EnsureKindCanChangeAsync(m, config.Kind, ct);
                     updated++;
                 }
-                catalog.Apply(m, config);
+                catalog.Apply(m, config, provider);
                 foreach (var price in item.Prices)
                 {
                     var timestamp = (price.EffectiveFrom ?? ctx.Now).ToUniversalTime();

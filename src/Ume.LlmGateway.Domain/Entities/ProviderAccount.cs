@@ -45,4 +45,28 @@ public sealed class ProviderAccount
     public ProviderCapabilities SupportedCapabilities => ProviderTypes.Capabilities(Type, Capabilities);
 
     public bool Supports(GatewayEndpoint endpoint) => GatewayEndpoints.Info(endpoint).IsSupportedBy(SupportedCapabilities);
+
+    /// <summary>
+    /// This provider as some of its deployments are called: the same id (so health, circuit, usage and the credential cache
+    /// stay this provider's), name, credential and switches, with another API, address, authentication, capabilities or
+    /// residency. The gateway gives such a view to the deployments that need it when it loads the catalogue
+    /// (<see cref="FoundryEndpoint"/>, <see cref="ModelDeployment.Residency"/>). The view has no deployments.
+    /// </summary>
+    public ProviderAccount View(ProviderType type, string baseUrl, ProviderAuthMode authMode, ProviderCapabilities capabilities, DataResidency residency) => new()
+    {
+        Id = Id,
+        Name = Name,
+        DisplayName = DisplayName,
+        Type = type,
+        BaseUrl = baseUrl,
+        AuthMode = authMode,
+        EncryptedCredential = EncryptedCredential,
+        Residency = residency,
+        Capabilities = capabilities,
+        IsEnabled = IsEnabled,
+        IsDrained = IsDrained,
+        TimeoutSeconds = TimeoutSeconds,
+        AutoUpdatePrices = AutoUpdatePrices,
+        CreatedAt = CreatedAt,
+    };
 }

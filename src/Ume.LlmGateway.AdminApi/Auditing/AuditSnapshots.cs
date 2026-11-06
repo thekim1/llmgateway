@@ -75,11 +75,12 @@ public sealed record CircuitAudit(CircuitState State);
 
 public sealed record ModelAudit(
     Guid Id, Guid ProviderId, string Name, string UpstreamModel, ModelKind Kind, ParameterProfile ParameterProfile, int? ContextWindow,
-    bool IsEnabled, IReadOnlyList<string> Features, bool AutoUpdatePrice, string? Description, string? BaseModel)
+    bool IsEnabled, IReadOnlyList<string> Features, bool AutoUpdatePrice, string? Description, string? BaseModel,
+    DataResidency? Residency = null, string? Publisher = null, string? RequestBaseUrl = null, ProviderAuthMode? RequestAuthMode = null)
 {
     public static ModelAudit Of(ModelDeployment m) => new(
         m.Id, m.ProviderAccountId, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, [.. m.Features],
-        m.AutoUpdatePrice, m.Description, m.BaseModel);
+        m.AutoUpdatePrice, m.Description, m.BaseModel, m.Residency, m.Publisher, m.RequestBaseUrl, m.RequestAuthMode);
 }
 
 public sealed record RouteAudit(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, IReadOnlyList<RouteTargetAudit> Targets)
