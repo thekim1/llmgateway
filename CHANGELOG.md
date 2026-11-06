@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-11-06
+
+A residency ceiling per request, an optional reranking endpoint, an optional Keycloak project, the EUPL-1.2 licence and
+a fix for embeddings batches. One migration (`KeyResidencyCeiling`, a new key column with a default). **Rolling update:
+yes** (see the upgrade guide before turning on *Require residency header* or adding Rerank models). The release bundle
+now includes `deploy/keycloak`.
 
 **Optional Keycloak project (`deploy/keycloak`, `docs/keycloak.md`).** For organisations without an OIDC provider of
 their own: Keycloak 26.8.1 in production mode (optimized build, fixed hostname, TLS, `http-max-queued-requests`,

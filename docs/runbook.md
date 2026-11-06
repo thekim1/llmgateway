@@ -220,9 +220,9 @@ fails when a request allocates 20 % more or makes another Postgres statement or 
 
 1. runs the full verify workflow (build, tests, UI, audits, SBOM, Compose validation);
 2. pushes `ghcr.io/<owner>/<repo>/gateway`, `adminapi` (with the admin UI), `migrations` and `dataapi`
-   tagged `X.Y.Z` (linux/amd64, never `latest`);
+   tagged `X.Y.Z` and `latest` (linux/amd64; a pre-release does not move `latest`);
 3. builds the deploy bundle with `deploy/build-release-bundle.sh`, which pins the image defaults in
-   `compose.prod.yaml` and `compose.portainer.yaml` to those digests;
+   `compose.prod.yaml` and `compose.portainer.yaml` to those digests (the optional `deploy/keycloak` is included as is);
 4. boots the bundle with `init-deployment.sh` and `compose.prod.yaml` (data profile included) as a smoke test;
 5. creates the GitHub release with `ume-llm-gateway-X.Y.Z.tar.gz`, `compose.portainer.yaml`, the SPDX SBOM
    and `SHA256SUMS`. A tag with a suffix (`v1.0.0-rc.1`) becomes a pre-release.

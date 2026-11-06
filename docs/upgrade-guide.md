@@ -11,25 +11,14 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: optional Keycloak project
-
-- **Rolling update: yes.** Nothing changes unless you set up `deploy/keycloak` ([Keycloak](keycloak.md)).
-- `deploy/postgres/pg_hba.conf` gains a line for the optional role `ume_keycloak` (database `keycloak` only) and
-  `init.sql` creates them when `secrets/postgres/keycloak_password` exists. Kubernetes and Portainer copies are updated.
-- `Backup-Database.ps1` and `Restore-Database.ps1` take `-Database` (default `gatewaydb`, as before).
-
-## Unreleased: optional reranking endpoint
-
-- **Rolling update: yes.** No migration (model kinds and capabilities are stored as names and flags).
-- **New, optional:** `POST /v1/rerank`, a provider capability *Rerank* (OpenAI-compatible providers only) and a model
-  kind *Rerank*; see [reranking](providers-and-models.md#reranking-optional). Nothing changes until you add one.
-- **Add Rerank models only after every gateway and admin API instance runs this version:** an older instance cannot
-  read the new model kind from the catalogue.
-
-## Unreleased: residency ceiling per request
+## 0.9.0: residency ceiling, reranking, optional Keycloak
 
 - **Rolling update: yes.** Migration `KeyResidencyCeiling` adds `VirtualKeys.RequireMaxResidency` (`false` by
-  default); the previous version does not read it.
+  default); the previous version does not read it. Compose files and the Redis ACL are unchanged; `pg_hba.conf` and
+  `init.sql` gain lines for the optional Keycloak database, which do nothing unless you set it up.
+
+**Residency ceiling per request**
+
 - **New request header** `x-ume-max-residency: OnPrem | Eu | External`: a request can lower the residencies it may reach,
   never raise them. New error `403 max_residency_not_met` (no target within the ceiling is configured); `503
   no_eligible_provider` with `Retry-After` when targets within it are disabled or drained. `GET /v1/models` honours it.
@@ -39,6 +28,24 @@ See [runbook](runbook.md) for the actual deployment procedure.
   key until the admin API is upgraded everywhere: an older admin API does not copy the setting to the replacement.
 - During the rollout an older instance ignores the header: a client that must be sure checks `x-ume-residency` on the
   answer.
+
+**Optional reranking endpoint**
+
+- No migration (model kinds and capabilities are stored as names and flags).
+- **New, optional:** `POST /v1/rerank`, a provider capability *Rerank* (OpenAI-compatible providers only) and a model
+  kind *Rerank*; see [reranking](providers-and-models.md#reranking-optional). Nothing changes until you add one.
+- **Add Rerank models only after every gateway and admin API instance runs this version:** an older instance cannot
+  read the new model kind from the catalogue.
+
+**Optional Keycloak project**
+
+- Nothing changes unless you set up `deploy/keycloak` ([Keycloak](keycloak.md)); the release bundle now includes it.
+- `deploy/postgres/pg_hba.conf` gains a line for the optional role `ume_keycloak` (database `keycloak` only) and
+  `init.sql` creates them when `secrets/postgres/keycloak_password` exists. Kubernetes and Portainer copies are updated.
+- `Backup-Database.ps1` and `Restore-Database.ps1` take `-Database` (default `gatewaydb`, as before).
+
+**Embeddings:** `/v1/embeddings` compares the longest input, not the whole batch, with the model's context window, so
+batches that were refused with `context_length_exceeded` now pass. No configuration change.
 
 ## 0.8.9: gateway memory fix, fewer Redis round trips
 
