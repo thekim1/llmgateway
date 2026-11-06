@@ -487,6 +487,9 @@ the APIs/migrator and selecting the correct project/backup. Restore replaces gat
 objects. Re-run migrations and role grants before starting APIs. Role/bootstrap
 passwords are separately managed, not stored in the database archive.
 
+With the optional Keycloak ([keycloak.md](keycloak.md)), back up its database too, as its own archive:
+`-Database keycloak` on both scripts (restore it with Keycloak stopped; it never touches gatewaydb).
+
 Back up the Data Protection private certificate/password and HMAC pepper separately
 through the secret manager. Test restoration in an isolated environment: schema,
 key authentication, decrypted provider credential, new BFF session and billing query.

@@ -1,0 +1,147 @@
+{
+  "realm": "ume",
+  "enabled": true,
+  "displayName": "$(env:UME_KEYCLOAK_REALM_DISPLAY_NAME:-LLM Gateway)",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "passwordPolicy": "length(12) and maxLength(128) and notUsername and notEmail and passwordHistory(5)",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "attributes": { "userProfileEnabled": "true" },
+  "userProfile": {
+    "attributes": [
+      {
+        "name": "username",
+        "displayName": "${username}",
+        "validations": { "length": { "min": 3, "max": 255 }, "username-prohibited-characters": {}, "up-username-not-idn-homograph": {} },
+        "permissions": { "view": ["admin", "user"], "edit": ["admin", "user"] },
+        "multivalued": false
+      },
+      {
+        "name": "email",
+        "displayName": "${email}",
+        "validations": { "email": {}, "length": { "max": 255 } },
+        "permissions": { "view": ["admin", "user"], "edit": ["admin", "user"] },
+        "multivalued": false
+      },
+      {
+        "name": "firstName",
+        "displayName": "${firstName}",
+        "validations": { "length": { "max": 255 }, "person-name-prohibited-characters": {} },
+        "permissions": { "view": ["admin", "user"], "edit": ["admin", "user"] },
+        "multivalued": false
+      },
+      {
+        "name": "lastName",
+        "displayName": "${lastName}",
+        "validations": { "length": { "max": 255 }, "person-name-prohibited-characters": {} },
+        "permissions": { "view": ["admin", "user"], "edit": ["admin", "user"] },
+        "multivalued": false
+      },
+      {
+        "name": "departmentCodes",
+        "displayName": "Department codes",
+        "permissions": { "view": ["admin"], "edit": ["admin"] },
+        "multivalued": true
+      },
+      {
+        "name": "teamCodes",
+        "displayName": "Team codes",
+        "permissions": { "view": ["admin"], "edit": ["admin"] },
+        "multivalued": true
+      }
+    ],
+    "groups": [
+      { "name": "user-metadata", "displayHeader": "User metadata", "displayDescription": "Attributes, which refer to user metadata" }
+    ]
+  },
+  "roles": {
+    "realm": [
+      { "name": "gateway-admin", "description": "LLM gateway: everything (docs/identity-and-roles.md)" },
+      { "name": "department-admin", "description": "LLM gateway: own departments" },
+      { "name": "team-admin", "description": "LLM gateway: own teams" },
+      { "name": "viewer", "description": "LLM gateway: read-only, own departments" },
+      { "name": "usage.aggregate", "description": "LLM gateway Data API permission (docs/data-access.md)" },
+      { "name": "usage.detail", "description": "LLM gateway Data API permission (docs/data-access.md)" },
+      { "name": "security.read", "description": "LLM gateway Data API permission (docs/data-access.md)" },
+      { "name": "catalog.read", "description": "LLM gateway Data API permission (docs/data-access.md)" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ume-admin",
+      "name": "LLM Gateway admin UI",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "$(file:UTF-8:/run/import-secrets/ume-admin-client-secret)",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": ["$(env:UME_ADMIN_PUBLIC_URL)/signin-oidc"],
+      "webOrigins": ["$(env:UME_ADMIN_PUBLIC_URL)"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "$(env:UME_ADMIN_PUBLIC_URL)/##$(env:UME_ADMIN_PUBLIC_URL)/signout-callback-oidc"
+      },
+      "protocolMappers": [
+        {
+          "name": "gateway-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "department-codes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "departmentCodes",
+            "claim.name": "departmentCodes",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "team-codes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "teamCodes",
+            "claim.name": "teamCodes",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "scopeMappings": [
+    { "client": "ume-admin", "roles": ["gateway-admin", "department-admin", "team-admin", "viewer"] }
+  ]
+}

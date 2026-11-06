@@ -33,3 +33,6 @@ deploy/certs/
 
 # playwright-cli page snapshots
 .playwright-cli/
+deploy/keycloak/.env
+deploy/keycloak/additions/*
+!deploy/keycloak/additions/README.md
