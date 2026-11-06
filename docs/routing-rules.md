@@ -50,7 +50,9 @@ usage record count every extra attempt. Settings: `Gateway:Retry:MaxRetries` (de
 A model whose context window (set on the model, or found by discovery) the prompt clearly exceeds is skipped, so a route
 can send long prompts to a larger fallback model; when no candidate is large enough the request is refused with 400
 `context_length_exceeded` before anything is sent or reserved. The prompt is estimated from the request size (about 4
-bytes per token, 10 % margin), so a request close to the limit can still be refused by the provider.
+bytes per token, 10 % margin), so a request close to the limit can still be refused by the provider. An embeddings
+request is a batch of independent inputs, so its longest input is compared with the window, not the whole batch (token
+arrays are counted exactly).
 
 ### Example 2 (advanced): chats with personal data go to an on-prem model
 

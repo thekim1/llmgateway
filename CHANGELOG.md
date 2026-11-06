@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Fix: an embeddings batch was compared with the context window as a whole.** The gateway estimated the whole request
+(body size / 4) and refused it with 400 `context_length_exceeded` when that exceeded the model's context window, but
+the window limits each input of an embeddings batch, not the batch: 64 chunks of 500 tokens were refused by a model
+with an 8 192-token window. `/v1/embeddings` now compares the longest input (strings at about 4 bytes per token, token
+arrays counted exactly); the budget estimate is still the whole batch. No allocation is added. **Rolling update: yes.**
+
 ## 0.8.9 - 2026-11-03
 
 A gateway memory fix (it used 1-1.7 GB under load), one Redis round trip fewer per request, a batching window for
