@@ -13,7 +13,7 @@ export const DOCS = [
     { slug: '', title: 'Introduction', source: 'docs/introduction.md', lead: 'What the gateway does, what it stores and what it does not.' },
     { slug: 'local-development', title: 'Local development', source: 'docs/local-development.md', lead: 'Run the full stack on Windows with Aspire, demo data and a fake LLM, and run the tests.' },
     { slug: 'production-setup', title: 'Production setup', source: 'docs/production-setup.md', lead: 'Deploy a release bundle with Docker Compose on a Linux host, behind your own login.' },
-    { slug: 'kubernetes', title: 'Kubernetes', source: 'docs/kubernetes.md', lead: 'Kustomize manifests with rolling updates, optional in-cluster Postgres and Redis, and the restricted Pod Security Standard.' },
+    { slug: 'kubernetes', title: 'Kubernetes', source: 'docs/kubernetes.md', lead: 'Kustomize manifests with rolling updates, optional in-cluster Postgres and Redis, optional NetworkPolicies and the restricted Pod Security Standard.' },
     { slug: 'identity-and-roles', title: 'Identity provider and roles', source: 'docs/identity-and-roles.md', lead: 'Sign in with Keycloak, Entra ID or AD FS, and what gateway admins, department admins and viewers may do.' },
   ] },
   { group: 'Build with the API', items: [

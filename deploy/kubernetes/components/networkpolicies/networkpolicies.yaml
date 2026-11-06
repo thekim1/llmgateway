@@ -1,0 +1,160 @@
+# Every policy selects pods by app.kubernetes.io/name: ume-llm-gateway plus their component, so other workloads in the
+# namespace are left alone. Policies add up: a pod may do what any policy that selects it allows.
+
+# Nothing in or out unless a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-default-deny
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway}
+  policyTypes: [Ingress, Egress]
+---
+# Name resolution for every pod (cluster DNS or NodeLocal DNSCache, wherever it runs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-dns
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway}
+  policyTypes: [Egress]
+  egress:
+    - ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+# Gateway: client traffic from the Ingress controller, operations calls from the admin API (Gateway__OperationsUrl).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-gateway
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # change: the namespace (and, if it shares one, the pods) of your Ingress controller.
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: adminapi}
+      ports: [{protocol: TCP, port: 8443}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+      ports: [{protocol: TCP, port: 6379}]
+    # Providers. NetworkPolicy cannot filter by host name: keep the destinations in your egress firewall or proxy.
+    # change: add the ports of on-prem providers (Ollama, vLLM, Speaches, a guard model) and the OTLP collector (4317).
+    - ports: [{protocol: TCP, port: 443}]
+---
+# Admin API: the admin UI from the Ingress controller.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-adminapi
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: adminapi}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # change: as for the gateway.
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+      ports: [{protocol: TCP, port: 8443}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: gateway}
+      ports: [{protocol: TCP, port: 8443}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+      ports: [{protocol: TCP, port: 6379}]
+    # The IdP (back channel), model discovery at the providers, models.dev, prices.azure.com, api.github.com.
+    # change: add the port of an IdP or on-prem provider that is not on 443, and the OTLP collector (4317).
+    - ports: [{protocol: TCP, port: 443}]
+---
+# Data API (components/dataapi): integrations through the Ingress controller.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-dataapi
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: dataapi}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # change: as for the gateway; add the integrations' networks if they call the Service directly.
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+      ports: [{protocol: TCP, port: 8443}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+      ports: [{protocol: TCP, port: 5432}]
+    # The token issuer (DataApi__Authority). change: its port if not 443, and the OTLP collector (4317).
+    - ports: [{protocol: TCP, port: 443}]
+---
+# Migrations Job: the database only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-migrations
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: migrations}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+      ports: [{protocol: TCP, port: 5432}]
+---
+# In-cluster Postgres (components/datastores): only the four app pods. Its pg_hba.conf accepts the roles from any pod
+# address, so this policy is what keeps other pods out. With your own database, the egress rules above that name the
+# postgres pods need an ipBlock for it instead (change).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-postgres
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [ume-llm-gateway]}
+              - {key: app.kubernetes.io/component, operator: In, values: [gateway, adminapi, dataapi, migrations]}
+      ports: [{protocol: TCP, port: 5432}]
+---
+# In-cluster Redis (components/datastores): gateway and admin API only (the ACL in redis.conf limits what each may do).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ume-redis
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ume-llm-gateway, app.kubernetes.io/component: redis}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [ume-llm-gateway]}
+              - {key: app.kubernetes.io/component, operator: In, values: [gateway, adminapi]}
+      ports: [{protocol: TCP, port: 6379}]

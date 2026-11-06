@@ -18,6 +18,11 @@ upstream ume_admin {
     server @UPSTREAM@:@ADMIN_PORT@;
     #rolling server @UPSTREAM@:@ADMIN_B_PORT@;
 }
+# The optional Data API (COMPOSE_PROFILES=data) on its own host name. init-deployment.sh --proxy --data-host HOST
+# enables the lines marked #data (the host name must differ from the gateway's and the admin UI's).
+#data upstream ume_data {
+#data     server @UPSTREAM@:@DATA_PORT@;
+#data }
 
 server {
     listen 443 ssl;
@@ -26,7 +31,7 @@ server {
     # ssl_certificate     /etc/ssl/@GATEWAY_HOST@.crt;
     # ssl_certificate_key /etc/ssl/@GATEWAY_HOST@.key;
 
-    client_max_body_size 32m;          # prompts with documents/images, audio uploads (gateway default 26 MB)
+    client_max_body_size 52m;          # image edits (gateway default 50 MB), audio uploads (26 MB), documents
     location / {
         proxy_pass https://ume_gateway;
         proxy_http_version 1.1;
@@ -74,3 +79,22 @@ server {
         # proxy_ssl_name adminapi;
     }
 }
+
+#data server {
+#data     listen 443 ssl;
+#data     http2 on;
+#data     server_name @DATA_HOST@;
+#data     # ssl_certificate     /etc/ssl/@DATA_HOST@.crt;
+#data     # ssl_certificate_key /etc/ssl/@DATA_HOST@.key;
+#data
+#data     location / {
+#data         proxy_pass https://ume_data;
+#data         proxy_http_version 1.1;
+#data         proxy_set_header Host $host;
+#data         proxy_buffering off;           # large feed pages reach the integration as they are written
+#data         proxy_read_timeout 120s;       # aggregates over long periods can take a while
+#data         proxy_connect_timeout 5s;
+#data         # proxy_ssl_verify on; proxy_ssl_trusted_certificate /etc/ssl/ume-internal-ca.pem;
+#data         # proxy_ssl_name dataapi;
+#data     }
+#data }

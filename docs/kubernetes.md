@@ -11,6 +11,7 @@ so you can move between the two. Docker Compose stays the default and is unaffec
 | `base/` | Gateway and admin API (2 replicas each, rolling updates, PodDisruptionBudgets, probes on `/health/*`), Services, and the migrations Job |
 | `components/datastores/` | Optional single-instance Postgres (StatefulSet, 20 GiB volume) and Redis, configured like Compose: TLS, separate database roles, Redis ACL |
 | `components/dataapi/` | Optional [Data API](data-access.md) |
+| `components/networkpolicies/` | Optional NetworkPolicies: default deny, then only the stack's own flows (see *Network policies*) |
 | `example/` | An overlay to copy: namespace, images, settings, Ingress |
 | `create-secrets.sh` | Creates the Kubernetes secrets from what `init-deployment.sh` generates |
 | `deploy.sh` | Deploys or updates an overlay: migration first, then a rolling update |
@@ -53,7 +54,8 @@ namespace can enforce the **restricted** Pod Security Standard. Requirements: Ku
    - The Ingress host names and TLS secrets. The pods speak HTTPS, so the controller must connect with TLS: the example
      annotations are for ingress-nginx; with Traefik use a ServersTransport, with the Gateway API an HTTPRoute and a
      BackendTLSPolicy. Pass the Host header through and turn off buffering, or streamed answers arrive all at once.
-   - Optionally `../components/dataapi`, more replicas, resources, node placement.
+   - Optionally `../components/dataapi` with its Ingress (`ingress-dataapi.yaml`, a third host name),
+     `../components/networkpolicies` (see *Network policies*), more replicas, resources, node placement.
 
 4. **Deploy:**
 
@@ -108,6 +110,29 @@ Then:
 - Redis needs TLS and a user `gateway` with the commands and keys in `deploy/redis/users.acl.example`.
 - Edit `deploy/secrets/<service>/ConnectionStrings__gatewaydb` and `ConnectionStrings__redis` for gateway, adminapi,
   migrations and dataapi, run `create-secrets.sh` without `--datastores`, and remove the component from the overlay.
+
+## Network policies
+
+`components/networkpolicies` denies all traffic to and from the stack's pods, then allows only what the stack needs:
+the Ingress controller to the gateway, admin API and Data API on 8443, the admin API to the gateway, the apps to Postgres
+(5432) and Redis (6379), DNS, and outbound HTTPS (443) from the gateway (providers), the admin API (IdP, model discovery,
+price lists) and the Data API (token issuer). The full list of flows is in [Network and ports](network-and-ports.md#c-kubernetes).
+It matters most with `components/datastores`: that Postgres accepts the app roles from any pod address, so the policy is
+what keeps other pods in the cluster away from it.
+
+Before enabling it, adjust the lines marked `change` in `networkpolicies.yaml`:
+
+- **Ingress controller.** The policies admit the namespace `ingress-nginx`; use the namespace (or pods) of yours.
+- **Outbound ports other than 443:** on-prem providers (Ollama, vLLM, Speaches) on their own ports, an IdP that is not on
+  443, the OTLP collector (4317). NetworkPolicy cannot filter by host name, so outbound 443 is open to any address; keep the
+  allowed destinations in your egress firewall or proxy.
+- **Your own Postgres and Redis** (without `components/datastores`): replace the rules that name the `postgres` and
+  `redis` pods with an `ipBlock` for your database and cache.
+
+The policies need a CNI that enforces them (Calico, Cilium, Antrea and others); with one that does not, they are silently
+ignored. Kubelet probes come from the node and are not blocked by them with the common CNIs. The component renders in
+CI, but no test in this repository runs the stack with it enforced: check the stack after enabling it (sign in to the
+admin UI, send a request through the gateway, run a Data API query).
 
 ## Scaling and placement
 

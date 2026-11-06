@@ -106,10 +106,14 @@ From [`nginx.conf.example`](../deploy/proxy/nginx.conf.example) and the runbook'
 | `X-Forwarded-For` | Append the client address; list the proxy under *Settings > Trusted proxies* | Append |
 | WebSocket | Pass `Upgrade` and `Connection` (live audio, `/v1/realtime`) | Not needed |
 | Buffering | Response buffering off (streamed tokens), request buffering off (no recordings in proxy temp files) | Default |
-| Body size | `client_max_body_size 32m` in the example covers audio uploads (26 MB, `Gateway:MaxAudioRequestBodyBytes`); image edits allow 50 MB (`Gateway:MaxImageRequestBodyBytes`) and need 52 MB ([runbook](runbook.md#reverse-proxy-and-pki)). Raise both together | Default |
+| Body size | `client_max_body_size 52m` in the example covers image edits (50 MB, `Gateway:MaxImageRequestBodyBytes`) and audio uploads (26 MB, `Gateway:MaxAudioRequestBodyBytes`). Raise it with either ([runbook](runbook.md#reverse-proxy-and-pki)) | Default |
 | Timeouts | `proxy_read_timeout` and `proxy_send_timeout` 600 s (long generations; the gateway pings live sessions every 30 s); `proxy_connect_timeout` 5 s | `proxy_connect_timeout` 5 s |
 | Retry | `proxy_next_upstream error timeout non_idempotent`, within 10 s, 2 tries (rolling updates) | Same |
 | Host names | Distinct host names per service: the proxy routes by name | |
+
+The optional Data API goes through the proxy on a third host name (`init-deployment.sh --proxy --data-host <name>`
+enables its server block in `proxy/nginx.conf`): upstream `https://<docker host>:10443`, `proxy_ssl_name dataapi`,
+response buffering off, read timeout 120 s, default body size.
 
 Whether the proxy also listens on port 80 to redirect to 443 is **not set by the gateway; agree with infra** (the example
 only listens on 443, and the apps never redirect).
@@ -265,12 +269,15 @@ container at once), and PKI certificates for the public listeners are not suppor
 |---|---|---|
 | Service `gateway` | 8443 (`https`) | ClusterIP; the admin API reaches it as `https://gateway:8443` |
 | Service `adminapi` | 8443 (`https`) | ClusterIP |
-| Service `dataapi` | 8443 (`https`) | Only with `components/dataapi`; **no Ingress in the example** |
+| Service `dataapi` | 8443 (`https`) | Only with `components/dataapi`; Ingress `dataapi` in [`example/ingress-dataapi.yaml`](../deploy/kubernetes/example/ingress-dataapi.yaml) (commented out in the overlay) |
 | Service `postgres`, `redis` | 5432, 6379 | Only with `components/datastores`; configured like Compose (TLS, roles, ACL) |
-| Ingress `gateway`, `adminapi` ([`example/ingress.yaml`](../deploy/kubernetes/example/ingress.yaml)) | 443 at the controller → `https` on the pods | ingress-nginx annotations: `backend-protocol: HTTPS`, `proxy-body-size: 32m`, buffering off, read/send timeout 600 s (gateway) |
+| Ingress `gateway`, `adminapi` ([`example/ingress.yaml`](../deploy/kubernetes/example/ingress.yaml)) | 443 at the controller → `https` on the pods | ingress-nginx annotations: `backend-protocol: HTTPS`, `proxy-body-size: 52m`, buffering off, read/send timeout 600 s (gateway) |
+| Ingress `dataapi` (optional) | 443 at the controller → `https` on the pods | `backend-protocol: HTTPS`, response buffering off, read timeout 120 s |
 
-Kubelet probes `/health/live` and `/health/ready` on 8443 over HTTPS. **No NetworkPolicies are shipped**; if the namespace
-enforces them, allow (derived from the flows above, not tested in this repository):
+Kubelet probes `/health/live` and `/health/ready` on 8443 over HTTPS. The optional component
+[`components/networkpolicies`](../deploy/kubernetes/components/networkpolicies/networkpolicies.yaml) denies everything
+else and allows these flows (rendered in CI, not run with enforcement in this repository; see
+[kubernetes.md](kubernetes.md#network-policies) for what to adjust):
 
 - Ingress controller → `gateway` and `adminapi` pods on 8443 (and `dataapi` if you expose it);
 - `adminapi` → `gateway` on 8443;
@@ -280,7 +287,7 @@ enforces them, allow (derived from the flows above, not tested in this repositor
 
 List the Ingress controller's pod network under *Settings > Trusted proxies* ([kubernetes.md](kubernetes.md#install), step 5).
 The datastores component's Postgres accepts the roles from any pod address (its own copy of `pg_hba.conf`), so a
-NetworkPolicy is what keeps other pods out.
+NetworkPolicy (the component's `ume-postgres`) is what keeps other pods out.
 
 ### (d) The Keycloak project on the same host, or an external OIDC provider
 
@@ -383,8 +390,8 @@ ALLOW  <gateway host> -> <adfs host>:443                    TCP  HTTPS       bro
 ALLOW  <gateway host> -> <domain controllers>:<636>         TCP  LDAPS       LDAP federation (port: agree)
 
 # Proxy settings for <gateway host name>
-WebSocket upgrade on; response and request buffering off; read/send timeout 600 s; body size >= 32 MB (52 MB for
-50 MB image edits); X-Forwarded-For appended; Host preserved; upstream HTTPS (trust ca.pem or skip verification).
+WebSocket upgrade on; response and request buffering off; read/send timeout 600 s; body size >= 52 MB (50 MB image
+edits, 26 MB audio); X-Forwarded-For appended; Host preserved; upstream HTTPS (trust ca.pem or skip verification).
 Then list <proxy> under Settings > Trusted proxies in the admin UI.
 ```
 

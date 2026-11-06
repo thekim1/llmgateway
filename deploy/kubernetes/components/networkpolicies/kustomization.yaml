@@ -1,0 +1,9 @@
+# Optional NetworkPolicies: deny all traffic to and from the stack's pods except the flows in docs/network-and-ports.md
+# (Kubernetes). Needs a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, recent kindnet...); others ignore it.
+# Before enabling, check in networkpolicies.yaml the lines marked "change": where your Ingress controller runs, and the
+# egress your providers, IdP and collector need. Kubelet probes come from the node and are not affected by these
+# policies with the common CNIs.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - networkpolicies.yaml

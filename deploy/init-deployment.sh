@@ -20,7 +20,8 @@
 #   --oidc-client-secret-file FILE
 #                           confidential OIDC client: install the secret for the admin API
 #                           (omit for a public client using PKCE only)
-#   --data-host HOST        hostname clients use for the optional Data API (default: gateway host)
+#   --data-host HOST        hostname clients use for the optional Data API (default: gateway host); with
+#                           --proxy a third distinct name, which enables the Data API in proxy/nginx.conf
 #   --gateway-cert/--gateway-key/--admin-cert/--admin-key/--ca-file FILE
 #                           use certificates from your PKI for the public listeners instead of
 #                           the generated internal CA (ca-file = your root/intermediate chain)
@@ -33,7 +34,7 @@ oidc_authority=""; oidc_client="ume-admin"; gateway_host=""; admin_host=""; data
 gateway_port=8443; admin_port=9443; bind=""; yes=0; renew=0; renew_ca=0; rolling=0; chown=1
 oidc_secret_file=""; proxy=0; upstream_host=""; gw_cert=""; gw_key=""; adm_cert=""; adm_key=""; ca_file=""
 
-usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die() { echo "error: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -91,6 +92,8 @@ if [ "$renew" = 0 ] || [ ! -f "$env_file" ]; then
   if [ "$proxy" = 1 ]; then
     ask admin_host "Public hostname for the admin UI (must differ from the gateway's)"
     [ "$admin_host" != "$gateway_host" ] || die "proxy mode needs two distinct hostnames (the proxy routes by name)"
+    [ -z "$data_host" ] || { [ "$data_host" != "$gateway_host" ] && [ "$data_host" != "$admin_host" ]; } \
+      || die "proxy mode needs a --data-host distinct from the gateway and admin hosts (the proxy routes by name)"
     ask upstream_host "Address the proxy uses to reach this host" "$(hostname -f 2>/dev/null || hostname)"
   else
     ask admin_host "Public hostname for the admin UI" "$gateway_host"
@@ -288,8 +291,13 @@ if [ "$proxy" = 1 ]; then
   sed -e "s/@GATEWAY_HOST@/$gateway_host/g" -e "s/@ADMIN_HOST@/$admin_host/g" \
       -e "s/@UPSTREAM@/$upstream_host/g" -e "s/@GATEWAY_PORT@/$gateway_port/g" \
       -e "s/@ADMIN_PORT@/$admin_port/g" -e "s/@GATEWAY_B_PORT@/$((gateway_port + 1))/g" \
-      -e "s/@ADMIN_B_PORT@/$((admin_port + 1))/g" "$here/proxy/nginx.conf.example" > "$here/proxy/nginx.conf"
+      -e "s/@ADMIN_B_PORT@/$((admin_port + 1))/g" -e "s/@DATA_HOST@/$data_host/g" -e "s/@DATA_PORT@/10443/g" \
+      "$here/proxy/nginx.conf.example" > "$here/proxy/nginx.conf"
   [ "$rolling" = 1 ] && sed -i 's/#rolling //' "$here/proxy/nginx.conf"
+  data_proxied=0
+  if [ "$data_host" != "$gateway_host" ] && [ "$data_host" != "$admin_host" ]; then
+    sed -i 's/^#data \{0,1\}//' "$here/proxy/nginx.conf"; data_proxied=1
+  fi
   proxy_note="
 Reverse proxy: $here/proxy/nginx.conf is ready for nginx; for Nginx Proxy Manager or F5 use
 the same settings (see docs/runbook.md, 'Reverse proxy and PKI'). Both hosts forward to
@@ -298,6 +306,12 @@ preserving the Host header. Restrict those ports to the proxy with the host fire
   [ "$rolling" = 1 ] && proxy_note="$proxy_note
 With --rolling, also list the second slots: $upstream_host:$((gateway_port + 1)) (gateway) and
 $upstream_host:$((admin_port + 1)) (admin UI); proxy/nginx.conf already does."
+  if [ "$data_proxied" = 1 ]; then proxy_note="$proxy_note
+The optional Data API (COMPOSE_PROFILES=data) is proxied as $data_host to $upstream_host:10443."
+  else proxy_note="$proxy_note
+Port 10443 (the optional Data API) is bound to $bind as well. To proxy it, re-run with --data-host <third host name>,
+or firewall it to the integrations that call it directly."
+  fi
 fi
 up_cmd="docker compose -f deploy/compose.prod.yaml --env-file deploy/.env up -d --wait"
 update_note=""
