@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+**Licence: EUPL-1.2.** The repository now has a `LICENSE` (the European Union Public Licence v. 1.2, the SPDX text
+unchanged) and a *Licence* section in the README: copyright Kim Vallén, Nichlas Löfdahl and Umeå kommun.
+
 **Optional reranking endpoint: `POST /v1/rerank`.** Cohere-compatible (`query` and `documents` in, `results[]` with
 `index` and `relevance_score` out), passed through unchanged to an OpenAI-compatible provider whose new **Rerank**
 capability is ticked, for models of the new kind **Rerank**: Berget AI (`BAAI/bge-reranker-v2-m3`, Sweden), vLLM,
