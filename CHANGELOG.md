@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Fake LLM: real-sized embeddings (development only).** The fake provider takes the OpenAI `dimensions` parameter
+(1–4 096) or a model name ending in `-<n>` (`fake-embed-1024`) and then returns L2-normalised vectors in which similar
+texts are close (feature hashing of words and character trigrams), and `encoding_format: "base64"`. Without either it
+returns the same 8 values as before. New tests pin that function tools, tool choices, assistant tool calls and tool
+results pass through an OpenAI-compatible provider and the Responses API unchanged and in order, in requests and in
+JSON and streamed answers, and that `dimensions` and `encoding_format` reach the provider unchanged. No gateway change.
+
 **Residency ceiling per request (ADR 018).** A request can lower the residencies it may reach with
 `x-ume-max-residency: OnPrem | Eu | External` (case-insensitive); it never widens the key's. The ceiling is intersected
 with the key's residencies and the PII on-prem restriction after routing rules and fallback lists, and before routing

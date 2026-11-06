@@ -29,6 +29,14 @@ The fake provider (`fake-llm`) starts with the AppHost by default. Set `"FakeLlm
 in the AppHost user secrets (or `FakeLlm__Enabled=false` in the environment) to skip it. The admin UI
 badge shows **Development** or **Production** from the admin API's environment.
 
+**Embeddings.** Without a size the fake returns the same 8 values per text as before (from SHA-256, so existing tests
+are unaffected). To develop against real-sized vectors, send the OpenAI `dimensions` parameter (1–4 096; outside → 400
+like OpenAI) or give the model a name ending in `-<n>`, for example `fake-embed-1024`, so a client that never sends
+`dimensions` (a local `bge-m3` profile) still gets 1 024 values. Those vectors are L2-normalised and similar texts get
+similar vectors (feature hashing of words and character trigrams), the same on every machine, so retrieval code can be
+tested without a model. `encoding_format: "base64"` returns little-endian float32 bytes, as several OpenAI SDKs ask
+for by default. The gateway passes `dimensions` and `encoding_format` on unchanged.
+
 By default the fake LLM answers instantly. To make chat, responses and messages answers behave like a real provider,
 set `FakeLlm:Latency` in the AppHost user secrets (or `FakeLlm__Latency__*` on the fake LLM itself). All values
 default to 0 (off):
