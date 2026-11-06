@@ -265,6 +265,32 @@ public sealed class ResidencyCeilingTests(GatewayFixture fixture)
         capped.Headers.GetValues("x-ume-residency").Single().ShouldBe("Eu");
     }
 
+    [Fact]
+    public async Task Rerank_requests_stay_within_the_ceiling_too()
+    {
+        // A rerank route with the EU reranker first: the ceiling sends it on-prem, and refuses an EU-only reranker.
+        var route = await fixture.CreateRouteAsync("eu/rerank", "onprem/rerank");
+        var key = await fixture.CreateKeyAsync(k => k.RequireMaxResidency = true);
+        var body = new JsonObject { ["query"] = "bygglov", ["documents"] = new JsonArray("a", "b") };
+
+        body["model"] = route;
+        using (var onPrem = await fixture.SendRawAsync(key, "/v1/rerank", body.ToJsonString(), headers: Ceiling("OnPrem")))
+        {
+            onPrem.StatusCode.ShouldBe(HttpStatusCode.OK);
+            onPrem.Headers.GetValues("x-ume-residency").Single().ShouldBe("OnPrem");
+        }
+
+        body["model"] = "eu/rerank";
+        using (var refused = await fixture.SendRawAsync(key, "/v1/rerank", body.ToJsonString(), headers: Ceiling("OnPrem")))
+        {
+            refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+            (await ErrorCodeAsync(refused)).ShouldBe("max_residency_not_met");
+        }
+
+        using var missing = await fixture.SendRawAsync(key, "/v1/rerank", body.ToJsonString());
+        missing.StatusCode.ShouldBe(HttpStatusCode.BadRequest); // the key requires the header on every endpoint
+    }
+
     private async Task<HttpResponseMessage> ListModelsAsync(TestKey key, string? ceiling)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/models");

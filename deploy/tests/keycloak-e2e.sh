@@ -20,7 +20,7 @@ step() { echo "== $*"; }
 cleanup() {
   if [ -n "${KEEP:-}" ]; then echo "KEEP: left $id running, files in $work"; return; fi
   docker compose -p "$id" -f "$work/deploy/keycloak/compose.yaml" --env-file "$work/deploy/keycloak/.env" down -v >/dev/null 2>&1 || true
-  docker rm -f "$pg" >/dev/null 2>&1 || true
+  docker rm -f "$pg" "${id}-ldap" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   # Files the containers' users own (Postgres 70) cannot be removed as yourself.
   docker run --rm --user 0 --entrypoint rm -v "$work:/w" "$postgres_image" -rf /w/deploy /w/certs /w/secrets >/dev/null 2>&1 || true
@@ -77,6 +77,46 @@ pg_exec psql -U postgres -tAc "SELECT datname FROM pg_database WHERE datname='ke
 # add-keycloak-database.sql is idempotent on an installation that already has them.
 pg_exec psql -q -v ON_ERROR_STOP=1 -U postgres -d gatewaydb < "$work/deploy/postgres/add-keycloak-database.sql" >/dev/null \
   || fail "add-keycloak-database.sql failed on an existing database"
+
+step "a test directory (OpenLDAP) with a user, a department attribute and a role group"
+ldap_image="docker.io/osixia/openldap:1.5.0@sha256:18742e9c449c9c1afe129d3f2f3ee15fb34cc43e5f940a20f3399728f41d7c28"
+ldap_admin_password="Ldap-$(openssl rand -hex 8)"; ldap_user_password="Lars-$(openssl rand -hex 8)"; local_password="Pilot-$(openssl rand -hex 8)"
+mkdir -p "$work/ldif"
+cat > "$work/ldif/50-test.ldif" <<EOF
+dn: ou=people,dc=test,dc=invalid
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=roles,dc=test,dc=invalid
+objectClass: organizationalUnit
+ou: roles
+
+dn: uid=lars.ldap,ou=people,dc=test,dc=invalid
+objectClass: inetOrgPerson
+uid: lars.ldap
+cn: Lars Ldap
+givenName: Lars
+sn: Ldap
+mail: lars.ldap@test.invalid
+departmentNumber: 3000
+userPassword: $ldap_user_password
+
+dn: cn=department-admin,ou=roles,dc=test,dc=invalid
+objectClass: groupOfNames
+cn: department-admin
+member: uid=lars.ldap,ou=people,dc=test,dc=invalid
+EOF
+chmod -R a+rX "$work/ldif"
+docker run -d --name "${id}-ldap" --network "$net" --network-alias ldap \
+  -e LDAP_ORGANISATION=Test -e LDAP_DOMAIN=test.invalid -e "LDAP_ADMIN_PASSWORD=$ldap_admin_password" -e LDAP_TLS=false \
+  -v "$work/ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro" "$ldap_image" --copy-service >/dev/null
+for _ in $(seq 60); do
+  docker exec "${id}-ldap" ldapsearch -x -H ldap://localhost -b dc=test,dc=invalid -D cn=admin,dc=test,dc=invalid -w "$ldap_admin_password" uid=lars.ldap 2>/dev/null \
+    | grep '^uid: lars.ldap' >/dev/null && break
+  sleep 1
+done
+docker exec "${id}-ldap" ldapsearch -x -H ldap://localhost -b dc=test,dc=invalid -D cn=admin,dc=test,dc=invalid -w "$ldap_admin_password" uid=lars.ldap 2>/dev/null \
+  | grep '^uid: lars.ldap' >/dev/null || fail "the test directory did not start"
 
 step "Keycloak and the realm import (production mode)"
 mkdir -p "$work/additions"
@@ -156,8 +196,39 @@ cat > "$work/additions/30-broker.json" <<'EOF2'
   ]
 }
 EOF2
+# Read-only LDAP user federation, as for Active Directory (vendor "other" here: the test directory is OpenLDAP).
+cat > "$work/additions/25-ldap.json" <<'EOF2'
+{
+  "realm": "ume",
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "name": "directory", "providerId": "ldap",
+        "config": {
+          "enabled": ["true"], "priority": ["0"], "vendor": ["other"], "connectionUrl": ["ldap://ldap:389"], "authType": ["simple"],
+          "bindDn": ["cn=admin,dc=test,dc=invalid"], "bindCredential": ["$(env:LDAP_BIND_PASSWORD)"],
+          "usersDn": ["ou=people,dc=test,dc=invalid"], "userObjectClasses": ["inetOrgPerson"], "searchScope": ["1"],
+          "usernameLDAPAttribute": ["uid"], "rdnLDAPAttribute": ["uid"], "uuidLDAPAttribute": ["entryUUID"],
+          "editMode": ["READ_ONLY"], "importEnabled": ["true"], "syncRegistrations": ["false"], "trustEmail": ["true"], "pagination": ["false"]
+        },
+        "subComponents": {
+          "org.keycloak.storage.ldap.mappers.LDAPStorageMapper": [
+            { "name": "departmentCodes", "providerId": "user-attribute-ldap-mapper",
+              "config": { "ldap.attribute": ["departmentNumber"], "user.model.attribute": ["departmentCodes"], "read.only": ["true"],
+                "always.read.value.from.ldap": ["true"], "is.mandatory.in.ldap": ["false"], "is.binary.attribute": ["false"], "attribute.force.default": ["false"] } },
+            { "name": "roles", "providerId": "role-ldap-mapper",
+              "config": { "roles.dn": ["ou=roles,dc=test,dc=invalid"], "role.name.ldap.attribute": ["cn"], "role.object.classes": ["groupOfNames"],
+                "membership.ldap.attribute": ["member"], "membership.attribute.type": ["DN"], "membership.user.ldap.attribute": ["uid"],
+                "mode": ["READ_ONLY"], "user.roles.retrieve.strategy": ["LOAD_ROLES_BY_MEMBER_ATTRIBUTE"], "use.realm.roles.mapping": ["true"] } }
+          ]
+        }
+      }
+    ]
+  }
+}
+EOF2
 upstream_password="Up-$(openssl rand -hex 8)"
-printf 'OTHER_APP_SECRET=other-secret\nUPSTREAM_PASSWORD=%s\nKC_PUBLIC_URL=https://localhost:%s\n' "$upstream_password" "$port" > "$work/additions/import.env"
+printf 'OTHER_APP_SECRET=other-secret\nUPSTREAM_PASSWORD=%s\nKC_PUBLIC_URL=https://localhost:%s\nLDAP_BIND_PASSWORD=%s\n' "$upstream_password" "$port" "$ldap_admin_password" > "$work/additions/import.env"
 chmod -R a+rX "$work/additions"
 cat >> "$work/deploy/keycloak/.env" <<EOF
 UME_GATEWAY_DATA_NETWORK=$net
@@ -206,12 +277,8 @@ claims() { api "$kc/admin/realms/ume/clients/$1/evaluate-scopes/generate-example
   || fail "gateway token: $(claims "$admin_client")"
 [ "$(claims "$other_client" | json 'sorted(d.get("roles", []))')" = "['other-admin']" ] || fail "other token: $(claims "$other_client")"
 
-step "brokered sign-in: an organisation's user gets the gateway's roles and departmentCodes"
-# Authorization code flow with PKCE as the admin API runs it, through the stand-in organisation, followed by hand.
-jar="$work/cookies"; verifier="$(openssl rand -hex 32)"
-challenge="$(printf '%s' "$verifier" | openssl dgst -binary -sha256 | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+# Authorization code flow with PKCE as the admin API runs it, followed by hand with curl.
 redirect="https://admin.test.invalid:9443/signin-oidc"
-url="$kc/realms/ume/protocol/openid-connect/auth?client_id=ume-admin&response_type=code&scope=openid&kc_idp_hint=upstream&redirect_uri=$(python3 -I -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$redirect")&code_challenge=$challenge&code_challenge_method=S256&state=s1&nonce=n1"
 follow() { # follow URL [curl args]: follows redirects within Keycloak; prints the final URL, the page is in $work/page
   local next="$1"; shift
   for _ in $(seq 10); do
@@ -221,16 +288,34 @@ follow() { # follow URL [curl args]: follows redirects within Keycloak; prints t
     [ -n "$next" ] || { echo "PAGE"; return; }
   done
 }
-[ "$(follow "$url")" = PAGE ] || fail "expected the organisation's login page"
-action="$(python3 -I -c 'import html,re,sys; print(html.unescape(re.search(r"action=\"([^\"]+)\"", open(sys.argv[1]).read()).group(1)))' "$work/page")"
-case "$action" in "$kc/realms/upstream/"*) ;; *) fail "login form is not the organisation's: $action";; esac
-final="$(follow "$action" --data-urlencode username=anna.admin --data-urlencode "password=$upstream_password")"
-case "$final" in "$redirect?"*code=*) ;; *) fail "brokered sign-in did not come back with a code: $final $(head -c 400 "$work/page")";; esac
-code="$(python3 -I -c 'import sys,urllib.parse; print(urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query)["code"][0])' "$final")"
-id_token="$(curl_kc -d grant_type=authorization_code -d client_id=ume-admin -d "client_secret=$(cat "$work/secrets/keycloak-import/ume-admin-client-secret")" \
-  -d "code=$code" -d "redirect_uri=$redirect" -d "code_verifier=$verifier" "$kc/realms/ume/protocol/openid-connect/token" | json 'd["id_token"]')"
-claims="$(python3 -I -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; d=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))); print(sorted(d.get("roles",[])), d.get("departmentCodes"), d["iss"])' "$id_token")"
+signin() { # signin USER PASSWORD LOGIN-REALM [extra auth parameters]: prints the ID token's roles, departmentCodes and issuer
+  local user="$1" password="$2" realm="$3" extra="${4:-}" verifier challenge url action final code id_token
+  jar="$work/cookies-$user"; rm -f "$jar"; verifier="$(openssl rand -hex 32)"
+  challenge="$(printf '%s' "$verifier" | openssl dgst -binary -sha256 | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+  url="$kc/realms/ume/protocol/openid-connect/auth?client_id=ume-admin&response_type=code&scope=openid$extra&redirect_uri=$(python3 -I -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$redirect")&code_challenge=$challenge&code_challenge_method=S256&state=s1&nonce=n1"
+  [ "$(follow "$url")" = PAGE ] || fail "$user: expected a login page"
+  action="$(python3 -I -c 'import html,re,sys; print(html.unescape(re.search(r"action=\"([^\"]+)\"", open(sys.argv[1]).read()).group(1)))' "$work/page")"
+  case "$action" in "$kc/realms/$realm/"*) ;; *) fail "$user: the login form is not realm $realm's: $action";; esac
+  final="$(follow "$action" --data-urlencode "username=$user" --data-urlencode "password=$password")"
+  case "$final" in "$redirect?"*code=*) ;; *) fail "$user: sign-in did not come back with a code: $final $(head -c 400 "$work/page")";; esac
+  code="$(python3 -I -c 'import sys,urllib.parse; print(urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query)["code"][0])' "$final")"
+  id_token="$(curl_kc -d grant_type=authorization_code -d client_id=ume-admin -d "client_secret=$(cat "$work/secrets/keycloak-import/ume-admin-client-secret")" \
+    -d "code=$code" -d "redirect_uri=$redirect" -d "code_verifier=$verifier" "$kc/realms/ume/protocol/openid-connect/token" | json 'd["id_token"]')"
+  python3 -I -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; d=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))); print(sorted(d.get("roles",[])), d.get("departmentCodes"), d["iss"])' "$id_token"
+}
+
+step "brokered sign-in: an organisation's user gets the gateway's roles and departmentCodes"
+claims="$(signin anna.admin "$upstream_password" upstream "&kc_idp_hint=upstream")"
 [ "$claims" = "['gateway-admin'] ['2000'] $kc/realms/ume" ] || fail "brokered token: $claims"
+
+step "LDAP federation: a directory user signs in with roles from LDAP groups and departmentCodes from an attribute"
+claims="$(signin lars.ldap "$ldap_user_password" ume)"
+[ "$claims" = "['department-admin'] ['3000'] $kc/realms/ume" ] || fail "LDAP token: $claims"
+
+step "local account: a password sign-in with roles and departmentCodes set in Keycloak"
+api -X PUT "$kc/admin/realms/ume/users/$user/reset-password" -d "{\"type\":\"password\",\"value\":\"$local_password\",\"temporary\":false}" >/dev/null
+claims="$(signin pilot.user "$local_password" ume)"
+[ "$claims" = "['gateway-admin'] ['1000'] $kc/realms/ume" ] || fail "local token: $claims"
 
 step "a second import changes nothing and deletes nothing"
 api -X POST "$kc/admin/realms/ume/clients" -d '{"clientId":"made-by-hand","enabled":true}' >/dev/null

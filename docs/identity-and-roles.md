@@ -220,8 +220,8 @@ AD FS 2016 or later.
 
 ## Check the setup
 
-Only the Keycloak defaults are tested end to end, including a brokered sign-in through a stand-in provider
-([Keycloak](keycloak.md#identity-providers-brokered-or-direct)). The Entra ID and AD FS steps are the intended mapping;
+Only Keycloak is tested end to end: local accounts, a brokered sign-in through a stand-in provider and LDAP
+federation against a test directory ([Keycloak](keycloak.md#identity-providers-brokered-or-direct)). The Entra ID and AD FS steps are the intended mapping;
 check them against your own provider:
 
 1. Sign in to the admin UI, then open `https://<admin host>/bff/user`. It shows the `roles` and `departmentCodes` the API
