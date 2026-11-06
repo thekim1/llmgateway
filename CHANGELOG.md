@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+**Rerankers on Azure AI Foundry, and a residency per model (#72, ADR 019).** A reranker deployed on Azure AI Foundry
+(first use: `Cohere-rerank-v5-fast`) is added under the existing Foundry provider and called through `POST /v1/rerank`,
+with the provider's credential, health, circuit and usage: no second OpenAI-compatible provider any more. The gateway
+calls it at `https://<resource>.services.ai.azure.com/providers/<publisher>/v2/rerank`, the publisher coming from the
+model (discovery fills it from the deployment's `modelPublisher`); a model's **Request address** (on the provider's
+resource only) and **Request authentication** override it. Every model now has an optional **Residency** of its own
+(null = the provider's): routing, keys' residencies, the PII on-prem restriction, the residency ceiling, `/v1/models`,
+`x-ume-residency`, token quotas per residency, the key holders' catalogue and the Data API's usage aggregate (and its
+model catalogue, new field `residency`) use it, so one Foundry resource with global, data zone and regional
+deployments needs one provider. Discovery suggests the kind *Rerank* (name or capabilities), the publisher and the
+residency (from the deployment type: global External, data zone the resource's zone, regional the provider's); the
+admin confirms them in the model drawer. A new reranker, publisher or location is configuration, not a release. The
+admin API's `Model` gains `residencyOverride`, `publisher`, `requestBaseUrl`, `requestAuthMode` and `rerankBaseUrl`
+(`residency` is now the one in effect); the configuration document and the audit log carry the new fields. **Fix:** a
+rerank answer without token counts (Cohere's `meta.billed_units.search_units`) was recorded as 0 tokens and $0; it is
+now charged by the request-size estimate, as documented. Migration `DeploymentResidencyAndAddress` adds four nullable
+model columns. **Rolling update: yes**, but set a model's own residency only after every gateway and admin API instance
+runs this version (see the upgrade guide).
+
 ## 0.9.0 - 2026-11-06
 
 A residency ceiling per request, an optional reranking endpoint, an optional Keycloak project, the EUPL-1.2 licence and

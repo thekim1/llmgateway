@@ -154,7 +154,7 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
   kept while the base URL's scheme, host and port stay the same: moving the provider elsewhere without a new `credential`
   (or `""`) answers `400` with a field error on `credential`.
 - `POST /api/providers/{id}/drain` `{ drained: boolean }` → `Provider` · `DELETE /api/providers/{id}?deleteModels=` (409 if models exist; `deleteModels=true` deletes them with the provider in one transaction, each audited as a model `delete`, and is 409 naming the route or rule while a route or routing rule uses one of them)
-- `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, cacheWriteInputPerMillionUsd? }|null, priceSource|null, alreadyAdded, description|null, baseModel|null }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them; when the provider is in the models.dev list, a model gets what the provider does not report from it (price, capabilities, context window, description; `priceSource` says where a suggested price came from). A Foundry deployment is looked up by the model behind it (`baseModel`); an Azure AI Foundry provider lists the project's Claude deployments too (the gateway sends them to the resource's Anthropic API), an Anthropic provider at a Foundry address only those. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
+- `POST /api/providers/{id}/discover-models` → `DiscoveredModel[] = { id, displayName, kind, parameterProfile, contextWindow|null, features: string[], price: { inputPerMillionUsd, cachedInputPerMillionUsd, outputPerMillionUsd, cacheWriteInputPerMillionUsd? }|null, priceSource|null, alreadyAdded, description|null, baseModel|null, publisher|null, residency|null }`. Calls the provider's `/models` with the stored credential, so it doubles as a connection test (502/504 on failure). Context size, features and price are included only when the provider reports them; when the provider is in the models.dev list, a model gets what the provider does not report from it (price, capabilities, context window, description; `priceSource` says where a suggested price came from). A Foundry deployment is looked up by the model behind it (`baseModel`); an Azure AI Foundry provider lists the project's Claude deployments too (the gateway sends them to the resource's Anthropic API), an Anthropic provider at a Foundry address only those. For a Foundry deployment, `publisher` is its `modelPublisher` and `residency` a suggestion from its deployment type (`sku.name`: `Global*` → `External`, `DataZone*` → `Eu` when the provider is `Eu`, else `External`, regional or unknown → null, the provider's); a deployment whose name or capabilities say rerank has kind `Rerank`. Azure OpenAI is unsupported (400). In Production the provider address must be https (400 otherwise), like the gateway; one attempt, 20 s timeout.
 - `Price = { inputPerMillionUsd, cachedInputPerMillionUsd, cacheWriteInputPerMillionUsd|null, outputPerMillionUsd, audioPerMinuteUsd, audioInputPerMillionUsd, audioOutputPerMillionUsd, perImageUsd, effectiveFrom, source|null }`
   (`audioPerMinuteUsd` is for models billed by the duration of the input audio, such as Whisper and gpt-realtime-translate,
   up to ten decimals: a price per hour is sent divided by 60, one per second multiplied by 60; with it set and
@@ -165,23 +165,34 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
   billed at `inputPerMillionUsd`; `source` is read-only: where the price came from, e.g. `models.dev anthropic/claude-opus-4-5`,
   null when an admin entered it)
 - `ProviderCapabilities`: `ChatCompletions`, `Embeddings`, `Responses`, `AnthropicMessages`, `Streaming`, `AudioTranscriptions`
-  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing). A provider's
+  (speech to text), `Realtime` (live audio over WebSocket), `Images` (image generation and editing), `Rerank`
+  (`OpenAICompatible` only; a reranker of an `AzureAIFoundry` provider is served at its own address). A provider's
   `capabilities` are what it serves: fixed by its type, except for `OpenAICompatible`, where the request's `capabilities`
   are the endpoints the server offers (see *What a provider serves* in [providers and models](providers-and-models.md)). `ModelKind` (models and
-  routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
+  routes): `Chat`, `Embedding`, `Transcription`, `Realtime`, `SpeechTranslation`, `Image`, `Rerank`. Discovery adds Whisper and `*-transcribe` models as `Transcription`,
   `*realtime-translate*` as `SpeechTranslation`, other `*realtime*` models as `Realtime` and `gpt-image*`, `dall-e*`,
   `flux*`, `imagen*` and `stable-diffusion*` models as `Image`; speech synthesis, video and chat-with-audio models are still left out.
 - `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
   gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
-- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null, publicName, description|null, autoUpdatePrice, priceMode, priceListKey|null, baseModel|null }`
+- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null, publicName, description|null, autoUpdatePrice, priceMode, priceListKey|null, baseModel|null, residencyOverride|null, publisher|null, requestBaseUrl|null, requestAuthMode|null, rerankBaseUrl|null }`
   (`autoUpdatePrice`: the price follows the models.dev list price when listed; `priceMode`: `List` follows the list price of
   `priceListKey`, `Unlisted` is not in the list and priced by hand until it is, `Manual` has automatic prices off for the
   model, its provider or the gateway, or is an Azure deployment other than Claude (priced by hand; the update only fills a
   missing price); `priceListKey`: the model's models.dev entry, `provider/model`, null when it has none; `baseModel`: the
   model behind an Azure deployment, which finds it in the list, and a `claude*` base model on a Foundry provider is sent
-  to the resource's Anthropic API)
-- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price, autoUpdatePrice?, description?, baseModel? }` (omitted `autoUpdatePrice` = true)
-- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], autoUpdatePrice?, description?, baseModel? }` (omitted = unchanged; `""` removes `description` or `baseModel`) · `DELETE /api/models/{id}` (409 if used by a route)
+  to the resource's Anthropic API; `residency`: where the model processes data, its own `residencyOverride` when set, else
+  its provider's, as routing, keys' residencies, the PII restriction, the residency ceiling and `/v1/models` use it;
+  `publisher`: the publisher of the model behind a Foundry deployment; `requestBaseUrl` and `requestAuthMode`: a Foundry
+  reranker's request address and authentication as set, null = derived and the provider's; `rerankBaseUrl`: where a
+  reranker of an Azure AI Foundry provider is called, `requestBaseUrl` or else
+  `https://<resource>.services.ai.azure.com/providers/<publisher lower case>/v2` (the gateway appends `/rerank`), null when it
+  has neither (it is then not routed) or is not such a model)
+- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price, autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted `autoUpdatePrice` = true)
+- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted = unchanged; `""` removes `description`, `baseModel`, `publisher` or `requestBaseUrl`; `residency` and `requestAuthMode` are replaced like `contextWindow`: null or omitted = the provider's) · `DELETE /api/models/{id}` (409 if used by a route)
+  `requestBaseUrl` and `requestAuthMode` are only for a `Rerank` model of an `AzureAIFoundry` provider (400 otherwise);
+  `requestBaseUrl` must be an absolute address on the provider's own resource (the same scheme, port and resource host;
+  the resource's `*.openai.azure.com`, `*.cognitiveservices.azure.com` and `*.services.ai.azure.com` names count as one),
+  without credentials in it (400 otherwise), because the provider's credential is sent there.
 - `GET /api/models/{id}/prices` → `Price[]` · `POST /api/models/{id}/prices` `Price` (effectiveFrom optional = now); 409 while
   the model's `priceMode` is `List`: turn off `autoUpdatePrice` on the model or `autoUpdatePrices` on its provider first.
 - `Route = { id, name, description, kind, isEnabled, targets: [{ modelId, modelName, providerName, residency, priority, weight }] }`
@@ -364,7 +375,9 @@ and invalidate the gateway catalogue.
 - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `POST /v1/responses`, `POST /v1/messages` (Anthropic format).
 - `POST /v1/rerank` (optional, Cohere-compatible): `{ model, query, documents: (string | { text })[], top_n?, return_documents? }` →
   the provider's answer unchanged (`results[]` with `index` and `relevance_score`). Only models of kind `Rerank` on
-  providers with the `Rerank` capability; see [reranking](providers-and-models.md#reranking-optional).
+  providers with the `Rerank` capability, or under an Azure AI Foundry provider (called at the model's `rerankBaseUrl`);
+  see [reranking](providers-and-models.md#reranking-optional). An answer without token counts (Cohere's `search_units`)
+  is charged by the request-size estimate.
 - `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` (speech to text, OpenAI format): `multipart/form-data`
   with the recording in `file` and the text fields `model` (a `Transcription` alias or model), `language`, `prompt`,
   `response_format` (`json`, `text`, `srt`, `vtt`, `verbose_json`), `temperature`, `stream`, `timestamp_granularities[]` …;
@@ -387,7 +400,7 @@ and invalidate the gateway catalogue.
 - Request headers the gateway reads (not passed to providers): `x-ume-session` (keeps a conversation on one target),
   `x-ume-max-residency` ([residency ceiling](#residency-ceiling-per-request)).
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-residency` (`OnPrem`, `Eu` or `External`: the
-  residency of the provider that answered), `x-ume-fallbacks`, `x-ume-cost-usd`,
+  residency of the model that answered, its own or its provider's), `x-ume-fallbacks`, `x-ume-cost-usd`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-usd`,
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)), `x-ume-pii` ([personal data](personal-data.md)), `x-ume-guard` ([content guard](content-guard.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
@@ -433,8 +446,10 @@ gateway does not understand is refused, never ignored.
   does `GET /v1/models`.
 - A key with `requireMaxResidency` refuses requests without the header (`400 invalid_request`), so a client that forgets
   it fails instead of running without a ceiling.
+- A target's residency is its model's own when the model has one (`residencyOverride`), else its provider's: an EU
+  data zone deployment under an external Foundry provider is within `Eu`, a global deployment under an EU provider is not.
 - `x-ume-residency` on the answer says where the request went. A client that must be sure checks it: during a rolling
-  update an older gateway instance ignores the request header.
+  update an older gateway instance ignores the request header (and a model's own residency).
 - Outgoing requests to providers carry `User-Agent: Ume-LlmGateway/<version>`.
   A provider-side refusal is returned with the provider's status, but only its `message`, `type`, `code` and `param`, in
   the client's error shape (OpenAI, or Anthropic on `/v1/messages`) with the gateway's `request_id`; the rest of the

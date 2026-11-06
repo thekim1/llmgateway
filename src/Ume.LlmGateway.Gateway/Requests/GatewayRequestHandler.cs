@@ -377,17 +377,21 @@ public sealed class GatewayRequestHandler(
                     using (json)
                     using (usageWriter.TrackPending())
                     {
+                        // A reranker billed per search reports no tokens: charged by the request-size estimate.
+                        var usage = GatewayEndpoints.Info(state.Endpoint).EstimatesUnreportedUsage && json.Usage == default
+                            ? new TokenUsage(state.EstimatedInputTokens, 0, 0)
+                            : json.Usage;
                         await stages.RecordSuccessAsync(state, provider);
                         if (await guard.GuardAnswerAsync(http, state, snapshot, state.Key!, json.Body, ct) is { } withheld)
                         {
                             // The provider answered (and is paid); the client gets the refusal instead of the answer.
                             RequestStages.SetRoutingHeaders(http, deployment, state.Fallbacks);
                             await GatewayErrors.WriteAsync(http, state.Endpoint, withheld, options.CurrentValue.DocsUrl);
-                            await accounting.AccountAsync(state, deployment, json.Usage, withheld.StatusCode, RequestOutcome.Rejected, withheld.Code, snapshot);
+                            await accounting.AccountAsync(state, deployment, usage, withheld.StatusCode, RequestOutcome.Rejected, withheld.Code, snapshot);
                             return;
                         }
 
-                        var cost = CostCalculator.Calculate(json.Usage, deployment.PriceAt(now));
+                        var cost = CostCalculator.Calculate(usage, deployment.PriceAt(now));
                         RequestStages.SetRoutingHeaders(http, deployment, state.Fallbacks);
                         http.Response.Headers[GatewayHeaders.CostUsd] = cost.ToString("0.00000000", CultureInfo.InvariantCulture);
                         if (state.Reservation?.RemainingUsd is { } rem)
@@ -401,7 +405,7 @@ public sealed class GatewayRequestHandler(
                         http.Response.ContentType = json.ContentType ?? "application/json";
                         http.Response.ContentLength = json.Body.Length;
                         await http.Response.Body.WriteAsync(json.Body, CancellationToken.None);
-                        await accounting.AccountAsync(state, deployment, json.Usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
+                        await accounting.AccountAsync(state, deployment, usage, json.StatusCode, RequestOutcome.Success, null, snapshot);
                     }
 
                     return;

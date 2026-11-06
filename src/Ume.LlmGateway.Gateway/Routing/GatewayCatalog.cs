@@ -304,6 +304,12 @@ public sealed partial class GatewayCatalog : IDisposable
     [LoggerMessage(Level = LogLevel.Warning, Message = "Routing rule '{Rule}' ({RuleId}) is ignored: {Error}")]
     private static partial void LogRuleIgnored(ILogger logger, string rule, Guid ruleId, string error);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rerank model '{Model}' of provider '{Provider}' has no request address (no publisher, or an address off the provider's resource) and is not routed; set it in the admin UI")]
+    private static partial void LogRerankWithoutAddress(ILogger logger, string model, string provider);
+
+    /// <summary>What tells two views of one provider apart.</summary>
+    private readonly record struct ViewKey(ProviderType Type, string BaseUrl, ProviderAuthMode AuthMode, ProviderCapabilities Capabilities, DataResidency Residency);
+
     private async Task<CatalogSnapshot> LoadAsync(CancellationToken cancellationToken)
     {
         await using var scope = _scopes.CreateAsyncScope();
@@ -321,16 +327,31 @@ public sealed partial class GatewayCatalog : IDisposable
 
         // Wire navigation properties across the separately loaded graphs.
         var deployments = new Dictionary<Guid, ModelDeployment>();
+        var views = new Dictionary<ViewKey, ProviderAccount>();
         foreach (var provider in providers)
         {
             // A Foundry provider keeps the project endpoint the admin entered (it names the project for discovery);
-            // requests go to the resource's /openai/v1 or /anthropic/v1. Its Claude deployments are served only by the
-            // Anthropic API, so they get the provider as an Anthropic provider. Derived once per snapshot, not per request.
-            var anthropic = provider.Deployments.Any(d => FoundryEndpoint.IsClaude(provider, d)) ? FoundryEndpoint.AnthropicView(provider) : null;
+            // requests go to the resource's /openai/v1. Its Claude deployments are served only by the Anthropic API and its
+            // rerankers by their publisher's API, so they get a view of the provider; a deployment with a residency of its
+            // own gets one with that residency. Routing, the ceiling and /v1/models then read the deployment's provider as
+            // they always did. Derived once per snapshot, never per request; deployments that look the same share a view.
             provider.BaseUrl = FoundryEndpoint.RequestBaseUrl(provider.Type, provider.BaseUrl);
+            views.Clear();
             foreach (var deployment in provider.Deployments)
             {
-                deployment.ProviderAccount = anthropic is not null && FoundryEndpoint.IsClaude(provider, deployment) ? anthropic : provider;
+                var routed = FoundryEndpoint.Routed(provider, deployment);
+                if (!ReferenceEquals(routed, provider))
+                {
+                    var key = new ViewKey(routed.Type, routed.BaseUrl, routed.AuthMode, routed.Capabilities, routed.Residency);
+                    routed = views.TryGetValue(key, out var shared) ? shared : views[key] = routed;
+                }
+
+                if (FoundryEndpoint.IsRerank(provider, deployment) && !routed.Supports(GatewayEndpoint.Rerank))
+                {
+                    LogRerankWithoutAddress(_logger, deployment.Name, provider.Name);
+                }
+
+                deployment.ProviderAccount = routed;
                 deployments[deployment.Id] = deployment;
             }
         }

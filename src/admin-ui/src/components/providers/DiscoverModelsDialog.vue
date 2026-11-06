@@ -4,7 +4,7 @@ import { api } from '@/api'
 import type { DiscoveredModel, DiscoveredPrice, Model, Provider } from '@/api/types'
 import { useModelsStore } from '@/stores/models'
 import { formatNumber, formatUsd } from '@/utils/format'
-import { KIND_LABEL, MODEL_FEATURES, featureLabel } from '@/utils/labels'
+import { KIND_LABEL, MODEL_FEATURES, RESIDENCY, featureLabel } from '@/utils/labels'
 import { problemMessage } from '@/utils/problem'
 import AppIcon from '../ui/AppIcon.vue'
 import FilterSelect from '../ui/FilterSelect.vue'
@@ -115,16 +115,21 @@ const visible = computed(() => {
     return a.id.localeCompare(b.id, 'sv', { numeric: true })
   })
 })
-/** Capabilities the provider reports that the saved model lacks, plus a context size it has not recorded yet. */
-/** What discovery knows that the saved model lacks: capabilities, context window, description and the model behind a deployment. */
-function pendingUpdate(m: DiscoveredModel): { features: string[]; context: number | null; description: string | null; baseModel: string | null } | null {
+/**
+ * What discovery knows that the saved model lacks: capabilities, context window, description, the model behind a deployment
+ * and its publisher. A residency is never changed here: the admin decides it in the model.
+ */
+function pendingUpdate(
+  m: DiscoveredModel,
+): { features: string[]; context: number | null; description: string | null; baseModel: string | null; publisher: string | null } | null {
   const current = existing(m)
   if (!current) return null
   const features = m.features.filter((f) => !current.features.includes(f))
   const context = current.contextWindow == null ? m.contextWindow : null
   const description = !current.description && m.description ? m.description : null
   const baseModel = !current.baseModel && m.baseModel && m.baseModel !== current.upstreamModel ? m.baseModel : null
-  return features.length || context != null || description || baseModel ? { features, context, description, baseModel } : null
+  const publisher = !current.publisher && m.publisher ? m.publisher : null
+  return features.length || context != null || description || baseModel || publisher ? { features, context, description, baseModel, publisher } : null
 }
 const updatable = computed(() => visible.value.filter((m) => pendingUpdate(m)))
 const updating = ref(false)
@@ -152,6 +157,10 @@ async function updateFromProvider(list: DiscoveredModel[]): Promise<void> {
         features: merged,
         ...(pending.description ? { description: pending.description } : {}),
         ...(pending.baseModel ? { baseModel: pending.baseModel } : {}),
+        ...(pending.publisher ? { publisher: pending.publisher } : {}),
+        // A PUT replaces these: keep what the admin set.
+        residency: current.residencyOverride,
+        requestAuthMode: current.requestAuthMode,
       })
       const draft = drafts.value[m.id]
       if (draft) draft.features = merged
@@ -276,6 +285,8 @@ async function saveExisting(m: DiscoveredModel): Promise<void> {
       contextWindow: current.contextWindow,
       isEnabled: current.isEnabled,
       features: d.features,
+      residency: current.residencyOverride,
+      requestAuthMode: current.requestAuthMode,
     })
     if (price && !followsList(m) && !samePrice(price, current.currentPrice)) await models.addPrice(current.id, price)
     savedId.value = m.id
@@ -312,6 +323,9 @@ async function addSelected(): Promise<void> {
         features: featuresOf(m),
         ...(m.description ? { description: m.description } : {}),
         ...(m.baseModel && m.baseModel !== m.id ? { baseModel: m.baseModel } : {}),
+        ...(m.publisher ? { publisher: m.publisher } : {}),
+        // Suggested from the deployment type; the admin can change it in the model.
+        ...(m.residency ? { residency: m.residency } : {}),
         ...(price ? { price } : {}),
       })
       count++
@@ -346,6 +360,7 @@ async function addSelected(): Promise<void> {
       <p v-if="found.length" class="text-small text-fg-3">
         Context size, capabilities and prices are only filled in when the provider reports them. Most do not report prices, so use Edit to correct capabilities and set prices before you route traffic.
         Azure AI Foundry prices are suggested from Azure's public list prices for the deployment's model and type (Global, Data Zone or Regional); check them against your agreement, and Claude, provisioned and batch deployments are left without a price.
+        The deployment type also suggests where a Foundry deployment processes data (Global: External, Data Zone: the resource’s zone, Regional: the provider’s); confirm or change it in the model before you route traffic.
       </p>
       <template v-if="found.length">
         <div class="flex flex-wrap items-center gap-3">
@@ -388,6 +403,7 @@ async function addSelected(): Promise<void> {
                   <span v-if="m.contextWindow">{{ formatNumber(m.contextWindow) }} tokens</span>
                   <span v-if="priceOf(m)">{{ formatUsd(priceOf(m)!.inputPerMillionUsd) }} in / {{ formatUsd(priceOf(m)!.outputPerMillionUsd) }} out per 1M</span>
                   <span v-else>No price</span>
+                  <span v-if="m.residency && !m.alreadyAdded">{{ RESIDENCY[m.residency].glyph }} {{ RESIDENCY[m.residency].label }} (from the deployment type)</span>
                   <span v-if="suggestedFrom(m)" :title="suggestedFrom(m)!">{{ suggestedFrom(m)!.split(':')[0] }}<span class="sr-only">: {{ suggestedFrom(m) }}</span></span>
                   <UiBadge v-for="f in featuresOf(m)" :key="f" tone="neutral" :label="featureLabel(f)" />
                   <UiBadge v-if="m.alreadyAdded" tone="neutral" label="Already added" />
@@ -396,6 +412,7 @@ async function addSelected(): Promise<void> {
                   </span>
                   <span v-if="pendingUpdate(m)?.features.length" class="text-accent-ink">New from provider: {{ pendingUpdate(m)!.features.map(featureLabel).join(', ') }}</span>
                   <span v-if="pendingUpdate(m)?.baseModel" class="text-accent-ink">Base model: <span class="font-mono">{{ pendingUpdate(m)!.baseModel }}</span></span>
+                  <span v-if="pendingUpdate(m)?.publisher" class="text-accent-ink">Publisher: {{ pendingUpdate(m)!.publisher }}</span>
                   <span v-if="pendingUpdate(m)?.description" class="text-accent-ink">New description</span>
                 </span>
               </span>

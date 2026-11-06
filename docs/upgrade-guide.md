@@ -11,6 +11,28 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: rerankers on Azure AI Foundry, a residency per model
+
+- **Rolling update: yes.** Migration `DeploymentResidencyAndAddress` adds four nullable columns to `ModelDeployments`
+  (`Residency`, `Publisher`, `RequestBaseUrl`, `RequestAuthMode`), all null for existing models, which keep their
+  provider's residency and address. The previous version does not read or write them and keeps working against the new
+  schema (tested in `DeploymentResidencyMigrationTests`). Compose, Kubernetes and Redis ACL files are unchanged.
+- **Set a model's own residency only after every gateway and admin API instance runs this version.** An older gateway
+  routes the model with its provider's residency, so a model marked *External* under an *EU* provider (a global
+  deployment) could still be chosen within an `Eu` ceiling or for an EU-only key by an older instance. Likewise, add a
+  Foundry reranker only after the upgrade: an older gateway does not route it.
+- **Check your Foundry models after the upgrade.** Run *Discover models* on each Azure AI Foundry provider: it suggests
+  a residency for global and data zone deployments and the publisher; open each model and confirm or change its
+  *Residency*. Nothing changes until you do. A Foundry reranker that was set up as a second, OpenAI-compatible provider
+  keeps working; to move it under the Foundry provider, add the model there (kind *Rerank*), check it, point routes and
+  keys at it and delete the second provider.
+- **Changed:** a rerank answer without token counts is charged by the request-size estimate instead of 0 tokens.
+- **Admin API:** `PUT /api/models/{id}` replaces `residency` and `requestAuthMode` like `contextWindow` (null or omitted =
+  the provider's): a script that updates models should send the model's `residencyOverride` and `requestAuthMode` back.
+  `Model.residency` is now the residency in effect (the model's own, else the provider's).
+- **Data API:** `usage.aggregate` reports the model's own residency when it has one; `catalog/models` has a new field
+  `residency` (the model's own, null = the provider's).
+
 ## 0.9.0: residency ceiling, reranking, optional Keycloak
 
 - **Rolling update: yes.** Migration `KeyResidencyCeiling` adds `VirtualKeys.RequireMaxResidency` (`false` by

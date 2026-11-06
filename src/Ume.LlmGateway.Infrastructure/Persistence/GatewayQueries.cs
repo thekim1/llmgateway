@@ -36,7 +36,7 @@ public static class GatewayQueries
             .Select(u => new UsageCost
             {
                 VirtualKeyId = u.VirtualKeyId, TeamId = u.TeamId, DepartmentId = u.DepartmentId, CostUsd = u.CostUsd,
-                Tokens = u.InputTokens + u.OutputTokens, ProviderAccountId = u.ProviderAccountId,
+                Tokens = u.InputTokens + u.OutputTokens, ProviderAccountId = u.ProviderAccountId, ModelDeploymentId = u.ModelDeploymentId,
             });
         if (retainedFrom is not { } kept || kept <= window.Start)
         {
@@ -48,13 +48,13 @@ public static class GatewayQueries
             .Select(t => new UsageCost
             {
                 VirtualKeyId = t.VirtualKeyId, TeamId = t.TeamId, DepartmentId = t.DepartmentId, CostUsd = t.CostUsd,
-                Tokens = t.InputTokens + t.OutputTokens, ProviderAccountId = t.ProviderAccountId,
+                Tokens = t.InputTokens + t.OutputTokens, ProviderAccountId = t.ProviderAccountId, ModelDeploymentId = t.ModelDeploymentId,
             }));
     }
 
     /// <summary>
     /// What was used against <paramref name="budget"/> in <paramref name="window"/>, in its unit: USD, or input plus output
-    /// tokens (of providers of the budget's residency, when it has one). A key budget covers the key and every key it was
+    /// tokens (served within the budget's residency, when it has one). A key budget covers the key and every key it was
     /// rotated into. Pass <paramref name="rotations"/> when it is already loaded (e.g. when summing many budgets).
     /// </summary>
     public static async Task<decimal> SpentAsync(this GatewayDbContext db, Budget budget, PeriodWindow window, CancellationToken cancellationToken,
@@ -84,8 +84,13 @@ public static class GatewayQueries
 
         if (budget.Residency is { } residency)
         {
+            // Where the deployment processed it: its own residency when it has one, else its provider's.
             var providers = await db.ProviderAccounts.AsNoTracking().Where(p => p.Residency == residency).Select(p => p.Id).ToArrayAsync(cancellationToken);
-            query = query.Where(u => u.ProviderAccountId != null && providers.Contains(u.ProviderAccountId.Value));
+            var into = await db.ModelDeployments.AsNoTracking().Where(m => m.Residency == residency).Select(m => m.Id).ToArrayAsync(cancellationToken);
+            var away = await db.ModelDeployments.AsNoTracking().Where(m => m.Residency != null && m.Residency != residency).Select(m => m.Id).ToArrayAsync(cancellationToken);
+            query = query.Where(u => (u.ModelDeploymentId != null && into.Contains(u.ModelDeploymentId.Value))
+                || (u.ProviderAccountId != null && providers.Contains(u.ProviderAccountId.Value)
+                    && !(u.ModelDeploymentId != null && away.Contains(u.ModelDeploymentId.Value))));
         }
 
         return await query.SumAsync(u => (decimal)u.Tokens, cancellationToken);
@@ -105,4 +110,7 @@ public sealed class UsageCost
 
     /// <summary>The provider that served it, for token budgets limited to one residency.</summary>
     public Guid? ProviderAccountId { get; init; }
+
+    /// <summary>The deployment that served it, whose own residency (when it has one) is the one a token budget counts.</summary>
+    public Guid? ModelDeploymentId { get; init; }
 }

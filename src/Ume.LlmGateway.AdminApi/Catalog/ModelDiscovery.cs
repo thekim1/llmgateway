@@ -26,7 +26,9 @@ public sealed record DiscoveredModel(
     bool AlreadyAdded,
     string? PriceSource = null,
     string? Description = null,
-    string? BaseModel = null);
+    string? BaseModel = null,
+    string? Publisher = null,
+    DataResidency? Residency = null);
 
 /// <summary>
 /// Lists the models an upstream provider exposes, using the provider's stored credential. Doubles as a
@@ -179,7 +181,7 @@ public static partial class ModelDiscovery
         var list = modelList is not null && ModelList.ProviderId(provider) is not null ? await modelList(ct) : ModelList.Empty;
         return [.. items.OfType<JsonObject>()
             .Where(item => !foundry || !anthropic || IsAnthropic(item))
-            .Select(item => foundry ? MapDeployment(item, existing, meters) : Map(item, existing))
+            .Select(item => foundry ? MapDeployment(item, existing, meters, provider.Residency) : Map(item, existing))
             .OfType<DiscoveredModel>()
             .Select(m => list.Find(provider, m.BaseModel ?? m.Id) is { } found ? Enrich(m, found) : m)
             .Where(m => !UnsupportedModel().IsMatch(m.Id) || m.Kind is ModelKind.Transcription or ModelKind.Realtime or ModelKind.SpeechTranslation)
@@ -243,10 +245,24 @@ public static partial class ModelDiscovery
         (Text(deployment, "modelName") ?? string.Empty).StartsWith("claude", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// A Foundry deployment: requests name the deployment, so it is the model id; the model behind it decides the kind,
-    /// and its model, version and SKU find the Azure list price.
+    /// Where a Foundry deployment of SKU <paramref name="sku"/> processes data, as a suggestion the admin confirms: a global
+    /// deployment (<c>GlobalStandard</c>, <c>GlobalProvisionedManaged</c>, <c>GlobalBatch</c>) anywhere Azure has capacity, so
+    /// External; a data zone deployment (<c>DataZone…</c>) within the resource's zone, which is the EU zone when the resource
+    /// is in the EU (the provider's residency is Eu) and otherwise taken as External; a regional one (<c>Standard</c>,
+    /// <c>ProvisionedManaged</c>) or an unknown SKU where the resource is, so null (the provider's).
     /// </summary>
-    private static DiscoveredModel? MapDeployment(JsonObject item, HashSet<string> existing, IReadOnlyList<AzurePriceMeter> meters)
+    internal static DataResidency? SuggestedResidency(string? sku, DataResidency providerResidency) =>
+        sku is null ? null
+        : sku.StartsWith("Global", StringComparison.OrdinalIgnoreCase) ? DataResidency.External
+        : sku.StartsWith("DataZone", StringComparison.OrdinalIgnoreCase) ? (providerResidency == DataResidency.Eu ? DataResidency.Eu : DataResidency.External)
+        : null;
+
+    /// <summary>
+    /// A Foundry deployment: requests name the deployment, so it is the model id; the model behind it decides the kind,
+    /// and its model, version and SKU find the Azure list price. The SKU suggests where it processes data
+    /// (<see cref="SuggestedResidency"/>), and its publisher where a reranker is called.
+    /// </summary>
+    private static DiscoveredModel? MapDeployment(JsonObject item, HashSet<string> existing, IReadOnlyList<AzurePriceMeter> meters, DataResidency providerResidency)
     {
         var name = Text(item, "name");
         if (string.IsNullOrWhiteSpace(name))
@@ -262,20 +278,25 @@ public static partial class ModelDiscovery
             : [];
         var mapped = Map(new JsonObject { ["id"] = model }, existing)!;
         var embedding = mapped.Kind == ModelKind.Embedding || capabilities.Any(c => c.Contains("embed", StringComparison.Ordinal));
+        var rerank = mapped.Kind == ModelKind.Rerank || capabilities.Any(c => c.Contains("rerank", StringComparison.Ordinal));
         var version = Text(item, "modelVersion");
-        var suggestion = AzurePriceMatcher.Suggest(meters, model, version, item["sku"] is JsonObject sku ? Text(sku, "name") : null);
+        var skuName = item["sku"] is JsonObject sku ? Text(sku, "name") : null;
+        var suggestion = AzurePriceMatcher.Suggest(meters, model, version, skuName);
         var display = string.Equals(name, model, StringComparison.OrdinalIgnoreCase) ? name : $"{name} ({model})";
         return mapped with
         {
             Id = name,
             DisplayName = version is { Length: > 0 } ? $"{display}, version {version}" : display,
-            Kind = embedding && mapped.Kind == ModelKind.Chat ? ModelKind.Embedding : mapped.Kind,
-            Features = [.. capabilities.Where(c => !c.Contains("completion", StringComparison.Ordinal) && !c.Contains("embed", StringComparison.Ordinal))
+            Kind = rerank ? ModelKind.Rerank : embedding && mapped.Kind == ModelKind.Chat ? ModelKind.Embedding : mapped.Kind,
+            Features = [.. capabilities.Where(c => !c.Contains("completion", StringComparison.Ordinal) && !c.Contains("embed", StringComparison.Ordinal)
+                    && !c.Contains("rerank", StringComparison.Ordinal))
                 .Select(Normalize).Distinct().Order()],
             AlreadyAdded = existing.Contains(name),
             Price = suggestion?.Price,
             PriceSource = suggestion is { } s ? $"Azure list price: {string.Join(", ", s.Meters)}" : null,
             BaseModel = model,
+            Publisher = Text(item, "modelPublisher") is { Length: > 0 } publisher ? publisher : null,
+            Residency = SuggestedResidency(skuName, providerResidency),
         };
     }
 

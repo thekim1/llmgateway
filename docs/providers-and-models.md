@@ -8,11 +8,11 @@ request then follows from the model's kind (an embedding model gets `/v1/embeddi
 
 | Provider type | Serves |
 |---|---|
-| OpenAI, Azure OpenAI, Azure AI Foundry | chat completions, Responses, embeddings, speech to text, live audio (realtime), image generation and editing, streaming (Claude on Foundry: chat completions and Anthropic Messages) |
+| OpenAI, Azure OpenAI, Azure AI Foundry | chat completions, Responses, embeddings, speech to text, live audio (realtime), image generation and editing, streaming (Claude on Foundry: chat completions and Anthropic Messages; a reranker on Foundry: rerank) |
 | Anthropic | chat completions (translated), Anthropic Messages, streaming |
 | Ollama | chat completions, embeddings, streaming |
 | Ollama Cloud | chat completions, streaming |
-| OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server); *Rerank* is only offered this way |
+| OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server); *Rerank* can be ticked here |
 
 ### Reranking (optional)
 
@@ -29,10 +29,55 @@ works, for example:
 Add it as an *OpenAI-compatible* provider with the residency it has, tick **Rerank** under *Endpoints this server
 offers*, and add the model with the kind **Rerank** (discovery recognises names containing `rerank`). Price it per
 input token: the gateway reads `usage` (`prompt_tokens` or `total_tokens`) or Cohere's `meta.billed_units.input_tokens`,
-and estimates from the request size when the provider reports neither. A provider that bills per search instead has
-to be converted to a token price by hand. The context window is not checked before sending (rerankers score each
-document separately and split long ones themselves). The residency ceiling, budgets, PII guard and usage records
-apply as to every endpoint; request policies may set parameters but never `query` or `documents`.
+and charges the request-size estimate (one token per four bytes of request body) when the provider reports neither. A provider
+that bills per search instead has to be converted to a token price by hand. The context window is not checked before
+sending (rerankers score each document separately and split long ones themselves). The residency ceiling, budgets, PII
+guard and usage records apply as to every endpoint; request policies may set parameters but never `query` or
+`documents`.
+
+**A reranker on Azure AI Foundry** (Cohere Rerank, for example `Cohere-rerank-v5-fast`) is added under the existing
+*Azure AI Foundry* provider, like Claude on Foundry: no second provider, no second credential. *Discover models* lists
+it with the kind **Rerank** (its name, or a `rerank` capability), its **publisher** (`Cohere`, from the deployment's
+`modelPublisher`) and a suggested residency (see below). The gateway calls it at
+`https://<resource>.services.ai.azure.com/providers/<publisher>/v2` (the publisher in lower case) and appends
+`/rerank`, with the provider's key in the `api-key` header; nothing about a publisher is in code. When a publisher's
+route is different, or Foundry changes it, set the model's **Request address** in the model drawer (an address on the
+provider's own resource only, since the provider's key is sent to it; another host is refused and never called) and,
+if the API wants the key as a Bearer token, its **Request authentication**. The model drawer shows where requests go.
+A Foundry reranker with neither a publisher nor a request address is not routed (the drawer says so). Health, circuit
+breaker, usage and a key's provider allow-list count it as the Foundry provider; its chat and embedding models are
+unchanged. Cohere reports `meta.billed_units.search_units`, not tokens, so a Foundry reranker is charged by the
+request-size estimate at the model's input token price: convert Azure's price per search to a token price by hand
+(the price of one search divided by the size of a typical request in tokens, times a million). Reranking is cheap, so
+the estimate is enough for budgets; it is not an invoice. Before routing traffic, check the address once with the provider's key:
+
+```bash
+curl -s https://<resource>.services.ai.azure.com/providers/cohere/v2/rerank \
+  -H "api-key: $FOUNDRY_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"Cohere-rerank-v5-fast","query":"library opening hours","documents":["The city library is open 10-19.","Waste is collected every other week."]}'
+```
+
+## Where a model processes data
+
+A provider's **residency** (on-prem, EU, external) is where its models process data, unless a model says otherwise.
+One Azure AI Foundry resource can hold global, data zone and regional deployments, which do not all process data in the
+same place, so every model has a **Residency** of its own in the model drawer: *Provider's* (the default) or on-prem,
+EU or external. Everything that decides where a request may go uses the model's residency when it has one: a key's
+allowed residencies, the PII on-prem restriction, the residency ceiling (`x-ume-max-residency`), `GET /v1/models`, the
+`x-ume-residency` answer header, token quotas for one residency, the catalogue key holders see and the Data API's usage
+aggregate. One provider per location is no longer needed.
+
+*Discover models* suggests it for a Foundry deployment from its deployment type (`sku.name`), and you confirm or change
+it before routing traffic:
+
+| Deployment type | Suggested residency |
+|---|---|
+| Global (`GlobalStandard`, `GlobalProvisionedManaged`, `GlobalBatch`) | External: Azure may process the data in any region |
+| Data zone (`DataZoneStandard`, `DataZoneProvisionedManaged`, ...) | EU when the provider's residency is EU (a resource in an EU region uses the EU data zone), otherwise External |
+| Regional (`Standard`, `ProvisionedManaged`) or unknown | none: the provider's |
+
+The residency is a classification the admin is responsible for; check the deployment in the Foundry portal (its type
+and the resource's region) and your agreement, as for a provider.
 
 ## Removing a provider
 

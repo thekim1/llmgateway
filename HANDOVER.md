@@ -27,7 +27,7 @@ The POC is not a production approval, legal attestation or WCAG certification (s
    live regions, focus after drawers and dialogs, the segmented controls, the `<details>` disclosures and `aria-disabled` move buttons.
 2. **Decide:** a duplicate rule name (409) is shown as a form-level message, not on the *Name* field.
 3. **Decide:** the "Skip to main content" link is hidden from 768 px (`md:hidden`); the sidebar has about 15 tab stops before `main`. Landmarks are sufficient, but a skip link is cheap.
-4. **Test gap:** `DiscoverModelsDialog.vue` has no automated UI test (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
+4. **Test gap:** `DiscoverModelsDialog.vue` has UI tests only for adding and updating Foundry models (`DiscoverModelsDialog.spec.ts`); filters, sorting and price editing are untested (the backend `ModelDiscovery` is covered by `ModelDiscoveryTests`).
 5. Prices are not published by Ollama, OpenAI or Anthropic; they are entered manually.
 6. **Performance work list:** [docs/performance-improvement-plan.md](docs/performance-improvement-plan.md) (start there). **Current numbers:** the baseline of 2026-11-02 in
    [docs/performance.md](docs/performance.md#results-baseline-2026-11-02) (20 868 streamed messages/s on 4 vCPUs,

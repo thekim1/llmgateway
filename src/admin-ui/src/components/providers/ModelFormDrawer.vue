@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { Model, ModelKind, ParameterProfile, Price, Provider } from '@/api/types'
-import { MODEL_KINDS, PARAMETER_PROFILES } from '@/api/types'
+import type { DataResidency, Model, ModelKind, ParameterProfile, Price, Provider, ProviderAuthMode } from '@/api/types'
+import { DATA_RESIDENCIES, MODEL_KINDS, PARAMETER_PROFILES } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelsStore } from '@/stores/models'
 import { useUiStore } from '@/stores/ui'
 import { formatDateTime, formatUsd } from '@/utils/format'
-import { KIND_LABEL, MODEL_FEATURES, PARAMETER_PROFILE_LABEL, featureLabel } from '@/utils/labels'
+import { AUTH_MODE_LABEL, KIND_LABEL, MODEL_FEATURES, PARAMETER_PROFILE_LABEL, RESIDENCY, featureLabel } from '@/utils/labels'
 import AsyncState from '../ui/AsyncState.vue'
 import CheckField from '../ui/CheckField.vue'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
@@ -36,6 +36,10 @@ const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   kind: 'model-kind',
   parameterProfile: 'model-profile',
   contextWindow: 'model-context',
+  residency: 'model-residency',
+  publisher: 'model-publisher',
+  requestBaseUrl: 'model-request-url',
+  requestAuthMode: 'model-request-auth',
 })
 
 const providerId = ref('')
@@ -48,6 +52,12 @@ const isEnabled = ref(true)
 const autoUpdatePrice = ref(true)
 const description = ref('')
 const baseModel = ref('')
+/** '' = the provider's. */
+const residency = ref<DataResidency | ''>('')
+const publisher = ref('')
+const requestBaseUrl = ref('')
+/** '' = as the provider does. */
+const requestAuthMode = ref<ProviderAuthMode | ''>('')
 const features = ref<string[]>([])
 const busy = ref(false)
 const priceDraft = ref(emptyPriceDraft())
@@ -79,6 +89,32 @@ const priceColumns: Column[] = [
 
 const provider = computed(() => props.providers.find((p) => p.id === (props.model?.providerId ?? providerId.value)))
 const azure = computed(() => provider.value?.type === 'AzureAIFoundry' || provider.value?.type === 'AzureOpenAI')
+const foundry = computed(() => provider.value?.type === 'AzureAIFoundry')
+/** A reranker on Azure AI Foundry is called at its publisher's API, not the OpenAI v1 API: it has an address of its own. */
+const foundryRerank = computed(() => foundry.value && kind.value === 'Rerank')
+const residencyOptions = computed(() => [
+  { value: '', label: provider.value ? `Provider’s (${RESIDENCY[provider.value.residency].label})` : 'Provider’s' },
+  ...DATA_RESIDENCIES.map((v) => ({ value: v, label: `${RESIDENCY[v].glyph} ${RESIDENCY[v].label}` })),
+])
+const residencyHint = computed(() =>
+  residency.value
+    ? `${RESIDENCY[residency.value].description} Routing, keys’ residencies, personal data and the residency header use this instead of the provider’s.`
+    : 'Where the model processes data. One Foundry resource can hold global, data zone and regional deployments: set this when the deployment does not process data where the provider does (Discover models suggests it from the deployment type).',
+)
+const authOptions = computed(() => [
+  { value: '', label: provider.value ? `As the provider (${AUTH_MODE_LABEL[provider.value.authMode]})` : 'As the provider' },
+  ...(['ApiKeyHeader', 'Bearer'] as const).map((v) => ({ value: v, label: AUTH_MODE_LABEL[v] })),
+])
+/** Where a saved reranker is called, as the server derives it; the form may have unsaved changes. */
+const requestAddressHint = computed(() => {
+  const saved = props.model?.rerankBaseUrl
+  return saved
+    ? `Requests go to ${saved}/rerank. Leave empty to use https://<resource>.services.ai.azure.com/providers/<publisher>/v2; only an address on the provider’s resource is used, since its key is sent.`
+    : 'Optional. Empty: https://<resource>.services.ai.azure.com/providers/<publisher>/v2 (the gateway appends /rerank). Only an address on the provider’s resource is used, since its key is sent.'
+})
+/** A saved Foundry reranker the gateway cannot route: no publisher and no address. */
+const missingAddress = computed(() => !!props.model && foundryRerank.value && props.model.kind === 'Rerank' && !props.model.rerankBaseUrl)
+
 const autoUpdateDescription = computed(() => {
   if (provider.value && !provider.value.priceList) return 'This provider has no models.dev price list, so you set the price.'
   if (azure.value && provider.value?.autoUpdatePrices)
@@ -118,6 +154,10 @@ watch(
     autoUpdatePrice.value = m?.autoUpdatePrice ?? true
     description.value = m?.description ?? ''
     baseModel.value = m?.baseModel ?? ''
+    residency.value = m?.residencyOverride ?? ''
+    publisher.value = m?.publisher ?? ''
+    requestBaseUrl.value = m?.requestBaseUrl ?? ''
+    requestAuthMode.value = m?.requestAuthMode ?? ''
     features.value = [...(m?.features ?? [])]
     priceDraft.value = emptyPriceDraft()
     priceErrors.value = {}
@@ -126,6 +166,12 @@ watch(
   },
   { immediate: true },
 )
+
+function requestUrlProblem(): string | false {
+  const value = requestBaseUrl.value.trim()
+  if (!foundryRerank.value || value === '') return false
+  return /^https?:\/\/[^\s/]+/i.test(value) ? false : 'Enter an absolute address, e.g. https://<resource>.services.ai.azure.com/providers/cohere/v2.'
+}
 
 function contextProblem(): string | false {
   if (contextWindow.value.trim() === '') return false
@@ -140,6 +186,7 @@ async function submit(): Promise<void> {
     name: !name.value.trim() && 'Give the model a name.',
     upstreamModel: !upstreamModel.value.trim() && 'Enter the model name the provider expects.',
     contextWindow: contextProblem(),
+    requestBaseUrl: requestUrlProblem(),
   })
   const withPrice = !props.model && !isPriceDraftEmpty(priceDraft.value)
   priceErrors.value = withPrice ? validatePrice(priceDraft.value) : {}
@@ -157,6 +204,11 @@ async function submit(): Promise<void> {
       autoUpdatePrice: autoUpdatePrice.value,
       description: description.value.trim(),
       baseModel: baseModel.value.trim(),
+      residency: residency.value || null,
+      // A request address and authentication belong to a Foundry reranker only; otherwise they are removed.
+      requestBaseUrl: foundryRerank.value ? requestBaseUrl.value.trim() : '',
+      requestAuthMode: foundryRerank.value && requestAuthMode.value ? requestAuthMode.value : null,
+      ...(foundry.value ? { publisher: publisher.value.trim() } : {}),
     }
     if (props.model) await models.update(props.model.id, body)
     else await models.create({ ...body, providerId: providerId.value, ...(withPrice ? { price: toNewPrice(priceDraft.value) } : {}) })
@@ -201,6 +253,27 @@ async function priceAdded(): Promise<void> {
         hint="The model behind the deployment, e.g. gpt-4.1 or claude-sonnet-4-5, when the deployment has a name of its own. Finds its details and price; a Claude model is sent to the resource’s Anthropic API. Filled by Discover models."
       />
       <SelectField id="model-kind" v-model="kind" label="Kind" :options="kindOptions" :error="errors.kind" />
+      <SelectField id="model-residency" v-model="residency" label="Residency" :options="residencyOptions" :error="errors.residency" :hint="residencyHint" />
+      <TextField
+        v-if="foundry"
+        id="model-publisher"
+        v-model="publisher"
+        label="Publisher"
+        :error="errors.publisher"
+        hint="Who publishes the model behind the deployment, e.g. Cohere. A reranker is called at …/providers/<publisher>/v2. Filled by Discover models."
+      />
+      <template v-if="foundryRerank">
+        <TextField id="model-request-url" v-model="requestBaseUrl" label="Request address" mono :error="errors.requestBaseUrl" :hint="requestAddressHint" />
+        <SelectField
+          id="model-request-auth"
+          v-model="requestAuthMode"
+          label="Request authentication"
+          :options="authOptions"
+          :error="errors.requestAuthMode"
+          hint="How the provider’s key is sent to the reranker."
+        />
+        <InlineError v-if="missingAddress" message="This reranker has no request address, so it is not routed. Enter its publisher or a request address." />
+      </template>
       <SelectField id="model-profile" v-model="parameterProfile" label="Parameter profile" :options="profileOptions" :error="errors.parameterProfile" />
       <TextAreaField id="model-description" v-model="description" label="Description" :rows="2" hint="Optional. Shown in the catalogue. Filled from models.dev when empty." />
       <TextField id="model-context" v-model="contextWindow" label="Context window (tokens)" type="number" min="1" inputmode="numeric" hint="Optional." :error="errors.contextWindow" />

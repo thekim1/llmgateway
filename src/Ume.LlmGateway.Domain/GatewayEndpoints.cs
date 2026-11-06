@@ -50,6 +50,12 @@ public sealed record GatewayEndpointInfo(
     /// </summary>
     public bool IgnoresContextWindow { get; init; }
 
+    /// <summary>
+    /// An answer without token counts is charged by the request-size estimate instead of nothing: rerankers that bill per
+    /// search (Cohere's <c>meta.billed_units.search_units</c>, as on Azure AI Foundry) report no tokens.
+    /// </summary>
+    public bool EstimatesUnreportedUsage { get; init; }
+
     /// <summary>The answer is billed per generated image (and per token for models that report tokens).</summary>
     public bool IsImage => Serves(ModelKind.Image);
 
@@ -96,7 +102,7 @@ public static class GatewayEndpoints
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.Realtime, ModelKind.Transcription),
         // Reranking: Cohere-compatible JSON (query + documents in, index + relevance_score out), passed through unchanged.
         new(GatewayEndpoint.Rerank, "rerank", "/v1/rerank", "rerank", ProviderCapabilities.Rerank,
-            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Rerank) { IgnoresContextWindow = true },
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Rerank) { IgnoresContextWindow = true, EstimatesUnreportedUsage = true },
         new(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations", ProviderCapabilities.Realtime,
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.SpeechTranslation),
     ]);
