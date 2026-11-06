@@ -184,7 +184,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Budget exceeded | Hard block at 100 %, alerts at configurable thresholds |
 | Key rotation | Per rotation: immediate revoke (default) or 24 h grace |
 | Rate limits | Per key (requests and tokens), Redis-backed, Redis secured by default |
-| Provider classification | OnPrem / EU / External; drives PII rerouting and key residency limits |
+| Provider classification | OnPrem / EU / External per provider, optionally per model (ADR 019); drives PII rerouting, key residency limits and the residency ceiling |
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
 Out of scope for the POC: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
