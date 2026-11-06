@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 - 2026-11-06
+
+Rerankers on Azure AI Foundry and a residency per model, plus a fix for rerank usage. One migration
+(`DeploymentResidencyAndAddress`, four nullable model columns). **Rolling update: yes** (see the upgrade guide before
+setting a model's own residency).
 
 **Rerankers on Azure AI Foundry, and a residency per model (#72, ADR 019).** A reranker deployed on Azure AI Foundry
 (first use: `Cohere-rerank-v5-fast`) is added under the existing Foundry provider and called through `POST /v1/rerank`,

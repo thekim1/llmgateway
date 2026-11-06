@@ -11,7 +11,7 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: rerankers on Azure AI Foundry, a residency per model
+## 0.9.1: rerankers on Azure AI Foundry, a residency per model
 
 - **Rolling update: yes.** Migration `DeploymentResidencyAndAddress` adds four nullable columns to `ModelDeployments`
   (`Residency`, `Publisher`, `RequestBaseUrl`, `RequestAuthMode`), all null for existing models, which keep their
