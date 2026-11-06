@@ -34,6 +34,7 @@ export const DOCS = [
     { slug: 'runbook', title: 'Runbook', source: 'docs/runbook.md', lead: 'Deployment, identity provider, certificates, backups and incidents.' },
     { slug: 'upgrade-guide', title: 'Upgrade guide', source: 'docs/upgrade-guide.md', lead: 'Migrations, rollback and certificates, per release.' },
     { slug: 'zero-downtime-updates', title: 'Updates without downtime', source: 'docs/zero-downtime-updates.md', lead: 'Two instances behind a load balancer, replaced one at a time: opt-in for Docker Compose, built in on Kubernetes.' },
+    { slug: 'network-and-ports', title: 'Network and ports', source: 'docs/network-and-ports.md', lead: 'Every listener, port and egress destination per setup, with a firewall request to copy.' },
     { slug: 'data-retention', title: 'Data retention and logging', source: 'docs/data-retention.md', lead: 'How long request data is kept, and when successful requests are logged.' },
     { slug: 'security-events', title: 'Security events', source: 'docs/security-events.md', lead: 'Send security events to your SIEM with OpenTelemetry, and what the Data API offers.' },
     { slug: 'data-access', title: 'Data API', source: 'docs/data-access.md', lead: 'Read-only access to the gateway\'s data for BI, management and security teams.' },
