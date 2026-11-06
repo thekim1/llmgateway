@@ -24,6 +24,7 @@ public static class GatewayRoutes
         [GatewayEndpoint.ImageGenerations] = "Image generation from text (OpenAI-compatible, JSON)",
         [GatewayEndpoint.ImageEdits] = "Image editing (OpenAI-compatible, multipart/form-data with the 'image' and optional 'mask' fields)",
         [GatewayEndpoint.Realtime] = "Live audio over WebSocket: live transcription and realtime conversation (OpenAI Realtime-compatible)",
+        [GatewayEndpoint.Rerank] = "Rerank documents against a query (Cohere-compatible; only providers with the Rerank capability)",
         [GatewayEndpoint.RealtimeTranslations] = "Live interpretation over WebSocket (OpenAI Realtime translations-compatible)",
     };
 

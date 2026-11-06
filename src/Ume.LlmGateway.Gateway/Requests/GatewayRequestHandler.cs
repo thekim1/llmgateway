@@ -217,8 +217,9 @@ public sealed class GatewayRequestHandler(
         // 7. Candidate providers in attempt order.
         state.Streamed = stream;
         // Audio and images are counted by length or picture, not in tokens a context window limits; an embeddings
-        // batch by its longest input, since the window limits each input, not the batch.
-        var contextTokens = audio is not null || info.IsImage ? 0
+        // batch by its longest input, since the window limits each input, not the batch; a rerank request not at all
+        // (each document is scored separately and providers split long ones).
+        var contextTokens = audio is not null || info.IsImage || info.IgnoresContextWindow ? 0
             : info.ContextWindowPerInput ? CostCalculator.EstimateLongestInputTokens(body["input"]) ?? estimatedInputTokens
             : estimatedInputTokens;
         var route = await stages.SelectRouteAsync(http, state, snapshot, key, model, requested, routing, restrictTo, stream, circuitPrefetch, ct, contextTokens,

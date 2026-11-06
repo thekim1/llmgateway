@@ -56,6 +56,9 @@ public enum ProviderCapabilities
 
     /// <summary><c>/images/generations</c> and <c>/images/edits</c> (text to image, image editing).</summary>
     Images = 128,
+
+    /// <summary><c>/rerank</c>: Cohere-compatible document reranking (an OpenAI-compatible server that also serves it).</summary>
+    Rerank = 256,
 }
 
 public enum ModelKind
@@ -74,6 +77,9 @@ public enum ModelKind
 
     /// <summary>Image generation and editing (gpt-image-1, DALL·E, FLUX …) on <c>/v1/images/generations</c> and <c>/v1/images/edits</c>.</summary>
     Image = 5,
+
+    /// <summary>Rerankers (cross-encoders such as bge-reranker-v2-m3, Cohere Rerank) on <c>/v1/rerank</c>.</summary>
+    Rerank = 6,
 }
 
 /// <summary>

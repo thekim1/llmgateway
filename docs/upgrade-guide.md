@@ -11,6 +11,14 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: optional reranking endpoint
+
+- **Rolling update: yes.** No migration (model kinds and capabilities are stored as names and flags).
+- **New, optional:** `POST /v1/rerank`, a provider capability *Rerank* (OpenAI-compatible providers only) and a model
+  kind *Rerank*; see [reranking](providers-and-models.md#reranking-optional). Nothing changes until you add one.
+- **Add Rerank models only after every gateway and admin API instance runs this version:** an older instance cannot
+  read the new model kind from the catalogue.
+
 ## Unreleased: residency ceiling per request
 
 - **Rolling update: yes.** Migration `KeyResidencyCeiling` adds `VirtualKeys.RequireMaxResidency` (`false` by

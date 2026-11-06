@@ -178,6 +178,7 @@ export const KIND_LABEL: Record<ModelKind, string> = {
   Realtime: 'Realtime (live)',
   SpeechTranslation: 'Live interpreting',
   Image: 'Image generation',
+  Rerank: 'Rerank',
 }
 
 export const PROVIDER_TYPE_LABEL: Record<import('@/api/types').ProviderType, string> = {
@@ -225,6 +226,7 @@ export const CAPABILITY_LABEL: Record<ProviderCapability, string> = {
   AudioTranscriptions: 'Speech to text',
   Realtime: 'Live audio (realtime)',
   Images: 'Image generation and editing',
+  Rerank: 'Rerank (Cohere-compatible)',
 }
 
 export const OUTCOME_LABEL: Record<RequestOutcome, { label: string; tone: Tone }> = {

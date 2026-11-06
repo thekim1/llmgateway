@@ -80,6 +80,13 @@ public static class UsageParser
             return true;
         }
 
+        // Rerank servers (vLLM, Jina): only a total. A reranker generates nothing, so it is all input.
+        if (u["total_tokens"] is not null)
+        {
+            result = new TokenUsage(Long(u["total_tokens"]), 0, 0);
+            return true;
+        }
+
         return false;
     }
 

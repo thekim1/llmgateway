@@ -54,6 +54,10 @@ public static partial class ModelDiscovery
     [GeneratedRegex(@"realtime-translate|live-translate", RegexOptions.IgnoreCase)]
     private static partial Regex SpeechTranslationModel();
 
+    /// <summary>Rerankers (bge-reranker, Cohere rerank, jina-reranker …), served by /v1/rerank.</summary>
+    [GeneratedRegex(@"rerank", RegexOptions.IgnoreCase)]
+    private static partial Regex RerankModel();
+
     /// <summary>Realtime conversation models, served by /v1/realtime.</summary>
     [GeneratedRegex(@"realtime", RegexOptions.IgnoreCase)]
     private static partial Regex RealtimeModel();
@@ -359,7 +363,8 @@ public static partial class ModelDiscovery
         }
 
         var ollamaCaps = OllamaCapabilities(item);
-        var kind = ImageModel().IsMatch(id) ? ModelKind.Image
+        var kind = RerankModel().IsMatch(id) ? ModelKind.Rerank
+            : ImageModel().IsMatch(id) ? ModelKind.Image
             : TranscriptionModel().IsMatch(id) ? ModelKind.Transcription
             : SpeechTranslationModel().IsMatch(id) ? ModelKind.SpeechTranslation
             : RealtimeModel().IsMatch(id) ? ModelKind.Realtime

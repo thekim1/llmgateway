@@ -44,6 +44,12 @@ public sealed record GatewayEndpointInfo(
     /// </summary>
     public bool ContextWindowPerInput { get; init; }
 
+    /// <summary>
+    /// The context window is not checked before sending: a reranker scores each document against the query separately
+    /// and providers split or truncate long documents themselves, so the size of the whole request says nothing.
+    /// </summary>
+    public bool IgnoresContextWindow { get; init; }
+
     /// <summary>The answer is billed per generated image (and per token for models that report tokens).</summary>
     public bool IsImage => Serves(ModelKind.Image);
 
@@ -88,6 +94,9 @@ public static class GatewayEndpoints
         // Live transcription uses speech-to-text models on /v1/realtime.
         new(GatewayEndpoint.Realtime, "realtime", "/v1/realtime", "realtime", ProviderCapabilities.Realtime,
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.Realtime, ModelKind.Transcription),
+        // Reranking: Cohere-compatible JSON (query + documents in, index + relevance_score out), passed through unchanged.
+        new(GatewayEndpoint.Rerank, "rerank", "/v1/rerank", "rerank", ProviderCapabilities.Rerank,
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Rerank) { IgnoresContextWindow = true },
         new(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations", ProviderCapabilities.Realtime,
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.SpeechTranslation),
     ]);

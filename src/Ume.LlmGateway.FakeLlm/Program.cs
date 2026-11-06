@@ -128,6 +128,48 @@ app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
     });
 });
 
+// Cohere-compatible reranking (as Berget AI, vLLM and Infinity serve it): the score is the share of the query's words
+// found in the document, so a document about the query ranks first. Deterministic.
+app.MapPost("/v1/rerank", async (HttpContext ctx) =>
+{
+    var body = await ReadAsync(ctx);
+    var model = body["model"]?.GetValue<string>() ?? "fake-rerank";
+    if (await FailureAsync(ctx, model) is { } failure)
+    {
+        return failure;
+    }
+
+    var query = body["query"]?.GetValue<string>() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(query) || body["documents"] is not JsonArray { Count: > 0 } documents)
+    {
+        return Results.Json(new { message = "query and documents are required." }, statusCode: 400);
+    }
+
+    var texts = documents.Select(d => d is JsonObject o ? o["text"]?.ToString() ?? string.Empty : d?.ToString() ?? string.Empty).ToList();
+    var queryWords = RerankWords(query);
+    var scored = texts.Select((text, index) =>
+        {
+            var words = RerankWords(text);
+            var score = queryWords.Count == 0 ? 0 : (double)queryWords.Count(words.Contains) / queryWords.Count;
+            return (Index: index, Score: Math.Round(score, 6), Text: text);
+        })
+        .OrderByDescending(r => r.Score).ThenBy(r => r.Index)
+        .Take(body["top_n"] is JsonValue topN && topN.TryGetValue<int>(out var n) && n > 0 ? n : texts.Count)
+        .ToList();
+    var returnDocuments = body["return_documents"] is JsonValue r && r.TryGetValue<bool>(out var rd) && rd;
+    var tokens = texts.Sum(t => Tokens(query) + Tokens(t));
+    return Results.Json(new
+    {
+        id = "rerank-" + Guid.NewGuid().ToString("N"),
+        model,
+        @object = "reranking",
+        results = scored.Select(s => returnDocuments
+            ? (object)new { index = s.Index, relevance_score = s.Score, document = new { text = s.Text } }
+            : new { index = s.Index, relevance_score = s.Score }),
+        usage = new { prompt_tokens = tokens, total_tokens = tokens },
+    });
+});
+
 app.MapPost("/v1/responses", async (HttpContext ctx) =>
 {
     var body = await ReadAsync(ctx);
@@ -496,6 +538,9 @@ static string TextOf(JsonNode? content) => content switch
 };
 
 static int Tokens(string text) => Math.Max(1, text.Length / 4);
+
+static HashSet<string> RerankWords(string text) =>
+    [.. text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(w => w.Trim('.', ',', '?', '!', ':', ';'))];
 
 static IEnumerable<string> Words(string text)
 {

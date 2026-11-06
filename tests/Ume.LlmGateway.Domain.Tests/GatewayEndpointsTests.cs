@@ -35,6 +35,7 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations")]
     [InlineData(GatewayEndpoint.ImageGenerations, "image_generations", "/v1/images/generations", "images/generations")]
     [InlineData(GatewayEndpoint.ImageEdits, "image_edits", "/v1/images/edits", "images/edits")]
+    [InlineData(GatewayEndpoint.Rerank, "rerank", "/v1/rerank", "rerank")]
     public void Names_and_paths_are_the_documented_ones(GatewayEndpoint endpoint, string routingName, string clientPath, string? upstreamPath)
     {
         var info = GatewayEndpoints.Info(endpoint);
@@ -54,10 +55,27 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.RealtimeTranslations, ProviderCapabilities.Realtime)]
     [InlineData(GatewayEndpoint.ImageGenerations, ProviderCapabilities.Images)]
     [InlineData(GatewayEndpoint.ImageEdits, ProviderCapabilities.Images)]
+    [InlineData(GatewayEndpoint.Rerank, ProviderCapabilities.Rerank)]
     public void Provider_support_follows_the_required_capability(GatewayEndpoint endpoint, ProviderCapabilities capability)
     {
         new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = capability }.Supports(endpoint).ShouldBeTrue();
         new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = ~capability & (ProviderCapabilities)0xFF }.Supports(endpoint).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(ProviderType.OpenAI)]
+    [InlineData(ProviderType.AzureOpenAI)]
+    [InlineData(ProviderType.AzureAIFoundry)]
+    [InlineData(ProviderType.Anthropic)]
+    [InlineData(ProviderType.Ollama)]
+    [InlineData(ProviderType.OllamaCloud)]
+    public void Rerank_is_optional_and_only_where_an_admin_turns_it_on(ProviderType type)
+    {
+        // No fixed provider type serves it; an OpenAI-compatible server only when its Rerank capability is chosen.
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = type, Capabilities = (ProviderCapabilities)0x1FF }.Supports(GatewayEndpoint.Rerank).ShouldBeFalse();
+        new ProviderAccount { Name = "p", BaseUrl = "http://x", Type = ProviderType.OpenAICompatible, Capabilities = Providers.ProviderTypes.CompatibleDefault }
+            .Supports(GatewayEndpoint.Rerank).ShouldBeFalse();
+        GatewayEndpoints.Info(GatewayEndpoint.Rerank).IgnoresContextWindow.ShouldBeTrue();
     }
 
     [Fact]
@@ -78,6 +96,7 @@ public class GatewayEndpointsTests
     [InlineData(GatewayEndpoint.RealtimeTranslations, new[] { ModelKind.SpeechTranslation })]
     [InlineData(GatewayEndpoint.ImageGenerations, new[] { ModelKind.Image })]
     [InlineData(GatewayEndpoint.ImageEdits, new[] { ModelKind.Image })]
+    [InlineData(GatewayEndpoint.Rerank, new[] { ModelKind.Rerank })]
     [InlineData(GatewayEndpoint.Models, new ModelKind[0])]
     public void Endpoints_serve_their_model_kinds(GatewayEndpoint endpoint, ModelKind[] kinds)
     {
