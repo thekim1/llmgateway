@@ -23,6 +23,8 @@ It is safe to re-run: existing secrets are never overwritten. All options are av
 non-interactively (`--help`); `--renew-certs` re-issues the service certificates. Back up
 `deploy/secrets/.pepper` and `deploy/certs/data-protection.pfx` separately from database dumps.
 
+Ports, firewall and proxy rules for every setup: [Network and ports](network-and-ports.md).
+
 ## Sizing
 
 For a quiet installation, up to about 50 messages per second with room for bursts. Measured with PII detection and the

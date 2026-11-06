@@ -128,6 +128,8 @@ see [Updates without downtime](zero-downtime-updates.md). On Kubernetes, rolling
 
 ## Reverse proxy and PKI
 
+Every port, firewall rule and egress destination, per setup: [Network and ports](network-and-ports.md).
+
 `deploy/init-deployment.sh` supports three ways of exposing the stack. Pick the one that
 matches your environment; they combine (a proxy in front, with PKI certificates behind it).
 
