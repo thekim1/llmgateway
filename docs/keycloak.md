@@ -125,10 +125,13 @@ organisation's token gives the role `gateway-admin` and its `department` claim b
 3. Mappers: *Advanced Claim to Role* (`groups` contains the object id of the admin group → `gateway-admin`, and so on)
    and *Attribute Importer* (the claim that holds the cost-centre code → `departmentCodes`).
 
-**Active Directory through LDAP (documented, not tested here):** *User federation → LDAP*, vendor *Active Directory*,
-`ldaps://`, a read-only bind account, edit mode *READ_ONLY*; a *role-ldap-mapper* (or *group-ldap-mapper* plus a
-group-to-role mapping) for the roles and a *user-attribute-ldap-mapper* from the attribute that holds the cost-centre
-code (for example `departmentNumber`) to `departmentCodes`. **AD FS** can be brokered like Entra ID (OpenID Connect,
+**Active Directory through LDAP:** *User federation → LDAP*, vendor *Active Directory*, `ldaps://`, a read-only bind
+account, edit mode *READ_ONLY*; a *role-ldap-mapper* (or *group-ldap-mapper* plus a group-to-role mapping) for the
+roles and a *user-attribute-ldap-mapper* from the attribute that holds the cost-centre code (for example
+`departmentNumber`) to `departmentCodes`. The end-to-end test does this against an OpenLDAP directory (vendor
+*Other*, realm file `25-ldap.json` in the test): a member of the LDAP group `department-admin` gets that role and its
+`departmentNumber` becomes `departmentCodes`. Against Active Directory itself it is not yet tested. With vendor
+*Other*, Keycloak's default *first name* mapper reads `cn` (the full name); point it at `givenName`. **AD FS** can be brokered like Entra ID (OpenID Connect,
 discovery at `https://adfs.example.se/adfs/.well-known/openid-configuration`).
 
 ## Accounts
@@ -170,8 +173,13 @@ deploy/tests/keycloak-e2e.sh        # about 3 minutes, Docker only; KEEP=1 leave
 ```
 
 It runs `init-keycloak.sh` against a stand-in gateway deployment, starts the gateway's Postgres image with
-`init.sql` and `pg_hba.conf`, starts Keycloak in production mode, imports the gateway's file plus another system's file
-and a brokered provider, and checks the realm settings, that each client's token carries only its own system's roles,
-a brokered sign-in (roles and `departmentCodes` from the organisation's claims), that a second import deletes
+`init.sql` and `pg_hba.conf` and a test LDAP directory, starts Keycloak in production mode, imports the gateway's file
+plus another system's file, a brokered provider and an LDAP federation, and checks the realm settings, that each
+client's token carries only its own system's roles, three sign-ins with the admin UI's client (a local account, a
+brokered user with roles and `departmentCodes` from the organisation's claims, an LDAP user with them from a group and
+an attribute), that a second import deletes
 nothing, that `add-keycloak-database.sql` is idempotent, a backup and restore of the `keycloak` database (with
 `Backup-Database.ps1`/`Restore-Database.ps1` when `pwsh` is installed) and the container hardening.
+
+Checked by hand once (2026-11-06): the admin API itself, run against this Keycloak, signed in all three kinds of user
+through its own `/bff/login` and `/signin-oidc`, and `/bff/user` showed the expected roles and department codes.
