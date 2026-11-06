@@ -117,6 +117,10 @@ public sealed class RequestPolicyTests
             Overrides = new Dictionary<string, JsonElement> { ["tools"] = Json("""[{"type":"web_search"}]"""), ["store"] = Json("true") },
         };
         sneaky.Validate().Count().ShouldBe(2);
+
+        // A rerank request's query and documents are content: a policy cannot replace them.
+        new RequestPolicy { Overrides = new Dictionary<string, JsonElement> { ["query"] = Json("\"x\""), ["documents"] = Json("[]") } }
+            .Validate().Count().ShouldBe(2);
         var request = JsonNode.Parse("""{"model":"m","input":"Hej","store":false}""")!.AsObject();
         RequestPolicies.Apply(request, GatewayEndpoint.Responses, sneaky);
         request["tools"].ShouldBeNull();

@@ -362,6 +362,9 @@ and invalidate the gateway catalogue.
 ## Gateway (data plane) – for the developer portal snippets
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
 - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `POST /v1/responses`, `POST /v1/messages` (Anthropic format).
+- `POST /v1/rerank` (optional, Cohere-compatible): `{ model, query, documents: (string | { text })[], top_n?, return_documents? }` →
+  the provider's answer unchanged (`results[]` with `index` and `relevance_score`). Only models of kind `Rerank` on
+  providers with the `Rerank` capability; see [reranking](providers-and-models.md#reranking-optional).
 - `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` (speech to text, OpenAI format): `multipart/form-data`
   with the recording in `file` and the text fields `model` (a `Transcription` alias or model), `language`, `prompt`,
   `response_format` (`json`, `text`, `srt`, `vtt`, `verbose_json`), `temperature`, `stream`, `timestamp_granularities[]` …;

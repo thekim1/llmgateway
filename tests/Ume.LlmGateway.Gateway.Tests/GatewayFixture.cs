@@ -96,18 +96,19 @@ public sealed class GatewayFixture : IAsyncLifetime
                     AuthMode = type == ProviderType.Anthropic ? ProviderAuthMode.XApiKeyHeader : ProviderAuthMode.Bearer,
                     EncryptedCredential = protector.Protect(ProviderSecret),
                     Capabilities = ProviderCapabilities.ChatCompletions | ProviderCapabilities.Streaming |
-                        (type == ProviderType.Anthropic ? ProviderCapabilities.AnthropicMessages : ProviderCapabilities.Embeddings | ProviderCapabilities.Responses),
+                        (type == ProviderType.Anthropic ? ProviderCapabilities.AnthropicMessages : ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.Rerank),
                     TimeoutSeconds = name == "slow" ? 1 : 10, CreatedAt = DateTimeOffset.UtcNow,
                 };
                 foreach (var model in name == "slow" ? new[] { "slow" }
-                    : name == "eu" ? new[] { "ok", "fail503", "fail429", "quota429", "flaky503", "bad400", "embedding" }
-                    : name == "onprem" ? new[] { "ok", "fail503", "fail429", "bad400", "embedding", "guard" }
-                    : new[] { "ok", "fail503", "fail429", "bad400", "embedding" })
+                    : name == "eu" ? new[] { "ok", "fail503", "fail429", "quota429", "flaky503", "bad400", "embedding", "rerank" }
+                    : name == "onprem" ? new[] { "ok", "fail503", "fail429", "bad400", "embedding", "guard", "rerank" }
+                    : name == "anthropic" ? new[] { "ok", "fail503", "fail429", "bad400", "embedding" }
+                    : new[] { "ok", "fail503", "fail429", "bad400", "embedding", "rerank" })
                 {
                     var deployment = new ModelDeployment
                     {
                         Name = name + "/" + model, UpstreamModel = name + "-" + model,
-                        Kind = model == "embedding" ? ModelKind.Embedding : ModelKind.Chat,
+                        Kind = model == "embedding" ? ModelKind.Embedding : model == "rerank" ? ModelKind.Rerank : ModelKind.Chat,
                         Prices = [new ModelPrice { InputPerMillionUsd = 1, CachedInputPerMillionUsd = 0.5m, OutputPerMillionUsd = 2, EffectiveFrom = DateTimeOffset.UtcNow.AddDays(-1) }],
                     };
                     provider.Deployments.Add(deployment);
@@ -217,6 +218,15 @@ public sealed class GatewayFixture : IAsyncLifetime
             Upstream.Given(Request.Create().WithPath("/v1/*").UsingPost().WithBody(new WildcardMatcher($"*\"{model}\"*GUARD-UNSAFE*")))
                 .AtPriority(5).RespondWith(Verdict("unsafe\nS1"));
             Upstream.Given(request).AtPriority(10).RespondWith(Verdict("safe"));
+            return;
+        }
+
+        if (behavior == "rerank")
+        {
+            // Berget AI's documented answer (Cohere v1 shape plus an OpenAI-style usage).
+            Upstream.Given(Request.Create().WithPath("/v1/rerank").UsingPost().WithBody(new JsonPartialMatcher(new { model }))).AtPriority(10)
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(
+                    """{"id":"rr-1","model":"BAAI/bge-reranker-v2-m3","object":"reranking","results":[{"index":1,"relevance_score":0.91},{"index":0,"relevance_score":0.12}],"usage":{"prompt_tokens":120,"total_tokens":120}}"""));
             return;
         }
 

@@ -30,10 +30,11 @@ export const PROVIDER_CAPABILITIES = [
   'AudioTranscriptions',
   'Realtime',
   'Images',
+  'Rerank',
 ] as const
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]
 
-export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation', 'Image'] as const
+export const MODEL_KINDS = ['Chat', 'Embedding', 'Transcription', 'Realtime', 'SpeechTranslation', 'Image', 'Rerank'] as const
 export type ModelKind = (typeof MODEL_KINDS)[number]
 
 export const PARAMETER_PROFILES = ['Standard', 'OpenAIReasoning'] as const

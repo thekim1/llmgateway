@@ -40,7 +40,7 @@ public sealed record RequestPolicy
         "model", "messages", "input", "prompt", "system", "instructions", "stream", "stream_options", "file", "image", "mask",
         "max_tokens", "max_completion_tokens", "max_output_tokens",
         "tools", "tool_choice", "web_search_options", "mcp_servers", "container", "store", "background", "conversation",
-        "previous_response_id",
+        "previous_response_id", "query", "documents",
     };
 
     /// <summary>The team's policy with the key's values on top (parameters merged by name). Null when neither sets anything.</summary>

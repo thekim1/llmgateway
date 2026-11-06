@@ -30,4 +30,10 @@ public enum GatewayEndpoint
 
     /// <summary><c>POST /v1/messages/count_tokens</c>: the input tokens of an Anthropic Messages request (free, not billed).</summary>
     AnthropicCountTokens = 11,
+
+    /// <summary>
+    /// <c>POST /v1/rerank</c>: scores documents against a query (Cohere-compatible JSON, as Berget AI, Cohere, vLLM,
+    /// Infinity and Jina serve it). Optional: used only when a provider has the <c>Rerank</c> capability.
+    /// </summary>
+    Rerank = 12,
 }

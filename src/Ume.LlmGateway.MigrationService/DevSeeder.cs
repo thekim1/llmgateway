@@ -105,7 +105,8 @@ public sealed partial class DevSeeder(
         var fakeUrl = o.FakeLlmUrl ?? "http://localhost:5090/v1";
         var hasFake = !string.IsNullOrWhiteSpace(o.FakeLlmUrl);
         var fakeOnPrem = Provider("fake-onprem", "Testleverantör (on-prem)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.OnPrem,
-            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images, hasFake);
+            chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images
+            | ProviderCapabilities.Rerank, hasFake);
         var fakeEu = Provider("fake-eu", "Testleverantör (EU)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.Eu,
             chatAll | ProviderCapabilities.Embeddings | ProviderCapabilities.Responses | ProviderCapabilities.AudioTranscriptions | ProviderCapabilities.Realtime | ProviderCapabilities.Images, hasFake);
         var fakeExternal = Provider("fake-external", "Testleverantör (extern)", ProviderType.OpenAICompatible, fakeUrl, ProviderAuthMode.None, DataResidency.External,
@@ -156,6 +157,7 @@ public sealed partial class DevSeeder(
 
         var fakeSmall = Model(fakeOnPrem, "echo-small", "fake-chat", 0.10m, 0.10m, 0.30m, context: 32_000);
         var fakeEmbed = Model(fakeOnPrem, "echo-embed", "fake-embed", 0.02m, 0m, 0m, ModelKind.Embedding);
+        var fakeRerank = Model(fakeOnPrem, "echo-rerank", "fake-rerank", 0.02m, 0m, 0m, ModelKind.Rerank);
         var fakeEuModel = Model(fakeEu, "echo-eu", "fake-chat", 0.40m, 0.10m, 1.60m, context: 128_000);
         var fakeExt = Model(fakeExternal, "echo-external", "fake-chat", 2.50m, 1.25m, 10.00m, context: 128_000);
         var fakeFail = Model(fakeExternal, "always-503", "fake-fail-503", 2.50m, 1.25m, 10.00m);
@@ -218,6 +220,13 @@ public sealed partial class DevSeeder(
                 Kind = ModelKind.Embedding,
                 Description = "Vektorer för sökning (RAG).",
                 Targets = [T(embedSmall, 0), T(fakeEmbed, 1)],
+            },
+            new RouteAlias
+            {
+                Name = "ume/rerank",
+                Kind = ModelKind.Rerank,
+                Description = "Omrankning av sökträffar (POST /v1/rerank).",
+                Targets = [T(fakeRerank, 0)],
             },
             new RouteAlias
             {

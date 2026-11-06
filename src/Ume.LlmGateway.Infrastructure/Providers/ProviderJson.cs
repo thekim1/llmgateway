@@ -23,6 +23,7 @@ internal static class ProviderJson
     {
         var reader = new Utf8JsonReader(json);
         TokenUsage usage = default;
+        var reported = false;
         if (!reader.Read())
         {
             throw new JsonException("Empty response body.");
@@ -37,10 +38,23 @@ internal static class ProviderJson
             while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
             {
                 var isUsage = reader.ValueTextEquals("usage"u8);
+                var isMeta = !isUsage && reader.ValueTextEquals("meta"u8);
                 reader.Read();
                 if (isUsage && reader.TokenType == JsonTokenType.StartObject)
                 {
-                    UsageParser.TryRead(JsonNode.Parse(ref reader), out usage);
+                    if (UsageParser.TryRead(JsonNode.Parse(ref reader), out var reportedUsage))
+                    {
+                        (usage, reported) = (reportedUsage, true);
+                    }
+                }
+                else if (isMeta && !reported && reader.TokenType == JsonTokenType.StartObject)
+                {
+                    // Cohere's rerank API reports tokens in meta.billed_units (or meta.tokens) instead of usage.
+                    var meta = JsonNode.Parse(ref reader);
+                    if (UsageParser.TryRead(meta?["billed_units"], out var billed) || UsageParser.TryRead(meta?["tokens"], out billed))
+                    {
+                        (usage, reported) = (billed, true);
+                    }
                 }
                 else
                 {

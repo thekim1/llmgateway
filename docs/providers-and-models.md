@@ -12,7 +12,27 @@ request then follows from the model's kind (an embedding model gets `/v1/embeddi
 | Anthropic | chat completions (translated), Anthropic Messages, streaming |
 | Ollama | chat completions, embeddings, streaming |
 | Ollama Cloud | chat completions, streaming |
-| OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server) |
+| OpenAI-compatible | the endpoints you choose under *Endpoints this server offers* (default chat completions, streaming and embeddings), since they depend on the server (vLLM, LiteLLM, Speaches, an on-prem speech server); *Rerank* is only offered this way |
+
+### Reranking (optional)
+
+`POST /v1/rerank` scores documents against a query, for search and retrieval-augmented generation. It is optional:
+nothing uses it until you add a provider that serves it. The gateway speaks the Cohere-compatible format (`query`,
+`documents` as strings or `{ "text": … }` objects, `top_n`, `return_documents` in; `results[]` with `index` and
+`relevance_score` out) and passes requests and answers through unchanged, so any server or service with that API
+works, for example:
+
+- **Berget AI** (Sweden, EU): base URL `https://api.berget.ai/v1`, model `BAAI/bge-reranker-v2-m3`;
+- **vLLM**, **Infinity** or another on-prem server running a reranker such as `bge-reranker-v2-m3`;
+- **Cohere** (its v1 rerank API) or **Jina**.
+
+Add it as an *OpenAI-compatible* provider with the residency it has, tick **Rerank** under *Endpoints this server
+offers*, and add the model with the kind **Rerank** (discovery recognises names containing `rerank`). Price it per
+input token: the gateway reads `usage` (`prompt_tokens` or `total_tokens`) or Cohere's `meta.billed_units.input_tokens`,
+and estimates from the request size when the provider reports neither. A provider that bills per search instead has
+to be converted to a token price by hand. The context window is not checked before sending (rerankers score each
+document separately and split long ones themselves). The residency ceiling, budgets, PII guard and usage records
+apply as to every endpoint; request policies may set parameters but never `query` or `documents`.
 
 ## Removing a provider
 

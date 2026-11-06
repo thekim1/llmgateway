@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Optional reranking endpoint: `POST /v1/rerank`.** Cohere-compatible (`query` and `documents` in, `results[]` with
+`index` and `relevance_score` out), passed through unchanged to an OpenAI-compatible provider whose new **Rerank**
+capability is ticked, for models of the new kind **Rerank**: Berget AI (`BAAI/bge-reranker-v2-m3`, Sweden), vLLM,
+Infinity, Cohere or Jina. Nothing changes until such a provider is added. Usage is read from `usage` or Cohere's
+`meta.billed_units`; the context window is not checked for it; request policies cannot replace `query` or `documents`.
+Discovery recognises reranker names; the fake LLM and the dev seed have a reranker (`ume/rerank`). **Rolling update:
+yes**, but add Rerank models only after every gateway and admin API instance runs this version (an older one cannot
+read the new model kind).
+
 **Fake LLM: real-sized embeddings (development only).** The fake provider takes the OpenAI `dimensions` parameter
 (1–4 096) or a model name ending in `-<n>` (`fake-embed-1024`) and then returns L2-normalised vectors in which similar
 texts are close (feature hashing of words and character trigrams), and `encoding_format: "base64"`. Without either it
