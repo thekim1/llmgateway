@@ -134,7 +134,7 @@ header and on the sign-in page:
 Everyone who opens the console sees the change: the admin who saved it at once, others within 30 seconds (each admin API
 instance holds the branding that long). Changes are audited (`Settings`, with the logo's type, size and SHA-256, not the
 image). The branding is stored in the database (table `Branding`), so it survives updates and is included in backups; it
-is not part of the configuration export. The data comes from `GET /bff/branding` ([docs/admin-api.md](admin-api.md#settings)).
+is not part of the configuration export. The data comes from `GET /bff/branding` ([docs/admin-api.md](admin-api.md), settings).
 
 ## Model prices
 
