@@ -11,12 +11,21 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: admin console branding
+## 0.9.2: admin console branding, Keycloak groups shared with other systems
 
 - **Rolling update: yes.** Migration `Branding` adds the table `Branding`; the migration service creates its single row
   (organisation name *Umeå kommun*, no logo) and grants the admin API's role `SELECT` and `UPDATE` on it with
   `app-roles.sql`, as on every start. An older admin API ignores it, and the gateway and Data API have no access to it.
-  Compose, Kubernetes and Redis ACL files are unchanged apart from the roles file (`app-roles.sql` and its copies).
+  The Compose and Kubernetes files change only in the roles file (`app-roles.sql` and its copies, including
+  `compose.portainer.yaml`); the Redis ACL is unchanged. Use the release bundle's files, which carry the new roles file.
+- **Reverse proxy:** allow 52 MB request bodies (was 32 MB), or image edits between 32 and 50 MB are refused with 413 at
+  the proxy. The nginx example, the Nginx Proxy Manager settings in the runbook and the Kubernetes Ingress example say
+  52 MB now; an existing `proxy/nginx.conf` or Ingress is yours to change.
+- **Data API behind the proxy (optional):** re-run `init-deployment.sh --proxy --data-host <third host name>` to get a
+  `proxy/nginx.conf` with a Data API server block; on Kubernetes, `example/ingress-dataapi.yaml`. Without it, port 10443
+  is bound to `0.0.0.0` in proxy mode: firewall it ([Network and ports](network-and-ports.md)).
+- **Kubernetes NetworkPolicies (optional):** `components/networkpolicies`; adjust the lines marked `change` before
+  enabling it ([Kubernetes](kubernetes.md#network-policies)).
 - **After the upgrade**, set your organisation's name and logo under *Settings > Branding* if you are not Umeå kommun.
 - **Keycloak project:** `up -d --wait` in `deploy/keycloak` re-runs the realm import, which adds a `groups` mapper to the
   `ume-admin` client (ID token only). Nothing else changes; a gateway still on the previous version ignores the claim.

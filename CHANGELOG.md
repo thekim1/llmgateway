@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.9.2 - 2026-11-07
+
+Admin console branding, Keycloak groups shared with other systems (Ume.Rag), the Data API behind the reverse proxy and
+optional Kubernetes NetworkPolicies. One migration (`Branding`, one new table). **Rolling update: yes.** Raise the
+reverse proxy's body limit to 52 MB (see the upgrade guide).
 
 **Branding for the admin console.** Gateway admins set the organisation name and logo shown at the top of the menu, in the
 phone header and on the sign-in page under *Settings > Branding* (default: *Umeå kommun* and the built-in icon), so an
@@ -18,6 +22,18 @@ with Keycloak and LDAP-federated groups. A Keycloak group with realm-role mappin
 `gateway-admin` and `rag-platform-admin`) sets a person up for all of them; the end-to-end test checks that each system
 still gets only its own roles. The admin API now drops the group claims after deriving roles and team codes, so users in
 many groups no longer enlarge the session cookie.
+
+**Deployment: proxy, Data API, NetworkPolicies (#75).** **Fix:** image edits between 32 and 50 MB were refused with 413 at
+the proxy; the nginx example, the Nginx Proxy Manager settings and the Kubernetes Ingress now allow 52 MB.
+`init-deployment.sh --proxy --data-host <name>` adds a Data API server block to `proxy/nginx.conf` (a third host name,
+refused when it equals the gateway's or admin UI's), and warns that port 10443 is bound to `0.0.0.0` without it;
+`deploy/kubernetes/example/ingress-dataapi.yaml` does the same on Kubernetes. New optional component
+`deploy/kubernetes/components/networkpolicies`: default deny for the stack's pods, then DNS, the Ingress controller to the
+apps, the admin API to the gateway, the apps to Postgres and Redis, and outbound 443 (rendered in CI; not run with an
+enforcing CNI in this repository). **Docs:** every port bound to `0.0.0.0` in proxy mode is listed, `dev/keycloak` is
+told apart from the production Keycloak project, on-prem live-audio servers need `https://`, and the admin API and Data
+API reach the outside through `edge`. The Keycloak end-to-end test now waits for the `keycloak` database instead of an
+init-time Postgres server that already reports ready. The benchmarks page no longer links the platform comparison slides.
 
 ## 0.9.1 - 2026-11-06
 
