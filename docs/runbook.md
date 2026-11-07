@@ -502,7 +502,7 @@ Back up the Data Protection private certificate/password and HMAC pepper separat
 through the secret manager. Test restoration in an isolated environment: schema,
 key authentication, decrypted provider credential, new BFF session and billing query.
 A dump without the encryption certificate/pepper is not a complete recoverable system.
-Define and measure RPO/RTO; the POC does not promise availability.
+Define and measure RPO/RTO; the project does not promise an availability level.
 
 ## Incidents and safe shutdown
 

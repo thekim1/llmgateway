@@ -51,6 +51,13 @@ public sealed record RequestLogSettingsAudit(bool LogAllRequests, DateTimeOffset
     public static RequestLogSettingsAudit Of(GatewaySettings s) => new(s.LogAllRequests, s.LogAllRequestsUntil);
 }
 
+/// <summary>Branding before and after a change; the logo by its type, size and hash, never its bytes.</summary>
+public sealed record BrandingAudit(string OrganisationName, string? LogoContentType, int? LogoBytes, string? LogoSha256)
+{
+    public static BrandingAudit Of(Branding b) => new(b.OrganisationName, b.LogoContentType, b.Logo?.Length,
+        b.Logo is { } logo ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(logo)) : null);
+}
+
 public sealed record KeyRotationAudit(KeyAudit PreviousKey, KeyAudit Key);
 
 /// <summary>A reveal or copy of a key's secret: which key, never the secret.</summary>

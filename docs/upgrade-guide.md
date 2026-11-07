@@ -4,12 +4,20 @@ Each release says whether it supports a **rolling update** ([Updates without dow
 previous version keeps running against the new schema while its instances are replaced. "No" means a planned stop: stop
 the gateway, admin API and Data API, migrate, start the new version.
 
-## POC 0.1.0
+## 0.1.0
 
 Initial demonstrator: .NET 10.0.12, Aspire 13.6, Vue 3, PostgreSQL 17 and Redis 8.6.
 Production deployment now uses chiseled-extra images, immutable base digests, file-mounted
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
+
+## Unreleased: admin console branding
+
+- **Rolling update: yes.** Migration `Branding` adds the table `Branding`; the migration service creates its single row
+  (organisation name *Umeå kommun*, no logo) and grants the admin API's role `SELECT` and `UPDATE` on it with
+  `app-roles.sql`, as on every start. An older admin API ignores it, and the gateway and Data API have no access to it.
+  Compose, Kubernetes and Redis ACL files are unchanged apart from the roles file (`app-roles.sql` and its copies).
+- **After the upgrade**, set your organisation's name and logo under *Settings > Branding* if you are not Umeå kommun.
 
 ## 0.9.1: rerankers on Azure AI Foundry, a residency per model
 
@@ -528,7 +536,7 @@ existing Postgres role passwords through an approved DBA workflow as well as sec
 Keep old Data Protection decrypting certificates available during re-encryption/key-ring
 transition; replacing the encryption certificate blindly loses provider credentials/cookies.
 HMAC pepper rotation needs a designed key-hash migration or explicit replacement/revocation
-of all virtual keys; the POC does not support transparent dual-pepper rotation.
+of all virtual keys; the gateway does not support transparent dual-pepper rotation.
 
 ## Dependency and supply-chain commands
 

@@ -34,7 +34,7 @@ For a clean environment without demo data, start with `.\scripts\Start-Dev.ps1 -
 10. Sign in as viewer/department-admin to show read-only and department isolation. Explicitly
    renew the BFF session, then logout through the IdP confirmation/callback.
 11. Revoke synthetic demo keys, inspect masked audit and stop the exact AppHost cleanly.
-    Retain/delete metadata only under the approved POC records policy; do not wipe the volume.
+    Retain/delete metadata only under the approved records policy; do not wipe the volume.
 
 Automated browser evidence is in `tests\e2e` (run on the separate test database, see [Local development](local-development.md#browser-tests)): five user
 journeys, the final synthetic demo, routing rules checks (journeys, UI details, permissions, focus) and nine accessibility checks. On 2026-10-09,

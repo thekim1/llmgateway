@@ -1,11 +1,11 @@
-# Handover: Umeå kommun LLM Gateway POC
+# Handover: Umeå kommun LLM Gateway
 
 Current state for a fresh agent or developer. History lives in git and [CHANGELOG.md](CHANGELOG.md); the design is in
 [docs/architecture.md](docs/architecture.md) and [docs/adr.md](docs/adr.md); the API contract is [docs/admin-api.md](docs/admin-api.md).
 
 ## Status
 
-Everything in the original POC scope and the routing rules feature is implemented, tested and documented.
+Everything in the original scope and the routing rules feature is implemented, tested and documented.
 
 | Area | State |
 |---|---|
@@ -16,7 +16,7 @@ Everything in the original POC scope and the routing rules feature is implemente
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
 | Tests | Domain, gateway, admin API, integration (Testcontainers), UI (Vitest) and Playwright e2e (34 tests, own test database via `scripts/Start-E2E.ps1`) all pass |
 
-The POC is not a production approval, legal attestation or WCAG certification (see the release gates in
+The project is not a production approval, legal attestation or WCAG certification (see the release gates in
 [docs/security-and-compliance.md](docs/security-and-compliance.md)).
 
 ## Open items

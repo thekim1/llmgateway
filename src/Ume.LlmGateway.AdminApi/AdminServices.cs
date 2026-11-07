@@ -59,6 +59,8 @@ public static class AdminServices
         services.AddHttpClient(GatewayOperationsClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
         services.AddScoped<GatewaySettingsService>();
+        services.AddScoped<BrandingService>();
+        services.AddSingleton<BrandingCache>();
         services.AddSingleton<ReleaseCheck>();
         services.AddHttpClient(ReleaseCheck.HttpClientName);
 

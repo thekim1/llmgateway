@@ -275,6 +275,14 @@ and invalidate the gateway catalogue.
   that answered. `POST /api/settings/model-prices/run` → 202 with the state: downloads the list now and updates in the
   background (409 when a run is going or updates are off). Each added price is audited as `price`, each filled model as
   `update`, by `system:price-list`.
+- `GET /bff/branding` *(anonymous: the sign-in page shows it)* → `{ organisationName, logoUrl, updatedAt }`;
+  `logoUrl` is `/bff/branding/logo?v=<hash>` or null (the built-in icon). `GET /bff/branding/logo` returns the image
+  (`image/png`, `image/jpeg`, `image/webp` or `image/svg+xml`; cached for a year when `v` matches the current logo, 404
+  without a logo) with `Content-Security-Policy: ... sandbox`. Both are served from a 30-second cache per instance.
+  `PUT /api/settings/branding` `{ organisationName }` (at most 80 characters, trimmed; empty shows no name) ·
+  `PUT /api/settings/branding/logo` `{ data }` (base64; PNG, JPEG, WebP or SVG by content, at most 256 KB; SVG without
+  scripts, event handlers, `javascript:` or `foreignObject`) · `DELETE /api/settings/branding/logo` *(gateway-admin)* →
+  the branding as above. Audited (`Settings`; the logo by type, size and SHA-256).
 - `GET /api/settings/request-log` *(gateway-admin)* → `{ active, until, updatedAt }` · `PUT /api/settings/request-log`
   `{ logAllRequests, noTimeLimit }` *(gateway-admin)*. Whether the gateways log successful requests too (normally only refused,
   failed and cancelled ones; every request is a usage record either way). Switched on, it lasts 24 hours unless `noTimeLimit` is

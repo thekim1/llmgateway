@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Branding for the admin console.** Gateway admins set the organisation name and logo shown at the top of the menu, in the
+phone header and on the sign-in page under *Settings > Branding* (default: *Umeå kommun* and the built-in icon), so an
+organisation other than Umeå kommun can run the gateway under its own name. Logos: PNG, JPEG, WebP or SVG up to 256 KB,
+type detected from the content, SVG without scripts; served by the anonymous `GET /bff/branding` and
+`GET /bff/branding/logo` from a 30-second cache. New migration `Branding` (one table, one row; only the admin API's role
+may read and update it, the gateway never loads it). **Docs:** "POC" is gone from the README, the handover and the
+documentation; the CI workflow is now called *Verify*. **Copyright:** Kim Vallén, Nichlas Löfdahl and Umeå kommun are named
+as authors and copyright holders in the assembly and container metadata (`Authors`, `Copyright`), the website footer and a
+new `NOTICE` file; the release bundle now carries `LICENSE` and `NOTICE`.
+
 ## 0.9.1 - 2026-11-06
 
 Rerankers on Azure AI Foundry and a residency per model, plus a fix for rerank usage. One migration

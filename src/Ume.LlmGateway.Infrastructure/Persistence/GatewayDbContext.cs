@@ -22,6 +22,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<RoutingRuleTarget> RoutingRuleTargets => Set<RoutingRuleTarget>();
     public DbSet<Budget> Budgets => Set<Budget>();
     public DbSet<GatewaySettings> Settings => Set<GatewaySettings>();
+    public DbSet<Branding> Branding => Set<Branding>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
     public DbSet<UsageMonthlyTotal> UsageMonthlyTotals => Set<UsageMonthlyTotal>();
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
@@ -179,6 +180,18 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.Id).ValueGeneratedNever();
             e.Property(x => x.UsageRetentionDays).HasDefaultValue(RetentionPolicy.DefaultDays);
             e.Property(x => x.RetentionLastRunError).HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<Branding>(e =>
+        {
+            e.ToTable("Branding", t =>
+            {
+                t.HasCheckConstraint("CK_Branding_Singleton", $"\"Id\" = {Domain.Entities.Branding.SingletonId}");
+                t.HasCheckConstraint("CK_Branding_LogoSize", $"\"Logo\" IS NULL OR octet_length(\"Logo\") <= {Domain.Entities.Branding.MaxLogoBytes}");
+            });
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.OrganisationName).HasMaxLength(Domain.Entities.Branding.MaxOrganisationNameLength).HasDefaultValue(Domain.Entities.Branding.DefaultOrganisationName);
+            e.Property(x => x.LogoContentType).HasMaxLength(50);
         });
 
         modelBuilder.Entity<UsageRecord>(e =>

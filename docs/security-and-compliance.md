@@ -1,4 +1,4 @@
-# Security and compliance: POC evidence and approval inputs
+# Security and compliance: evidence and approval inputs
 
 As of 2026-10-07. **Not legal advice, a completed DPIA or authorization to process
 municipal case data.** DPO, jurist, records manager and information-security owner must

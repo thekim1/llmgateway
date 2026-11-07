@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PageHeader from '@/components/ui/PageHeader.vue'
+import BrandingCard from '@/components/settings/BrandingCard.vue'
 import RequestLogCard from '@/components/settings/RequestLogCard.vue'
 import ModelPricesCard from '@/components/settings/ModelPricesCard.vue'
 import RetentionCard from '@/components/settings/RetentionCard.vue'
@@ -22,6 +23,10 @@ import VersionCard from '@/components/settings/VersionCard.vue'
 
   <div class="mt-6">
     <RequestLogCard />
+  </div>
+
+  <div class="mt-6">
+    <BrandingCard />
   </div>
 
   <div class="mt-6">

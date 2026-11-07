@@ -11,6 +11,8 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ume_gateway, ume_admin;
 -- The settings row exists before any service runs, so the admin role needs no INSERT on it (an insert could set
 -- UsageRetainedFrom, which only the retention function may move).
 INSERT INTO "GatewaySettings" ("Id", "TrustedProxies", "AuditRetentionDays") VALUES (1, ARRAY[]::text[], 365) ON CONFLICT ("Id") DO NOTHING;
+-- The same for the admin console's branding (organisation name and logo; the name's default is the column default).
+INSERT INTO "Branding" ("Id") VALUES (1) ON CONFLICT ("Id") DO NOTHING;
 
 -- Gateway (faces the clients): what it authenticates, routes and accounts with. Not the audit log or Data API keys. It reads
 -- the Data Protection key ring but does not add keys (it only decrypts; the admin API creates and rotates them).
@@ -25,12 +27,13 @@ GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
 GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
   "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "GatewaySettings",
   "UsageRecords", "UsageMonthlyTotals", "AuditLog", "AlertEvents", "AuthFailures", "DataProtectionKeys",
-  "__EFMigrationsHistory" TO ume_admin;
+  "Branding", "__EFMigrationsHistory" TO ume_admin;
 GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
   "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
   "Budgets", "DataApiKeys" TO ume_admin;
 GRANT UPDATE ("TrustedProxies", "LogAllRequests", "LogAllRequestsUntil", "UpdatedAt", "UsageRetentionDays", "AuditRetentionDays",
   "RetentionLastRunAt", "RetentionLastRunDeleted", "RetentionLastRunError") ON "GatewaySettings" TO ume_admin;
+GRANT UPDATE ("OrganisationName", "Logo", "LogoContentType", "UpdatedAt") ON "Branding" TO ume_admin;
 GRANT INSERT ON "AuditLog", "DataProtectionKeys" TO ume_admin;
 GRANT UPDATE ("Acknowledged") ON "AlertEvents" TO ume_admin;
 -- Data retention: old rows are removed only through this function (owner's rights, minimum 90 days); the admin role

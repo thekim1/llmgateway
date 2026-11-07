@@ -88,7 +88,7 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
         string[] all = [.. await ListAsync(Connection(null), """
             SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1
             """)];
-        string[] notForGateway = ["AuditLog", "DataApiKeys", "__EFMigrationsHistory"];
+        string[] notForGateway = ["AuditLog", "DataApiKeys", "Branding", "__EFMigrationsHistory"];
 
         (await PrivilegesAsync("ume_gateway", "SELECT")).ShouldBe([.. all.Except(notForGateway)], ignoreOrder: true);
         (await PrivilegesAsync("ume_gateway", "INSERT")).ShouldBe(["AlertEvents", "AuthFailures", "UsageRecords"], ignoreOrder: true);
@@ -122,6 +122,19 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
             UPDATE "GatewaySettings" SET "LogAllRequests" = false, "LogAllRequestsUntil" = NULL, "UpdatedAt" = now(),
                 "AuditRetentionDays" = 365, "RetentionLastRunAt" = now(), "RetentionLastRunDeleted" = 0, "RetentionLastRunError" = NULL
             """);
+    }
+
+    [Fact]
+    public async Task Only_the_admin_role_reads_and_updates_the_branding()
+    {
+        var admin = Connection("ume_admin");
+        (await ScalarAsync<string>(admin, """SELECT "OrganisationName" FROM "Branding" """)).ShouldNotBeNull();
+        await ExecuteAsync(admin, """UPDATE "Branding" SET "OrganisationName" = "OrganisationName", "UpdatedAt" = now() """);
+        await ShouldBeDeniedAsync(admin, """INSERT INTO "Branding" ("Id") VALUES (2)""");
+        await ShouldBeDeniedAsync(admin, """DELETE FROM "Branding" """);
+        // The gateway never loads the logo, and the Data API has no use for it.
+        await ShouldBeDeniedAsync(Connection("ume_gateway"), """SELECT count(*) FROM "Branding" """);
+        await ShouldBeDeniedAsync(Connection("ume_data"), """SELECT count(*) FROM "Branding" """);
     }
 
     [Fact]

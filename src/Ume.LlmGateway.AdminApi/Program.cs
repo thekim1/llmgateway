@@ -3,6 +3,7 @@ using Npgsql;
 using Scalar.AspNetCore;
 using Ume.LlmGateway.AdminApi;
 using Ume.LlmGateway.AdminApi.Security;
+using Ume.LlmGateway.AdminApi.Settings;
 using Ume.LlmGateway.Infrastructure;
 
 if (await WebDefaults.ExitIfHealthProbeAsync(args))
@@ -46,6 +47,7 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminAntiforgeryMiddleware>();
 app.MapDefaultEndpoints();
 app.MapAdminAuthentication();
+app.MapBranding();
 app.MapAdminApi();
 app.MapOpenApi().RequireAuthorization(AdminPolicies.Admin);
 app.MapScalarApiReference(o => o.WithNonce().DisableDefaultFonts()).RequireAuthorization(AdminPolicies.Admin);
