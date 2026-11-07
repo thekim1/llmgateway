@@ -116,6 +116,15 @@ export interface BffUser {
   sessionLimitAt?: IsoDateTime | null
 }
 
+/** What the console shows as its owner (GET /bff/branding, readable before sign-in). */
+export interface Branding {
+  /** Shown under the product name; empty shows none. */
+  organisationName: string
+  /** Where to load the logo from; null shows the built-in icon. */
+  logoUrl: string | null
+  updatedAt: IsoDateTime | null
+}
+
 // ---------- Organisation ----------
 export interface Department {
   id: string

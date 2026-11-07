@@ -1,7 +1,7 @@
-# Tillgänglighetsredogörelse: POC-underlag
+# Tillgänglighetsredogörelse: underlag
 
-Umeå kommun LLM Gateway, bedömd automatiskt 2026-10-09. Detta är ett **utkast för
-POC**, inte en publicerad eller godkänd kommunal redogörelse. Ansvarig verksamhet,
+Umeå kommun LLM Gateway, bedömd automatiskt 2026-10-09. Detta är ett **utkast**,
+inte en publicerad eller godkänd kommunal redogörelse. Ansvarig verksamhet,
 kontaktväg, publiceringsdatum och rapporteringsrutiner ska fyllas i före publicering.
 
 ## Ambition och verifierad omfattning
@@ -39,7 +39,7 @@ tredjeparts-IdP. Inloggningsleverantören behöver egen granskning.
 | Pekdon/touch | Minst 24x24px (2.5.8) kontrolleras automatiskt; avstånd, alternativa sätt att aktivera, ingen drag-only-funktion (flytta regel sker med knappar) |
 | Konsekvenser | Destruktiva åtgärder, kontroll före sparande, visa-en-gång-fönster och kopiering |
 
-Kriterier om förinspelat/live ljud/video saknar tillämpning eftersom POC:n inte
+Kriterier om förinspelat/live ljud/video saknar tillämpning eftersom gränssnittet inte
 innehåller sådant innehåll. Dokumentera förändrad tillämpning om multimedia tillkommer.
 Kriterier som gäller innehållsskapande, läsnivå och hela autentiseringsflödet kan inte
 avfärdas som ej tillämpliga bara för att automatiska verktyg saknar regler.
@@ -48,7 +48,7 @@ avfärdas som ej tillämpliga bara för att automatiska verktyg saknar regler.
 
 Före offentlig användning: ange ansvarig enhet, tillgänglig e-post/telefon/formulär,
 svarsrutin, alternativt format och länk till DIGG:s anmälningsväg. **Inga fiktiva
-kontaktuppgifter anges i detta utkast.** Använd kommunens befintliga helpdesk i POC-test.
+kontaktuppgifter anges i detta utkast.** Använd kommunens befintliga helpdesk vid test.
 Granskningens manuella resultat och åtgärdsplan ska läggas till före godkännande.
 
 Se [WCAG 2.2](https://www.w3.org/TR/WCAG22/) och

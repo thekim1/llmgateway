@@ -35,5 +35,35 @@ public static class SettingsEndpoints
                 ? TypedResults.Accepted("/api/settings/model-prices", sync.Status())
                 : throw new ApiFaultException(409, sync.Enabled ? "A price list check is already running." : "Price list updates are turned off (Admin:AutoUpdatePrices, Admin:PriceListUrl)."))
             .WithName("RunModelPriceSync").WithSummary("Downloads the models.dev list and updates prices and empty model details now (in the background)");
+        settings.MapPut("/branding", (BrandingRequest input, BrandingService service, CancellationToken ct) => service.SetNameAsync(input, ct))
+            .WithName("SetBrandingName").WithSummary("Sets the organisation name shown in the admin console's menu and on its sign-in page");
+        settings.MapPut("/branding/logo", (LogoRequest input, BrandingService service, CancellationToken ct) => service.SetLogoAsync(input, ct))
+            .WithName("SetBrandingLogo").WithSummary("Replaces the admin console's logo (PNG, JPEG, WebP or SVG, base64, at most 256 KB)");
+        settings.MapDelete("/branding/logo", (BrandingService service, CancellationToken ct) => service.RemoveLogoAsync(ct))
+            .WithName("RemoveBrandingLogo").WithSummary("Removes the logo; the admin console shows its built-in icon again");
+    }
+
+    /// <summary>
+    /// The branding for every visitor, signed in or not (the sign-in page shows it): name and logo URL, and the logo itself.
+    /// Answered from <see cref="BrandingCache"/>, so these anonymous requests reach the database at most twice a minute.
+    /// </summary>
+    public static void MapBranding(this WebApplication app)
+    {
+        app.MapGet("/bff/branding", async (BrandingCache cache, CancellationToken ct) => TypedResults.Ok((await cache.GetAsync(ct)).Dto))
+            .WithTags("Settings").WithName("GetBranding").WithSummary("The organisation name and logo URL the admin console shows");
+        app.MapGet(BrandingCache.Snapshot.LogoPath, async (string? v, BrandingCache cache, HttpContext http, CancellationToken ct) =>
+        {
+            var branding = await cache.GetAsync(ct);
+            if (branding.Logo is not { } logo)
+            {
+                return Results.NotFound();
+            }
+
+            // The URL names the logo's hash, so a matching request can be cached for good; any other gets the current logo uncached.
+            http.Response.Headers.CacheControl = v == branding.Version ? "public, max-age=31536000, immutable" : "no-cache";
+            // Opened directly, an SVG would be a document on this origin: no scripts, no requests, sandboxed.
+            http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox";
+            return Results.Bytes(logo, branding.LogoContentType);
+        }).WithTags("Settings").WithName("GetBrandingLogo").WithSummary("The admin console's logo");
     }
 }

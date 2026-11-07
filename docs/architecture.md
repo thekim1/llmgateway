@@ -91,7 +91,7 @@ crash loses nothing; `Spill` has no cost while Postgres is healthy, and a crash 
 The journal is capped (`MaxRecords`, 1 000 000, about 1 GB in Redis); beyond it, and with `Off`, a refused batch is kept in
 memory and retried as before. Redis runs without persistence here, so the journal outlives a gateway instance and a
 database outage, not a Redis restart. Cold-start budget reconstruction can lag in-flight usage, and streaming estimates can
-differ from provider billing; this POC must not be presented as exact invoicing.
+differ from provider billing; the costs must not be presented as exact invoicing.
 
 **Token quotas.** A budget counts USD (default) or, with `Unit: Tokens`, input plus output tokens, optionally only of
 providers of one residency (for on-prem capacity, whose models cost nothing). Both kinds are reserved in the same Redis
@@ -170,7 +170,7 @@ inference probe; an idle provider's historical latency is unavailable, not zero.
 
 ## Scope and confirmed decisions
 
-Originally approved scope, kept here after the delivery plan was retired. It is a POC; the
+Originally approved scope, kept here after the delivery plan was retired. The
 [security and compliance](security-and-compliance.md) release gates still apply.
 
 | Topic | Decision |
@@ -188,7 +188,7 @@ Originally approved scope, kept here after the delivery plan was retired. It is 
 | Provider classification | OnPrem / EU / External per provider, optionally per model (ADR 019); drives PII rerouting, key residency limits and the residency ceiling |
 | Admin UI | Vue 3 + Pinia + Tailwind CSS v4, English, light/dark/Lumen, accessibility target WCAG 2.2 AA (see the [statement](accessibility-statement.md)) |
 
-Out of scope for the POC: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
+Out of scope: semantic caching, an MCP gateway, SSO for gateway clients (keys only),
 other currencies than USD, and invoicing integration (CSV export per cost centre instead).
 
 See [ADRs](adr.md), [runbook](runbook.md) and the exact [API contract](admin-api.md).

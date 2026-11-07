@@ -224,6 +224,38 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.ToTable("AuthFailures");
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Branding", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Logo")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("LogoContentType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("OrganisationName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasDefaultValue("Umeå kommun");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Branding", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Branding_LogoSize", "\"Logo\" IS NULL OR octet_length(\"Logo\") <= 262144");
+
+                            t.HasCheckConstraint("CK_Branding_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Budget", b =>
                 {
                     b.Property<Guid>("Id")

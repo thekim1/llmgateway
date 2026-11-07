@@ -1,4 +1,4 @@
-name: Verify POC
+name: Verify
 # Runs on what can still change the outcome, once per change (docs/local-development.md, "CI and Actions minutes"):
 # - a pull request is verified on its merge with main, but not while it is a draft;
 # - a release tag is verified again before anything is published (release.yml calls this workflow);

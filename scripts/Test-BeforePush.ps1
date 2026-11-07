@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs the checks of the Verify POC workflow locally, so a pull request is green on its first CI run.
+  Runs the checks of the Verify workflow locally, so a pull request is green on its first CI run.
 .DESCRIPTION
   Actions minutes are limited (docs/local-development.md, "CI and Actions minutes"). This runs what CI runs:
   a Release build of the solution (warnings and unnecessary usings are errors), the tests without the Flaky ones, the

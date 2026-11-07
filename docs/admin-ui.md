@@ -119,6 +119,23 @@ when the menu is collapsed). Local builds show *Development build* and are never
 GitHub at most every 6 hours; with `Admin:CheckForReleases=false` (no internet access) only the running version is shown.
 The data comes from `GET /api/settings/version` ([docs/admin-api.md](admin-api.md)).
 
+## Branding
+
+**Settings > Branding** (gateway-admin) sets what the console shows as its owner, at the top of the side menu, in the phone
+header and on the sign-in page:
+
+- **Organisation name**, shown under *AI Gateway* and in the sign-in text (*Admin console for ...*). At most 80 characters;
+  empty shows no name. The default is *Umeå kommun*.
+- **Logo**, shown at 36 × 36 pixels in place of the built-in icon: PNG, JPEG, WebP or SVG, at most 256 KB (the admin API
+  detects the type from the file, not its name). SVG files with scripts, event handlers, `javascript:` links or embedded
+  HTML are refused; the logo is shown in an `img` element and served with a sandboxing Content-Security-Policy, so it
+  cannot run code either way. *Remove logo* brings the built-in icon back.
+
+Everyone who opens the console sees the change: the admin who saved it at once, others within 30 seconds (each admin API
+instance holds the branding that long). Changes are audited (`Settings`, with the logo's type, size and SHA-256, not the
+image). The branding is stored in the database (table `Branding`), so it survives updates and is included in backups; it
+is not part of the configuration export. The data comes from `GET /bff/branding` ([docs/admin-api.md](admin-api.md#settings)).
+
 ## Model prices
 
 **Settings > Model prices** (gateway-admin) shows the daily models.dev update: when the admin API last read the list, how

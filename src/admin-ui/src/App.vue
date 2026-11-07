@@ -2,11 +2,16 @@
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useBrandingStore } from '@/stores/branding'
 import AppShell from '@/components/layout/AppShell.vue'
 import SignIn from '@/components/layout/SignIn.vue'
 
 const auth = useAuthStore()
-onMounted(() => void auth.ensureLoaded())
+const branding = useBrandingStore()
+onMounted(() => {
+  void auth.ensureLoaded()
+  void branding.ensureLoaded()
+})
 </script>
 
 <template>

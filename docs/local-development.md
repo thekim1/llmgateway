@@ -137,22 +137,22 @@ CPUs make every race wider. The rules that keep them stable:
 The GitHub Actions minutes of the plan are shared by every developer and repository, and every job is billed rounded up
 to a whole minute, so CI runs each check once per change: on the pull request, and again on the release tag before
 anything is published. Merging to `main` builds nothing (only the website is published), because the pull request was
-already verified on its merge with `main`; a merge followed by a tag therefore runs *Verify POC* twice, not three times.
+already verified on its merge with `main`; a merge followed by a tag therefore runs *Verify* twice, not three times.
 
 | Workflow | Runs on | Not on |
 |---|---|---|
-| *Verify POC* (about 3 min) | ready pull requests (their merge with `main`), release tags | draft pull requests; pushes to `main`; changes to Markdown, `docs/`, `site/`, `benchmarks/compare/` or the design prototype only |
+| *Verify* (about 3 min) | ready pull requests (their merge with `main`), release tags | draft pull requests; pushes to `main`; changes to Markdown, `docs/`, `site/`, `benchmarks/compare/` or the design prototype only |
 | *Deploy end to end* (about 6 min) | ready pull requests that change `deploy/` or ServiceDefaults | drafts |
 | *Website* (1 min) | pull requests and pushes to `main` that change the site, `docs/`, the CHANGELOG or the design tokens (on `main` it builds and publishes in one job) | drafts |
 | *Release* | `v*.*.*` tags: verifies the tag again, then builds and publishes | |
 | *Flake hunt* | Mondays, or by hand (also scans the base image for new CVEs) | |
 
-Within *Verify POC*, the SPDX SBOM is only generated for releases; the base image scan runs every time. A newer push to a
+Within *Verify*, the SPDX SBOM is only generated for releases; the base image scan runs every time. A newer push to a
 pull request cancels its run in progress.
 
 Habits that keep it that way:
 
-- **Run the checks before pushing:** `.\scripts\Test-BeforePush.ps1` runs what *Verify POC* runs: a Release build
+- **Run the checks before pushing:** `.\scripts\Test-BeforePush.ps1` runs what *Verify* runs: a Release build
   with warnings and unnecessary usings as errors, the tests, the vulnerability audits and the admin UI checks
   (`-Quick` skips the backend tests, `-NoUi` the UI). It warns when your .NET SDK is not the one CI uses
   (`dotnet-version` in the workflows): another SDK reports other unnecessary usings, and a build that passes locally
@@ -165,14 +165,14 @@ Habits that keep it that way:
 - **`[skip ci]`** in a commit message skips every workflow for that push.
 
 A branch without a pull request, and `main` itself, is not verified automatically: open a draft pull request and mark it
-ready, or run *Verify POC* from the Actions tab on the branch.
+ready, or run *Verify* from the Actions tab on the branch.
 
 To hunt for flakes, run the workflow *Flake hunt* (Actions tab): it runs the backend tests on a CI runner several times
 and lists every test that failed. It also runs once a week.
 
 **Known flakes stay out of the pull request pipeline.** A test that has failed intermittently because of timing or a race
 is marked `[Trait(TestCategory.Name, TestCategory.Flaky)]` (`tests/Ume.LlmGateway.TestKit/TestCategory.cs`) with a comment
-saying why. *Verify POC* runs `dotnet test ... --filter-not-trait "Category=Flaky"`; locally `dotnet test` runs every
+saying why. *Verify* runs `dotnet test ... --filter-not-trait "Category=Flaky"`; locally `dotnet test` runs every
 test, and *Flake hunt* runs the marked ones too, so they are still watched. Run only the pipeline's set with
 `dotnet test --solution UmeLlmGateway.slnx --filter-not-trait "Category=Flaky"`, or only the flaky ones with
 `--filter-trait "Category=Flaky"`. The trait is a to-do, not a home: fix the test and remove it. Marked now:

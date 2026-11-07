@@ -1,4 +1,4 @@
-# Umeå kommun LLM gateway POC
+# Umeå kommun LLM gateway
 
 **Website and documentation: <https://thekim1.github.io/llmgateway/>**
 
@@ -10,7 +10,7 @@ or response content**. Chat, Responses, Messages, embeddings, speech to text, im
 same pipeline.
 
 .NET 10 data plane and OIDC/BFF control plane, Vue 3/Pinia admin UI, PostgreSQL, authenticated Redis and Aspire 13.6.
-This is a demonstrator, **not a production approval, legal compliance attestation or WCAG certification**.
+It is **not a production approval, legal compliance attestation or WCAG certification**.
 
 ## Quick start
 
@@ -45,6 +45,8 @@ GitHub; set `Admin__CheckForReleases=false` without internet access). Model pric
 OpenRouter follow the [models.dev](https://models.dev) list, updated daily, which also fills in empty descriptions,
 capabilities and context windows; turn it off per model or provider to set your own prices
 ([List prices](docs/providers-and-models.md#list-prices); `Admin__PriceListUrl=` turns it off).
+*Settings > Branding* sets the logo and organisation name shown in the menu and on the sign-in page (default *Umeå kommun*
+and the built-in icon; [Branding](docs/admin-ui.md#branding)).
 Upgrades: [Upgrade guide](docs/upgrade-guide.md).
 
 ## Build and test

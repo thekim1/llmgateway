@@ -3,6 +3,7 @@ import type {
   AuditEntry,
   AuditQuery,
   BffUser,
+  Branding,
   Budget,
   BudgetAlert,
   BudgetFilter,
@@ -74,6 +75,7 @@ export const api = {
     logout: () => postLogout(),
     extendSession: () => http.post<{ sessionExpiresAt: string; sessionLimitAt: string | null }>('/bff/session/extend'),
     loginUrl: (returnUrl: string) => buildUrl('/bff/login', { returnUrl }),
+    branding: () => http.get<Branding>('/bff/branding'),
   },
   departments: {
     list: () => http.get<Department[]>('/api/departments'),
@@ -178,6 +180,10 @@ export const api = {
     version: () => http.get<VersionInfo>('/api/settings/version'),
     modelPrices: () => http.get<ModelPriceSync>('/api/settings/model-prices'),
     runModelPrices: () => http.post<ModelPriceSync>('/api/settings/model-prices/run'),
+    updateBranding: (organisationName: string) => http.put<Branding>('/api/settings/branding', { organisationName }),
+    /** `data`: the image, base64-encoded (PNG, JPEG, WebP or SVG, at most 256 KB). */
+    uploadLogo: (data: string) => http.put<Branding>('/api/settings/branding/logo', { data }),
+    removeLogo: () => http.del<Branding>('/api/settings/branding/logo'),
   },
   usage: {
     summary: (query: UsageSummaryQuery) => http.get<UsageSummary>('/api/usage/summary', { ...query }),
