@@ -86,6 +86,17 @@ mappers, groups.
 - **Each client sees only its system's roles.** Set `"fullScopeAllowed": false` on every client and list the roles
   its tokens may carry in `scopeMappings`, as `10-gateway.json` does for `ume-admin`. A user with roles in two systems
   then gets each system's roles only in that system's tokens (tested).
+- **One group for several systems.** To set a person up for the gateway and another system at once (such as Ume.Rag),
+  create a Keycloak group and give it realm-role mappings in both systems, for example `ume-admins` with
+  `gateway-admin` and `rag-platform-admin`. A member gets each system's role in that system's tokens only (tested). The
+  groups and their role mappings are the operator's: create them in the admin console, or in a site file of your own
+  in the additions directory. Neither system's file declares them, since one system's file cannot refer to the other's
+  roles and still import into a Keycloak that runs without it.
+- **The `groups` claim.** `ume-admin` also puts the user's group names (without path) in the ID token, as other systems'
+  clients may. Roles granted through group role mappings need nothing more. To grant a gateway role by group name
+  instead, list the group in `UME_OIDC_GROUPS_*` ([claim mapping](identity-and-roles.md#claim-mapping)), the same way as
+  with AD FS or Entra ID. The admin API uses the names only to derive roles and team codes, then drops them, so many
+  group memberships do not enlarge the session cookie.
 - **Keeping another system's part in step.** That system delivers its file; the gateway operator puts a released
   version of it in the additions directory, sets its placeholders, and runs `up -d --wait` (only the import job runs
   again). Try a new file on a test installation first (the end-to-end test shows how). An import that fails stops at
@@ -148,6 +159,7 @@ The realm is administered by whoever runs the gateway unless the organisation de
 | Locked out | After repeated failures brute-force protection locks the account for a while; *Enabled* shows it, and *Unlock* (or waiting) ends it |
 | Lost OTP device (if OTP is used) | *Credentials*: delete the OTP credential; the user sets up a new one at the next sign-in |
 | Change departments or teams | Edit the attributes; the gateway reads them at the next sign-in |
+| Give access through a group | *Groups*: create the group, *Role mapping → Assign role* (the gateway's and other systems' roles), then add members under *Members* or the user's *Groups* tab. Takes effect at the next sign-in |
 
 Brokered and LDAP users are created by their first sign-in and kept in step by the mappers (*sync mode Force*); manage
 them in the organisation's directory.

@@ -18,6 +18,9 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `app-roles.sql`, as on every start. An older admin API ignores it, and the gateway and Data API have no access to it.
   Compose, Kubernetes and Redis ACL files are unchanged apart from the roles file (`app-roles.sql` and its copies).
 - **After the upgrade**, set your organisation's name and logo under *Settings > Branding* if you are not Umeå kommun.
+- **Keycloak project:** `up -d --wait` in `deploy/keycloak` re-runs the realm import, which adds a `groups` mapper to the
+  `ume-admin` client (ID token only). Nothing else changes; a gateway still on the previous version ignores the claim.
+  To share groups with another system, see [Keycloak](keycloak.md#realm-files), *One group for several systems*.
 
 ## 0.9.1: rerankers on Azure AI Foundry, a residency per model
 

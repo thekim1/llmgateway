@@ -12,6 +12,13 @@ documentation; the CI workflow is now called *Verify*. **Copyright:** Kim Vallé
 as authors and copyright holders in the assembly and container metadata (`Authors`, `Copyright`), the website footer and a
 new `NOTICE` file; the release bundle now carries `LICENSE` and `NOTICE`.
 
+**Keycloak groups shared with other systems.** The Keycloak project's `ume-admin` client (and the development realm) now
+puts the user's group names in the ID token's `groups` claim, as Ume.Rag's clients do, so `UME_OIDC_GROUPS_*` also works
+with Keycloak and LDAP-federated groups. A Keycloak group with realm-role mappings for several systems (for example
+`gateway-admin` and `rag-platform-admin`) sets a person up for all of them; the end-to-end test checks that each system
+still gets only its own roles. The admin API now drops the group claims after deriving roles and team codes, so users in
+many groups no longer enlarge the session cookie.
+
 ## 0.9.1 - 2026-11-06
 
 Rerankers on Azure AI Foundry and a residency per model, plus a fix for rerank usage. One migration

@@ -125,6 +125,9 @@ provider. Set them in `deploy/.env` (for local runs, the same keys as `Oidc:<Set
 
 Group mapping means you do not need roles in the identity provider at all: put people in AD groups and list the groups.
 For example, `UME_OIDC_GROUPS_GATEWAY_ADMIN=GG-Llm-Admins` and `UME_OIDC_GROUPS_VIEWER=GG-Llm-Readers;GG-Economy`.
+The [Keycloak project](keycloak.md#realm-files) sends group names in `groups` too, including groups from an LDAP
+federation; there, a group with realm-role mappings is the simpler way and also serves other systems in the same realm.
+The admin API reads the group claim only to derive roles and team codes and does not keep it in the session.
 
 **Teams from AD groups.** With one AD group per team, team codes need no attribute in the identity provider: set
 `UME_OIDC_TEAM_CLAIM=groups` (the group claim), give each team its group name as team code (for example
