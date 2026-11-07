@@ -70,7 +70,8 @@ Manager settings are in the runbook, *Reverse proxy and PKI*.
 To update without downtime, run two instances of the gateway and admin API behind your proxy; see
 [Updates without downtime](zero-downtime-updates.md). For Kubernetes instead of Compose, see [Kubernetes](kubernetes.md).
 
-Production never uses the bundled Keycloak: point `UME_OIDC_AUTHORITY` at your existing Keycloak, AD FS or Entra ID.
+Production never uses the development Keycloak realm in `dev/keycloak`: point `UME_OIDC_AUTHORITY` at your existing
+Keycloak, AD FS or Entra ID, or run the optional production [Keycloak project](keycloak.md) (`deploy/keycloak`).
 Roles, department codes and AD groups are mapped by claims; see [Identity provider and roles](identity-and-roles.md).
 
 `deploy/compose.prod.yaml` is the recommended, self-contained production file (hardened,

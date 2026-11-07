@@ -4,7 +4,7 @@ The admin UI and admin API sign people in through your existing OpenID Connect p
 The gateway itself never sees those users; applications call it with virtual keys. This page explains the access levels,
 then how to set up each identity provider so the admin API gets the roles, departments and teams it needs.
 
-The bundled Keycloak realm in `dev/keycloak` is for local runs only. In production, `UME_OIDC_AUTHORITY` in `deploy/.env`
+The development Keycloak realm in `dev/keycloak` is for local runs only. In production, `UME_OIDC_AUTHORITY` in `deploy/.env`
 points at your own provider. The settings below are also in the [runbook](runbook.md), *Identity provider*. Without a
 provider of your own, the optional [Keycloak project](keycloak.md) runs a production Keycloak next to the gateway, with
 the realm below already set up; it can also broker Entra ID, AD FS or Active Directory, so the same token shape comes

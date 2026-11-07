@@ -1,0 +1,24 @@
+# Public entry for the optional Data API (../components/dataapi), on a host name of its own: the controller routes by
+# name. Enable it with ingress-dataapi.yaml under resources in kustomization.yaml. The pod speaks HTTPS with the
+# internal CA's certificate, so the controller connects with TLS (see ingress.yaml for other controllers). Integrations
+# then call https://llm-data.example.se; set DataApi__PublicUrl in ume-adminapi-config to the same address.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dataapi
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [llm-data.example.se]      # change
+      secretName: ume-data-public-tls   # your certificate (or cert-manager's)
+  rules:
+    - host: llm-data.example.se         # change
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: dataapi, port: {name: https}}}

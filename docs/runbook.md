@@ -67,8 +67,9 @@ you enter yourself; it is stored in the Portainer stack's environment, so restri
 
 ## Identity provider (existing Keycloak, AD FS, Entra ID, Active Directory)
 
-The bundled Keycloak realm (`dev/keycloak`) is for local runs only; **production always uses an
-existing OIDC provider** (`UME_OIDC_AUTHORITY` in `deploy/.env`). The admin API needs a client
+The development Keycloak realm (`dev/keycloak`) is for local runs only; **production uses an existing OIDC
+provider or the optional [Keycloak project](keycloak.md)** (`deploy/keycloak`), set as `UME_OIDC_AUTHORITY` in
+`deploy/.env`. The admin API needs a client
 (authorization code + PKCE; redirect URIs `https://<admin host>/signin-oidc` and
 `/signout-callback-oidc`) and these
 claims **in the ID token** (step-by-step setup per provider and what each role may do:
@@ -153,17 +154,19 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
   and refused credentials are recorded with the proxy's address. See *Client addresses and trusted proxies* below.
   (No ASP.NET Core forwarded-header setting is involved; scheme and host need no forwarding because the upstream hop is HTTPS.)
 - Gateway host: disable response buffering and allow long reads (streamed completions can run
-  for minutes), and allow bodies of a few MB or more: 32 MB covers the 26 MB audio upload limit
-  (`Gateway__MaxAudioRequestBodyBytes`; raise both together), 52 MB the 50 MB of image edits (`Gateway__MaxImageRequestBodyBytes`). Disable request buffering as well, so uploaded
-  recordings and documents are not written to the proxy's temporary files. Pass the WebSocket upgrade for live
-  audio (`/v1/realtime`): the `Upgrade` and `Connection` headers, as in the nginx example; the gateway pings every
-  30 s, so the 600 s read timeout does not cut a quiet session.
+  for minutes), and allow bodies of 52 MB: that covers the 50 MB of image edits (`Gateway__MaxImageRequestBodyBytes`)
+  and the 26 MB audio upload limit (`Gateway__MaxAudioRequestBodyBytes`); raise the proxy's limit with either.
+  Disable request buffering as well, so uploaded recordings and documents are not written to the proxy's temporary
+  files. Pass the WebSocket upgrade for live audio (`/v1/realtime`): the `Upgrade` and `Connection` headers, as in the
+  nginx example; the gateway pings every 30 s, so the 600 s read timeout does not cut a quiet session.
 - The upstream certificate is signed by the internal CA, so the proxy must either skip
   upstream verification (the nginx default; Nginx Proxy Manager does this) or trust
   `deploy/certs/ca.pem` and use `proxy_ssl_name gateway;` / `adminapi;`. With F5, import
   the CA into the server-side SSL profile.
-- Ports 8443/9443 are bound to `0.0.0.0` in this mode; restrict them to the proxy with the host
-  firewall (or pass `--bind <address>` / put the proxy on the same host with `--bind 127.0.0.1`).
+- Every published port is bound to `0.0.0.0` in this mode: 8443/9443, the second slots 8444/9444 with `--rolling`,
+  the Data API's 10443 and the Keycloak project's 11443 (its bind defaults to the admin API's). Restrict them to the
+  proxy with the host firewall (or pass `--bind <address>` / put the proxy on the same host with `--bind 127.0.0.1`);
+  the full list is in [Network and ports](network-and-ports.md).
 
 `deploy/proxy/nginx.conf.example` holds the complete nginx configuration (the script writes a filled-in
 `proxy/nginx.conf`). In **Nginx Proxy Manager**, create two Proxy Hosts:
@@ -173,7 +176,7 @@ matches your environment; they combine (a proxy in front, with PKI certificates 
 | Scheme / Forward host / port | `https` / Docker host / 8443 | `https` / Docker host / 9443 |
 | SSL tab | your certificate, Force SSL, HTTP/2 | same |
 | Websockets Support | **on** (live audio, `/v1/realtime`) | off |
-| Advanced (custom nginx configuration) | `proxy_buffering off; proxy_request_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 32m;` | (none) |
+| Advanced (custom nginx configuration) | `proxy_buffering off; proxy_request_buffering off; proxy_read_timeout 600s; proxy_send_timeout 600s; client_max_body_size 52m;` | (none) |
 
 ### Client addresses and trusted proxies
 
@@ -354,7 +357,10 @@ and column by column on tables that hold secrets), so it can be deployed in a di
    connection string. Set `COMPOSE_PROFILES=data` (in `deploy/.env` or the Portainer stack) and `DATAAPI_IMAGE`, then
    `docker compose ... up -d --wait`. It listens on `UME_DATA_BIND:UME_DATA_PORT` (loopback:10443; 0.0.0.0 with
    `--proxy` or Portainer). Its certificate comes from the internal CA; for one from your PKI, put the Data API
-   behind your proxy or API gateway. Existing installations need one superuser step first, see the upgrade guide.
+   behind your proxy or API gateway on a third host name: `init-deployment.sh --proxy --data-host <name>` adds it to
+   `proxy/nginx.conf` (without `--data-host` the name is the gateway's, which a proxy that routes by name cannot share),
+   and on Kubernetes `example/ingress-dataapi.yaml` does the same. Existing installations need one superuser step
+   first, see the upgrade guide.
 2. **Register clients at your identity provider**, one per integration (an ETL job, a SIEM connector), using
    OAuth 2.0 client credentials. Each token needs:
    - `aud` = `ume-data-api` (`UME_DATA_AUDIENCE`). Keycloak: an *Audience* mapper; Entra ID: the application ID URI of

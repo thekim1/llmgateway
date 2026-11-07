@@ -49,6 +49,12 @@ jobs:
           git diff --exit-code -- deploy/kubernetes || { echo "Run deploy/kubernetes/sync-config.sh and commit the copies"; exit 1; }
           kubectl kustomize deploy/kubernetes/base > /dev/null
           kubectl kustomize deploy/kubernetes/example > /dev/null
+          # The optional parts too: an overlay with the Data API, its Ingress and the NetworkPolicies enabled.
+          cp -R deploy/kubernetes "$RUNNER_TEMP/k8s"
+          sed -i -e 's|# - \.\./components/dataapi|- ../components/dataapi|' \
+            -e 's|# - \.\./components/networkpolicies|- ../components/networkpolicies|' \
+            -e 's|# - ingress-dataapi.yaml.*|- ingress-dataapi.yaml|' "$RUNNER_TEMP/k8s/example/kustomization.yaml"
+          kubectl kustomize "$RUNNER_TEMP/k8s/example" | grep -c 'kind: NetworkPolicy'
       - name: Production Compose files are valid
         env:
           UME_CERTS_DIR: /certs

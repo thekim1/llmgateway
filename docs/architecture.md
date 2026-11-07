@@ -21,9 +21,10 @@ are saved. Local Aspire uses Keycloak and FakeLlm; production uses an operator-a
 HTTPS IdP and provider configuration. Model IDs, capabilities, parameter profiles,
 prices and fallback targets are data-driven.
 
-Compose: `data` is internal and has no DB/cache host ports. `edge` contains the two
-HTTPS APIs on separate loopback-bound listeners by default. `llm` is a separate gateway
-network for provider connectivity; it is not itself an egress firewall. Municipal
+Compose: `data` is internal and has no DB/cache host ports. `edge` contains the
+HTTPS apps (gateway, admin API, Data API) on separate loopback-bound listeners by default. `llm` is a separate
+gateway network for provider connectivity; it is not itself an egress firewall. `edge` is an ordinary bridge too: the
+admin API (model discovery, prices, the IdP) and the Data API (its token issuer) reach the outside through it. Municipal
 firewall/DNS controls must enforce actual allowed destinations, management access and
 public exposure. Admin API shares Redis for audited circuit controls/invalidation;
 isolating Redis to the gateway alone would break these control-plane functions.
