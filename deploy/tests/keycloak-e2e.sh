@@ -72,8 +72,11 @@ docker run -d --name "$pg" --network "$net" --network-alias postgres --user 70:7
   "$postgres_image" postgres -c ssl=on -c ssl_cert_file=/run/certs/postgres.crt -c ssl_key_file=/run/certs/postgres.key \
   -c ssl_ca_file=/run/certs/ca.pem -c hba_file=/run/config/pg_hba.conf >/dev/null
 pg_exec() { docker exec -i -e "PGPASSWORD=$(cat "$work/secrets/postgres/bootstrap_password")" "$pg" "$@"; }
-for _ in $(seq 60); do docker exec "$pg" pg_isready -U postgres -d keycloak >/dev/null 2>&1 && break; sleep 1; done
-pg_exec psql -U postgres -tAc "SELECT datname FROM pg_database WHERE datname='keycloak'" | grep -qx keycloak || fail "database keycloak missing"
+# During initdb the image runs a temporary server on the Unix socket only, which pg_isready already reports as ready while
+# init.sql is still running, then restarts. Wait for the final server (the only one listening on TCP) and the database.
+pg_has_keycloak() { pg_exec psql -U postgres -tAc "SELECT datname FROM pg_database WHERE datname='keycloak'" 2>/dev/null | grep -qx keycloak; }
+for _ in $(seq 60); do docker exec "$pg" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && pg_has_keycloak && break; sleep 1; done
+pg_has_keycloak || fail "database keycloak missing"
 # add-keycloak-database.sql is idempotent on an installation that already has them.
 pg_exec psql -q -v ON_ERROR_STOP=1 -U postgres -d gatewaydb < "$work/deploy/postgres/add-keycloak-database.sql" >/dev/null \
   || fail "add-keycloak-database.sql failed on an existing database"
