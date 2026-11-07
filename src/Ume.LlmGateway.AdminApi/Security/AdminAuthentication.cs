@@ -14,7 +14,9 @@ public static class AdminAuthentication
 {
     /// <summary>
     /// Normalises identity-provider claims to the names the API authorises on ("roles", "departmentCodes", "teamCodes"):
-    /// expands JSON-array claims, copies differently named claims, and derives roles from group membership.
+    /// expands JSON-array claims, copies differently named claims, and derives roles from group membership. The group
+    /// claims themselves are then dropped: they are only needed for the roles and team codes derived from them, a user can be
+    /// in hundreds of groups (Active Directory through Keycloak, Entra ID), and every claim kept goes into the session cookie.
     /// </summary>
     public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcOptions options)
     {
@@ -45,6 +47,14 @@ public static class AdminAuthentication
                 mapped.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(groups.Contains))
             {
                 identity.AddClaim(new Claim(AdminClaims.Roles, role));
+            }
+        }
+
+        if (options.GroupClaim is not (AdminClaims.Roles or AdminClaims.DepartmentCodes or AdminClaims.TeamCodes))
+        {
+            foreach (var claim in identity.FindAll(options.GroupClaim).ToArray())
+            {
+                identity.RemoveClaim(claim);
             }
         }
     }

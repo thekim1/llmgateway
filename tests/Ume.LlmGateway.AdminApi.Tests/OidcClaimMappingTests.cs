@@ -51,6 +51,18 @@ public sealed class OidcClaimMappingTests
         AdminAuthentication.ApplyClaimMapping(grouped, new OidcOptions { TeamClaim = "groups", RoleGroups = new() { ["team-admin"] = "GG-Llm-TeamAdmins" } });
         Values(grouped, "roles").ShouldBe(["team-admin"]);
         Values(grouped, "teamCodes").ShouldBe(["GG-Llm-TeamAdmins", "GG-Team-AI"]);
+        Values(grouped, "groups").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Group_claims_are_dropped_after_mapping_so_the_session_cookie_stays_small()
+    {
+        // Keycloak's ume-admin client sends every group of the user, other systems' groups included.
+        string[] many = [.. Enumerable.Range(0, 300).Select(i => $"GG-Group-{i}"), "ume-admins"];
+        var user = Principal(("groups", System.Text.Json.JsonSerializer.Serialize(many)), ("roles", "[\"viewer\"]"));
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions { RoleGroups = new() { ["gateway-admin"] = "ume-admins" } });
+        Values(user, "roles").ShouldBe(["viewer", "gateway-admin"], ignoreOrder: true);
+        Values(user, "groups").ShouldBeEmpty();
     }
 
     [Fact]

@@ -280,6 +280,18 @@ claims() { api "$kc/admin/realms/ume/clients/$1/evaluate-scopes/generate-example
   || fail "gateway token: $(claims "$admin_client")"
 [ "$(claims "$other_client" | json 'sorted(d.get("roles", []))')" = "['other-admin']" ] || fail "other token: $(claims "$other_client")"
 
+step "one group for both systems: its role mappings give each system its own role, and the gateway sees the group's name"
+api -X POST "$kc/admin/realms/ume/groups" -d '{"name":"ume-admins"}' >/dev/null
+group="$(api "$kc/admin/realms/ume/groups?search=ume-admins&exact=true" | json 'd[0]["id"]')"
+api -X POST "$kc/admin/realms/ume/groups/$group/role-mappings/realm" -d "$roles" >/dev/null
+api -X POST "$kc/admin/realms/ume/users" -d '{"username":"group.user","enabled":true,"email":"group.user@test.invalid","firstName":"Group","lastName":"User","attributes":{"departmentCodes":["1000"]}}' >/dev/null
+group_user="$(api "$kc/admin/realms/ume/users?username=group.user&exact=true" | json 'd[0]["id"]')"
+api -X PUT "$kc/admin/realms/ume/users/$group_user/groups/$group" >/dev/null
+id_claims() { api "$kc/admin/realms/ume/clients/$1/evaluate-scopes/generate-example-id-token?scope=openid&userId=$group_user"; }
+[ "$(id_claims "$admin_client" | json 'sorted(d.get("roles", [])), d.get("groups")')" = "['gateway-admin'] ['ume-admins']" ] \
+  || fail "gateway ID token for a group member: $(id_claims "$admin_client")"
+[ "$(id_claims "$other_client" | json 'sorted(d.get("roles", []))')" = "['other-admin']" ] || fail "other ID token for a group member: $(id_claims "$other_client")"
+
 # Authorization code flow with PKCE as the admin API runs it, followed by hand with curl.
 redirect="https://admin.test.invalid:9443/signin-oidc"
 follow() { # follow URL [curl args]: follows redirects within Keycloak; prints the final URL, the page is in $work/page
