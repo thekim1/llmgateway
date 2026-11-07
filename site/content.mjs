@@ -247,5 +247,4 @@ cd benchmarks/compare && PLATFORMS="fake ume" ./run.sh && PLATFORMS="fake ume" .
 
 export const REPORTS = [
   { title: 'Performance', body: 'Every benchmark result, what a request costs and how to measure it.', href: 'docs/performance/' },
-  { title: 'Platform comparison (slides)', body: 'The eneo comparison for non-technical readers. Step with the arrow keys.', href: 'reports/platform-comparison.html', meta: 'HTML · PDF', alt: 'reports/platform-comparison.pdf' },
 ]
