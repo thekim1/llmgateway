@@ -102,6 +102,6 @@ the [Demo script](docs/demo-script.md) and the [comparison with agentgateway](do
 ## Licence
 
 Copyright © 2026 Kim Vallén, Nichlas Löfdahl and Umeå kommun. Licensed under the European Union Public Licence v. 1.2
-(EUPL-1.2), see [`LICENSE`](LICENSE). The EUPL is published in every official EU language, Swedish included, and each
+(EUPL-1.2), see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The EUPL is published in every official EU language, Swedish included, and each
 version is equally valid (<https://interoperable-europe.ec.europa.eu/collection/eupl/eupl-text-eupl-12>). Third-party
 components keep their own licences.

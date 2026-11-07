@@ -161,7 +161,7 @@ ${body}
 </main>
 <footer class="foot">
   <div class="foot-in">
-    <div class="foot-about"><span class="b">Ume AI Gateway</span><span>An open-source project by Umeå kommun. Not a production approval, legal compliance attestation or WCAG certification.</span></div>
+    <div class="foot-about"><span class="b">Ume AI Gateway</span><span>© 2026 Kim Vallén, Nichlas Löfdahl and Umeå kommun. Open source under EUPL-1.2. Not a production approval, legal compliance attestation or WCAG certification.</span></div>
     ${footer.map(([t, links]) => `<div class="foot-col"><span class="b">${t}</span>${links.map(([l, h]) => `<a href="${h}">${l}</a>`).join('')}</div>`).join('\n    ')}
   </div>
 </footer>

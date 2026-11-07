@@ -24,6 +24,8 @@ mkdir -p "$stage/$name/deploy"
 cd "$here"
 cp -R compose.prod.yaml compose.portainer.yaml compose.rolling.yaml init-deployment.sh rolling-update.sh \
   Backup-Database.ps1 Restore-Database.ps1 postgres redis proxy otel kubernetes keycloak "$stage/$name/deploy/"
+# The licence and the copyright notice travel with every copy (EUPL-1.2, article 5).
+cp ../LICENSE ../NOTICE "$stage/$name/"
 cd "$stage/$name/deploy"
 # Line endings matter: these files are mounted into Linux containers or run by sh.
 find . -type f -exec sed -i 's/\r$//' {} +

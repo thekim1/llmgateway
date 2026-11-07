@@ -10,7 +10,8 @@
     <!-- Required for IDE0005 (unnecessary usings) to run on build; missing XML docs (CS1591) stay allowed. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <Authors>Umeå kommun</Authors>
+    <Authors>Kim Vallén;Nichlas Löfdahl;Umeå kommun</Authors>
+    <Copyright>Copyright © 2026 Kim Vallén, Nichlas Löfdahl and Umeå kommun</Copyright>
     <Product>Ume LLM Gateway</Product>
     <!-- Local placeholder only; release.yml overrides -p:Version=X.Y.Z from the pushed git tag. -->
     <Version>0.0.0-local</Version>
