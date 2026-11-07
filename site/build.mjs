@@ -334,7 +334,6 @@ function benchPage() {
   <section class="stack-20" aria-labelledby="reports-h">
     <h2 id="reports-h" class="h-m">Full results</h2>
     <div class="grid-240">${C.REPORTS.map(r => `<a class="card link-card small" href="${url(r.href)}"><span class="t">${r.title}${icon('arrow_forward')}</span><span class="d">${r.body}</span>${r.meta ? `<span class="m mono">${r.meta}</span>` : ''}</a>`).join('')}</div>
-    <p class="fine">The platform comparison is also a <a href="${url('reports/platform-comparison.pdf')}">PDF</a>.</p>
   </section>
 
   <section class="split-380" aria-labelledby="run-h">
