@@ -62,6 +62,7 @@ public sealed class ImageTests(GatewayFixture fixture)
             fields: new Dictionary<string, string> { ["size"] = "1024x1024", ["user"] = marker }, imageField: "image[]");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var answer = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var sent = (await UpstreamBodyAsync("imgpic", marker));
         sent.ShouldContain("imgpic-image");
         sent.ShouldContain("name=size");
@@ -73,7 +74,9 @@ public sealed class ImageTests(GatewayFixture fixture)
 
         var usage = await fixture.UsageAsync(response);
         usage.Endpoint.ShouldBe(GatewayEndpoint.ImageEdits);
-        usage.CostUsd.ShouldBe(0.08m);
+        // Failed once in CI (2026-11-11, cost 0) and never locally: these say which model was billed and what it answered.
+        usage.ModelDeploymentId.ShouldBe(fixture.DeploymentId("imgpic/image"));
+        usage.CostUsd.ShouldBe(0.08m, $"two pictures at 0.04 USD; the answer was {answer}");
     }
 
     [Fact]
