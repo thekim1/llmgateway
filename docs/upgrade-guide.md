@@ -11,6 +11,20 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## Unreleased: integrations (phase 1)
+
+- **Rolling update: yes.** Migration `Integrations` adds the table `Integrations`, the key columns `IntegrationId`,
+  `IntegrationRole` (default `None`) and `IntegrationScopes` (default empty) and `ModelDeployments.MaxOutputTokens`, all
+  with defaults, so the previous version keeps working against the new schema. `app-roles.sql` (and its copies,
+  including `compose.portainer.yaml`) grants the gateway `SELECT` and the admin API `SELECT, INSERT, UPDATE, DELETE` on
+  `Integrations`; use the release bundle's files.
+- `GET /v1/models` now reports a model's own residency (`ume.residency`) when it has one, as routing has done since
+  0.9.1; a client that read the provider's residency there sees the model's.
+- **Optional:** set `Gateway__AdminUrl` to the admin console's public address to hand it to integrations on
+  `/v1/ume/context`.
+- **Connecting a platform** ([integrations](integrations.md)): create the integration under *Access › Integrations*,
+  then its credential keys in the owner team; departments create assigned keys for their chatbots.
+
 ## 0.9.2: admin console branding, Keycloak groups shared with other systems
 
 - **Rolling update: yes.** Migration `Branding` adds the table `Branding`; the migration service creates its single row

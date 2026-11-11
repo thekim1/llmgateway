@@ -29,6 +29,7 @@ export const DOCS = [
     { slug: 'personal-data', title: 'Personal data (PII)', source: 'docs/personal-data.md', lead: 'Detect personnummer, email addresses, phone numbers and IBANs, then record, redact, block or keep the request on-prem.' },
     { slug: 'content-guard', title: 'Content guard', source: 'docs/content-guard.md', lead: 'Check requests and answers for prompt injection and harmful content with rules and an on-prem guard model.' },
     { slug: 'client-addresses', title: 'Client addresses', source: 'docs/client-addresses.md', lead: 'Limit a key to the addresses it may be used from, also behind a reverse proxy.' },
+    { slug: 'integrations', title: 'Integrations', source: 'docs/integrations.md', lead: 'Connect a platform such as a RAG system: a gateway key per chatbot, owned and paid for by its department, and settings read from the gateway.' },
   ] },
   { group: 'Run it', items: [
     { slug: 'runbook', title: 'Runbook', source: 'docs/runbook.md', lead: 'Deployment, identity provider, certificates, backups and incidents.' },

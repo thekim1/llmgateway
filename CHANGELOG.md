@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Integrations, phase 1 ([docs/integrations.md](docs/integrations.md), ADR 020 and 021): a platform that serves several
+departments, such as a RAG platform, connects as one object, each of its chatbots gets a gateway key of its own owned by
+the department that pays for it, and the platform reads its settings from the gateway instead of the Data API. One
+migration (`Integrations`: one new table, four new columns). **Rolling update: yes.**
+
+**Integrations.** Gateway admins create integrations under *Access › Integrations* (name, owner team, active) and their
+**credential keys**, what the platform's services sign in with, in the owner team. Department and team admins create
+**assigned keys** for their own chatbots and knowledge bases (*Used through* on the key form) and set their models,
+residencies, PII policy, limits and budgets as for any key. An assigned key has no secret (`secret: null`, nothing to
+reveal or rotate) and is refused when presented directly (`403 integration_only`); deactivating an integration refuses
+all its keys. Acting as an assigned key (`x-ume-on-behalf-of`) comes in phase 2. Admin API: `/api/integrations`; keys
+gain `integrationId`, `integrationName`, `integrationRole` and `integrationScopes`. New security event reasons
+`integration_only` and `integration_inactive`.
+
+**Settings from the gateway.** `GET /v1/ume/context` tells a key what it is: for a credential key its integration, the
+assigned keys with their settings (status, models, residencies, PII and content guard policy, limits, output cap, whether
+a system prompt is set; never a secret), and their teams and departments. `GET /v1/models` gains each model's context
+window, output limit, features and current price, and reports a model's own residency (it reported the provider's).
+Both answer with an `ETag` and `304` while nothing changed. New `Gateway:AdminUrl` (optional) is handed out as
+`admin_url`. Models get an **output limit** (`maxOutputTokens`), set in the model drawer, exported with the
+configuration and filled from models.dev when empty.
+
+**Security updates.** Aspire 13.6.5 (CVE-2026-120006, elevation of privilege in Aspire.Hosting; the AppHost only) and
+Microsoft.AspNetCore.WebUtilities 2.3.14 in the gateway tests (CVE-2026-118750, via WireMock.Net).
+
+**Performance.** The request path is unchanged in Postgres statements, Redis commands and allocations (benchmark
+`check`); a credential key's cold load adds one query for its assigned keys.
+
 ## 0.9.2 - 2026-11-07
 
 Admin console branding, Keycloak groups shared with other systems (Ume.Rag), the Data API behind the reverse proxy and

@@ -78,7 +78,9 @@ renamed or removed, within a major version.
 
 `Reason` for `gateway.auth.failed` is one of `missing_key`, `invalid_key`, `key_revoked`, `key_expired`,
 `key_disabled`, `owner_inactive`, `address_not_allowed` (the key is restricted to other client addresses; `SourceAddress`
-shows where it was used from). `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
+shows where it was used from), `integration_only` (a key assigned to an [integration](integrations.md) was presented
+directly, so its id leaked out of the platform that uses it), `integration_inactive` (the key's integration is
+deactivated). `PiiCategories` are counts per category (`Personnummer:2,Email:1`), never the
 values. Audit `Details` (before and after values) are **not** included in `admin.change`; they stay in the audit
 log, where secrets are already masked.
 
