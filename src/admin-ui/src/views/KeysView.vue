@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CreateKeyResponse, KeyStatus, RotateKeyResponse, VirtualKey } from '@/api/types'
 import { useKeysStore } from '@/stores/keys'
 import { useUiStore } from '@/stores/ui'
-import { KEY_STATUS, modelsLabel, plural } from '@/utils/labels'
+import { INTEGRATION_ROLE, KEY_STATUS, modelsLabel, plural } from '@/utils/labels'
 import { formatRelative } from '@/utils/format'
 import KeyDetailDrawer from '@/components/keys/KeyDetailDrawer.vue'
 import KeyFormDrawer from '@/components/keys/KeyFormDrawer.vue'
@@ -62,7 +62,7 @@ const filtered = computed(() => {
   return keys.items.filter((k) => {
     if (status.value !== 'all' && k.status !== status.value) return false
     if (!query) return true
-    return [k.name, k.prefix, k.teamName, k.departmentName].some((v) => v.toLowerCase().includes(query))
+    return [k.name, k.prefix, k.teamName, k.departmentName, k.integrationName ?? ''].some((v) => v.toLowerCase().includes(query))
   })
 })
 
@@ -101,6 +101,12 @@ function showSecret(value: string): void {
 
 function onCreated(result: CreateKeyResponse): void {
   selectedId.value = result.key.id
+  if (result.secret === null) {
+    // A key assigned to an integration has no secret; the integration finds it by its id.
+    ui.notify(`${result.key.name} assigned to ${result.key.integrationName ?? 'the integration'}`)
+    openDetail(result.key)
+    return
+  }
   showSecret(result.secret)
 }
 
@@ -145,7 +151,7 @@ onBeforeUnmount(() => {
     <div class="relative min-w-[240px] flex-1 max-w-sm">
       <label for="key-search" class="sr-only">Search keys</label>
       <AppIcon name="search" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-3" />
-      <input id="key-search" v-model="search" type="search" autocomplete="off" placeholder="Search by name, prefix or team" class="field-input w-full !pl-10" />
+      <input id="key-search" v-model="search" type="search" autocomplete="off" placeholder="Search by name, prefix, team or integration" class="field-input w-full !pl-10" />
     </div>
     <SegmentedControl v-model="status" label="Filter by status" :options="statusOptions" />
   </div>
@@ -166,6 +172,7 @@ onBeforeUnmount(() => {
       <template #cell-key="{ row }">
         <span class="block font-medium">{{ row.name }}</span>
         <span class="block font-mono text-caption text-fg-3">{{ row.prefix }}</span>
+        <span v-if="row.integrationName" class="block text-caption text-fg-3">{{ INTEGRATION_ROLE[row.integrationRole ?? 'None'].label }} · {{ row.integrationName }}</span>
       </template>
       <template #cell-owner="{ row }">
         <span class="block" lang="sv">{{ row.teamName }}</span>

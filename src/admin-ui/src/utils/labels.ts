@@ -1,5 +1,6 @@
 import type {
   AttachmentPolicy,
+  IntegrationRole,
   BudgetPeriod,
   ContentGuardPolicy,
   BudgetScope,
@@ -140,6 +141,29 @@ export const PROVIDER_STORAGE_HINT =
 
 export const REQUIRE_MAX_RESIDENCY_HINT =
   'Every request must send the x-ume-max-residency header (OnPrem, Eu or External), or it is refused. The header can only narrow the residencies above.'
+
+/** A key's part in an integration (docs/integrations.md). */
+export const INTEGRATION_ROLE: Record<IntegrationRole, { label: string; description: string }> = {
+  None: { label: 'None', description: 'An ordinary key that an application presents itself.' },
+  Assigned: {
+    label: 'Assigned',
+    description:
+      'For one chatbot or knowledge base of the integration. It has no secret: the integration uses it by reference, and its usage, limits and budgets are this key’s and this team’s.',
+  },
+  Credential: {
+    label: 'Credential',
+    description: 'What the integration’s own services sign in with. Belongs to the integration’s owner team; only gateway admins change it.',
+  },
+}
+
+export const INTEGRATION_SCOPE: Record<string, { label: string; description: string } | undefined> = {
+  'usage.read': { label: 'Read usage', description: 'Usage and budget status of the integration’s own keys (Integration API).' },
+}
+
+/** A scope's label, or the scope itself for one this console does not know yet. */
+export function integrationScopeLabel(scope: string): string {
+  return INTEGRATION_SCOPE[scope]?.label ?? scope
+}
 
 export const SCOPE_LABEL: Record<BudgetScope, string> = { Department: 'Department', Team: 'Team', VirtualKey: 'Key' }
 export const ROUTING_SCOPE_LABEL: Record<RoutingScope, string> = { VirtualKey: 'Key', Team: 'Team', Department: 'Department', Global: 'Global' }

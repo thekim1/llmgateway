@@ -167,3 +167,30 @@ describe('ModelFormDrawer residency and request address', () => {
     expect(body).not.toHaveProperty('publisher')
   })
 })
+
+describe('ModelFormDrawer output limit', () => {
+  beforeEach(() => {
+    update.mockReset()
+    update.mockResolvedValue(reranker)
+  })
+
+  it('sends the output limit and refuses one larger than the context window', async () => {
+    const wrapper = mountForm({ ...reranker, contextWindow: 8000, maxOutputTokens: 2000 })
+    expect((wrapper.find('#model-max-output').element as HTMLInputElement).value).toBe('2000')
+    await wrapper.find('#model-max-output').setValue('9000')
+    await submit(wrapper)
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('The output limit cannot be larger than the context window.')
+
+    await wrapper.find('#model-max-output').setValue('4000')
+    await submit(wrapper)
+    expect(update).toHaveBeenCalledWith('m1', expect.objectContaining({ contextWindow: 8000, maxOutputTokens: 4000 }))
+  })
+
+  it('sends null when the output limit is cleared, so a PUT removes it', async () => {
+    const wrapper = mountForm({ ...reranker, maxOutputTokens: 2000 })
+    await wrapper.find('#model-max-output').setValue('')
+    await submit(wrapper)
+    expect(update).toHaveBeenCalledWith('m1', expect.objectContaining({ maxOutputTokens: null }))
+  })
+})

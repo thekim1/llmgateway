@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ATTACHMENT_POLICIES, CONTENT_GUARD_POLICIES, DATA_RESIDENCIES, PII_POLICIES, type AttachmentPolicy, type ContentGuardPolicy, type CreateKeyResponse, type DataResidency, type PiiPolicy, type VirtualKey } from '@/api/types'
+import { ATTACHMENT_POLICIES, CONTENT_GUARD_POLICIES, DATA_RESIDENCIES, PII_POLICIES, type AttachmentPolicy, type ContentGuardPolicy, type CreateKeyResponse, type DataResidency, type IntegrationRole, type PiiPolicy, type VirtualKey } from '@/api/types'
 import { useFormErrors } from '@/composables/useFormErrors'
 import { useModelOptions } from '@/composables/useModelOptions'
 import { useAuthStore } from '@/stores/auth'
+import { useIntegrationsStore } from '@/stores/integrations'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, RESIDENCY } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, INTEGRATION_ROLE, INTEGRATION_SCOPE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
@@ -37,10 +38,13 @@ const keys = useKeysStore()
 const auth = useAuthStore()
 const providers = useProvidersStore()
 const teams = useTeamsStore()
+const integrations = useIntegrationsStore()
 const modelOptions = useModelOptions()
 
 const ids = {
   teamId: 'key-team',
+  integrationId: 'key-integration',
+  integrationScopes: 'key-integration-scopes',
   name: 'key-name',
   description: 'key-description',
   expiresAt: 'key-expires',
@@ -78,6 +82,9 @@ const values = reactive({
   maxConcurrentRequests: '',
   expiresAt: '',
   isEnabled: true,
+  integrationId: '',
+  integrationRole: 'Assigned' as IntegrationRole,
+  integrationScopes: [] as string[],
 })
 const piiOptions = PII_POLICIES.map((p) => ({ value: p, label: PII_LABEL[p] }))
 const guardOptions = CONTENT_GUARD_POLICIES.map((p) => ({ value: p, label: CONTENT_GUARD_LABEL[p] }))
@@ -86,6 +93,31 @@ const policy = ref(emptyPolicyDraft())
 const policyErrors = ref<PolicyErrors>({})
 const busy = ref(false)
 const isEdit = computed(() => !!props.existing)
+
+// Integrations (docs/integrations.md): set on create only. Any key manager can assign a key to an integration; only a
+// gateway admin makes an integration's credential key, which belongs to the integration's owner team.
+const integrationOptions = computed(() => [
+  { value: '', label: 'No integration' },
+  ...integrations.items.filter((i) => i.isActive).map((i) => ({ value: i.id, label: i.name })),
+])
+const chosenIntegration = computed(() => integrations.items.find((i) => i.id === values.integrationId) ?? null)
+const roleOptions = (['Assigned', 'Credential'] as const).map((r) => ({ value: r, label: INTEGRATION_ROLE[r].label }))
+const isCredential = computed(() => (isEdit.value ? props.existing?.integrationRole === 'Credential' : !!values.integrationId && values.integrationRole === 'Credential'))
+// A credential key's settings apply to every team the integration serves, so only gateway admins change it.
+const lockedCredential = computed(() => isEdit.value && props.existing?.integrationRole === 'Credential' && !auth.isGatewayAdmin)
+const scopeChoices = computed(() => {
+  const known = Object.keys(INTEGRATION_SCOPE)
+  return [...known, ...values.integrationScopes.filter((s) => !known.includes(s))]
+})
+
+function toggleScope(scope: string, on: boolean): void {
+  values.integrationScopes = on ? [...values.integrationScopes, scope] : values.integrationScopes.filter((s) => s !== scope)
+}
+
+// Choosing the credential role puts the key in the owner team, the only team it may belong to.
+watch([() => values.integrationRole, () => values.integrationId], () => {
+  if (!isEdit.value && isCredential.value && chosenIntegration.value) values.teamId = chosenIntegration.value.ownerTeamId
+})
 
 const teamOptions = computed(() => {
   const list = teams.items.map((t) => ({ value: t.id, label: `${t.departmentName} · ${t.name}` }))
@@ -156,6 +188,9 @@ function reset(): void {
   policyErrors.value = {}
   values.expiresAt = isoToDateInput(key?.expiresAt)
   values.isEnabled = key?.isEnabled ?? true
+  values.integrationId = key?.integrationId ?? ''
+  values.integrationRole = key?.integrationRole && key.integrationRole !== 'None' ? key.integrationRole : 'Assigned'
+  values.integrationScopes = [...(key?.integrationScopes ?? [])]
 }
 
 watch(
@@ -165,6 +200,7 @@ watch(
     reset()
     void teams.load()
     void modelOptions.load()
+    if (!integrations.loaded && !integrations.loading) void integrations.load()
     if (canPickProviders.value && !providers.loaded) void providers.load()
   },
   { immediate: true },
@@ -195,9 +231,12 @@ function expiryError(): string | null {
 }
 
 async function submit(): Promise<void> {
-  if (busy.value) return
+  if (busy.value || lockedCredential.value) return
   const ok = validate({
-    teamId: !isEdit.value && !values.teamId && 'Choose the team that owns this key.',
+    teamId:
+      (!isEdit.value && !values.teamId && 'Choose the team that owns this key.') ||
+      (!isEdit.value && isCredential.value && chosenIntegration.value && values.teamId !== chosenIntegration.value.ownerTeamId &&
+        `A credential key belongs to the integration’s owner team (${chosenIntegration.value.ownerTeamName ?? 'its team'}).`),
     name: isBlank(values.name) && 'Give the key a name so people can recognise it.',
     allowedModels: !values.allowAll && values.models.length === 0 && 'Select at least one model, or allow all models.',
     allowedProviders: canPickProviders.value && !values.allProviders && values.providerNames.length === 0 && 'Select at least one provider, or allow all providers.',
@@ -228,6 +267,7 @@ async function submit(): Promise<void> {
     tokensPerMinute: parseInteger(values.tokensPerMinute),
     maxConcurrentRequests: parseInteger(values.maxConcurrentRequests),
     requestPolicy: parsedPolicy.policy,
+    ...(isCredential.value && auth.isGatewayAdmin ? { integrationScopes: [...values.integrationScopes] } : {}),
   }
   busy.value = true
   try {
@@ -236,7 +276,8 @@ async function submit(): Promise<void> {
       emit('update:open', false)
       emit('saved', key)
     } else {
-      const result = await keys.create({ ...body, teamId: values.teamId })
+      const integration = values.integrationId ? { integrationId: values.integrationId, integrationRole: values.integrationRole } : {}
+      const result = await keys.create({ ...body, ...integration, teamId: values.teamId })
       emit('update:open', false)
       emit('created', result)
     }
@@ -254,12 +295,16 @@ async function submit(): Promise<void> {
     wide
     :title="isEdit ? `Edit ${existing?.name ?? 'key'}` : 'New key'"
     :subtitle="existing?.prefix"
-    :description="isEdit ? 'Change the key’s access and limits.' : 'Create a key for an application. The secret is shown once.'"
+    :description="isEdit ? 'Change the key’s access and limits.' : 'Create a key for an application. The secret is shown once; a key assigned to an integration has none.'"
     @update:open="emit('update:open', $event)"
   >
     <AsyncState :loading="teams.loading" :error="teams.error" :empty="false" @retry="teams.load()">
       <form id="key-form" class="flex flex-col gap-8" novalidate @submit.prevent="submit">
         <InlineError v-if="formError" :message="formError" />
+        <p v-if="lockedCredential" class="m-0 flex items-start gap-2 text-small text-fg-2" role="note">
+          <AppIcon name="info" :size="18" class="mt-px shrink-0" />
+          This is {{ existing?.integrationName ?? 'an integration' }}’s credential key. Only gateway admins can change it; you can rotate or revoke it.
+        </p>
 
         <FieldGroup legend="Basics">
           <SelectField
@@ -268,13 +313,50 @@ async function submit(): Promise<void> {
             label="Team"
             placeholder="Select a team"
             :options="teamOptions"
-            :disabled="isEdit"
+            :disabled="isEdit || (isCredential && !!chosenIntegration)"
             :error="errors.teamId"
             :hint="isEdit ? 'A key stays with the team that owns it.' : 'The team is billed for this key’s usage.'"
           />
           <TextField :id="ids.name" v-model="values.name" label="Name" autocomplete="off" :error="errors.name" hint="Shown in the key list and in usage reports." />
           <TextField :id="ids.description" v-model="values.description" label="Description (optional)" :error="errors.description" />
           <CheckField v-if="isEdit" v-model="values.isEnabled" label="Key is enabled" description="Turn off to pause the key without revoking it." />
+        </FieldGroup>
+
+        <FieldGroup v-if="!isEdit ? integrationOptions.length > 1 : !!existing?.integrationId" legend="Integration">
+          <template v-if="!isEdit">
+            <SelectField
+              :id="ids.integrationId"
+              v-model="values.integrationId"
+              label="Used through (optional)"
+              :options="integrationOptions"
+              :error="errors.integrationId"
+              hint="For a chatbot or knowledge base of another system, such as a RAG platform. Can’t be changed later."
+            />
+            <template v-if="values.integrationId">
+              <div v-if="auth.isGatewayAdmin" class="flex flex-col gap-1.5">
+                <span class="font-medium">Role</span>
+                <SegmentedControl v-model="values.integrationRole" mode="radio" label="Role in the integration" :options="roleOptions" />
+              </div>
+              <span class="text-small text-fg-2">{{ INTEGRATION_ROLE[values.integrationRole].description }}</span>
+            </template>
+          </template>
+          <p v-else class="m-0">
+            Used through <strong>{{ existing?.integrationName ?? 'an integration' }}</strong> as
+            {{ INTEGRATION_ROLE[existing?.integrationRole ?? 'None'].label.toLowerCase() }} key.
+            <span class="block text-small text-fg-2">{{ INTEGRATION_ROLE[existing?.integrationRole ?? 'None'].description }}</span>
+          </p>
+          <fieldset v-if="isCredential && auth.isGatewayAdmin" :id="ids.integrationScopes" class="m-0 flex min-w-0 flex-col gap-1 border-0 p-0" tabindex="-1">
+            <legend class="mb-1.5 p-0 font-medium">Integration API access</legend>
+            <CheckField
+              v-for="scope in scopeChoices"
+              :key="scope"
+              :label="INTEGRATION_SCOPE[scope]?.label ?? scope"
+              :description="INTEGRATION_SCOPE[scope]?.description ?? scope"
+              :model-value="values.integrationScopes.includes(scope)"
+              @update:model-value="toggleScope(scope, $event)"
+            />
+            <span v-if="errors.integrationScopes" class="text-small text-danger">{{ errors.integrationScopes }}</span>
+          </fieldset>
         </FieldGroup>
 
         <FieldGroup legend="Access">
@@ -422,7 +504,7 @@ async function submit(): Promise<void> {
       </form>
     </AsyncState>
     <template #footer>
-      <UiButton variant="primary" type="submit" form="key-form" :loading="busy">{{ isEdit ? 'Save key' : 'Create key' }}</UiButton>
+      <UiButton variant="primary" type="submit" form="key-form" :loading="busy" :disabled="lockedCredential">{{ isEdit ? 'Save key' : 'Create key' }}</UiButton>
       <UiButton :disabled="busy" @click="emit('update:open', false)">Cancel</UiButton>
     </template>
   </UiDrawer>
