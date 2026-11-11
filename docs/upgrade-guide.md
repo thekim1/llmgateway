@@ -11,7 +11,13 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: integrations (phase 1)
+## Unreleased: integrations (phases 1 and 2)
+
+- **Phase 2, rolling update: yes.** Migration `UsageRunMetadata` adds three nullable columns to `UsageRecords`
+  (`ViaKeyId`, `RunId`, `Step`; no table rewrite); an older gateway writes its usage without them. `app-roles.sql` grants
+  the Data API's role the key columns `IntegrationId` and `IntegrationRole`. During the update an older instance ignores
+  `x-ume-on-behalf-of` and answers as the credential key without the echo: a platform must check the echo and fail the
+  call when it is missing.
 
 - **Rolling update: yes.** Migration `Integrations` adds the table `Integrations`, the key columns `IntegrationId`,
   `IntegrationRole` (default `None`) and `IntegrationScopes` (default empty) and `ModelDeployments.MaxOutputTokens`, all

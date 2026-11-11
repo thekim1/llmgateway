@@ -17,13 +17,14 @@ public sealed class ModelListEndpoint(RequestStages stages, GatewayCatalog catal
     {
         ArgumentNullException.ThrowIfNull(http);
         var ct = http.RequestAborted;
-        var key = await stages.AuthenticateAsync(http, GatewayEndpoint.Models, time.GetUtcNow(), ct);
-        if (key is null)
+        if (await stages.AuthenticateAsync(http, GatewayEndpoint.Models, time.GetUtcNow(), ct) is not { } authenticated)
         {
             return;
         }
 
-        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        // With x-ume-on-behalf-of, the assigned key's models: what that chatbot may use.
+        var key = authenticated.Key;
+        if (RequestStages.ReadMaxResidency(http.Request, authenticated, out var ceiling) is { } ceilingError)
         {
             await stages.WriteErrorAsync(http, GatewayEndpoint.Models, ceilingError);
             return;

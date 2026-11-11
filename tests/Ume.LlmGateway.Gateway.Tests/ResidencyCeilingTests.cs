@@ -92,7 +92,7 @@ public sealed class ResidencyCeilingTests(GatewayFixture fixture)
             http.Request.Headers[Header] = value;
         }
 
-        var error = Requests.RequestStages.ReadMaxResidency(http.Request, Key(required), out var ceiling);
+        var error = Requests.RequestStages.ReadMaxResidency(http.Request, new(Key(required), null), out var ceiling);
         (error is not null).ShouldBe(refused);
         error?.StatusCode.ShouldBe(400);
         ceiling.ShouldBe(expected);
@@ -103,7 +103,7 @@ public sealed class ResidencyCeilingTests(GatewayFixture fixture)
     {
         var http = new DefaultHttpContext();
         http.Request.Headers[Header] = "Eu";
-        var key = Key(false);
+        var key = new Requests.AuthenticatedKey(Key(false), null);
         Requests.RequestStages.ReadMaxResidency(http.Request, key, out _); // warm up
         var before = GC.GetAllocatedBytesForCurrentThread();
         Requests.RequestStages.ReadMaxResidency(http.Request, key, out var ceiling);

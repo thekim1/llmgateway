@@ -178,6 +178,136 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         data.Single(m => m!["id"]!.GetValue<string>() == partial)!["ume"]!["context_window"].ShouldBeNull();
     }
 
+    [Fact]
+    public async Task A_credential_key_acts_as_an_assigned_key_whose_team_and_department_are_charged()
+    {
+        var integration = await CreateIntegrationAsync();
+        var credential = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Credential));
+        var chatbot = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+
+        using var response = await fixture.SendAsync(credential, headers: new Dictionary<string, string>
+        {
+            [OnBehalfOf] = chatbot.Id.ToString(), ["x-ume-run-id"] = " run-42 ", ["x-ume-step"] = "answer",
+        });
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.GetValues(OnBehalfOf).Single().ShouldBe(chatbot.Id.ToString());
+
+        var usage = await fixture.UsageAsync(response);
+        usage.VirtualKeyId.ShouldBe(chatbot.Id);
+        usage.TeamId.ShouldBe(chatbot.TeamId);
+        usage.ViaKeyId.ShouldBe(credential.Id);
+        usage.RunId.ShouldBe("run-42");
+        usage.Step.ShouldBe("answer");
+    }
+
+    [Fact]
+    public async Task The_assigned_keys_models_and_budget_apply_not_the_credential_keys()
+    {
+        var integration = await CreateIntegrationAsync();
+        var credential = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Credential));
+        var limited = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.AllowedModels = ["onprem/ok"]; });
+        var broke = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+        await fixture.AddBudgetAsync(BudgetScope.VirtualKey, broke.Id, 0);
+
+        using (var notAllowed = await fixture.SendAsync(credential, "eu/ok", headers: Acting(limited)))
+        {
+            notAllowed.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+            (await ErrorCodeAsync(notAllowed)).ShouldBe("model_not_allowed");
+        }
+
+        using (var spent = await fixture.SendAsync(credential, headers: Acting(broke)))
+        {
+            ((int)spent.StatusCode).ShouldBe(402);
+            (await ErrorCodeAsync(spent)).ShouldBe("budget_exceeded");
+        }
+
+        using var own = await fixture.SendAsync(credential); // the credential key itself is not limited by either
+        own.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await fixture.UsageAsync(own)).ViaKeyId.ShouldBeNull();
+
+        using var models = await GetAsync(credential, "/v1/models", headers: Acting(limited));
+        ((JsonArray)JsonNode.Parse(await models.Content.ReadAsStringAsync(Ct))!["data"]!).Select(m => m!["id"]!.GetValue<string>()).ShouldBe(["onprem/ok"]);
+    }
+
+    [Fact]
+    public async Task Acting_as_a_key_is_refused_unless_it_is_an_assigned_key_of_the_credential_keys_integration()
+    {
+        var integration = await CreateIntegrationAsync();
+        var credential = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Credential));
+        var foreign = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+        var other = await CreateIntegrationAsync();
+        var otherKey = await fixture.CreateKeyAsync(k => Assign(k, other, IntegrationRole.Assigned));
+        var disabled = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.IsEnabled = false; });
+        var ordinary = await fixture.CreateKeyAsync();
+
+        (await RefusalAsync(ordinary, foreign.Id.ToString())).ShouldBe((403, "delegation_not_allowed"));
+        (await RefusalAsync(credential, otherKey.Id.ToString())).ShouldBe((403, "delegation_not_allowed"));
+        (await RefusalAsync(credential, Guid.NewGuid().ToString())).ShouldBe((403, "delegation_not_allowed"));
+        (await RefusalAsync(credential, "chatbot")).ShouldBe((400, "invalid_request"));
+        (await RefusalAsync(credential, disabled.Id.ToString())).ShouldBe((403, "key_disabled"));
+    }
+
+    [Fact]
+    public async Task A_credential_key_that_requires_the_residency_header_requires_it_when_acting()
+    {
+        var integration = await CreateIntegrationAsync();
+        var credential = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Credential); k.RequireMaxResidency = true; });
+        var chatbot = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+
+        using var missing = await fixture.SendAsync(credential, headers: Acting(chatbot));
+        missing.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        var headers = Acting(chatbot);
+        headers["x-ume-max-residency"] = "Eu";
+        using var ok = await fixture.SendAsync(credential, headers: headers);
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Run_metadata_is_capped_and_cleaned_never_refused()
+    {
+        var key = await fixture.CreateKeyAsync();
+        using var response = await fixture.SendAsync(key, headers: new Dictionary<string, string> { ["x-ume-run-id"] = new string('r', 150), ["x-ume-step"] = "  " });
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var usage = await fixture.UsageAsync(response);
+        usage.RunId.ShouldBe(new string('r', 100));
+        usage.Step.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_streamed_answer_ends_with_its_cost_when_asked(bool asked)
+    {
+        var key = await fixture.CreateKeyAsync();
+        var headers = asked ? new Dictionary<string, string> { ["x-ume-stream-cost"] = "1" } : null;
+        using var response = await fixture.SendAsync(key, stream: true, includeUsage: true, headers: headers);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var text = await response.Content.ReadAsStringAsync(Ct);
+        var usage = await fixture.UsageAsync(response);
+        if (!asked)
+        {
+            text.ShouldNotContain("ume-cost-usd");
+            return;
+        }
+
+        var line = text.Split('\n').Single(l => l.StartsWith(": ume-cost-usd=", StringComparison.Ordinal));
+        decimal.Parse(line[": ume-cost-usd=".Length..], System.Globalization.CultureInfo.InvariantCulture).ShouldBe(usage.CostUsd);
+        usage.CostUsd.ShouldBe(0.000135m);
+        text.IndexOf(": ume-cost-usd=", StringComparison.Ordinal).ShouldBeLessThan(text.IndexOf("[DONE]", StringComparison.Ordinal));
+    }
+
+    private const string OnBehalfOf = "x-ume-on-behalf-of";
+
+    private static Dictionary<string, string> Acting(TestKey key) => new() { [OnBehalfOf] = key.Id.ToString() };
+
+    private async Task<(int Status, string Code)> RefusalAsync(TestKey key, string onBehalfOf)
+    {
+        using var response = await fixture.SendAsync(key, headers: new Dictionary<string, string> { [OnBehalfOf] = onBehalfOf });
+        response.Headers.Contains(OnBehalfOf).ShouldBeFalse();
+        return ((int)response.StatusCode, await ErrorCodeAsync(response));
+    }
+
     private static void Assign(VirtualKey key, Guid integration, IntegrationRole role)
     {
         key.IntegrationId = integration;
@@ -204,10 +334,15 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         await db.SaveChangesAsync(Ct);
     }
 
-    private async Task<HttpResponseMessage> GetAsync(TestKey key, string path, string? ifNoneMatch = null)
+    private async Task<HttpResponseMessage> GetAsync(TestKey key, string path, string? ifNoneMatch = null, Dictionary<string, string>? headers = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key.Secret);
+        foreach (var (name, value) in headers ?? [])
+        {
+            request.Headers.Add(name, value);
+        }
+
         if (ifNoneMatch is not null)
         {
             request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(ifNoneMatch));

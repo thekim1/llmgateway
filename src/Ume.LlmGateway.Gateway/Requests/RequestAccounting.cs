@@ -106,6 +106,9 @@ public sealed partial class RequestAccounting(
             ErrorCode = errorCode,
             RoutingRuleId = state.Rule?.RuleId,
             RoutingRuleName = state.Rule?.Name is { Length: > 200 } ruleName ? ruleName[..200] : state.Rule?.Name,
+            ViaKeyId = state.ViaKey?.Id,
+            RunId = state.RunId,
+            Step = state.Step,
         };
 
         metrics.Record(record, deployment?.ProviderAccount?.Type);

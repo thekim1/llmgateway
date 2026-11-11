@@ -456,12 +456,15 @@ public sealed partial class UsageWriter : BackgroundService
             return;
         }
 
-        // Last-used timestamps: one statement for all keys in the batch, each key at most once a minute.
+        // Last-used timestamps: one statement for all keys in the batch, each key at most once a minute. A request made
+        // through an integration's credential key counts as a use of both keys.
         var now = _time.GetUtcNow();
         List<(Guid KeyId, DateTimeOffset LastUsed)> lastUsed = [];
-        foreach (var keyGroup in batch.GroupBy(b => b.Record.VirtualKeyId))
+        var uses = batch.Select(b => (Key: b.Record.VirtualKeyId, b.Record.Timestamp))
+            .Concat(batch.Where(b => b.Record.ViaKeyId is not null).Select(b => (Key: b.Record.ViaKeyId!.Value, b.Record.Timestamp)));
+        foreach (var keyGroup in uses.GroupBy(u => u.Key))
         {
-            var last = keyGroup.Max(b => b.Record.Timestamp);
+            var last = keyGroup.Max(u => u.Timestamp);
             if (!_lastUsedWritten.TryGetValue(keyGroup.Key, out var written) || last - written >= LastUsedResolution)
             {
                 lastUsed.Add((keyGroup.Key, last));

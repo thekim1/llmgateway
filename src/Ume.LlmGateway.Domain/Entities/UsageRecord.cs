@@ -69,6 +69,18 @@ public sealed class UsageRecord
     public string? RoutingRuleName { get; set; }
 
     /// <summary>
+    /// The credential key of an integration that made the request as <see cref="VirtualKeyId"/> (an assigned key,
+    /// <c>x-ume-on-behalf-of</c>, docs/integrations.md); null when the key was presented itself.
+    /// </summary>
+    public Guid? ViaKeyId { get; set; }
+
+    /// <summary>The client's opaque run id (<c>x-ume-run-id</c>): groups the calls of one answer or job. Never content.</summary>
+    public string? RunId { get; set; }
+
+    /// <summary>The client's opaque step name (<c>x-ume-step</c>), such as <c>answer</c> or <c>rerank</c>. Never content.</summary>
+    public string? Step { get; set; }
+
+    /// <summary>
     /// When the row was written (database transaction start, set by Postgres). Data API feeds only hand out rows older
     /// than their settle window, so a row committed late by a concurrent writer is never skipped by a consumer's cursor.
     /// </summary>

@@ -25,7 +25,7 @@ public static class DataEndpoints
                     u.RequestedModel, u.ProviderAccountId, u.ProviderName, u.ModelDeploymentId, u.UpstreamModel, u.InputTokens,
                     u.CachedInputTokens, u.OutputTokens, u.CostUsd, u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount,
                     u.Streamed, u.PiiActionApplied, pii ? u.PiiCategories : null, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName, u.RecordedAt, u.AudioSeconds,
-                    u.UpstreamMs, u.TimeToFirstTokenMs, u.ProviderFirstTokenMs))
+                    u.UpstreamMs, u.TimeToFirstTokenMs, u.ProviderFirstTokenMs, u.ViaKeyId, u.RunId, u.Step))
                 .ToListAsync(ct);
             return DataResults.Feed(http, Feeds.Page(rows, cursor, size, Feeds.Cutoff(time, settings)));
         }).RequireAuthorization(DataPermissions.UsageDetail)
@@ -96,7 +96,7 @@ public static class DataEndpoints
                 .Select(t => new { t.Id, t.DepartmentId, t.Name, t.IsActive, t.CreatedAt }).ToListAsync(ct)));
         catalog.MapGet("/keys", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.VirtualKeys.AsNoTracking().OrderBy(k => k.Id)
-                .Select(k => new { k.Id, k.TeamId, k.Name, k.Prefix, k.CreatedAt }).ToListAsync(ct)));
+                .Select(k => new { k.Id, k.TeamId, k.Name, k.Prefix, k.CreatedAt, k.IntegrationId, k.IntegrationRole }).ToListAsync(ct)));
         catalog.MapGet("/providers", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.ProviderAccounts.AsNoTracking().OrderBy(p => p.Name)
                 .Select(p => new { p.Id, p.Name, p.DisplayName, p.Type, p.Residency, p.IsEnabled }).ToListAsync(ct)));

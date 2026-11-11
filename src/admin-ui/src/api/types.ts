@@ -817,6 +817,11 @@ export interface UsageRequest {
   timeToFirstTokenMs: number | null
   /** Streamed answers: from sending the request to the provider that answered until its first event (no fallbacks, no gateway time). */
   providerFirstTokenMs: number | null
+  /** The integration's credential key that made the request as this key (x-ume-on-behalf-of); null when the key was used itself. */
+  viaKeyId?: string | null
+  /** The client's opaque run id and step (x-ume-run-id, x-ume-step). */
+  runId?: string | null
+  step?: string | null
 }
 
 export const GATEWAY_ENDPOINTS = [

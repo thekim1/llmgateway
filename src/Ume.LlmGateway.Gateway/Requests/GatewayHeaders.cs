@@ -38,6 +38,21 @@ public static class GatewayHeaders
     /// </summary>
     public const string MaxResidency = "x-ume-max-residency";
 
+    /// <summary>
+    /// Request header from an integration's credential key: the id of an assigned key of the same integration, which the
+    /// request is then made as (docs/integrations.md). Echoed on the answer with the id that was applied.
+    /// </summary>
+    public const string OnBehalfOf = "x-ume-on-behalf-of";
+
+    /// <summary>Request header: an opaque id that groups the calls of one answer or job; stored on the usage record.</summary>
+    public const string RunId = "x-ume-run-id";
+
+    /// <summary>Request header: an opaque step name (<c>answer</c>, <c>rerank</c>, ...); stored on the usage record.</summary>
+    public const string Step = "x-ume-step";
+
+    /// <summary>Request header <c>1</c>: a streamed answer ends with the SSE comment <c>: ume-cost-usd=…</c>.</summary>
+    public const string StreamCost = "x-ume-stream-cost";
+
     /// <summary>What the PII guard did: detected, redacted, blocked or rerouted-onprem.</summary>
     public const string Pii = "x-ume-pii";
 

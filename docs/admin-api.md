@@ -340,7 +340,7 @@ and invalidate the gateway catalogue.
   - `recordsFrom` is set when the period starts before the oldest kept usage record (data retention): monthly totals have no
     timings or days, so the figures cover only `recordsFrom`..`to`.
 - `GET /api/usage/requests?from=&to=&keyId=&teamId=&departmentId=&model=&provider=&outcome=&errors=&page=1&pageSize=50`
-  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs, guardFlags, providerFirstTokenMs }` (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only, until the first event reached the client; `providerFirstTokenMs`: streamed answers only, from sending the request to the provider that answered until its first event, without failed fallback attempts, retries or gateway time)
+  → `{ items: UsageRequest[], total }` where `UsageRequest = { requestId, timestamp, keyPrefix, keyName, teamName, departmentName, endpoint, requestedModel, providerName, upstreamModel, inputTokens, cachedInputTokens, outputTokens, latencyMs, statusCode, outcome, fallbackCount, streamed, piiActionApplied, piiCategories, errorCode, routingRuleId, routingRuleName, costUsd, upstreamMs, timeToFirstTokenMs, guardFlags, providerFirstTokenMs, viaKeyId, runId, step }` (`viaKeyId`: the [integration](integrations.md)'s credential key that made the request as this key, `null` otherwise; `runId`, `step`: the client's `x-ume-run-id` and `x-ume-step`) (`routingRuleName`: the routing rule that decided where the request went, `null` when none applied; `upstreamMs`: time spent waiting on providers, failed fallback attempts and a streamed answer included, `null` when no provider was called and for live audio sessions; `timeToFirstTokenMs`: streamed answers only, until the first event reached the client; `providerFirstTokenMs`: streamed answers only, from sending the request to the provider that answered until its first event, without failed fallback attempts, retries or gateway time)
   - Filters: `model` is the requested model; `provider` the provider account name, or `-` for requests no provider handled (as the summary groups them); `outcome` one `RequestOutcome`; `errors=true` keeps only requests that did not succeed (every outcome but `Success`).
 - `GET /api/usage/requests/{requestId}` → `UsageRequest` (lookup by `x-request-id` from gateway response)
 - `GET /api/usage/pii-incidents?from=&to=&keyId=&teamId=&departmentId=&category=&action=&page=1&pageSize=50` (any role, own departments)
@@ -432,7 +432,10 @@ and invalidate the gateway catalogue.
   `perImageUsd`, plus reported tokens × token prices (gpt-image-1).
 - Live audio: see [below](#live-audio-realtime).
 - Request headers the gateway reads (not passed to providers): `x-ume-session` (keeps a conversation on one target),
-  `x-ume-max-residency` ([residency ceiling](#residency-ceiling-per-request)).
+  `x-ume-max-residency` ([residency ceiling](#residency-ceiling-per-request)), `x-ume-on-behalf-of` (an integration's
+  credential key makes the request as one of its assigned keys, echoed on the answer), `x-ume-run-id` and `x-ume-step`
+  (opaque ids stored on the usage record), `x-ume-stream-cost: 1` (a streamed answer ends with `: ume-cost-usd=…`); see
+  [integrations](integrations.md).
 - Response headers: `x-request-id`, `x-ume-provider`, `x-ume-model`, `x-ume-residency` (`OnPrem`, `Eu` or `External`: the
   residency of the model that answered, its own or its provider's), `x-ume-fallbacks`, `x-ume-cost-usd`,
   `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`, `x-ume-budget-remaining-usd`,
@@ -441,7 +444,8 @@ and invalidate the gateway catalogue.
   `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled` (also when the key's team, department or integration is
   deactivated), `address_not_allowed` (403: the key is restricted to other client addresses), `integration_only` (403: a key
-  assigned to an [integration](integrations.md) was presented directly), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
+  assigned to an [integration](integrations.md) was presented directly), `delegation_not_allowed` (403: `x-ume-on-behalf-of`
+  from a key that is not a credential key, or naming a key that is not assigned to its integration), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
   `max_residency_not_met` (403, see [residency ceiling](#residency-ceiling-per-request)), `context_length_exceeded`,
   `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two

@@ -83,6 +83,11 @@ public static partial class SecurityEvents
     public static partial void ContentFlagged(ILogger logger, string action, string part, string requestId, string endpoint, string flags,
         Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
 
+    [LoggerMessage(1006, LogLevel.Warning,
+        "Key {KeyId} {KeyPrefix} (team {TeamId}, department {DepartmentId}) may not act as {OnBehalfOf} on {Endpoint}: {Reason}; request {RequestId}", EventName = "gateway.delegation.refused")]
+    public static partial void DelegationRefused(ILogger logger, string reason, string requestId, string onBehalfOf, string endpoint,
+        Guid keyId, string keyPrefix, Guid teamId, Guid departmentId);
+
     [LoggerMessage(3001, LogLevel.Information,
         "Data API client {Client} read {Path}: status {Status}, next cursor {Cursor}", EventName = "data.read")]
     public static partial void DataRead(ILogger logger, string client, string path, int status, string? cursor);

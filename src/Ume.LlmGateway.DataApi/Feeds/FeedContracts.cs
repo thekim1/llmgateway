@@ -8,7 +8,7 @@ public sealed record UsageRecordItem(
     long InputTokens, long CachedInputTokens, long OutputTokens, decimal CostUsd, int LatencyMs, int StatusCode,
     RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiAction, string? PiiCategories, string? ErrorCode,
     Guid? RoutingRuleId, string? RoutingRuleName, DateTimeOffset RecordedAt, decimal AudioSeconds, int? UpstreamMs, int? TimeToFirstTokenMs,
-    int? ProviderFirstTokenMs) : IFeedItem;
+    int? ProviderFirstTokenMs, Guid? ViaKeyId, string? RunId, string? Step) : IFeedItem;
 
 public sealed record SecurityRequestItem(
     long Id, string RequestId, DateTimeOffset Timestamp, Guid KeyId, Guid TeamId, Guid DepartmentId, GatewayEndpoint Endpoint,
