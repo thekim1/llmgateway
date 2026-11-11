@@ -57,6 +57,8 @@ public static partial class SecurityEvents
         AuthFailureReason.KeyDisabled => "key_disabled",
         AuthFailureReason.OwnerInactive => "owner_inactive",
         AuthFailureReason.AddressNotAllowed => "address_not_allowed",
+        AuthFailureReason.IntegrationOnly => "integration_only",
+        AuthFailureReason.IntegrationInactive => "integration_inactive",
         _ => "unknown",
     };
 

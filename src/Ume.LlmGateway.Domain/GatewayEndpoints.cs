@@ -105,6 +105,8 @@ public static class GatewayEndpoints
             IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false, ModelKind.Rerank) { IgnoresContextWindow = true, EstimatesUnreportedUsage = true },
         new(GatewayEndpoint.RealtimeTranslations, "realtime_translations", "/v1/realtime/translations", "realtime/translations", ProviderCapabilities.Realtime,
             IsAudio: false, IsRealtime: true, SupportsStreaming: false, HasOutputTokens: true, ModelKind.SpeechTranslation),
+        new(GatewayEndpoint.Context, "context", "/v1/ume/context", null, ProviderCapabilities.None,
+            IsAudio: false, IsRealtime: false, SupportsStreaming: false, HasOutputTokens: false),
     ]);
 
     private static readonly GatewayEndpoint[][] ByKind = BuildByKind();

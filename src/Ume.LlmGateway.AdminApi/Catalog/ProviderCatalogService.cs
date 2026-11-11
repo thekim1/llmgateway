@@ -173,7 +173,7 @@ public sealed class ProviderCatalogService(AdminContext ctx, RoutingRuleService 
     {
         ArgumentNullException.ThrowIfNull(provider);
         m.Name = input.Name.Trim(); m.UpstreamModel = input.UpstreamModel.Trim(); m.Kind = input.Kind; m.ParameterProfile = input.ParameterProfile;
-        m.ContextWindow = input.ContextWindow; m.IsEnabled = input.IsEnabled;
+        m.ContextWindow = input.ContextWindow; m.MaxOutputTokens = input.MaxOutputTokens; m.IsEnabled = input.IsEnabled;
         m.Residency = input.Residency; m.RequestAuthMode = input.RequestAuthMode;
         if (input.AutoUpdatePrice is { } auto) { m.AutoUpdatePrice = auto; }
         if (input.Description is { } description) { m.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(); }

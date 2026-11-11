@@ -151,6 +151,35 @@ public class KeyStatusAndRotationTests
     }
 
     [Fact]
+    public void Rotating_a_credential_key_keeps_its_integration_and_scopes()
+    {
+        var old = NewKey();
+        var integration = Guid.NewGuid();
+        old.IntegrationId = integration;
+        old.IntegrationRole = IntegrationRole.Credential;
+        old.IntegrationScopes = ["usage.read"];
+
+        var replacement = KeyRotation.Rotate(old, Hasher.Generate(), KeyRotationMode.RevokeImmediately, Now, null);
+
+        replacement.IntegrationId.ShouldBe(integration);
+        replacement.IntegrationRole.ShouldBe(IntegrationRole.Credential);
+        replacement.IntegrationScopes.ShouldBe(["usage.read"]);
+        replacement.IntegrationScopes.ShouldNotBeSameAs(old.IntegrationScopes);
+    }
+
+    [Fact]
+    public void Assigned_keys_are_found_by_id_on_their_credential_key()
+    {
+        var credential = NewKey();
+        var chatbot = NewKey();
+        credential.AssignedKey(chatbot.Id).ShouldBeNull();
+        credential.IndexAssignedKeys([chatbot]);
+        credential.AssignedKey(chatbot.Id).ShouldBeSameAs(chatbot);
+        credential.AssignedKey(Guid.NewGuid()).ShouldBeNull();
+        credential.AssignedKeys.ShouldBe([chatbot]);
+    }
+
+    [Fact]
     public void Rotate_with_grace_keeps_old_key_working_for_24_hours()
     {
         var old = NewKey();

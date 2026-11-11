@@ -88,6 +88,35 @@ public sealed class VirtualKey
     /// <summary>Whether requests (and, when configured, answers) are checked by the on-prem content guard.</summary>
     public ContentGuardPolicy ContentGuardPolicy { get; set; }
 
+    /// <summary>The integration the key belongs to (<see cref="IntegrationRole"/>); null for an ordinary key. Set at creation only.</summary>
+    public Guid? IntegrationId { get; set; }
+    public Integration? Integration { get; set; }
+
+    /// <summary>The key's part in <see cref="Integration"/>: none, the platform's credential, or a key assigned to it.</summary>
+    public IntegrationRole IntegrationRole { get; set; }
+
+    /// <summary>What a credential key may do on the Integration API (<see cref="Keys.IntegrationScopes"/>). Empty = nothing.</summary>
+    public List<string> IntegrationScopes { get; set; } = [];
+
+    private FrozenDictionary<Guid, VirtualKey>? _assignedById;
+
+    /// <summary>
+    /// For a credential key held in the read-only key cache: the integration's assigned keys (not revoked), loaded with
+    /// their teams and departments. Empty otherwise. Not stored.
+    /// </summary>
+    public IReadOnlyList<VirtualKey> AssignedKeys { get; private set; } = [];
+
+    /// <summary>Holds <paramref name="keys"/> as <see cref="AssignedKeys"/>, indexed by id; call once, when the key is loaded for read-only use.</summary>
+    public void IndexAssignedKeys(IReadOnlyList<VirtualKey> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        AssignedKeys = keys;
+        _assignedById = keys.ToFrozenDictionary(k => k.Id);
+    }
+
+    /// <summary>The assigned key with <paramref name="id"/> of this credential key's integration, or null.</summary>
+    public VirtualKey? AssignedKey(Guid id) => _assignedById is { } index && index.TryGetValue(id, out var key) ? key : null;
+
     public KeyStatus GetStatus(DateTimeOffset now)
     {
         if (RevokedAt is { } revoked && revoked <= now)

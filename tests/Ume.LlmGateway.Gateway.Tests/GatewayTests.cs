@@ -43,7 +43,7 @@ public sealed class GatewayTests(GatewayFixture fixture)
         foreach (var info in GatewayEndpoints.All)
         {
             var operations = paths[info.ClientPath].ShouldNotBeNull(info.ClientPath).AsObject();
-            operations.ContainsKey(info.IsRealtime || info.Endpoint == GatewayEndpoint.Models ? "get" : "post").ShouldBeTrue(info.ClientPath);
+            operations.ContainsKey(info.IsRealtime || info.UpstreamPath is null ? "get" : "post").ShouldBeTrue(info.ClientPath);
         }
     }
 

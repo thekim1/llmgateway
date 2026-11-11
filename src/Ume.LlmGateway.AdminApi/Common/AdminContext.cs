@@ -93,7 +93,7 @@ public sealed partial class AdminContext
     public IQueryable<Team> Teams() =>
         Db.Teams.Include(t => t.Department).Where(t => Departments().Any(d => d.Id == t.DepartmentId));
     public IQueryable<VirtualKey> Keys() =>
-        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => Teams().Any(t => t.Id == k.TeamId));
+        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Include(k => k.Integration).Where(k => Teams().Any(t => t.Id == k.TeamId));
 
     /// <summary>
     /// Teams whose keys the user may manage: every team for a gateway admin, the teams of their departments for a department
@@ -115,7 +115,7 @@ public sealed partial class AdminContext
 
     /// <summary>Keys of <see cref="KeyTeams"/>: the keys the user may create, change, rotate and revoke.</summary>
     public IQueryable<VirtualKey> ManagedKeys() =>
-        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Where(k => KeyTeams().Any(t => t.Id == k.TeamId));
+        Db.VirtualKeys.Include(k => k.Team!).ThenInclude(t => t.Department).Include(k => k.Integration).Where(k => KeyTeams().Any(t => t.Id == k.TeamId));
 
     /// <summary>Teams the user may list: those of <see cref="Teams"/> (by department, for the roles that read) and of <see cref="KeyTeams"/>.</summary>
     public IQueryable<Team> VisibleTeams()

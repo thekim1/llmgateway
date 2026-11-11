@@ -85,6 +85,9 @@ public static class KeyRotation
             MaxConcurrentRequests = oldKey.MaxConcurrentRequests,
             RequestPolicy = oldKey.RequestPolicy,
             ContentGuardPolicy = oldKey.ContentGuardPolicy,
+            IntegrationId = oldKey.IntegrationId,
+            IntegrationRole = oldKey.IntegrationRole,
+            IntegrationScopes = [.. oldKey.IntegrationScopes],
         };
 
         oldKey.RotatedToKeyId = replacement.Id;

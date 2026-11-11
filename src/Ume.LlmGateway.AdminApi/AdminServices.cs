@@ -3,6 +3,7 @@ using Ume.LlmGateway.AdminApi.Catalog;
 using Ume.LlmGateway.AdminApi.Catalog.Pricing;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.AdminApi.DataAccess;
+using Ume.LlmGateway.AdminApi.Integrations;
 using Ume.LlmGateway.AdminApi.Keys;
 using Ume.LlmGateway.AdminApi.Operations;
 using Ume.LlmGateway.AdminApi.Organisation;
@@ -35,6 +36,7 @@ public static class AdminServices
 
         services.AddScoped<OrganisationService>();
         services.AddScoped<KeyService>();
+        services.AddScoped<IntegrationService>();
         services.AddScoped<DataAccessService>();
         services.AddScoped<BudgetAdminService>();
         services.AddScoped<RoutingRuleService>();

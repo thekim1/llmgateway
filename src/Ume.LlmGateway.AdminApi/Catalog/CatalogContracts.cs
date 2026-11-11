@@ -96,10 +96,18 @@ public sealed record ModelRequest(
     // empty removes it (the derived one is used).
     [property: StringLength(500)] string? RequestBaseUrl = null,
     // How a Foundry rerank deployment sends the provider's credential. Null or omitted = as the provider does (a PUT replaces it).
-    [property: EnumDataType(typeof(ProviderAuthMode))] ProviderAuthMode? RequestAuthMode = null) : AdminRequest, IValidatableObject
+    [property: EnumDataType(typeof(ProviderAuthMode))] ProviderAuthMode? RequestAuthMode = null,
+    // The most output tokens one answer can have, handed out on /v1/models. Null or omitted = not known (like ContextWindow,
+    // a PUT replaces it); at most the context window.
+    [property: Range(1, int.MaxValue)] int? MaxOutputTokens = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        if (MaxOutputTokens is { } output && ContextWindow is { } window && output > window)
+        {
+            yield return new ValidationResult("The output limit cannot be larger than the context window.", [nameof(MaxOutputTokens)]);
+        }
+
         if (string.IsNullOrWhiteSpace(RequestBaseUrl))
         {
             yield break;
@@ -169,7 +177,7 @@ public sealed record ModelDto(
     ParameterProfile ParameterProfile, int? ContextWindow, bool IsEnabled, string[] Features, PriceDto? CurrentPrice, string PublicName,
     string? Description, bool AutoUpdatePrice, PriceMode PriceMode, string? PriceListKey, string? BaseModel,
     DataResidency? ResidencyOverride = null, string? Publisher = null, string? RequestBaseUrl = null, ProviderAuthMode? RequestAuthMode = null,
-    string? RerankBaseUrl = null)
+    string? RerankBaseUrl = null, int? MaxOutputTokens = null)
 {
     /// <summary>
     /// The model; <c>publicName</c> is what clients call it: its name, or provider/name when another provider has the same name.
@@ -188,7 +196,7 @@ public sealed record ModelDto(
         m.ParameterProfile, m.ContextWindow, m.IsEnabled, m.Features, m.PriceAt(now) is { } p ? PriceDto.Of(p) : null, publicName,
         m.Description, m.AutoUpdatePrice, list.Mode(m, updatesOn),
         list.Find(m)?.Key, m.BaseModel, m.Residency, m.Publisher, m.RequestBaseUrl, m.RequestAuthMode,
-        m.ProviderAccount is { } owner && FoundryEndpoint.IsRerank(owner, m) ? FoundryEndpoint.RerankBaseUrl(owner, m) : null);
+        m.ProviderAccount is { } owner && FoundryEndpoint.IsRerank(owner, m) ? FoundryEndpoint.RerankBaseUrl(owner, m) : null, m.MaxOutputTokens);
 }
 
 public sealed record RouteDto(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, RouteTargetDto[] Targets)

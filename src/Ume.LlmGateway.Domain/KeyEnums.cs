@@ -17,3 +17,19 @@ public enum KeyStatus
     Revoked = 3,
     Disabled = 4,
 }
+
+/// <summary>A key's part in an <see cref="Entities.Integration"/> (docs/integrations.md).</summary>
+public enum IntegrationRole
+{
+    /// <summary>An ordinary key, not part of an integration.</summary>
+    None = 0,
+
+    /// <summary>What a platform service authenticates with; a gateway admin creates it in the integration's owner team.</summary>
+    Credential = 1,
+
+    /// <summary>
+    /// A key made by its team's managers for one of the platform's objects (a chatbot, a knowledge base). It cannot
+    /// authenticate by itself: the platform uses it by reference, through a credential key of the same integration.
+    /// </summary>
+    Assigned = 2,
+}

@@ -27,13 +27,19 @@ public sealed record KeyAudit(
     DateTimeOffset? GraceUntil, Guid? RotatedToKeyId, IReadOnlyList<string> AllowedModels, IReadOnlyList<DataResidency> AllowedResidencies,
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
     IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage, int? MaxConcurrentRequests = null,
-    RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off, bool RequireMaxResidency = false)
+    RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off, bool RequireMaxResidency = false,
+    Guid? IntegrationId = null, IntegrationRole IntegrationRole = IntegrationRole.None, IReadOnlyList<string>? IntegrationScopes = null)
 {
     public static KeyAudit Of(VirtualKey k) => new(
         k.Id, k.TeamId, k.Name, k.Description, k.Prefix, k.IsEnabled, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.RotatedToKeyId,
         [.. k.AllowedModels], [.. k.AllowedResidencies], [.. k.AllowedProviders], k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
         [.. k.AllowedIpRanges], k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests, k.RequestPolicy, k.ContentGuardPolicy,
-        k.RequireMaxResidency);
+        k.RequireMaxResidency, k.IntegrationId, k.IntegrationRole, [.. k.IntegrationScopes]);
+}
+
+public sealed record IntegrationAudit(Guid Id, string Name, string? Description, Guid OwnerTeamId, bool IsActive)
+{
+    public static IntegrationAudit Of(Integration i) => new(i.Id, i.Name, i.Description, i.OwnerTeamId, i.IsActive);
 }
 
 public sealed record RetentionSettingsAudit(int UsageRetentionDays, int? AuditRetentionDays)
@@ -83,11 +89,12 @@ public sealed record CircuitAudit(CircuitState State);
 public sealed record ModelAudit(
     Guid Id, Guid ProviderId, string Name, string UpstreamModel, ModelKind Kind, ParameterProfile ParameterProfile, int? ContextWindow,
     bool IsEnabled, IReadOnlyList<string> Features, bool AutoUpdatePrice, string? Description, string? BaseModel,
-    DataResidency? Residency = null, string? Publisher = null, string? RequestBaseUrl = null, ProviderAuthMode? RequestAuthMode = null)
+    DataResidency? Residency = null, string? Publisher = null, string? RequestBaseUrl = null, ProviderAuthMode? RequestAuthMode = null,
+    int? MaxOutputTokens = null)
 {
     public static ModelAudit Of(ModelDeployment m) => new(
         m.Id, m.ProviderAccountId, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, [.. m.Features],
-        m.AutoUpdatePrice, m.Description, m.BaseModel, m.Residency, m.Publisher, m.RequestBaseUrl, m.RequestAuthMode);
+        m.AutoUpdatePrice, m.Description, m.BaseModel, m.Residency, m.Publisher, m.RequestBaseUrl, m.RequestAuthMode, m.MaxOutputTokens);
 }
 
 public sealed record RouteAudit(Guid Id, string Name, string? Description, ModelKind Kind, bool IsEnabled, IReadOnlyList<RouteTargetAudit> Targets)

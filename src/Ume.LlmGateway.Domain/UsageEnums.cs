@@ -29,4 +29,10 @@ public enum AuthFailureReason
 
     /// <summary>The key is valid but restricted to other client addresses (<see cref="Entities.VirtualKey.AllowedIpRanges"/>).</summary>
     AddressNotAllowed = 6,
+
+    /// <summary>A key assigned to an integration was presented directly; it is only used through the integration's credential keys.</summary>
+    IntegrationOnly = 7,
+
+    /// <summary>The key belongs to an integration that is deactivated.</summary>
+    IntegrationInactive = 8,
 }

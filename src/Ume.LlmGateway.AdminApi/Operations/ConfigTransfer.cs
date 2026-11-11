@@ -71,7 +71,7 @@ public sealed class ConfigTransferService(AdminContext ctx, ProviderCatalogServi
             [.. providers.SelectMany(p => p.Deployments.Select(m => new ConfigModel(p.Name,
                 new ModelRequest(Guid.Empty, m.Name, m.UpstreamModel, m.Kind, m.ParameterProfile, m.ContextWindow, m.IsEnabled, Features: m.Features,
                     AutoUpdatePrice: m.AutoUpdatePrice, Description: m.Description, BaseModel: m.BaseModel, Residency: m.Residency,
-                    Publisher: m.Publisher, RequestBaseUrl: m.RequestBaseUrl, RequestAuthMode: m.RequestAuthMode),
+                    Publisher: m.Publisher, RequestBaseUrl: m.RequestBaseUrl, RequestAuthMode: m.RequestAuthMode, MaxOutputTokens: m.MaxOutputTokens),
                 [.. m.Prices.Select(price => new PriceRequest(price.InputPerMillionUsd, price.CachedInputPerMillionUsd, price.OutputPerMillionUsd, price.EffectiveFrom, price.AudioPerMinuteUsd, price.AudioInputPerMillionUsd, price.AudioOutputPerMillionUsd, price.PerImageUsd, price.CacheWriteInputPerMillionUsd))])))],
             [.. routes.Select(r => new ConfigRoute(r.Name, r.Kind, [.. r.Targets.Select(t => new ConfigTarget(names[t.ModelDeploymentId], t.Priority, t.Weight))], r.Description, r.IsEnabled))],
             RoutingRules: [.. globalRules.Select(r => new ConfigRoutingRule(r.Name, [.. r.Targets.Select(t => new RuleTargetRequest(t.Model, t.Weight))], r.Description, r.IsEnabled, r.Priority, r.Condition, r.Chain, [.. r.Fallbacks]))]);
