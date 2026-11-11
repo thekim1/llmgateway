@@ -20,6 +20,7 @@ See [runbook](runbook.md) for the actual deployment procedure.
   `Integrations`; use the release bundle's files.
 - `GET /v1/models` now reports a model's own residency (`ume.residency`) when it has one, as routing has done since
   0.9.1; a client that read the provider's residency there sees the model's.
+- **Security update:** the images are built on .NET 10.0.15 (`aspnet:10.0.15-noble-chiseled-extra`); use the new images.
 - **Optional:** set `Gateway__AdminUrl` to the admin console's public address to hand it to integrations on
   `/v1/ume/context`.
 - **Connecting a platform** ([integrations](integrations.md)): create the integration under *Access › Integrations*,

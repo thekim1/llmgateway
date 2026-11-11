@@ -24,8 +24,10 @@ Both answer with an `ETag` and `304` while nothing changed. New `Gateway:AdminUr
 `admin_url`. Models get an **output limit** (`maxOutputTokens`), set in the model drawer, exported with the
 configuration and filled from models.dev when empty.
 
-**Security updates.** Aspire 13.6.5 (CVE-2026-120006, elevation of privilege in Aspire.Hosting; the AppHost only) and
-Microsoft.AspNetCore.WebUtilities 2.3.14 in the gateway tests (CVE-2026-118750, via WireMock.Net).
+**Security updates.** .NET 10.0.15: the service images are built on `aspnet:10.0.15-noble-chiseled-extra`
+(CVE-2026-114146, CVE-2026-114147, CVE-2026-114149 in the ASP.NET Core runtime) and the ASP.NET Core, EF Core and
+Extensions packages are 10.0.15. Aspire 13.6.5 (CVE-2026-120006, elevation of privilege in Aspire.Hosting; the AppHost
+only) and Microsoft.AspNetCore.WebUtilities 2.3.14 in the gateway tests (CVE-2026-118750, via WireMock.Net).
 
 **Performance.** The request path is unchanged in Postgres statements, Redis commands and allocations (benchmark
 `check`); a credential key's cold load adds one query for its assigned keys.
