@@ -81,7 +81,12 @@ public sealed class IntegrationService(AdminContext ctx)
             throw new ApiFaultException(409, "The integration has keys that are not revoked and cannot be deleted. Deactivate it instead, or revoke its keys first.");
         }
 
-        await ctx.Db.VirtualKeys.Where(k => k.IntegrationId == id).ExecuteUpdateAsync(s => s.SetProperty(k => k.IntegrationId, (Guid?)null), ct);
+        // Tracked, so the keys lose the link in the same transaction that deletes the integration.
+        foreach (var key in await ctx.Db.VirtualKeys.Where(k => k.IntegrationId == id).ToListAsync(ct))
+        {
+            key.IntegrationId = null;
+        }
+
         ctx.Db.Integrations.Remove(integration);
         await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Integration, id, IntegrationAudit.Of(integration), null, InvalidationKind.Keys, ct);
     }
