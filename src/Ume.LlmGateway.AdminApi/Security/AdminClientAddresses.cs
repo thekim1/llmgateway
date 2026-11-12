@@ -37,6 +37,17 @@ public sealed partial class AdminClientAddresses(IServiceScopeFactory scopes, Ti
         http.Items[ItemKey] = ClientAddresses.Format(client, mode);
     }
 
+    /// <summary>
+    /// The client's address: <c>X-Forwarded-For</c> believed only from trusted proxies, as in the gateway. For a key's
+    /// address allow-list (the Integration API), whatever <see cref="AdminOptions.AuditSourceAddress"/> keeps.
+    /// </summary>
+    public async Task<System.Net.IPAddress?> ClientAddressAsync(HttpContext http)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        return ClientAddresses.Resolve(http.Connection.RemoteIpAddress, http.Request.Headers[ClientAddresses.ForwardedForHeader],
+            (await TrustedAsync(http.RequestAborted)).AsSpan());
+    }
+
     /// <summary>Forgets the cached list, after this instance saved new trusted proxies.</summary>
     public void Invalidate() => _readAt = DateTimeOffset.MinValue;
 

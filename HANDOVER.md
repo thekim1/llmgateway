@@ -11,7 +11,7 @@ Everything in the original scope and the routing rules feature is implemented, t
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
-| Integrations (platforms such as Ume.Rag; ADR 020, 021) | Phases 1 and 2 done (integrations, credential and assigned keys, `/v1/ume/context`, model facts, acting as an assigned key, run metadata, stream cost); phase 3 open, see [docs/integrations.md](docs/integrations.md#phases) |
+| Integrations (platforms such as Ume.Rag; ADR 020, 021) | Done: phases 1 to 3 (integrations, credential and assigned keys, `/v1/ume/context`, model facts, acting as an assigned key, run metadata, stream cost, the Integration API). Webhooks not planned, see [docs/integrations.md](docs/integrations.md#phases) |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
@@ -36,9 +36,8 @@ The project is not a production approval, legal attestation or WCAG certificatio
    *Measuring* there) and update the baseline, the website (`site/content.mjs`), the platform comparison slides and the
    other docs from it, so numbers never come from mixed runs. Do not keep older figures anywhere.
 
-7. **Integrations phase 3** ([docs/integrations.md](docs/integrations.md#integration-api-control-plane)): the Integration
-   API on the admin API (`/integration/v1/usage`, `/budgets`), authenticated with a credential key holding `usage.read`
-   (`VirtualKey.IntegrationScopes`). Decisions for Ume.Rag are posted on thekim1/ume-rag-platform#580.
+7. **Integrations:** possible next steps are in *Other platforms later* in [docs/integrations.md](docs/integrations.md)
+   (webhooks, a platform-wide cap on acted requests). Decisions for Ume.Rag are posted on thekim1/ume-rag-platform#580.
 
 ## Conventions and gotchas
 

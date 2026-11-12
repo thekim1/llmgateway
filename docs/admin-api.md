@@ -150,6 +150,18 @@ Other systems that use gateway keys for the teams they serve, such as a RAG plat
 - Names are unique (400 on `name`). Every change is audited (entity type `Integration`) and drops the gateway's key cache.
   A team that owns an integration cannot be deleted (409).
 
+## Integration API (for integrations)
+Not under `/api` and not for the admin UI: `/integration/v1`, for an integration's own services, authenticated with one
+of its credential keys (`Authorization: Bearer ume-sk-…`) that holds the scope; see
+[integrations](integrations.md#integration-api-control-plane) for every field.
+
+- `GET /integration/v1/usage?from=&to=&granularity=day|month&groupBy=key,model,step&keyId=&runId=` (scope `usage.read`) →
+  `{ from, to, granularity, groupBy, items: { period, keyId, keyName, model, step, requests, successfulRequests, inputTokens, cachedInputTokens, outputTokens, costUsd }[] }`
+- `GET /integration/v1/budgets?keyId=` (scope `usage.read`) →
+  `{ keyId, items: { id, scope, scopeId, unit, limit, residency, period, periodStart, periodEnd, spent, percentUsed, exhausted }[] }`
+- 401 without a usable credential key of an active integration, 403 without the scope, 404 for a key of another
+  integration, 429 above `Admin:IntegrationRequestsPerMinute` per key.
+
 ## Data API access (gateway-admin)
 Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys)), for integrations that cannot use OAuth client credentials.
 `DataApiKey = { id, name, description, prefix, permissions: DataPermission[], status: "Active"|"Expired"|"Revoked", createdAt, createdBy, expiresAt, revokedAt, lastUsedAt }`

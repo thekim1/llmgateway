@@ -166,7 +166,11 @@ public static class AdminAuthentication
             o.AddPolicy(AdminPolicies.Read, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer));
             o.AddPolicy(AdminPolicies.ManageKeys, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.TeamAdmin));
             o.AddPolicy(AdminPolicies.ListTeams, p => p.RequireRole(AdminRoles.GatewayAdmin, AdminRoles.DepartmentAdmin, AdminRoles.Viewer, AdminRoles.TeamAdmin));
+            // The Integration API (/integration/v1): an integration's credential key with the scope, never a session.
+            Integrations.IntegrationKeyHandler.AddPolicies(o);
         });
+        builder.Services.AddAuthentication()
+            .AddScheme<AuthenticationSchemeOptions, Integrations.IntegrationKeyHandler>(Integrations.IntegrationKeyHandler.SchemeName, _ => { });
         // Sessions live on the server: the cookie only names one, and signing out deletes it (a copied cookie stops working).
         builder.Services.AddSingleton<ITicketStore, AdminTicketStore>();
         builder.Services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)

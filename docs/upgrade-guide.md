@@ -11,7 +11,11 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: integrations (phases 1 and 2)
+## Unreleased: integrations (phases 1 to 3)
+
+- **Phase 3, rolling update: yes**, no migration. New setting `Admin__IntegrationRequestsPerMinute` (default 60). If
+  the admin API is behind the reverse proxy, `/integration/v1` must reach it as `/api` does; the nginx example and the
+  Ingress example route every path of the admin host, so nothing changes there.
 
 - **Phase 2, rolling update: yes.** Migration `UsageRunMetadata` adds three nullable columns to `UsageRecords`
   (`ViaKeyId`, `RunId`, `Step`; no table rewrite); an older gateway writes its usage without them. `app-roles.sql` grants

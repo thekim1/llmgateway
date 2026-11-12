@@ -73,7 +73,7 @@ renamed or removed, within a major version.
 | 2003 | `admin.signout` | Admin API | A user signed out | `Actor`, `SourceAddress`, `SessionId` |
 | 2004 | `admin.session.extended` | Admin API | A user chose *Stay signed in* | `Actor`, `SessionId`, `ExpiresAt`, `SourceAddress` |
 | 2005 | `admin.access.denied` | Admin API | A signed-in user was refused (403); at most once a minute per user, `Count` refusals since the last event | `Actor`, `Method`, `Path`, `Count`, `SourceAddress`, `Roles` |
-| 2006 | `admin.data.read` | Admin API | A user read the audit log, request list, PII incidents or Data API keys | `Actor`, `Path`, `Query`, `SourceAddress` |
+| 2006 | `admin.data.read` | Admin API | A user read the audit log, request list, PII incidents or Data API keys, or an integration read the Integration API (`Actor` `integration:<name>`, [integrations](integrations.md)) | `Actor`, `Path`, `Query`, `SourceAddress` |
 | 3001 | `data.read` | Data API | Every authenticated read | `Client`, `Path`, `Status`, `Cursor` |
 | 3002 | `data.auth.failed` | Data API | A revoked or expired Data API key was used (at most once a minute per key) | `Reason`, `KeyId`, `KeyPrefix` |
 

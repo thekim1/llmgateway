@@ -12,6 +12,10 @@ public sealed class AdminOptions
     [Range(1, 10_000)]
     public int RequestsPerMinute { get; set; } = 120;
 
+    /// <summary>Integration API requests per minute per credential key (docs/integrations.md).</summary>
+    [Range(1, 10_000)]
+    public int IntegrationRequestsPerMinute { get; set; } = 60;
+
     /// <summary>
     /// Hours a session may last from sign-in, however often it is extended. After that the user signs in at the identity
     /// provider again (which also picks up role changes made there).
