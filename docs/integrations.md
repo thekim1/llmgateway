@@ -4,10 +4,10 @@ How another system (a RAG platform, an agent platform, a chat front end) connect
 runs each of its chatbots on a gateway key of the department that owns it, and fills its own settings pages with
 the gateway's values, without the Data API.
 
-> **Status.** Design accepted 2026-11-11. **Phases 1 and 2 are implemented**: integrations, credential and assigned
+> **Status.** Design accepted 2026-11-11. **Phases 1 to 3 are implemented**: integrations, credential and assigned
 > keys, `/v1/ume/context`, the model facts on `/v1/models`, the model output limit (phase 1); acting as an assigned key,
-> run metadata, the cost of streamed answers and the Data API fields (phase 2). Phase 3, the Integration API, is the
-> plan. Decided by the gateway owner: a chatbot
+> run metadata, the cost of streamed answers and the Data API fields (phase 2); the Integration API with usage and
+> budget status (phase 3). Webhooks (phase 4) are not planned yet. Decided by the gateway owner: a chatbot
 > (assistant) is configured with a gateway key of its own, set up in the gateway; gateway keys are reused on the
 > Integration API; settings are entered once; streamed cost is wanted. It replaces the delegation design kept in the
 > RAG platform's repository (`plans/gateway-changes/design.md` §5, draft ADR 020). The gateway still never depends
@@ -216,16 +216,20 @@ chatbot's model picker and the check on save.
 
 `/integration/v1` on the Admin API, for what queries the database, which the data plane must not do (ADR 001).
 
-- **Authentication:** a credential key (`Authorization: Bearer ume-sk-…`) carrying the scope. The Admin API already
-  holds the hasher and pepper. Status, expiry, grace period and address list apply as on the gateway; lookups are
-  cached 30 s and dropped on a `Keys` invalidation. No cookie, no CSRF, its own rate limit.
+- **Authentication:** a credential key (`Authorization: Bearer ume-sk-…`) of an active integration, carrying the scope
+  (401 for any other key or none, 403 without the scope). The Admin API already holds the hasher and pepper. Status,
+  expiry, grace period, owner team and department and the key's address list apply as on the gateway (the client
+  address behind trusted proxies, as in the admin API's audit); lookups are cached 30 s per admin API instance and
+  dropped on a `Keys` invalidation. No cookie and no CSRF (the endpoints only read); a signed-in session does not reach
+  them. Its own rate limit per key, `Admin:IntegrationRequestsPerMinute` (60). Every read is logged as security event
+  2006 `admin.data.read` with the actor `integration:<name>`.
 - **Scopes are per key**, set by gateway admins, empty by default: a platform gives `usage.read` to its admin
   service only, so a key that serves public chat can read nothing.
 
 | Scope | Endpoint | |
 |---|---|---|
-| `usage.read` | `GET /integration/v1/usage?from=&to=&groupBy=day,key,model,step&keyId=&runId=` | Requests, tokens and cost in USD of **this integration's assigned and credential keys only**, from usage records and monthly totals |
-| `usage.read` | `GET /integration/v1/budgets?keyId=` | Limit, spent and period of the budgets that apply to a key (its own, its team's, its department's) |
+| `usage.read` | `GET /integration/v1/usage?from=&to=&granularity=day\|month&groupBy=key,model,step&keyId=&runId=` | Requests, successful requests, tokens and cost in USD of **this integration's keys only** (credential and assigned, revoked ones included) per Europe/Stockholm day or month; `from` and `to` inclusive dates, at most 366 days; `groupBy` any of `key` (default), `model`, `step`, comma-separated, empty for one row per period. As in the Data API, a month granularity adds the monthly totals for months before the oldest kept record (they have no step); days and `runId` cover kept records only. Another integration's `keyId` is 404 |
+| `usage.read` | `GET /integration/v1/budgets?keyId=` | The active budgets that apply to one of its keys, as the gateway applies them (the key's own and its rotation predecessors', its team's, its department's): scope, unit, limit, residency, period and its current window, `spent` in the budget's unit, `percentUsed`, `exhausted` |
 
 Not offered: creating or changing keys, setting budgets, other keys' usage. Keys and budgets are made in the gateway
 by the people responsible for the money.
@@ -302,7 +306,7 @@ Each is additive and safe for a rolling update ([zero-downtime-updates.md](zero-
 |---|---|---|
 | 1 Consolidate and share (built) | `Integrations`, key roles and scopes, admin UI, `MaxOutputTokens`, `/v1/models` facts, `/v1/ume/context`, ETag | a platform runs with gateway keys only, fills its pickers from the gateway, and the Data API can be switched off |
 | 2 Keys per chatbot (built) | `x-ume-on-behalf-of`, echo, event 1006, run metadata, stream cost | two departments' chatbots show as their own keys in the usage report, and a key budget stops one of them with 402 |
-| 3 Read back | Integration API (`usage.read`) | the platform shows the gateway's cost and budget status per chatbot |
+| 3 Read back (built) | Integration API (`usage.read`) | the platform shows the gateway's cost and budget status per chatbot |
 | 4 Later | webhooks | – |
 
 ## Decisions

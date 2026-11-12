@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Integrations, phase 3: the Integration API.** `/integration/v1` on the admin API, for a platform's own services: a
+credential key holding the scope `usage.read` reads `GET /integration/v1/usage` (requests, tokens and cost of the
+integration's keys per Stockholm day or month, by key, model and step, with the monthly totals before the retention
+boundary, and per run with `runId`) and `GET /integration/v1/budgets?keyId=` (the budgets the gateway applies to one of
+its keys, with what each used this period). Any other key gets 401, a key without the scope 403, another integration's
+key 404; a signed-in session cannot use it. Its own rate limit per key, `Admin:IntegrationRequestsPerMinute` (default
+60); every read is security event 2006 with the actor `integration:<name>`. No migration.
+
 **Integrations, phase 2: a key per chatbot in use.** An integration's credential key sends `x-ume-on-behalf-of:
 <assigned key id>` and the request is made as that key: its models, residencies, PII and content guard policy, limits,
 request policy, routing rules, budgets and usage record, so each chatbot is charged to and stopped by its own

@@ -22,4 +22,7 @@ public static class AdminPolicies
 
     /// <summary>The per-user fixed-window rate limit on <c>/api</c> (<see cref="AdminOptions.RequestsPerMinute"/>).</summary>
     public const string PerUserRateLimit = "per-user";
+
+    /// <summary>The per-key fixed-window rate limit on <c>/integration/v1</c> (<see cref="AdminOptions.IntegrationRequestsPerMinute"/>).</summary>
+    public const string PerIntegrationKeyRateLimit = "per-integration-key";
 }

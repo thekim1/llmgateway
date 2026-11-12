@@ -13,5 +13,8 @@ public static class AdminRateLimiting
         .AddPerMinutePolicy(AdminPolicies.PerUserRateLimit,
             http => http.User.FindFirst(AdminClaims.Subject)?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             http => http.RequestServices.GetRequiredService<IOptions<AdminOptions>>().Value.RequestsPerMinute)
+        .AddPerMinutePolicy(AdminPolicies.PerIntegrationKeyRateLimit,
+            http => http.User.FindFirst(Integrations.IntegrationKeyHandler.KeyClaim)?.Value ?? http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            http => http.RequestServices.GetRequiredService<IOptions<AdminOptions>>().Value.IntegrationRequestsPerMinute)
         .RejectWithProblem("Too many requests. Wait a minute."));
 }

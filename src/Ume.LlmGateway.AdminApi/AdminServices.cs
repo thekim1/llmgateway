@@ -37,6 +37,8 @@ public static class AdminServices
         services.AddScoped<OrganisationService>();
         services.AddScoped<KeyService>();
         services.AddScoped<IntegrationService>();
+        services.AddScoped<IntegrationApiService>();
+        services.AddSingleton<IntegrationKeyStore>();
         services.AddScoped<DataAccessService>();
         services.AddScoped<BudgetAdminService>();
         services.AddScoped<RoutingRuleService>();
