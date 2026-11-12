@@ -10,7 +10,7 @@ public sealed record UsageRequestDto(
     string RequestedModel, string? ProviderName, string? UpstreamModel, long InputTokens, long CachedInputTokens, long OutputTokens,
     int LatencyMs, int StatusCode, RequestOutcome Outcome, int FallbackCount, bool Streamed, PiiPolicy? PiiActionApplied,
     string? PiiCategories, string? ErrorCode, Guid? RoutingRuleId, string? RoutingRuleName, decimal CostUsd, int? UpstreamMs, int? TimeToFirstTokenMs,
-    string? GuardFlags = null, int? ProviderFirstTokenMs = null);
+    string? GuardFlags = null, int? ProviderFirstTokenMs = null, Guid? ViaKeyId = null, string? RunId = null, string? Step = null);
 
 public sealed record UsageSummaryRow(string Key, string Label, long Requests, long InputTokens, long OutputTokens, decimal CostUsd, long Errors, long Fallbacks);
 

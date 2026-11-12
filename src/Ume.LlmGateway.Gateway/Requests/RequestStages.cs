@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Routing;
@@ -15,6 +16,12 @@ using Ume.LlmGateway.Infrastructure.Security;
 using Ume.LlmGateway.Infrastructure.Stores;
 
 namespace Ume.LlmGateway.Gateway.Requests;
+
+/// <summary>
+/// The key a request is made as, and the integration's credential key that made it as that key (<c>x-ume-on-behalf-of</c>,
+/// docs/integrations.md); <see cref="Via"/> is null when the key was presented itself.
+/// </summary>
+internal readonly record struct AuthenticatedKey(VirtualKey Key, VirtualKey? Via);
 
 /// <summary>The models chosen for a request, as an ordered attempt list, and the name failures are reported under.</summary>
 internal readonly record struct SelectedRoute(IReadOnlyList<RouteTarget> Candidates, string ModelName);
@@ -38,12 +45,19 @@ public sealed partial class RequestStages(
     GatewayMetrics metrics,
     RequestAccounting accounting,
     IOptionsMonitor<GatewayOptions> options,
+    ILoggerFactory loggers,
     ILogger<GatewayRequestHandler> logger)
 {
+    private readonly ILogger _security = SecurityEvents.CreateLogger(loggers);
+
     // Logs under the GatewayRequestHandler category, as before the handler was split: operators set that category's level
     // (Logging__LogLevel__Ume.LlmGateway.Gateway.Requests.GatewayRequestHandler, docs/runbook.md) to see every request.
 
-    internal async Task<VirtualKey?> AuthenticateAsync(HttpContext http, GatewayEndpoint endpoint, DateTimeOffset now, CancellationToken ct)
+    /// <summary>
+    /// The presented key, checked; with <see cref="GatewayHeaders.OnBehalfOf"/> from a credential key, the assigned key it
+    /// names, checked the same way. Null when refused (the answer has been written).
+    /// </summary>
+    internal async Task<AuthenticatedKey?> AuthenticateAsync(HttpContext http, GatewayEndpoint endpoint, DateTimeOffset now, CancellationToken ct)
     {
         var docs = options.CurrentValue.ErrorDocsUrl;
         var presented = KeyAuthenticator.ExtractKey(http.Request);
@@ -101,7 +115,85 @@ public sealed partial class RequestStages(
             return null;
         }
 
-        return key;
+        var onBehalfOf = http.Request.Headers[GatewayHeaders.OnBehalfOf];
+        if (onBehalfOf.Count == 0)
+        {
+            return new AuthenticatedKey(key, null);
+        }
+
+        var acting = ActAs(http, endpoint, key, onBehalfOf, now);
+        if (acting.Error is { } refusal)
+        {
+            await GatewayErrors.WriteAsync(http, endpoint, refusal, docs);
+            return null;
+        }
+
+        // Echoed, so the caller can check that the gateway applied it (an older instance ignores the header).
+        http.Response.Headers[GatewayHeaders.OnBehalfOf] = acting.Key!.Id.ToString();
+        return new AuthenticatedKey(acting.Key, key);
+    }
+
+    /// <summary>
+    /// The assigned key named in <c>x-ume-on-behalf-of</c> (docs/integrations.md): only a credential key may send it, and
+    /// only for a key of its own integration, which it already carries from the key cache, so this is a lookup. The named
+    /// key's status and owner are checked as if it had been presented; the client address and the credential key's own
+    /// status were checked already. Refusals are security event 1006, not authentication failures: the caller did
+    /// authenticate.
+    /// </summary>
+    private (VirtualKey? Key, GatewayError? Error) ActAs(HttpContext http, GatewayEndpoint endpoint, VirtualKey caller, StringValues value, DateTimeOffset now)
+    {
+        if (value.Count != 1 || !Guid.TryParseExact(value[0].AsSpan().Trim(), "D", out var id))
+        {
+            return (null, GatewayError.InvalidOnBehalfOf);
+        }
+
+        var assigned = caller.IntegrationRole == IntegrationRole.Credential ? caller.AssignedKey(id) : null;
+        var (error, reason) = assigned is null
+            ? caller.IntegrationRole != IntegrationRole.Credential
+                ? (GatewayError.NotCredentialKey, "not_credential")
+                : (GatewayError.KeyNotAssigned, "key_not_assigned")
+            : assigned.GetStatus(now) switch
+            {
+                KeyStatus.Revoked => (GatewayError.KeyRevoked, "key_revoked"),
+                KeyStatus.Expired => (GatewayError.KeyExpired, "key_expired"),
+                KeyStatus.Disabled => (GatewayError.KeyDisabled, "key_disabled"),
+                _ when assigned.Team is not { IsActive: true } || assigned.Team.Department is not { IsActive: true }
+                    => (GatewayError.KeyOwnerInactive, "owner_inactive"),
+                _ => ((GatewayError?)null, (string?)null),
+            };
+        if (error is null)
+        {
+            return (assigned, null);
+        }
+
+        if (_security.IsEnabled(LogLevel.Warning))
+        {
+            SecurityEvents.DelegationRefused(_security, reason!, RequestIdMiddleware.Get(http), SecurityEvents.Printable(Shorten(value.ToString())),
+                endpoint.ToString(), caller.Id, caller.Prefix, caller.TeamId, caller.Team?.DepartmentId ?? Guid.Empty);
+        }
+
+        return (null, error);
+    }
+
+    private static string Shorten(string value) => value.Length > 100 ? value[..100] : value;
+
+    /// <summary>
+    /// The client's run id and step (<see cref="GatewayHeaders.RunId"/>, <see cref="GatewayHeaders.Step"/>), stored on the
+    /// usage record: opaque, trimmed, at most 100 characters kept, control characters replaced. Never refused, since
+    /// metadata must not fail a model call; absent headers cost a lookup each and allocate nothing.
+    /// </summary>
+    internal static (string? RunId, string? Step) ReadRunMetadata(HttpRequest request) =>
+        (Metadata(request.Headers[GatewayHeaders.RunId]), Metadata(request.Headers[GatewayHeaders.Step]));
+
+    private static string? Metadata(StringValues values)
+    {
+        if (values.Count == 0 || values[0] is not { } first)
+        {
+            return null;
+        }
+
+        var trimmed = first.Trim();
+        return trimmed.Length == 0 ? null : SecurityEvents.Printable(Shorten(trimmed));
     }
 
     /// <summary>
@@ -109,13 +201,14 @@ public sealed partial class RequestStages(
     /// the key does not require it, or when it is valid; otherwise the 400 to answer with. Two values (a repeated header or
     /// a list) are refused: a ceiling that is not understood must not be ignored. Allocates nothing.
     /// </summary>
-    internal static GatewayError? ReadMaxResidency(HttpRequest request, VirtualKey key, out DataResidency? ceiling)
+    internal static GatewayError? ReadMaxResidency(HttpRequest request, AuthenticatedKey key, out DataResidency? ceiling)
     {
         ceiling = null;
         var values = request.Headers[GatewayHeaders.MaxResidency];
         if (values.Count == 0)
         {
-            return key.RequireMaxResidency ? GatewayError.MaxResidencyMissing : null;
+            // Required when either key requires it: a platform's credential key keeps its rule for every key it acts as.
+            return key.Key.RequireMaxResidency || key.Via?.RequireMaxResidency == true ? GatewayError.MaxResidencyMissing : null;
         }
 
         if (values.Count > 1 || !ResidencyCeiling.TryParse(values[0], out var parsed))

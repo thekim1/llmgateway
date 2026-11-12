@@ -407,6 +407,8 @@ onMounted(() => {
       <DetailSection title="Routing">
         <DetailRow label="Requested model"><span class="font-mono">{{ selected.requestedModel }}</span></DetailRow>
         <DetailRow v-if="selected.routingRuleName" label="Routing rule">{{ selected.routingRuleName }}</DetailRow>
+        <DetailRow v-if="selected.viaKeyId" label="Made through"><span class="font-mono text-small">{{ selected.viaKeyId }}</span> (the integration’s credential key)</DetailRow>
+        <DetailRow v-if="selected.runId" label="Run"><span class="font-mono text-small">{{ selected.runId }}</span><span v-if="selected.step"> · {{ selected.step }}</span></DetailRow>
         <DetailRow label="Provider">{{ selected.providerName ?? '—' }}</DetailRow>
         <DetailRow label="Upstream model"><span class="font-mono">{{ selected.upstreamModel ?? '—' }}</span></DetailRow>
         <DetailRow label="Fallbacks">{{ formatNumber(selected.fallbackCount) }}</DetailRow>

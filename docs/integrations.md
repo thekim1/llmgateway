@@ -4,9 +4,10 @@ How another system (a RAG platform, an agent platform, a chat front end) connect
 runs each of its chatbots on a gateway key of the department that owns it, and fills its own settings pages with
 the gateway's values, without the Data API.
 
-> **Status.** Design accepted 2026-11-11. **Phase 1 is implemented** (integrations, credential and assigned keys,
-> `/v1/ume/context`, the model facts on `/v1/models`, the model output limit); phases 2 and 3 (acting as an assigned
-> key, run metadata, stream cost, the Integration API) are not, and the sections on them are the plan. Decided by the gateway owner: a chatbot
+> **Status.** Design accepted 2026-11-11. **Phases 1 and 2 are implemented**: integrations, credential and assigned
+> keys, `/v1/ume/context`, the model facts on `/v1/models`, the model output limit (phase 1); acting as an assigned key,
+> run metadata, the cost of streamed answers and the Data API fields (phase 2). Phase 3, the Integration API, is the
+> plan. Decided by the gateway owner: a chatbot
 > (assistant) is configured with a gateway key of its own, set up in the gateway; gateway keys are reused on the
 > Integration API; settings are entered once; streamed cost is wanted. It replaces the delegation design kept in the
 > RAG platform's repository (`plans/gateway-changes/design.md` §5, draft ADR 020). The gateway still never depends
@@ -85,7 +86,7 @@ all its keys are revoked, and a team that owns one cannot be deleted. The admin 
 | Case | Answer |
 |---|---|
 | No header | the credential key itself, as any key |
-| Header malformed or repeated | `400 invalid_request` |
+| Header not one key id (GUID), or repeated | `400 invalid_request` |
 | Caller is not a credential key, or the id is not an assigned key of the same integration | `403 delegation_not_allowed` (unknown ids answer the same) |
 | Assigned key disabled, revoked, expired, or its team or department inactive | `403` with the key's ordinary reason (`key_disabled`, ...) |
 | Usable | the request continues **as the assigned key**; the answer echoes `x-ume-on-behalf-of` |
@@ -99,37 +100,48 @@ From there on the pipeline sees the assigned key and needs no other change:
 | Rate, token and concurrency limits | the assigned key (a limit per chatbot) |
 | Request policy, routing rules | the assigned key's, its team's and department's |
 | Budgets and token quotas | the assigned key, its team, its department |
-| Usage record, security events, `LastUsedAt` | the assigned key; the credential key's id is logged on security events |
+| Usage record, security events | the assigned key; the usage record's `ViaKeyId` is the credential key |
+| `LastUsedAt` | both keys |
+| `x-ume-max-residency` required | when either key has `RequireMaxResidency` |
 
 The credential key's own model and residency lists do not apply to a request made as another key: the grant is the
 assignment, made by the people who manage the assigned key. The ceiling header still narrows every request.
 
-**In the code.** After authentication, one stage swaps `state.Key` for the assigned key and keeps the caller in
-`state.CallerKey`. Assigned keys are loaded with their integration into the key cache (one query on a cold load,
-`Team` and `Department` included, allow-lists indexed) and held in a frozen dictionary by id; every key change
-already publishes `InvalidationKind.Keys`. Per request: one header lookup and one dictionary lookup.
+**In the code.** `RequestStages.AuthenticateAsync` returns an `AuthenticatedKey` (the key the request is made as,
+and `Via`, the credential key); the HTTP, live-session, model-list and context entry points all use it, so every
+endpoint honours the header. Assigned keys are loaded with their integration into the key cache (one query on a cold
+load, `Team` and `Department` included, allow-lists indexed) and held in a frozen dictionary by id
+(`VirtualKey.AssignedKey`); every key change already publishes `InvalidationKind.Keys`. Per request: one header
+lookup, and one dictionary lookup when the header is there.
 
-Refusals are accounted against the credential key and logged as security event 1006
-`gateway.delegation.refused` (`Reason`, `OnBehalfOf`, `KeyId`, `KeyPrefix`, `TeamId`, `DepartmentId`).
+Refusals are answered before the body is read, like authentication failures, and are not usage records (the
+request never ran as either key). They are logged as security event 1006 `gateway.delegation.refused` (`Reason`:
+`not_credential`, `key_not_assigned`, `key_revoked`, `key_expired`, `key_disabled`, `owner_inactive`; `RequestId`,
+`OnBehalfOf` as sent, at most 100 characters, `Endpoint`, and the credential key's `KeyId`, `KeyPrefix`, `TeamId`,
+`DepartmentId`). A malformed header is a client bug and logs nothing. `/v1/models` and `/v1/ume/context` with the
+header answer for the assigned key, which is the chatbot's model picker and the check on save.
 
 ### Run metadata
 
-`x-ume-run-id` and `x-ume-step` (any key; opaque ids, at most 100 characters kept, never refused) are stored on the
-usage record, so a platform can split a chatbot's cost by step (answer, condense, rerank, embedding) and join its
+`x-ume-run-id` and `x-ume-step` (any key; opaque ids, trimmed, at most 100 characters kept, control characters
+replaced, never refused) are stored on the usage record (`RunId`, `Step`), so a platform can split a chatbot's cost by step (answer, condense, rerank, embedding) and join its
 own records to the gateway's. Ids only: no names, content or user ids (ADR 003).
 
 ### Cost on streamed answers
 
-Today `x-ume-cost-usd` is a response header, so only complete answers carry it. With `x-ume-stream-cost: 1` the
-gateway writes one Server-Sent Events comment after the provider's last event:
+`x-ume-cost-usd` is a response header, so only complete answers carry it. With `x-ume-stream-cost: 1` the gateway
+writes one Server-Sent Events comment at the end of a streamed answer: before the closing `data: [DONE]` of an
+OpenAI-style stream (clients stop reading there), after the last event of a stream without one (Anthropic Messages,
+Responses):
 
 ```
 : ume-cost-usd=0.00012345
 ```
 
-SSE clients ignore comment lines, and it comes after the provider's own end of stream; it is still opt-in. The cost
-is the one the usage record gets (computed once). An aborted stream has no such line; the usage record is the
-record. Cost: one small write per stream.
+SSE clients ignore comment lines, so other clients are unaffected; it is still opt-in. The cost (six decimals, USD)
+is the one the usage record gets: it is calculated once, from the provider's token counts when the stream reports
+them (ask for them with `stream_options.include_usage`), else from the estimate, as for any streamed answer. An
+aborted or broken stream has no such line; the usage record is the record. Cost: one small write per stream.
 
 ## Settings: who owns what
 
@@ -223,9 +235,10 @@ by the people responsible for the money.
 - Nothing new is needed to follow cost: an assigned key is a key, so usage per key, team and department, budgets,
   alerts and the CSV export already show each chatbot. The key list gets an *integration* column and filter; the
   integration page lists its keys and their use per department.
-- Data API: `usage/records` gains `runId` and `step` (appended); `catalog/keys` gains `integrationId` and
-  `integrationRole`; `catalog/integrations` and a model's `maxOutputTokens` are added; `security/requests` includes
-  the new refusals.
+- Data API (phase 2, built): `usage/records` gains `viaKeyId`, `runId` and `step` (appended, also as the last CSV
+  columns); `catalog/keys` gains `integrationId` and `integrationRole`. The admin API's request list
+  (`/api/usage/requests`) has the same three fields. Not built: `catalog/integrations` and a model's
+  `maxOutputTokens` on the Data API (a platform reads them from `/v1/ume/context` and `/v1/models`).
 - `DataApi:MinimumGroupSize` counts distinct keys per department. Each chatbot is a key, so a department with five
   chatbots is no longer folded as it would be behind one shared platform key.
 
@@ -234,10 +247,10 @@ by the people responsible for the money.
 | Migration | Change |
 |---|---|
 | `Integrations` (phase 1, built) | table `Integrations`; `VirtualKeys`: `IntegrationId uuid NULL` (foreign key, indexed), `IntegrationRole varchar(20) NOT NULL DEFAULT 'None'`, `IntegrationScopes text[] NOT NULL DEFAULT '{}'`; `ModelDeployments.MaxOutputTokens integer NULL` |
-| `UsageRunMetadata` (phase 2) | `UsageRecords`: `RunId varchar(100) NULL`, `Step varchar(100) NULL` (nullable columns: no table rewrite; not kept in monthly totals) |
+| `UsageRunMetadata` (phase 2, built) | `UsageRecords`: `ViaKeyId uuid NULL`, `RunId varchar(100) NULL`, `Step varchar(100) NULL` (nullable columns: no table rewrite; not kept in monthly totals) |
 
-`app-roles.sql`: the gateway reads `Integrations`, the admin API changes it (phase 1). The Data API does not read it
-yet; `catalog/keys` gaining `integrationId` and `integrationRole`, and `ume_data`'s grants for them, come with phase 2.
+`app-roles.sql`: the gateway reads `Integrations`, the admin API changes it (phase 1); `ume_data` reads the key
+columns `IntegrationId` and `IntegrationRole` (phase 2). `UsageRecords` is granted whole to every role already.
 No new budget scope, no change to the retention function, no new Redis keys.
 
 ## Request path cost
@@ -246,14 +259,15 @@ No new budget scope, no change to the retention function, no new Redis keys.
 |---|---|
 | `x-ume-on-behalf-of` | one header lookup; one frozen-dictionary lookup when present |
 | Rate limit and budget | unchanged: the same counters as any key's request, in the same single round trip |
-| Usage record | two nullable columns more in the batched COPY, off the request path |
+| Usage record | three nullable columns more in the batched COPY, off the request path |
 | Stream cost | opt-in: one write after the last event |
 | Discovery | not on the request path; 304 on an unchanged catalogue |
 
 Phase 1 adds only two field checks to authentication and a join on a cold key load: the benchmarks' regression
 `check` (2026-11-11) shows the same Postgres statements (9 on a key and catalogue cache miss, 0 warm) and Redis
-commands (8) per request as the baseline, and no more allocations. Phase 2 is verified with the `*Pipeline*`
-benchmarks before and after (with and without the header) and an allocation test of the new stage.
+commands (8) per request as the baseline, and no more allocations. Phase 2 (the header lookups, the run metadata
+and the via key on the usage record) shows the same in its `check` run on 2026-11-12: 50.5 KB per warm chat, 0
+Postgres statements and 8 Redis commands, as before.
 
 ## What a platform changes (Ume.Rag as the example)
 
@@ -287,7 +301,7 @@ Each is additive and safe for a rolling update ([zero-downtime-updates.md](zero-
 | Phase | Content | Done when |
 |---|---|---|
 | 1 Consolidate and share (built) | `Integrations`, key roles and scopes, admin UI, `MaxOutputTokens`, `/v1/models` facts, `/v1/ume/context`, ETag | a platform runs with gateway keys only, fills its pickers from the gateway, and the Data API can be switched off |
-| 2 Keys per chatbot | `x-ume-on-behalf-of`, echo, event 1006, run metadata, stream cost | two departments' chatbots show as their own keys in the usage report, and a key budget stops one of them with 402 |
+| 2 Keys per chatbot (built) | `x-ume-on-behalf-of`, echo, event 1006, run metadata, stream cost | two departments' chatbots show as their own keys in the usage report, and a key budget stops one of them with 402 |
 | 3 Read back | Integration API (`usage.read`) | the platform shows the gateway's cost and budget status per chatbot |
 | 4 Later | webhooks | – |
 

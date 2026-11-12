@@ -16,7 +16,7 @@ namespace Ume.LlmGateway.Gateway.Requests;
 public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<GatewayOptions> options, TimeProvider time)
 {
     /// <summary>What this gateway supports, for clients to test instead of comparing versions. Values are only added.</summary>
-    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations"];
+    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations", "act-as-key", "run-metadata", "stream-cost"];
 
     /// <summary>The release version, without the commit after <c>+</c> (as <c>/version</c> reports it in full).</summary>
     private static readonly string? Version = typeof(ContextEndpoint).Assembly
@@ -27,13 +27,13 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
         ArgumentNullException.ThrowIfNull(http);
         var ct = http.RequestAborted;
         var now = time.GetUtcNow();
-        var key = await stages.AuthenticateAsync(http, GatewayEndpoint.Context, now, ct);
-        if (key is null)
+        if (await stages.AuthenticateAsync(http, GatewayEndpoint.Context, now, ct) is not { } authenticated)
         {
             return;
         }
 
-        await CacheableJson.WriteAsync(http, Build(key, now, options.CurrentValue.AdminUrl), ct);
+        // With x-ume-on-behalf-of, the context of the assigned key: as if it had been presented.
+        await CacheableJson.WriteAsync(http, Build(authenticated.Key, now, options.CurrentValue.AdminUrl), ct);
     }
 
     internal static JsonObject Build(VirtualKey key, DateTimeOffset now, string? adminUrl)

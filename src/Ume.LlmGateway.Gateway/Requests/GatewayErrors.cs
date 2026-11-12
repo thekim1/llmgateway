@@ -17,6 +17,9 @@ public static class GatewayErrorCodes
 
     /// <summary>A key assigned to an integration was used directly; only the integration's credential keys may use it.</summary>
     public const string IntegrationOnly = "integration_only";
+
+    /// <summary>The key may not act as the key named in <c>x-ume-on-behalf-of</c> (not a credential key, or not its integration's).</summary>
+    public const string DelegationNotAllowed = "delegation_not_allowed";
     public const string InvalidRequest = "invalid_request";
     public const string UnsupportedMediaType = "unsupported_media_type";
     public const string RequestTooLarge = "request_too_large";
@@ -66,6 +69,12 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
         "The API key is assigned to an integration and can only be used through that integration.");
     public static GatewayError IntegrationInactive { get; } = new(403, GatewayErrorCodes.KeyDisabled,
         "The integration the API key belongs to is deactivated.");
+    public static GatewayError InvalidOnBehalfOf { get; } = new(400, GatewayErrorCodes.InvalidRequest,
+        "x-ume-on-behalf-of must be one key id (a GUID).");
+    public static GatewayError NotCredentialKey { get; } = new(403, GatewayErrorCodes.DelegationNotAllowed,
+        "Only an integration's credential key can send x-ume-on-behalf-of.");
+    public static GatewayError KeyNotAssigned { get; } = new(403, GatewayErrorCodes.DelegationNotAllowed,
+        "The key in x-ume-on-behalf-of is not a key assigned to this integration.");
     public static GatewayError AddressNotAllowed { get; } = new(403, GatewayErrorCodes.AddressNotAllowed,
         "The API key may not be used from this address. Ask your administrator to add the address to the key.");
 

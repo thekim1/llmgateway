@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+**Integrations, phase 2: a key per chatbot in use.** An integration's credential key sends `x-ume-on-behalf-of:
+<assigned key id>` and the request is made as that key: its models, residencies, PII and content guard policy, limits,
+request policy, routing rules, budgets and usage record, so each chatbot is charged to and stopped by its own
+department's key (the credential key's own lists do not apply; `x-ume-max-residency` is required when either key
+requires it). The answer echoes the header. A key that is not a credential key, or a key not assigned to its
+integration, is refused with `403 delegation_not_allowed` and security event 1006 `gateway.delegation.refused`; a
+disabled, expired or revoked assigned key with its ordinary error. `/v1/models` and `/v1/ume/context` with the header
+answer for the assigned key. **Run metadata:** `x-ume-run-id` and `x-ume-step` (opaque, at most 100 characters) are
+stored on the usage record. **Cost of streamed answers:** with `x-ume-stream-cost: 1` a streamed answer ends with the SSE
+comment `: ume-cost-usd=…`, before `[DONE]`, equal to the usage record's cost. New usage record columns `ViaKeyId`,
+`RunId`, `Step` (migration `UsageRunMetadata`, nullable, no table rewrite), on the Data API's `usage/records` and the
+admin request list; `catalog/keys` gains `integrationId` and `integrationRole`. A request through a credential key
+updates both keys' last use. No change to the request path's Postgres statements, Redis commands or allocations
+(benchmark `check`).
+
 Integrations, phase 1 ([docs/integrations.md](docs/integrations.md), ADR 020 and 021): a platform that serves several
 departments, such as a RAG platform, connects as one object, each of its chatbots gets a gateway key of its own owned by
 the department that pays for it, and the platform reads its settings from the gateway instead of the Data API. One

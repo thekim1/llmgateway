@@ -21,7 +21,7 @@ public static class UsageRecordCopy
         "RequestId", "Timestamp", "VirtualKeyId", "TeamId", "DepartmentId", "Endpoint", "RequestedModel", "ProviderAccountId",
         "ProviderName", "ModelDeploymentId", "UpstreamModel", "InputTokens", "CachedInputTokens", "OutputTokens", "AudioSeconds",
         "CostUsd", "LatencyMs", "UpstreamMs", "TimeToFirstTokenMs", "ProviderFirstTokenMs", "StatusCode", "Outcome", "FallbackCount", "Streamed",
-        "PiiActionApplied", "PiiCategories", "ErrorCode", "RoutingRuleId", "RoutingRuleName", "GuardFlags",
+        "PiiActionApplied", "PiiCategories", "ErrorCode", "RoutingRuleId", "RoutingRuleName", "GuardFlags", "ViaKeyId", "RunId", "Step",
     ];
 
     private static readonly string CopyCommand =
@@ -70,6 +70,9 @@ public static class UsageRecordCopy
                 await WriteAsync(copy, r.RoutingRuleId, NpgsqlDbType.Uuid, cancellationToken);
                 await WriteAsync(copy, r.RoutingRuleName, NpgsqlDbType.Varchar, cancellationToken);
                 await WriteAsync(copy, r.GuardFlags, NpgsqlDbType.Varchar, cancellationToken);
+                await WriteAsync(copy, r.ViaKeyId, NpgsqlDbType.Uuid, cancellationToken);
+                await WriteAsync(copy, r.RunId, NpgsqlDbType.Varchar, cancellationToken);
+                await WriteAsync(copy, r.Step, NpgsqlDbType.Varchar, cancellationToken);
             }
 
             await copy.CompleteAsync(cancellationToken);

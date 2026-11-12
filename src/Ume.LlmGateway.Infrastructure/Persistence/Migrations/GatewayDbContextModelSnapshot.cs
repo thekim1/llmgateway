@@ -1037,8 +1037,16 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("RunId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("StatusCode")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Step")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<bool>("Streamed")
                         .HasColumnType("boolean");
@@ -1058,6 +1066,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.Property<int?>("UpstreamMs")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("ViaKeyId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("VirtualKeyId")
                         .HasColumnType("uuid");

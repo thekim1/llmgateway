@@ -50,14 +50,15 @@ public sealed partial class RealtimeRequestHandler(
         var now = time.GetUtcNow();
         var settings = options.CurrentValue.Realtime;
 
-        var key = await stages.AuthenticateAsync(http, endpoint, now, ct);
-        if (key is null)
+        if (await stages.AuthenticateAsync(http, endpoint, now, ct) is not { } authenticated)
         {
             return;
         }
 
-        state.Key = key;
-        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        state.Authenticated(http.Request, authenticated);
+        // With x-ume-on-behalf-of, the request is made as the assigned key from here on (docs/integrations.md).
+        var key = authenticated.Key;
+        if (RequestStages.ReadMaxResidency(http.Request, authenticated, out var ceiling) is { } ceilingError)
         {
             await stages.RejectAsync(http, state, ceilingError, RequestOutcome.Rejected);
             return;

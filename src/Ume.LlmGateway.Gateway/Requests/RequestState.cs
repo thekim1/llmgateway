@@ -12,6 +12,21 @@ internal sealed class RequestState(string requestId, GatewayEndpoint endpoint, l
     public GatewayEndpoint Endpoint { get; } = endpoint;
     public long StartTimestamp { get; } = startTimestamp;
     public VirtualKey? Key { get; set; }
+
+    /// <summary>The integration's credential key that made the request as <see cref="Key"/>; null when the key was presented itself.</summary>
+    public VirtualKey? ViaKey { get; set; }
+
+    /// <summary>The client's opaque run id and step (<see cref="GatewayHeaders.RunId"/>, <see cref="GatewayHeaders.Step"/>).</summary>
+    public string? RunId { get; set; }
+    public string? Step { get; set; }
+
+    /// <summary>Sets <see cref="Key"/>, <see cref="ViaKey"/> and the run metadata after authentication.</summary>
+    public void Authenticated(HttpRequest request, AuthenticatedKey key)
+    {
+        Key = key.Key;
+        ViaKey = key.Via;
+        (RunId, Step) = RequestStages.ReadRunMetadata(request);
+    }
     public string? RequestedModel { get; set; }
 
     /// <summary>The request's residency ceiling (<see cref="GatewayHeaders.MaxResidency"/>); null = none.</summary>

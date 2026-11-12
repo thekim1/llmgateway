@@ -210,6 +210,8 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
 
         modelBuilder.Entity<UsageRecord>(e =>
         {
+            e.Property(x => x.RunId).HasMaxLength(100);
+            e.Property(x => x.Step).HasMaxLength(100);
             e.Property(x => x.RequestId).HasMaxLength(64);
             e.Property(x => x.RequestedModel).HasMaxLength(200);
             e.Property(x => x.ProviderName).HasMaxLength(100);

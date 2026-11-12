@@ -160,6 +160,6 @@ public sealed class ReportService(AdminContext ctx)
         return new UsageRequestDto(u.RequestId, u.Timestamp, row.KeyPrefix, row.KeyName, row.TeamName, row.DepartmentName, GatewayEndpoints.Info(u.Endpoint).ClientPath,
             u.RequestedModel, u.ProviderName, u.UpstreamModel, u.InputTokens, u.CachedInputTokens, u.OutputTokens,
             u.LatencyMs, u.StatusCode, u.Outcome, u.FallbackCount, u.Streamed, u.PiiActionApplied, u.PiiCategories, u.ErrorCode, u.RoutingRuleId, u.RoutingRuleName,
-            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags, u.ProviderFirstTokenMs);
+            u.CostUsd, u.UpstreamMs, u.TimeToFirstTokenMs, u.GuardFlags, u.ProviderFirstTokenMs, u.ViaKeyId, u.RunId, u.Step);
     }
 }

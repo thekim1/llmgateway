@@ -57,16 +57,17 @@ public sealed class GatewayRequestHandler(
         var now = time.GetUtcNow();
 
         // 1. Authenticate the virtual key.
-        var key = await stages.AuthenticateAsync(http, endpoint, now, ct);
-        if (key is null)
+        if (await stages.AuthenticateAsync(http, endpoint, now, ct) is not { } authenticated)
         {
             return;
         }
 
-        state.Key = key;
+        state.Authenticated(http.Request, authenticated);
+        // With x-ume-on-behalf-of, the request is made as the assigned key from here on (docs/integrations.md).
+        var key = authenticated.Key;
 
         // 1b. The request's residency ceiling (optional; required by keys with RequireMaxResidency), before the body is read.
-        if (RequestStages.ReadMaxResidency(http.Request, key, out var ceiling) is { } ceilingError)
+        if (RequestStages.ReadMaxResidency(http.Request, authenticated, out var ceiling) is { } ceilingError)
         {
             await stages.RejectAsync(http, state, ceilingError, RequestOutcome.Rejected);
             return;
@@ -441,6 +442,9 @@ public sealed class GatewayRequestHandler(
         var streaming = time.GetTimestamp();
         var gaps = new StreamGaps(time);
         long written = 0;
+        // x-ume-stream-cost: 1 asks for the answer's cost at the end of the stream (docs/integrations.md).
+        var streamCost = http.Request.Headers[GatewayHeaders.StreamCost] == "1";
+        decimal? costUsd = null;
         try
         {
             await http.Response.StartAsync(ct);
@@ -455,6 +459,12 @@ public sealed class GatewayRequestHandler(
                 else
                 {
                     state.ProviderFirstEventTimestamp = arrived;
+                }
+
+                // The cost comment goes before the closing [DONE]: OpenAI-style clients stop reading there.
+                if (streamCost && evt.Data == SseEvent.Done)
+                {
+                    costUsd = WriteCostComment(writer, deployment, result, state);
                 }
 
                 // Encoded straight into the response pipe; one flush per event keeps tokens flowing immediately.
@@ -482,9 +492,35 @@ public sealed class GatewayRequestHandler(
             errorCode = "stream_interrupted";
         }
 
+        // A stream without [DONE] (Anthropic, Responses) gets the comment after its last event.
+        if (streamCost && costUsd is null && outcome == RequestOutcome.Success)
+        {
+            try
+            {
+                costUsd = WriteCostComment(http.Response.BodyWriter, deployment, result, state);
+                await http.Response.BodyWriter.FlushAsync(ct);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException)
+            {
+                // The client left after the last event; the usage record still has the cost.
+            }
+        }
+
         state.AddUpstreamTime(time.GetTimestamp() - streaming);
         stages.RecordStreamGaps(state, deployment, gaps);
-        await accounting.AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot);
+        // The cost in the comment is the one the usage record gets.
+        await accounting.AccountAsync(state, deployment, result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds), status, outcome, errorCode, snapshot,
+            costUsd);
+    }
+
+    /// <summary>Writes the SSE comment <c>: ume-cost-usd=…</c> with the cost of the usage so far, and returns that cost.</summary>
+    private decimal WriteCostComment(System.IO.Pipelines.PipeWriter writer, ModelDeployment deployment, ProviderStreamResult result, RequestState state)
+    {
+        var usage = result.Usage.ToTokenUsage(state.EstimatedInputTokens, state.EstimatedAudioSeconds);
+        var cost = decimal.Round(CostCalculator.Calculate(usage, deployment.PriceAt(time.GetUtcNow())), 6);
+        var line = string.Create(CultureInfo.InvariantCulture, $": ume-cost-usd={cost:0.000000}\n\n");
+        System.Text.EncodingExtensions.GetBytes(System.Text.Encoding.UTF8, line, writer);
+        return cost;
     }
 
     /// <summary>
