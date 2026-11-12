@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**Department member groups.** A department can list the identity provider groups whose members belong to it
+(*Organisation › Edit department*, gateway admins; `memberGroups` on the admin API, audited). A user whose group claim
+holds one of them gets the department's scope at admin sign-in, as if the `departmentCodes` claim had listed its
+cost-centre code: compared ignoring case, active departments only, never a role, and only from the token (no group
+claim, as Entra ID sends above its limit, adds nothing). `/bff/user` shows where each code came from
+(`departmentSources`). Platforms read the same groups: `member_groups` on each department of `/v1/ume/context` for a
+credential key with the scope `organisation.read` (feature `member-groups`, in
+[docs/openapi/integrations.json](docs/openapi/integrations.json)), and `memberGroups` on the Data API's
+`/v1/catalog/departments` (`/v1/catalog/teams` now carries `code`). Migration `DepartmentMemberGroups` (additive,
+safe for a rolling update). See [identity and roles](docs/identity-and-roles.md#department-scope).
+
 **Integrations: the credential key bounds residencies, the whole organisation in the context, the contract as
 OpenAPI** (after the RAG platform's review, thekim1/ume-rag-platform#580). A request made as an assigned key
 (`x-ume-on-behalf-of`) now reaches only the residencies **both** keys allow: the credential key's residencies are an

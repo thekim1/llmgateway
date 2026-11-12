@@ -90,10 +90,10 @@ public static class DataEndpoints
         var catalog = v1.MapGroup("/catalog").WithTags("Catalog").RequireAuthorization(DataPermissions.CatalogRead);
         catalog.MapGet("/departments", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.Departments.AsNoTracking().OrderBy(d => d.Name)
-                .Select(d => new { d.Id, d.Name, d.CostCenterCode, d.IsActive, d.CreatedAt }).ToListAsync(ct)));
+                .Select(d => new { d.Id, d.Name, d.CostCenterCode, d.IsActive, d.CreatedAt, d.MemberGroups }).ToListAsync(ct)));
         catalog.MapGet("/teams", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.Teams.AsNoTracking().OrderBy(t => t.Name)
-                .Select(t => new { t.Id, t.DepartmentId, t.Name, t.IsActive, t.CreatedAt }).ToListAsync(ct)));
+                .Select(t => new { t.Id, t.DepartmentId, t.Name, t.IsActive, t.CreatedAt, t.Code }).ToListAsync(ct)));
         catalog.MapGet("/keys", async (HttpContext http, GatewayDbContext db, CancellationToken ct) => DataResults.List(http,
             await db.VirtualKeys.AsNoTracking().OrderBy(k => k.Id)
                 .Select(k => new { k.Id, k.TeamId, k.Name, k.Prefix, k.CreatedAt, k.IntegrationId, k.IntegrationRole }).ToListAsync(ct)));

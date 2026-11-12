@@ -70,7 +70,7 @@ public sealed partial class DevSeeder(
 
         // --- Organisation -------------------------------------------------------------------
         var klk = new Department { Name = "Kommunledningskontoret", CostCenterCode = "1000", CreatedAt = now };
-        var soc = new Department { Name = "Individ- och familjeomsorgen", CostCenterCode = "3000", CreatedAt = now };
+        var soc = new Department { Name = "Individ- och familjeomsorgen", CostCenterCode = "3000", CreatedAt = now, MemberGroups = ["IFO-medarbetare"] };
         var fritid = new Department { Name = "Fritidsförvaltningen", CostCenterCode = "5000", CreatedAt = now };
         // The dev Keycloak user team-admin has teamCodes [digitalisering-ai] and manages this team's keys.
         var aiTeam = new Team { Department = klk, Name = "Digitalisering & AI", Description = "Utforskar och förvaltar AI-tjänster", Code = "digitalisering-ai", CreatedAt = now };

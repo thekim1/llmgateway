@@ -149,6 +149,36 @@ public sealed class AdminApiTests(AdminFixture fixture)
     }
 
     [Fact]
+    public async Task Department_member_groups_are_set_kept_cleared_validated_and_audited()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var client = await fixture.ClientAsync();
+        var org = await fixture.OrganisationAsync(client);
+        var url = $"/api/departments/{org.Department}";
+
+        using var set = await client.PutAsJsonAsync(url, new { name = "Groups", costCenterCode = org.Code, memberGroups = new[] { " IFO-medarbetare ", "ifo-MEDARBETARE", "0b6c6c0e-1111-4222-8333-444455556666" } }, ct);
+        (await AdminFixture.ReadAsync(set))["memberGroups"]!.AsArray().Select(g => g!.GetValue<string>())
+            .ShouldBe(["IFO-medarbetare", "0b6c6c0e-1111-4222-8333-444455556666"]);
+
+        // Omitted = unchanged; [] clears.
+        using var keep = await client.PutAsJsonAsync(url, new { name = "Groups renamed", costCenterCode = org.Code }, ct);
+        (await AdminFixture.ReadAsync(keep))["memberGroups"]!.AsArray().Count.ShouldBe(2);
+        using var audit = await client.GetAsync("/api/audit?entityType=Department", ct);
+        (await AdminFixture.ReadAsync(audit))["items"]!.AsArray()
+            .ShouldContain(a => a!["entityId"]!.GetValue<string>() == org.Department.ToString() && a.ToJsonString().Contains("IFO-medarbetare", StringComparison.Ordinal));
+
+        using var tooLong = await client.PutAsJsonAsync(url, new { name = "Groups", costCenterCode = org.Code, memberGroups = new[] { new string('g', 257) } }, ct);
+        (await AdminFixture.ReadAsync(tooLong, HttpStatusCode.BadRequest))["errors"]!["memberGroups"].ShouldNotBeNull();
+        using var blank = await client.PutAsJsonAsync(url, new { name = "Groups", costCenterCode = org.Code, memberGroups = new[] { " " } }, ct);
+        blank.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using var tooMany = await client.PutAsJsonAsync(url, new { name = "Groups", costCenterCode = org.Code, memberGroups = Enumerable.Range(0, 51).Select(i => $"group-{i}") }, ct);
+        tooMany.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        using var clear = await client.PutAsJsonAsync(url, new { name = "Groups", costCenterCode = org.Code, memberGroups = Array.Empty<string>() }, ct);
+        (await AdminFixture.ReadAsync(clear))["memberGroups"]!.AsArray().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Organisation_crud_validates_conflicts_and_audits()
     {
         using var client = await fixture.ClientAsync();

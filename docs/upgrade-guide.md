@@ -13,6 +13,14 @@ See [runbook](runbook.md) for the actual deployment procedure.
 
 ## Unreleased: integrations (phases 1 to 3)
 
+- **Department member groups, rolling update: yes.** Migration `DepartmentMemberGroups` adds
+  `Departments.MemberGroups` (`text[]`, default empty); a previous version ignores the column. Nothing changes until a
+  gateway admin enters member groups on a department: from then on a user in one of those groups sees the department
+  after their next sign-in ([Department scope](identity-and-roles.md#department-scope)). The identity provider must
+  put the groups in the token. New fields: `memberGroups` on `Department` (admin API) and on the Data API's
+  `/v1/catalog/departments`, `code` on `/v1/catalog/teams`, `departmentSources` on `/bff/user`, `member_groups` on the
+  departments of `/v1/ume/context` for a credential key with `organisation.read`.
+
 - **Residency bound and `organisation.read`, rolling update: yes**, no migration. **Changed behaviour:** a credential
   key's residencies now bound every key it acts as. A credential key without a residency list (the default) changes
   nothing; for one with a list, check that it holds every residency its service must reach. Until every gateway

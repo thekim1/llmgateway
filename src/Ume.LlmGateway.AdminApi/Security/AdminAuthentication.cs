@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using Ume.LlmGateway.AdminApi.Common;
+using Ume.LlmGateway.Infrastructure.Persistence;
 using Ume.LlmGateway.Infrastructure.Security;
 
 namespace Ume.LlmGateway.AdminApi.Security;
@@ -17,12 +19,15 @@ public static class AdminAuthentication
     /// expands JSON-array claims, copies differently named claims, and derives roles from group membership. The group
     /// claims themselves are then dropped: they are only needed for the roles and team codes derived from them, a user can be
     /// in hundreds of groups (Active Directory through Keycloak, Entra ID), and every claim kept goes into the session cookie.
+    /// With <paramref name="departments"/> (the active departments that have member groups), a user in one of a
+    /// department's groups also gets its code (<see cref="DepartmentMembership"/>); those codes are returned.
     /// </summary>
-    public static void ApplyClaimMapping(ClaimsPrincipal? principal, OidcOptions options)
+    public static IReadOnlyList<string> ApplyClaimMapping(ClaimsPrincipal? principal, OidcOptions options, IEnumerable<DepartmentGroups>? departments = null)
     {
+        ArgumentNullException.ThrowIfNull(options);
         if (principal?.Identity is not ClaimsIdentity identity)
         {
-            return;
+            return [];
         }
         var sources = new[] { options.RoleClaim, options.DepartmentClaim, options.TeamClaim, options.GroupClaim };
         foreach (var claim in identity.Claims.Where(c => sources.Contains(c.Type) && c.Value.StartsWith('[')).ToArray())
@@ -50,6 +55,14 @@ public static class AdminAuthentication
             }
         }
 
+        IReadOnlyList<string> groupCodes = departments is null
+            ? []
+            : DepartmentMembership.CodesFromGroups(groups, [.. identity.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value)], departments);
+        foreach (var code in groupCodes)
+        {
+            identity.AddClaim(new Claim(AdminClaims.DepartmentCodes, code));
+        }
+
         if (options.GroupClaim is not (AdminClaims.Roles or AdminClaims.DepartmentCodes or AdminClaims.TeamCodes))
         {
             foreach (var claim in identity.FindAll(options.GroupClaim).ToArray())
@@ -57,6 +70,8 @@ public static class AdminAuthentication
                 identity.RemoveClaim(claim);
             }
         }
+
+        return groupCodes;
     }
 
     private static void CopyClaims(ClaimsIdentity identity, string from, string to)
@@ -131,10 +146,17 @@ public static class AdminAuthentication
             o.TokenValidationParameters.NameClaimType = "name";
             o.TokenValidationParameters.RoleClaimType = AdminClaims.Roles;
             o.Scope.Add("email");
-            o.Events.OnTokenValidated = ctx =>
+            o.Events.OnTokenValidated = async ctx =>
             {
-                AdminAuthentication.ApplyClaimMapping(ctx.Principal, ctx.HttpContext.RequestServices.GetRequiredService<IOptions<OidcOptions>>().Value);
-                return Task.CompletedTask;
+                var services = ctx.HttpContext.RequestServices;
+                // Sign-ins are rare, so the member groups are read each time: a change applies at the next sign-in.
+                var departments = await services.GetRequiredService<GatewayDbContext>().Departments.AsNoTracking()
+                    .Where(d => d.IsActive && d.MemberGroups.Count > 0)
+                    .Select(d => new DepartmentGroups(d.CostCenterCode, d.MemberGroups))
+                    .ToListAsync(ctx.HttpContext.RequestAborted);
+                var groupCodes = ApplyClaimMapping(ctx.Principal, services.GetRequiredService<IOptions<OidcOptions>>().Value, departments);
+                // Kept with the session (and by an extension, which signs in with the same properties) for /bff/user.
+                DepartmentMembership.Store(ctx.Properties ??= new AuthenticationProperties(), groupCodes);
             };
             // An expired session on an API call must answer 401 so the UI can send the user to sign in; a redirect to the
             // identity provider would be followed by fetch and fail on CORS. Only /bff/login starts a real sign-in.
@@ -216,6 +238,8 @@ public static class AdminAuthentication
                 email = http.User.FindFirstValue("email"),
                 roles = http.User.FindAll(AdminClaims.Roles).Select(c => c.Value).ToArray(),
                 departmentCodes = http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value).ToArray(),
+                // Where each code came from: the department claim, or a member group of the department (never the group itself).
+                departmentSources = DepartmentMembership.Sources(http.User.FindAll(AdminClaims.DepartmentCodes).Select(c => c.Value), auth.Properties),
                 teamCodes = http.User.FindAll(AdminClaims.TeamCodes).Select(c => c.Value).ToArray(),
                 sessionExpiresAt = auth.Properties?.ExpiresUtc,
                 sessionLimitAt = AdminSessionLimit.LimitOf(auth.Properties, TimeSpan.FromHours(admin.Value.MaxSessionHours)),

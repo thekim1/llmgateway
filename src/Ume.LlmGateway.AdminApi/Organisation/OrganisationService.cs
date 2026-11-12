@@ -16,7 +16,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
 
     public async Task<DepartmentDto> CreateDepartmentAsync(DepartmentRequest input, CancellationToken ct)
     {
-        var d = new Department { Name = input.Name.Trim(), CostCenterCode = input.CostCenterCode.Trim(), CreatedAt = ctx.Now };
+        var d = new Department { Name = input.Name.Trim(), CostCenterCode = input.CostCenterCode.Trim(), CreatedAt = ctx.Now, MemberGroups = input.NormalisedMemberGroups() ?? [] };
         ctx.Db.Departments.Add(d);
         await ctx.SaveAsync(AuditActions.Create, AuditEntities.Department, d.Id, null, DepartmentAudit.Of(d), [InvalidationKind.Config, InvalidationKind.Keys], ct);
         return DepartmentDto.Of(d);
@@ -27,6 +27,10 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
         var d = await ctx.Db.Departments.Include(d => d.Teams).SingleOrDefaultAsync(d => d.Id == id, ct) ?? throw NotFound.Department();
         var before = DepartmentAudit.Of(d);
         d.Name = input.Name.Trim(); d.CostCenterCode = input.CostCenterCode.Trim(); d.IsActive = input.IsActive;
+        if (input.NormalisedMemberGroups() is { } groups)
+        {
+            d.MemberGroups = groups;
+        }
         // Keys too: an authenticated key carries its department's name and state.
         await ctx.SaveAsync(AuditActions.Update, AuditEntities.Department, id, before, DepartmentAudit.Of(d), [InvalidationKind.Config, InvalidationKind.Keys], ct);
         return DepartmentDto.Of(d);
