@@ -1,0 +1,1162 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ume LLM Gateway: integration contract",
+    "version": "1",
+    "description": "What a platform that runs as an integration reads from the gateway (docs/integrations.md): GET /v1/ume/context and the ume facts on GET /v1/models on the gateway, the request headers of the data plane, and the Integration API on the admin API. Changed by addition only: new properties, features, scopes and enum values can appear, so clients must ignore what they do not know. A test in the gateway repository (IntegrationContractTests) keeps the schemas equal to the answers. The model endpoints themselves follow their providers' formats and are in the gateway's own /openapi/v1.json."
+  },
+  "servers": [
+    {
+      "url": "https://gateway.example",
+      "description": "Gateway (data plane): /v1"
+    },
+    {
+      "url": "https://admin.example",
+      "description": "Admin API (control plane): /integration/v1"
+    }
+  ],
+  "security": [
+    {
+      "gatewayKey": []
+    }
+  ],
+  "paths": {
+    "/v1/ume/context": {
+      "get": {
+        "summary": "What the presented key is and may use",
+        "description": "For a credential key: its integration, the integration's assigned keys with their settings, and departments and teams. With x-ume-on-behalf-of: the context of the assigned key. Not accounted, no rate limit of its own.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OnBehalfOf"
+          },
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UmeContext"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-ume-on-behalf-of": {
+                "description": "Echo, when the request was made as an assigned key.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged"
+          },
+          "401": {
+            "description": "invalid_api_key, key_expired, key_revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "key_disabled, address_not_allowed, integration_only, delegation_not_allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "summary": "The models the key may use, with the gateway's facts under ume",
+        "description": "With x-ume-on-behalf-of: the assigned key's models within both keys' residencies. With x-ume-max-residency: within that ceiling.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OnBehalfOf"
+          },
+          {
+            "$ref": "#/components/parameters/MaxResidency"
+          },
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelList"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-ume-on-behalf-of": {
+                "description": "Echo, when the request was made as an assigned key.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged"
+          },
+          "400": {
+            "description": "invalid_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_api_key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "As /v1/ume/context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "summary": "Request headers of every model endpoint (shown on one)",
+        "description": "The integration headers apply to every model endpoint of the gateway in the same way; the body and answer are the provider format's and are not described here.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OnBehalfOf"
+          },
+          {
+            "$ref": "#/components/parameters/MaxResidency"
+          },
+          {
+            "$ref": "#/components/parameters/RunId"
+          },
+          {
+            "$ref": "#/components/parameters/Step"
+          },
+          {
+            "$ref": "#/components/parameters/StreamCost"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider format's answer. Headers: x-ume-on-behalf-of (echo), x-ume-residency, x-ume-cost-usd (complete answers)."
+          },
+          "402": {
+            "description": "budget_exceeded: names the scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "delegation_not_allowed, model_not_allowed, ...",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integration/v1/usage": {
+      "get": {
+        "summary": "Usage of the integration's own keys (scope usage.read)",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive; at most 366 days from 'from'.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "granularity",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "day",
+                "month"
+              ],
+              "default": "day"
+            }
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "description": "Comma-separated: key (default), model, step; empty for one row per period.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage per Europe/Stockholm day or month",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Not a usable credential key of an active integration"
+          },
+          "403": {
+            "description": "The key does not hold the scope"
+          },
+          "404": {
+            "description": "keyId is not a key of this integration"
+          },
+          "429": {
+            "description": "Above Admin:IntegrationRequestsPerMinute (60) per key"
+          }
+        }
+      }
+    },
+    "/integration/v1/budgets": {
+      "get": {
+        "summary": "The budgets the gateway applies to one of the integration's keys (scope usage.read)",
+        "parameters": [
+          {
+            "name": "keyId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The key's own, its team's and its department's active budgets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationBudgets"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "As usage"
+          },
+          "403": {
+            "description": "As usage"
+          },
+          "404": {
+            "description": "As usage"
+          },
+          "429": {
+            "description": "As usage"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "gatewayKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A gateway key (ume-sk-...). For an integration: one of its credential keys."
+      }
+    },
+    "parameters": {
+      "OnBehalfOf": {
+        "name": "x-ume-on-behalf-of",
+        "in": "header",
+        "required": false,
+        "description": "The id of an assigned key of the credential key's integration: the request is made as that key. The answer echoes it; treat a missing echo as a failure (an older instance ignores the header). 400 invalid_request when it is not one GUID; 403 delegation_not_allowed when the caller is not a credential key, the id is not an assigned key of its integration, or the two keys allow no residency in common; 403 with the key's ordinary code when it is disabled, expired, revoked or its owner is inactive.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "MaxResidency": {
+        "name": "x-ume-max-residency",
+        "in": "header",
+        "required": false,
+        "description": "The request's residency ceiling. Required (400) when the presented key or the key acted as has require_max_residency.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "OnPrem",
+            "Eu",
+            "External"
+          ]
+        }
+      },
+      "RunId": {
+        "name": "x-ume-run-id",
+        "in": "header",
+        "required": false,
+        "description": "Opaque id stored on the usage record; at most 100 characters kept; never refused.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Step": {
+        "name": "x-ume-step",
+        "in": "header",
+        "required": false,
+        "description": "Opaque step name stored on the usage record; at most 100 characters kept; never refused.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "StreamCost": {
+        "name": "x-ume-stream-cost",
+        "in": "header",
+        "required": false,
+        "description": "1 = a streamed answer ends with the SSE comment ': ume-cost-usd=<cost>' (before 'data: [DONE]' where the stream has one).",
+        "schema": {
+          "const": "1"
+        }
+      },
+      "IfNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "description": "The ETag of the previous answer: 304 while unchanged.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "Residency": {
+        "type": "string",
+        "enum": [
+          "OnPrem",
+          "Eu",
+          "External"
+        ]
+      },
+      "UmeContext": {
+        "type": "object",
+        "required": [
+          "object",
+          "gateway",
+          "key",
+          "integration",
+          "departments",
+          "teams",
+          "assigned_keys"
+        ],
+        "properties": {
+          "object": {
+            "const": "ume.context"
+          },
+          "gateway": {
+            "$ref": "#/components/schemas/ContextGateway"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ContextKey"
+          },
+          "integration": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContextIntegration"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a key that is not an integration's credential key."
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextDepartment"
+            },
+            "description": "Those of the assigned keys and the key's own; every department when the key holds the scope organisation.read."
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextTeam"
+            },
+            "description": "As departments."
+          },
+          "assigned_keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignedKey"
+            },
+            "description": "The integration's assigned keys that are not revoked. Empty for a key that is not a credential key."
+          }
+        }
+      },
+      "ContextGateway": {
+        "type": "object",
+        "required": [
+          "version",
+          "admin_url",
+          "features"
+        ],
+        "properties": {
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admin_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Gateway:AdminUrl, for links to a key or budget."
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Capabilities to test for instead of comparing versions; values are only added. Known: max-residency, model-facts, integrations, act-as-key, run-metadata, stream-cost, credential-residencies, organisation."
+          }
+        }
+      },
+      "ContextKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "team_id",
+          "integration_role",
+          "integration_scopes",
+          "require_max_residency",
+          "allowed_residencies"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "integration_role": {
+            "type": "string",
+            "enum": [
+              "None",
+              "Credential",
+              "Assigned"
+            ]
+          },
+          "integration_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Known: usage.read, organisation.read."
+          },
+          "require_max_residency": {
+            "type": "boolean"
+          },
+          "allowed_residencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Residency"
+            },
+            "description": "The key's own residencies; empty = all. For a credential key also the upper bound on every key it acts as."
+          }
+        }
+      },
+      "ContextIntegration": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "owner_team_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_team_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ContextDepartment": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cost_center_code",
+          "is_active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cost_center_code": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ContextTeam": {
+        "type": "object",
+        "required": [
+          "id",
+          "department_id",
+          "name",
+          "code",
+          "is_active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "department_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AssignedKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "team_id",
+          "department_id",
+          "status",
+          "owner_active",
+          "expires_at",
+          "allowed_models",
+          "allowed_residencies",
+          "usable",
+          "allowed_providers",
+          "pii_policy",
+          "content_guard_policy",
+          "attachment_policy",
+          "allow_provider_tools",
+          "allow_provider_storage",
+          "requests_per_minute",
+          "tokens_per_minute",
+          "max_concurrent_requests",
+          "max_output_tokens",
+          "has_system_prompt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "team_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "department_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Active",
+              "InGracePeriod",
+              "Disabled",
+              "Expired",
+              "Revoked"
+            ]
+          },
+          "owner_active": {
+            "type": "boolean",
+            "description": "Whether the key's team and department are active."
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "allowed_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty = all."
+          },
+          "allowed_residencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Residency"
+            },
+            "description": "The key's own setting; empty = all. A request made as the key reaches only those the credential key allows too."
+          },
+          "usable": {
+            "type": "boolean",
+            "description": "False when the presented credential key and this key allow no residency in common: acting as it is refused."
+          },
+          "allowed_providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty = all."
+          },
+          "pii_policy": {
+            "type": "string"
+          },
+          "content_guard_policy": {
+            "type": "string"
+          },
+          "attachment_policy": {
+            "type": "string"
+          },
+          "allow_provider_tools": {
+            "type": "boolean"
+          },
+          "allow_provider_storage": {
+            "type": "boolean"
+          },
+          "requests_per_minute": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tokens_per_minute": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_concurrent_requests": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "From the key's and its team's request policy combined."
+          },
+          "has_system_prompt": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ModelList": {
+        "type": "object",
+        "required": [
+          "object",
+          "data"
+        ],
+        "properties": {
+          "object": {
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          }
+        }
+      },
+      "Model": {
+        "type": "object",
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by",
+          "ume"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "const": "model"
+          },
+          "created": {
+            "type": "integer"
+          },
+          "owned_by": {
+            "type": "string"
+          },
+          "ume": {
+            "$ref": "#/components/schemas/ModelFacts"
+          }
+        }
+      },
+      "ModelFacts": {
+        "type": "object",
+        "required": [
+          "type",
+          "kind",
+          "context_window",
+          "max_output_tokens",
+          "features",
+          "pricing"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "alias",
+              "model"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "Chat, Embedding, Rerank, ..."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Aliases only."
+          },
+          "residency": {
+            "type": "string",
+            "enum": [
+              "OnPrem",
+              "Eu",
+              "External"
+            ],
+            "description": "Models only: the model's own, else its provider's."
+          },
+          "residencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Residency"
+            },
+            "description": "Aliases only: of the targets the key may use."
+          },
+          "context_window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "An alias: the smallest of its targets, null when one does not know it."
+          },
+          "max_output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "As context_window."
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "An alias: those all its targets have."
+          },
+          "pricing": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ModelPricing"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An alias: its first target's. The cost on the answer is the one charged."
+          }
+        }
+      },
+      "ModelPricing": {
+        "type": "object",
+        "required": [
+          "input_per_million_usd",
+          "cached_input_per_million_usd",
+          "output_per_million_usd"
+        ],
+        "properties": {
+          "input_per_million_usd": {
+            "type": "number"
+          },
+          "cached_input_per_million_usd": {
+            "type": "number"
+          },
+          "output_per_million_usd": {
+            "type": "number"
+          }
+        }
+      },
+      "IntegrationUsage": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "granularity",
+          "groupBy",
+          "items"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "day",
+              "month"
+            ]
+          },
+          "groupBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "key",
+                "model",
+                "step"
+              ]
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntegrationUsageRow"
+            }
+          }
+        }
+      },
+      "IntegrationUsageRow": {
+        "type": "object",
+        "required": [
+          "period",
+          "keyId",
+          "keyName",
+          "model",
+          "step",
+          "requests",
+          "successfulRequests",
+          "inputTokens",
+          "cachedInputTokens",
+          "outputTokens",
+          "costUsd"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "format": "date",
+            "description": "The Europe/Stockholm date the day or month starts."
+          },
+          "keyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "keyName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "successfulRequests": {
+            "type": "integer"
+          },
+          "inputTokens": {
+            "type": "integer"
+          },
+          "cachedInputTokens": {
+            "type": "integer"
+          },
+          "outputTokens": {
+            "type": "integer"
+          },
+          "costUsd": {
+            "type": "number"
+          }
+        }
+      },
+      "IntegrationBudgets": {
+        "type": "object",
+        "required": [
+          "keyId",
+          "items"
+        ],
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntegrationBudget"
+            }
+          }
+        }
+      },
+      "IntegrationBudget": {
+        "type": "object",
+        "required": [
+          "id",
+          "scope",
+          "scopeId",
+          "unit",
+          "limit",
+          "residency",
+          "period",
+          "periodStart",
+          "periodEnd",
+          "spent",
+          "percentUsed",
+          "exhausted"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "Department",
+              "Team",
+              "VirtualKey"
+            ]
+          },
+          "scopeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Usd, or tokens for a token quota."
+          },
+          "limit": {
+            "type": "number"
+          },
+          "residency": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Residency"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period": {
+            "type": "string"
+          },
+          "periodStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "periodEnd": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "spent": {
+            "type": "number",
+            "description": "In the budget's unit, this period."
+          },
+          "percentUsed": {
+            "type": "number"
+          },
+          "exhausted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GatewayError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "message",
+              "type",
+              "code"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

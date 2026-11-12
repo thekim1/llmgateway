@@ -18,7 +18,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
     {
         var d = new Department { Name = input.Name.Trim(), CostCenterCode = input.CostCenterCode.Trim(), CreatedAt = ctx.Now };
         ctx.Db.Departments.Add(d);
-        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Department, d.Id, null, DepartmentAudit.Of(d), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Department, d.Id, null, DepartmentAudit.Of(d), [InvalidationKind.Config, InvalidationKind.Keys], ct);
         return DepartmentDto.Of(d);
     }
 
@@ -39,7 +39,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
         if (await ctx.Db.Teams.AnyAsync(t => t.DepartmentId == id, ct)) { throw new ApiFaultException(409, "The department has teams and cannot be deleted."); }
         await rules.ApplyScopeRemovalAsync(RoutingScope.Department, id, routingRules, "The department", ct);
         ctx.Db.Departments.Remove(d);
-        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Department, id, DepartmentAudit.Of(d), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Department, id, DepartmentAudit.Of(d), null, [InvalidationKind.Config, InvalidationKind.Keys], ct);
     }
 
     /// <summary>The teams the user may list (<see cref="AdminContext.VisibleTeams"/>), optionally of one department.</summary>
@@ -60,7 +60,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
             Code = await UniqueCodeAsync(input.Code, null, ct),
         };
         ctx.Db.Teams.Add(t);
-        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Team, t.Id, null, TeamAudit.Of(t), InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Create, AuditEntities.Team, t.Id, null, TeamAudit.Of(t), [InvalidationKind.Config, InvalidationKind.Keys], ct);
         return TeamDto.Of(t);
     }
 
@@ -83,7 +83,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
         if (await ctx.Db.Integrations.AnyAsync(i => i.OwnerTeamId == id, ct)) { throw new ApiFaultException(409, "The team owns an integration and cannot be deleted."); }
         await rules.ApplyScopeRemovalAsync(RoutingScope.Team, id, routingRules, "The team", ct);
         ctx.Db.Teams.Remove(t);
-        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Team, id, TeamAudit.Of(t), null, InvalidationKind.Config, ct);
+        await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Team, id, TeamAudit.Of(t), null, [InvalidationKind.Config, InvalidationKind.Keys], ct);
     }
 
     /// <summary>The trimmed code, null when empty; 409 when another team (in any department) already has it.</summary>

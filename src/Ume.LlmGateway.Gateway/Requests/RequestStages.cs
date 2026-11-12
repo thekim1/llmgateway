@@ -137,7 +137,8 @@ public sealed partial class RequestStages(
     /// The assigned key named in <c>x-ume-on-behalf-of</c> (docs/integrations.md): only a credential key may send it, and
     /// only for a key of its own integration, which it already carries from the key cache, so this is a lookup. The named
     /// key's status and owner are checked as if it had been presented; the client address and the credential key's own
-    /// status were checked already. Refusals are security event 1006, not authentication failures: the caller did
+    /// status were checked already. Its residencies were narrowed to the credential key's when it was loaded
+    /// (<see cref="VirtualKey.BoundBy"/>); a key with none left is refused. Refusals are security event 1006, not authentication failures: the caller did
     /// authenticate.
     /// </summary>
     private (VirtualKey? Key, GatewayError? Error) ActAs(HttpContext http, GatewayEndpoint endpoint, VirtualKey caller, StringValues value, DateTimeOffset now)
@@ -159,6 +160,7 @@ public sealed partial class RequestStages(
                 KeyStatus.Disabled => (GatewayError.KeyDisabled, "key_disabled"),
                 _ when assigned.Team is not { IsActive: true } || assigned.Team.Department is not { IsActive: true }
                     => (GatewayError.KeyOwnerInactive, "owner_inactive"),
+                _ when assigned.NoCommonResidency => (GatewayError.NoCommonResidency, "no_common_residency"),
                 _ => ((GatewayError?)null, (string?)null),
             };
         if (error is null)

@@ -158,7 +158,20 @@ export const INTEGRATION_ROLE: Record<IntegrationRole, { label: string; descript
 
 export const INTEGRATION_SCOPE: Record<string, { label: string; description: string } | undefined> = {
   'usage.read': { label: 'Read usage', description: 'Usage and budget status of the integration’s own keys (Integration API).' },
+  'organisation.read': {
+    label: 'Read the organisation',
+    description: 'Every department and team in the key’s context (/v1/ume/context), not only those of the integration’s keys.',
+  },
 }
+
+/** Shown on a key assigned to an integration: one question in the platform is usually several requests on the key. */
+export const ASSIGNED_KEY_HINT =
+  'The integration may make several requests on this key for one question (for example rewriting the question, searching, ranking and answering). ' +
+  'Allow every model it uses for them, embedding and rerank models included, and set requests per minute for that many requests per question.'
+
+/** Shown on a credential key's residencies: they bound the keys it acts as. */
+export const CREDENTIAL_RESIDENCY_HINT =
+  'Also an upper bound on every key this key is used for: a request made as an assigned key reaches only residencies both keys allow.'
 
 /** A scope's label, or the scope itself for one this console does not know yet. */
 export function integrationScopeLabel(scope: string): string {

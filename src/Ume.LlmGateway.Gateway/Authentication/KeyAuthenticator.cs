@@ -193,10 +193,20 @@ public sealed class KeyAuthenticator : IDisposable
             foreach (var assignedKey in assigned)
             {
                 assignedKey.Integration = key.Integration;
+                // The credential key's residencies are an upper bound on every key it acts as: narrowed here, once.
+                assignedKey.BoundBy(key);
                 assignedKey.IndexAllowLists();
             }
 
             key.IndexAssignedKeys(assigned);
+            if (key.IntegrationScopes.Contains(IntegrationScopes.OrganisationRead))
+            {
+                // The whole organisation for /v1/ume/context: creating, changing or deleting a department or team publishes Keys.
+                key.HoldOrganisation(await db.Departments.AsNoTracking()
+                    .Include(d => d.Teams)
+                    .OrderBy(d => d.Name).ThenBy(d => d.Id)
+                    .ToListAsync(CancellationToken.None));
+            }
         }
         if (ttl > TimeSpan.Zero && !generation.IsCancellationRequested)
         {

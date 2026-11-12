@@ -13,6 +13,13 @@ See [runbook](runbook.md) for the actual deployment procedure.
 
 ## Unreleased: integrations (phases 1 to 3)
 
+- **Residency bound and `organisation.read`, rolling update: yes**, no migration. **Changed behaviour:** a credential
+  key's residencies now bound every key it acts as. A credential key without a residency list (the default) changes
+  nothing; for one with a list, check that it holds every residency its service must reach. Until every gateway
+  instance is updated an older one does not apply the bound: keep sending `x-ume-max-residency`. Give
+  `organisation.read` (key form, *Integration access*) to the credential key of the service that syncs departments
+  and teams.
+
 - **Phase 3, rolling update: yes**, no migration. New setting `Admin__IntegrationRequestsPerMinute` (default 60). If
   the admin API is behind the reverse proxy, `/integration/v1` must reach it as `/api` does; the nginx example and the
   Ingress example route every path of the admin host, so nothing changes there.

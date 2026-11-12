@@ -256,6 +256,7 @@ describe('KeyFormDrawer integrations', () => {
     await wrapper.find('#key-integration').setValue('i1')
     expect(wrapper.find('[role=radiogroup][aria-label="Role in the integration"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('It has no secret')
+    expect(wrapper.text()).toContain('embedding and rerank models included')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     const body = create.mock.calls[0]![0]
@@ -272,10 +273,13 @@ describe('KeyFormDrawer integrations', () => {
     await flushPromises()
     expect((wrapper.find('#key-team').element as HTMLSelectElement).value).toBe('t1')
     expect((wrapper.find('#key-team').element as HTMLSelectElement).disabled).toBe(true)
+    expect(wrapper.text()).toContain('an upper bound on every key this key is used for')
+    expect(wrapper.text()).not.toContain('embedding and rerank models included')
     await checkbox(wrapper, 'Read usage')
+    await checkbox(wrapper, 'Read the organisation')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(create.mock.calls[0]![0]).toMatchObject({ teamId: 't1', integrationId: 'i1', integrationRole: 'Credential', integrationScopes: ['usage.read'] })
+    expect(create.mock.calls[0]![0]).toMatchObject({ teamId: 't1', integrationId: 'i1', integrationRole: 'Credential', integrationScopes: ['usage.read', 'organisation.read'] })
   })
 
   it('shows an assigned key’s integration on edit and does not send it again', async () => {

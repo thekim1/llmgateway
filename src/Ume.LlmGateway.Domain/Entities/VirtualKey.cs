@@ -117,6 +117,52 @@ public sealed class VirtualKey
     /// <summary>The assigned key with <paramref name="id"/> of this credential key's integration, or null.</summary>
     public VirtualKey? AssignedKey(Guid id) => _assignedById is { } index && index.TryGetValue(id, out var key) ? key : null;
 
+    private List<DataResidency>? _ownResidencies;
+    private bool _noCommonResidency;
+    private IReadOnlyList<Department>? _organisation;
+
+    /// <summary>The key's residencies as set on it: <see cref="AllowedResidencies"/> before <see cref="BoundBy"/> narrowed them.</summary>
+    public IReadOnlyList<DataResidency> OwnAllowedResidencies => _ownResidencies ?? AllowedResidencies;
+
+    /// <summary>After <see cref="BoundBy"/>: the credential key and this key allow no residency in common, so it cannot be used through that key.</summary>
+    public bool NoCommonResidency => _noCommonResidency;
+
+    /// <summary>
+    /// For an assigned key held by <paramref name="credential"/> in the read-only key cache: narrows
+    /// <see cref="AllowedResidencies"/> to those the credential key allows too, so a platform service never reaches a
+    /// residency above its own key's (docs/integrations.md). Done once per load: requests read the narrowed list as any
+    /// key's. A credential key without a list bounds nothing. When nothing is left the list is kept (empty would mean
+    /// all) and <see cref="NoCommonResidency"/> is set. Call before <see cref="IndexAllowLists"/>.
+    /// </summary>
+    public void BoundBy(VirtualKey credential)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        if (credential.AllowedResidencies.Count == 0)
+        {
+            return;
+        }
+
+        var bounded = AllowedResidencies.Count == 0
+            ? [.. credential.AllowedResidencies]
+            : AllowedResidencies.Where(credential.AllowedResidencies.Contains).ToList();
+        if (bounded.Count == 0)
+        {
+            _noCommonResidency = true;
+            return;
+        }
+
+        _ownResidencies = AllowedResidencies;
+        AllowedResidencies = bounded;
+    }
+
+    /// <summary>
+    /// For a credential key with the scope <see cref="Keys.IntegrationScopes.OrganisationRead"/> held in the read-only
+    /// key cache: every department with its teams, for <c>/v1/ume/context</c>. Null otherwise. Not stored.
+    /// </summary>
+    public IReadOnlyList<Department>? Organisation => _organisation;
+
+    public void HoldOrganisation(IReadOnlyList<Department> departments) => _organisation = departments;
+
     public KeyStatus GetStatus(DateTimeOffset now)
     {
         if (RevokedAt is { } revoked && revoked <= now)

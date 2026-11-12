@@ -78,6 +78,9 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.HasOne(x => x.Integration).WithMany().HasForeignKey(x => x.IntegrationId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => x.IntegrationId);
             e.Ignore(x => x.AssignedKeys);
+            e.Ignore(x => x.OwnAllowedResidencies);
+            e.Ignore(x => x.NoCommonResidency);
+            e.Ignore(x => x.Organisation);
         });
 
         modelBuilder.Entity<Integration>(e =>

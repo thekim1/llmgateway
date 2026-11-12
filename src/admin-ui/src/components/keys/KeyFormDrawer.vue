@@ -8,7 +8,7 @@ import { useIntegrationsStore } from '@/stores/integrations'
 import { useKeysStore } from '@/stores/keys'
 import { useProvidersStore } from '@/stores/providers'
 import { useTeamsStore } from '@/stores/teams'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, INTEGRATION_ROLE, INTEGRATION_SCOPE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, RESIDENCY } from '@/utils/labels'
+import { ASSIGNED_KEY_HINT, ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, CREDENTIAL_RESIDENCY_HINT, INTEGRATION_ROLE, INTEGRATION_SCOPE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, RESIDENCY } from '@/utils/labels'
 import { dateInputToIso, isBlank, isoToDateInput, parseInteger } from '@/utils/validation'
 import { addressListError, formatAddressList, parseAddressList } from '@/utils/addresses'
 import { todayIso } from '@/utils/format'
@@ -103,6 +103,7 @@ const integrationOptions = computed(() => [
 const chosenIntegration = computed(() => integrations.items.find((i) => i.id === values.integrationId) ?? null)
 const roleOptions = (['Assigned', 'Credential'] as const).map((r) => ({ value: r, label: INTEGRATION_ROLE[r].label }))
 const isCredential = computed(() => (isEdit.value ? props.existing?.integrationRole === 'Credential' : !!values.integrationId && values.integrationRole === 'Credential'))
+const isAssigned = computed(() => (isEdit.value ? props.existing?.integrationRole === 'Assigned' : !!values.integrationId && values.integrationRole === 'Assigned'))
 // A credential key's settings apply to every team the integration serves, so only gateway admins change it.
 const lockedCredential = computed(() => isEdit.value && props.existing?.integrationRole === 'Credential' && !auth.isGatewayAdmin)
 const scopeChoices = computed(() => {
@@ -345,8 +346,9 @@ async function submit(): Promise<void> {
             {{ INTEGRATION_ROLE[existing?.integrationRole ?? 'None'].label.toLowerCase() }} key.
             <span class="block text-small text-fg-2">{{ INTEGRATION_ROLE[existing?.integrationRole ?? 'None'].description }}</span>
           </p>
+          <p v-if="isAssigned" class="m-0 text-small text-fg-2">{{ ASSIGNED_KEY_HINT }}</p>
           <fieldset v-if="isCredential && auth.isGatewayAdmin" :id="ids.integrationScopes" class="m-0 flex min-w-0 flex-col gap-1 border-0 p-0" tabindex="-1">
-            <legend class="mb-1.5 p-0 font-medium">Integration API access</legend>
+            <legend class="mb-1.5 p-0 font-medium">Integration access</legend>
             <CheckField
               v-for="scope in scopeChoices"
               :key="scope"
@@ -373,6 +375,7 @@ async function submit(): Promise<void> {
               />
             </div>
             <span class="text-small text-fg-3">{{ values.residencies.length === 0 ? 'No selection means any residency.' : 'Requests only reach providers in the selected locations.' }}</span>
+            <span v-if="isCredential" class="text-small text-fg-2">{{ CREDENTIAL_RESIDENCY_HINT }}</span>
             <span v-if="errors.allowedResidencies" class="text-small text-danger">{{ errors.allowedResidencies }}</span>
             <CheckField v-model="values.requireMaxResidency" label="Require residency header" :description="REQUIRE_MAX_RESIDENCY_HINT" />
           </div>
