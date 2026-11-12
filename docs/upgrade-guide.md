@@ -11,7 +11,13 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
-## Unreleased: integrations (phases 1 to 3)
+## 0.10.0: integrations for platforms such as a RAG system, department member groups
+
+- **Compose and Kubernetes:** the Compose files (`compose.prod.yaml`, `compose.hardening.yaml`, the Portainer stack)
+  now pass `UME_ADMIN_PUBLIC_URL` to the gateway as `Gateway__AdminUrl` and `UME_INTEGRATION_REQUESTS_PER_MINUTE` to
+  the admin API. Add `UME_ADMIN_PUBLIC_URL=https://<admin host>[:port]` to an existing `deploy/.env` if platforms
+  should link to the admin console; unset leaves it out. `Gateway:AdminUrl` may now be empty (it refused `""` before).
+  The Kubernetes example lists both as comments.
 
 - **Department member groups, rolling update: yes.** Migration `DepartmentMemberGroups` adds
   `Departments.MemberGroups` (`text[]`, default empty); a previous version ignores the column. Nothing changes until a
@@ -46,8 +52,8 @@ See [runbook](runbook.md) for the actual deployment procedure.
 - `GET /v1/models` now reports a model's own residency (`ume.residency`) when it has one, as routing has done since
   0.9.1; a client that read the provider's residency there sees the model's.
 - **Security update:** the images are built on .NET 10.0.15 (`aspnet:10.0.15-noble-chiseled-extra`); use the new images.
-- **Optional:** set `Gateway__AdminUrl` to the admin console's public address to hand it to integrations on
-  `/v1/ume/context`.
+- **Optional:** set `Gateway__AdminUrl` (`UME_ADMIN_PUBLIC_URL` in Compose) to the admin console's public address to
+  hand it to integrations on `/v1/ume/context`.
 - **Connecting a platform** ([integrations](integrations.md)): create the integration under *Access › Integrations*,
   then its credential keys in the owner team; departments create assigned keys for their chatbots.
 

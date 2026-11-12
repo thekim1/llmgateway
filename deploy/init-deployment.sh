@@ -243,6 +243,7 @@ if [ "$renew" = 0 ] || [ ! -f "$env_file" ]; then
   # PKI certificates rarely cover the internal name "gateway", so the admin API reaches
   # the gateway's operations endpoint by its public name instead.
   [ "$pki" = 1 ] && ops_url="UME_GATEWAY_OPERATIONS_URL=https://$gateway_host$public_gw"
+  admin_url="https://$admin_host$public_admin"
   cat > "$env_file" <<EOF
 # Non-secret settings for deploy/compose.prod.yaml. Secrets live in UME_SECRETS_DIR.
 UME_CERTS_DIR=$certs
@@ -251,6 +252,8 @@ UME_OIDC_AUTHORITY=$oidc_authority
 UME_OIDC_CLIENT_ID=$oidc_client
 UME_GATEWAY_PUBLIC_URL=https://$gateway_host$public_gw
 UME_ADMIN_PUBLIC_HOST=$admin_host
+# The admin console's address, handed to integrations (/v1/ume/context) for links to a key or budget.
+UME_ADMIN_PUBLIC_URL=$admin_url
 $ops_url
 # Listeners default to loopback (0.0.0.0 with --proxy: firewall them to the proxy only).
 UME_GATEWAY_BIND=$bind
@@ -278,6 +281,8 @@ UME_DATA_PORT=10443
 # UME_OIDC_GROUPS_DEPARTMENT_ADMIN=
 # UME_OIDC_GROUPS_VIEWER=
 # UME_OIDC_GROUPS_TEAM_ADMIN=
+# Integration API (/integration/v1): requests per minute per credential key (default 60).
+# UME_INTEGRATION_REQUESTS_PER_MINUTE=60
 # Pin images by digest once pushed to your registry, for example:
 # GATEWAY_IMAGE=registry.example.se/ume/gateway@sha256:...
 # ADMINAPI_IMAGE=registry.example.se/ume/adminapi@sha256:...

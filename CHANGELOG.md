@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.10.0 - 2026-11-12
+
+Integrations: a platform such as a RAG system connects to the gateway as one object, runs each chatbot on a gateway key
+of the department that owns it, reads its settings, cost and budgets from the gateway, and no longer needs the Data API
+(ADR 020, 021; [docs/integrations.md](docs/integrations.md), contract [docs/openapi/integrations.json](docs/openapi/integrations.json)).
+Department member groups. Three migrations (`Integrations`, `UsageRunMetadata`, `DepartmentMemberGroups`, all
+additive). **Rolling update: yes.** **Changed behaviour** for a credential key that has a residency list (see the
+upgrade guide).
+
+**Deployment.** The Compose files pass `UME_ADMIN_PUBLIC_URL` (gateway `Gateway__AdminUrl`, written by
+`init-deployment.sh`) and `UME_INTEGRATION_REQUESTS_PER_MINUTE` (admin API `Admin__IntegrationRequestsPerMinute`);
+the Kubernetes example lists both. `Gateway:AdminUrl` may be empty (an empty value stopped the gateway from starting).
+
 **Department member groups.** A department can list the identity provider groups whose members belong to it
 (*Organisation › Edit department*, gateway admins; `memberGroups` on the admin API, audited). A user whose group claim
 holds one of them gets the department's scope at admin sign-in, as if the `departmentCodes` claim had listed its

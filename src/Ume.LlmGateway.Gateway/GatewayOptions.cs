@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 using Ume.LlmGateway.Gateway.Routing;
 using Ume.LlmGateway.Infrastructure.Providers;
@@ -103,9 +103,9 @@ public sealed class GatewayOptions
 
     /// <summary>
     /// The admin console's public address, handed to integrations on <c>/v1/ume/context</c> so a platform can link to a key
-    /// or budget (docs/integrations.md). Empty leaves it out.
+    /// or budget (docs/integrations.md). Empty leaves it out, so a deployment can pass an unset variable.
     /// </summary>
-    [Url]
+    [RegularExpression("^$|^https?://\\S+$", ErrorMessage = "Gateway:AdminUrl must be empty or an absolute http(s) URL.")]
     public string? AdminUrl { get; set; }
 
     /// <summary>Optional webhook that receives budget threshold alerts (metadata only).</summary>

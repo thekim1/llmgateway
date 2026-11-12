@@ -25,7 +25,7 @@ the gateway's values, without the Data API.
 - **No Data API for integrations**, no new service, and nothing on the request path beyond header and in-memory
   lookups: no Postgres call and no extra Redis round trip ([performance.md](performance.md)).
 
-## Today (v0.9.2)
+## Before 0.10.0
 
 | Surface | Credential | A RAG platform uses it for |
 |---|---|---|

@@ -33,10 +33,12 @@ configMapGenerator:
       # - Oidc__RoleClaim=roles
       # - Oidc__RoleGroups__gateway-admin=GG-Llm-Admins
       # - DataApi__PublicUrl=https://llm-data.example.se
+      # - Admin__IntegrationRequestsPerMinute=60
   - name: ume-gateway-config
     behavior: merge
     literals: []
       # - OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.observability:4317
+      # - Gateway__AdminUrl=https://llm-admin.example.se
   # With ../components/dataapi:
   # - name: ume-dataapi-config
   #   behavior: merge

@@ -288,6 +288,10 @@ Set `GATEWAY_IMAGE`, `ADMINAPI_IMAGE`, `MIGRATIONS_IMAGE` (and `DATAAPI_IMAGE` w
 Set `UME_CERTS_DIR`, `UME_SECRETS_DIR` to absolute operator-managed directories.
 Set `UME_OIDC_AUTHORITY` (HTTPS), `UME_OIDC_CLIENT_ID`, `UME_GATEWAY_PUBLIC_URL` (HTTPS).
 Optional `UME_GATEWAY_BIND/PORT` and `UME_ADMIN_BIND/PORT` default to loopback:8443/9443.
+For [integrations](integrations.md): `UME_ADMIN_PUBLIC_URL` (gateway `Gateway__AdminUrl`, the admin console's address
+handed to platforms on `/v1/ume/context`; `init-deployment.sh` writes it, empty leaves it out) and
+`UME_INTEGRATION_REQUESTS_PER_MINUTE` (admin API `Admin__IntegrationRequestsPerMinute`, default 60, per credential key
+on `/integration/v1`).
 Base interpolation also uses `GATEWAY_PORT`/`ADMINAPI_PORT` (set 8443). Its discarded
 `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `KEY_PEPPER` placeholders may be empty: the override
 **replaces** these environments and file secrets are authoritative. Never put actual
