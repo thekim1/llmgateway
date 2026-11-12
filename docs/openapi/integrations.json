@@ -360,7 +360,7 @@
         "name": "x-ume-on-behalf-of",
         "in": "header",
         "required": false,
-        "description": "The id of an assigned key of the credential key's integration: the request is made as that key. The answer echoes it; treat a missing echo as a failure (an older instance ignores the header). 400 invalid_request when it is not one GUID; 403 delegation_not_allowed when the caller is not a credential key, the id is not an assigned key of its integration, or the two keys allow no residency in common; 403 with the key's ordinary code when it is disabled, expired, revoked or its owner is inactive.",
+        "description": "The id of an assigned key of the credential key's integration: the request is made as that key. The answer echoes it; treat a missing echo as a failure (an older instance ignores the header). 400 invalid_request when it is not one GUID; 403 delegation_not_allowed when the caller is not a credential key, the id is not an assigned key of its integration, or the two keys allow no residency in common; 403 key_disabled, key_expired or key_revoked when it is disabled (or its owner inactive), expired or revoked; never 401, which is about the credential key itself.",
         "schema": {
           "type": "string",
           "format": "uuid"
