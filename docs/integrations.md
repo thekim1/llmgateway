@@ -89,7 +89,7 @@ all its keys are revoked, and a team that owns one cannot be deleted. The admin 
 | No header | the credential key itself, as any key |
 | Header not one key id (GUID), or repeated | `400 invalid_request` |
 | Caller is not a credential key, or the id is not an assigned key of the same integration | `403 delegation_not_allowed` (unknown ids answer the same) |
-| Assigned key disabled, revoked, expired, or its team or department inactive | `403` with the key's ordinary reason (`key_disabled`, ...) |
+| Assigned key disabled, revoked, expired, or its team or department inactive | `403` with the key's reason: `key_disabled`, `key_revoked` or `key_expired` (never `401`: the credential key authenticated; before 0.10.1 an expired key answered `401` and a revoked one `403 delegation_not_allowed`) |
 | Usable | the request continues **as the assigned key**; the answer echoes `x-ume-on-behalf-of` |
 
 From there on the pipeline sees the assigned key and needs no other change:

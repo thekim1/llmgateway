@@ -75,6 +75,10 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
         "Only an integration's credential key can send x-ume-on-behalf-of.");
     public static GatewayError KeyNotAssigned { get; } = new(403, GatewayErrorCodes.DelegationNotAllowed,
         "The key in x-ume-on-behalf-of is not a key assigned to this integration.");
+    public static GatewayError ActingKeyRevoked { get; } = new(403, GatewayErrorCodes.KeyRevoked,
+        "The key in x-ume-on-behalf-of has been revoked. Assign its replacement.");
+    public static GatewayError ActingKeyExpired { get; } = new(403, GatewayErrorCodes.KeyExpired,
+        "The key in x-ume-on-behalf-of has expired. Ask your administrator to rotate it.");
     public static GatewayError NoCommonResidency { get; } = new(403, GatewayErrorCodes.DelegationNotAllowed,
         "The key in x-ume-on-behalf-of and the credential key allow no residency in common.");
     public static GatewayError AddressNotAllowed { get; } = new(403, GatewayErrorCodes.AddressNotAllowed,

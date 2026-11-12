@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.10.1 - 2026-11-12
+
+Fix. No migration. **Rolling update: yes.** **Changed behaviour** for integrations (thekim1/ume-rag-platform#580).
+
+**Acting as a revoked or expired assigned key answers `403`.** A request from a credential key with
+`x-ume-on-behalf-of` naming an expired assigned key answered `401 key_expired`, and one naming a revoked assigned key
+answered `403 delegation_not_allowed`. Both now answer `403` with `key_expired` or `key_revoked`, as
+[docs/integrations.md](docs/integrations.md) and the contract say: the credential key authenticated, so a `401` wrongly
+said that its own key failed. Security event 1006 now logs a revoked key with the reason `key_revoked` instead of
+`key_not_assigned`. For an expired key the code is unchanged, only the status. The key cache of a credential
+key also holds the ids of its integration's revoked assigned keys (one more query when the entry is loaded, none per request).
+
 ## 0.10.0 - 2026-11-12
 
 Integrations: a platform such as a RAG system connects to the gateway as one object, runs each chatbot on a gateway key

@@ -106,16 +106,25 @@ public sealed class VirtualKey
     /// </summary>
     public IReadOnlyList<VirtualKey> AssignedKeys { get; private set; } = [];
 
-    /// <summary>Holds <paramref name="keys"/> as <see cref="AssignedKeys"/>, indexed by id; call once, when the key is loaded for read-only use.</summary>
-    public void IndexAssignedKeys(IReadOnlyList<VirtualKey> keys)
+    private FrozenSet<Guid>? _revokedAssignedIds;
+
+    /// <summary>
+    /// Holds <paramref name="keys"/> as <see cref="AssignedKeys"/>, indexed by id, and the ids of the integration's revoked
+    /// assigned keys (only their ids, so a request naming one is told it is revoked); call once, when the key is loaded for read-only use.
+    /// </summary>
+    public void IndexAssignedKeys(IReadOnlyList<VirtualKey> keys, IEnumerable<Guid>? revokedIds = null)
     {
         ArgumentNullException.ThrowIfNull(keys);
         AssignedKeys = keys;
         _assignedById = keys.ToFrozenDictionary(k => k.Id);
+        _revokedAssignedIds = revokedIds?.ToFrozenSet();
     }
 
     /// <summary>The assigned key with <paramref name="id"/> of this credential key's integration, or null.</summary>
     public VirtualKey? AssignedKey(Guid id) => _assignedById is { } index && index.TryGetValue(id, out var key) ? key : null;
+
+    /// <summary>Whether <paramref name="id"/> is a revoked assigned key of this credential key's integration.</summary>
+    public bool IsRevokedAssignedKey(Guid id) => _revokedAssignedIds?.Contains(id) == true;
 
     private List<DataResidency>? _ownResidencies;
     private bool _noCommonResidency;

@@ -149,14 +149,17 @@ public sealed partial class RequestStages(
         }
 
         var assigned = caller.IntegrationRole == IntegrationRole.Credential ? caller.AssignedKey(id) : null;
+        // A refusal of the assigned key is 403: the caller authenticated, so a 401 would wrongly say its own key failed.
         var (error, reason) = assigned is null
             ? caller.IntegrationRole != IntegrationRole.Credential
                 ? (GatewayError.NotCredentialKey, "not_credential")
-                : (GatewayError.KeyNotAssigned, "key_not_assigned")
+                : caller.IsRevokedAssignedKey(id)
+                    ? (GatewayError.ActingKeyRevoked, "key_revoked")
+                    : (GatewayError.KeyNotAssigned, "key_not_assigned")
             : assigned.GetStatus(now) switch
             {
-                KeyStatus.Revoked => (GatewayError.KeyRevoked, "key_revoked"),
-                KeyStatus.Expired => (GatewayError.KeyExpired, "key_expired"),
+                KeyStatus.Revoked => (GatewayError.ActingKeyRevoked, "key_revoked"),
+                KeyStatus.Expired => (GatewayError.ActingKeyExpired, "key_expired"),
                 KeyStatus.Disabled => (GatewayError.KeyDisabled, "key_disabled"),
                 _ when assigned.Team is not { IsActive: true } || assigned.Team.Department is not { IsActive: true }
                     => (GatewayError.KeyOwnerInactive, "owner_inactive"),

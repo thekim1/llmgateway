@@ -198,7 +198,12 @@ public sealed class KeyAuthenticator : IDisposable
                 assignedKey.IndexAllowLists();
             }
 
-            key.IndexAssignedKeys(assigned);
+            // Revoked ones by id only, so acting as one answers key_revoked rather than "not assigned".
+            var revoked = await db.VirtualKeys.AsNoTracking()
+                .Where(k => k.IntegrationId == integrationId && k.IntegrationRole == IntegrationRole.Assigned && k.RevokedAt != null)
+                .Select(k => k.Id)
+                .ToListAsync(CancellationToken.None);
+            key.IndexAssignedKeys(assigned, revoked);
             if (key.IntegrationScopes.Contains(IntegrationScopes.OrganisationRead))
             {
                 // The whole organisation for /v1/ume/context: creating, changing or deleting a department or team publishes Keys.

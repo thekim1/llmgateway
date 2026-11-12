@@ -11,6 +11,13 @@ Production deployment now uses chiseled-extra images, immutable base digests, fi
 secrets, verified TLS, restricted DB roles/Redis ACL, static SPA serving and segmented Compose.
 See [runbook](runbook.md) for the actual deployment procedure.
 
+## 0.10.1: acting refusals answer 403
+
+- **Rolling update: yes.** No migration, no configuration change.
+- **Changed behaviour:** with `x-ume-on-behalf-of`, an expired assigned key answers `403 key_expired` (was `401`) and a
+  revoked one `403 key_revoked` (was `403 delegation_not_allowed`). During the update both answers occur; a platform
+  that matches on `error.code` with the header set handles both.
+
 ## 0.10.0: integrations for platforms such as a RAG system, department member groups
 
 - **Compose and Kubernetes:** the Compose files (`compose.prod.yaml`, `compose.hardening.yaml`, the Portainer stack)

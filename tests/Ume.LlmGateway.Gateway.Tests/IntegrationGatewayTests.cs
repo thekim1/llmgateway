@@ -239,6 +239,8 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         var other = await CreateIntegrationAsync();
         var otherKey = await fixture.CreateKeyAsync(k => Assign(k, other, IntegrationRole.Assigned));
         var disabled = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.IsEnabled = false; });
+        var revoked = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.RevokedAt = DateTimeOffset.UtcNow.AddMinutes(-1); });
+        var expired = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1); });
         var ordinary = await fixture.CreateKeyAsync();
 
         (await RefusalAsync(ordinary, foreign.Id.ToString())).ShouldBe((403, "delegation_not_allowed"));
@@ -246,6 +248,9 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         (await RefusalAsync(credential, Guid.NewGuid().ToString())).ShouldBe((403, "delegation_not_allowed"));
         (await RefusalAsync(credential, "chatbot")).ShouldBe((400, "invalid_request"));
         (await RefusalAsync(credential, disabled.Id.ToString())).ShouldBe((403, "key_disabled"));
+        // The credential key authenticated, so a refusal of the assigned key is never a 401.
+        (await RefusalAsync(credential, revoked.Id.ToString())).ShouldBe((403, "key_revoked"));
+        (await RefusalAsync(credential, expired.Id.ToString())).ShouldBe((403, "key_expired"));
     }
 
     [Fact]
