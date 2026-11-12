@@ -36,6 +36,26 @@ every department whatever their codes are.
 Scoping applies to departments and everything under them: teams, keys, budgets, alerts, usage, PII incidents and the CSV
 export.
 
+**Member groups.** Instead of (or besides) a code on each account, a gateway admin can give a department **member
+groups** (*Organisation › Edit department*): values of the identity provider's group claim, one per line. A user whose
+group claim (`Oidc:GroupClaim`, default `groups`) holds one of them gets that department's code at sign-in, as if the
+`departmentCodes` claim had listed it.
+
+- A member group is whatever the claim holds: an object id with Entra ID, a group name with Keycloak and AD FS. It is
+  compared ignoring case, like the groups in `Oidc:RoleGroups`.
+- A group gives the department's scope only, **never a role**. A user in a member group who has no role still sees nothing.
+- Only the token is read. A group the token does not show adds nothing, and Entra ID leaves the group claim out for a
+  user in more groups than fit in a token (about 200): that user gets the codes of the `departmentCodes` claim only.
+  So the result can be narrower than the configuration says, never wider.
+- Only active departments count. A change applies at the user's next sign-in, like every other claim.
+- `/bff/user` lists where each code came from in `departmentSources` (`claim` or `group`).
+- The provider must put the groups in the token: Keycloak with a *Group Membership* mapper (claim `groups`, *Full group
+  path* off), Entra ID with *Token configuration → Add groups claim* (security groups), AD FS with the `group` claim it
+  already issues for the role groups.
+
+Platforms connected as an [integration](integrations.md) read the same member groups from the gateway and apply the
+same rule, so a department's members are set in one place.
+
 ### Team scope
 
 Team admins manage the keys of the teams listed in their `teamCodes` claim. Each value is matched exactly against a
@@ -230,12 +250,17 @@ federation against a test directory ([Keycloak](keycloak.md#identity-providers-b
 check them against your own provider:
 
 1. Sign in to the admin UI, then open `https://<admin host>/bff/user`. It shows the `roles` and `departmentCodes` the API
-   received after mapping, without the tokens.
+   received after mapping, without the tokens, and in `departmentSources` whether each code came from the claim or from
+   a department's member group.
 2. Sign in once as each role and check what you can see and change against the table above.
 3. Sign in as a department admin and check that other departments' usage and keys are not visible.
 4. Sign in as a team admin and check that only the keys of the teams with their team codes are listed. In local runs the
    Keycloak user `team-admin` manages the seeded team *Digitalisering & AI* (team code `digitalisering-ai`).
-5. A user who can sign in but sees nothing has no role (or no department codes); an error on sign-in is usually a redirect
+5. If you use member groups: sign in as a user who has no department code but is in a member group, and check that the
+   department shows and that `/bff/user` lists its code with the source `group`. In local runs (a new Keycloak volume
+   and a newly seeded database) the Keycloak user `group-member` is in the group `IFO-medarbetare`, a member group of
+   the seeded department *Individ- och familjeomsorgen* (3000).
+6. A user who can sign in but sees nothing has no role (or no department codes); an error on sign-in is usually a redirect
    URI or the authority URL. *Health and troubleshooting* in the [runbook](runbook.md#health-and-troubleshooting) has more.
 
 **Local development against your provider.** Set `Oidc:Authority`, `Oidc:ClientId`, `Oidc:ClientSecret` and any mapping

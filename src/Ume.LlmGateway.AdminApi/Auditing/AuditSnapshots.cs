@@ -12,9 +12,9 @@ namespace Ume.LlmGateway.AdminApi.Auditing;
 // Audit snapshots: what an entity's stored settings were before and after a change. They hold only the entity's own
 // columns, so an entry does not depend on which navigations were loaded or on the clock, and never a secret.
 
-public sealed record DepartmentAudit(Guid Id, string Name, string CostCenterCode, bool IsActive)
+public sealed record DepartmentAudit(Guid Id, string Name, string CostCenterCode, bool IsActive, IReadOnlyList<string>? MemberGroups = null)
 {
-    public static DepartmentAudit Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive);
+    public static DepartmentAudit Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive, [.. d.MemberGroups]);
 }
 
 public sealed record TeamAudit(Guid Id, Guid DepartmentId, string Name, string? Description, bool IsActive, RequestPolicy? RequestPolicy = null, string? Code = null)

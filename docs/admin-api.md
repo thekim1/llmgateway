@@ -22,7 +22,8 @@ shows this as a notice.
 - `POST /bff/session/extend` → `{ sessionExpiresAt, sessionLimitAt }`, renews an authenticated session for eight
   hours (but not past `sessionLimitAt`) without losing unsaved forms. At the limit it answers `409`: sign in again.
   Requires the same CSRF headers as other mutations.
-- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], teamCodes: string[], sessionExpiresAt, sessionLimitAt }`
+- `GET /bff/user` → `{ isAuthenticated, name, email, roles: string[], departmentCodes: string[], teamCodes: string[], departmentSources: [{ code, source: "claim" | "group" }], sessionExpiresAt, sessionLimitAt }`
+  (`group`: the code came from a [member group](identity-and-roles.md#department-scope) of the department)
   (always 200; `isAuthenticated=false` when not signed in). `sessionLimitAt` is the absolute end of the session.
 - Session cookie: `__Host-ume-admin`, HttpOnly, Secure, SameSite=Lax (compatible with OIDC redirects).
   No tokens reach the browser. The cookie only holds a session id; the session itself is stored encrypted in Redis
@@ -71,9 +72,12 @@ Roles (OIDC `roles` claim):
 - `CircuitState`: `Closed`, `Open`
 
 ## Organisation
-- `GET /api/departments` → `Department[]` where `Department = { id, name, costCenterCode, isActive, teamCount, createdAt }`
-- `POST /api/departments` `{ name, costCenterCode }` → 201 `Department` *(gateway-admin)*
-- `PUT /api/departments/{id}` `{ name, costCenterCode, isActive }` → `Department`
+- `GET /api/departments` → `Department[]` where `Department = { id, name, costCenterCode, isActive, teamCount, createdAt, memberGroups: string[] }`
+- `POST /api/departments` `{ name, costCenterCode, memberGroups? }` → 201 `Department` *(gateway-admin)*
+- `PUT /api/departments/{id}` `{ name, costCenterCode, isActive, memberGroups? }` → `Department` *(gateway-admin)*
+  - `memberGroups`: values of the identity provider's group claim whose members get the department's scope at sign-in
+    ([Department scope](identity-and-roles.md#department-scope)). Omitted = unchanged, `[]` clears. At most 50, each 1 to
+    256 characters without control characters; trimmed, duplicates removed ignoring case.
 - `DELETE /api/departments/{id}` → 204 (409 if it has teams)
 - `GET /api/teams?departmentId=` → `Team[]` where `Team = { id, departmentId, departmentName, name, description, isActive, keyCount, createdAt, requestPolicy: RequestPolicy|null, code: string|null }`
   (team admins get their own teams; every other role the teams of its departments)

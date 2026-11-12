@@ -32,7 +32,7 @@ const rulesProblem = {
   detail: 'The team is the only owner of 2 routing rule(s). Choose whether the rules are deleted or deactivated.',
 }
 
-const department = (teamCount: number): Department => ({ id: 'd1', name: 'Kommunstyrelsen', costCenterCode: 'KS', isActive: true, teamCount, createdAt: '2026-01-01T00:00:00Z' })
+const department = (teamCount: number): Department => ({ id: 'd1', name: 'Kommunstyrelsen', costCenterCode: 'KS', isActive: true, teamCount, createdAt: '2026-01-01T00:00:00Z', memberGroups: [] })
 const team: Team = { id: 't1', departmentId: 'd1', departmentName: 'Kommunstyrelsen', name: 'Servicedesk', description: null, isActive: true, keyCount: 0, createdAt: '2026-01-01T00:00:00Z' }
 
 async function mountView(departments: Department[], teams: Team[]) {

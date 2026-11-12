@@ -8,7 +8,7 @@ the gateway's values, without the Data API.
 > keys, `/v1/ume/context`, the model facts on `/v1/models`, the model output limit (phase 1); acting as an assigned key,
 > run metadata, the cost of streamed answers and the Data API fields (phase 2); the Integration API with usage and
 > budget status (phase 3). After the RAG platform's review: the credential key's residencies bound every key it acts
-> as, the scope `organisation.read`, and the contract as an OpenAPI document. Webhooks (phase 4) are not planned yet. Decided by the gateway owner: a chatbot
+> as, the scope `organisation.read`, the contract as an OpenAPI document, and department member groups. Webhooks (phase 4) are not planned yet. Decided by the gateway owner: a chatbot
 > (assistant) is configured with a gateway key of its own, set up in the gateway; gateway keys are reused on the
 > Integration API; settings are entered once; streamed cost is wanted. It replaces the delegation design kept in the
 > RAG platform's repository (`plans/gateway-changes/design.md` §5, draft ADR 020). The gateway still never depends
@@ -223,10 +223,13 @@ chatbot's model picker and the check on save.
   that serves public traffic. An ordinary key gets `integration: null`, no assigned keys, and its own team and
   department.
 - `features` lets a client test for a capability instead of comparing versions (phase 2 adds `act-as-key`,
-  `run-metadata`, `stream-cost`; then `credential-residencies` for the residency bound and `organisation` for the
-  scope). `admin_url` is `Gateway:AdminUrl` (optional), for links to a key or budget.
-- Department member groups are not included: the gateway does not have them (neither has the Data API). When the
-  gateway gets them, each department gains `member_groups` here, under the same scope.
+  `run-metadata`, `stream-cost`; then `credential-residencies` for the residency bound, `organisation` for the
+  scope and `member-groups` for the departments' member groups). `admin_url` is `Gateway:AdminUrl` (optional), for links to a key or budget.
+- With the same scope each department carries **`member_groups`** (feature `member-groups`): the values of the
+  identity provider's group claim whose members belong to the department, set on *Organisation* in the gateway
+  ([Department scope](identity-and-roles.md#department-scope)). A platform gives a signed-in user the department's
+  scope when the user's group claim holds one of them, compared ignoring case, as the gateway's own admin sign-in
+  does. Membership never gives a role. Without the scope the field is absent.
 - The answer comes from the key cache: a credential key is loaded with its integration's assigned keys (one more query
   on a cold load, and one for the organisation with the scope; none per request), and every key, team, department or
   integration change drops the cache, creating or deleting a department or team included. Like
@@ -342,8 +345,6 @@ Recorded as ADR 020 and 021 in [adr.md](adr.md).
 - A platform-wide cap: acted requests count against the assigned key's limits only. Not needed by Ume.Rag for now
   (knowledge bases have their own keys and the worker limits itself). If one is needed (so indexing cannot starve
   chat), the credential key's concurrency limit can be counted too, in the same script.
-- Department member groups (sign-in scope from identity provider groups): not in the gateway. If added, they are
-  listed per department in the context under `organisation.read`.
 - Whether `pricing` on `/v1/models` should list every eligible target instead of the first (a fallback can cost
   differently; the actual cost is on the answer either way). Built: the first.
 - `x-ume-stream-cost` with the Anthropic and Responses stream shapes: verify with the SDKs first.

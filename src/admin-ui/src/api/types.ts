@@ -109,6 +109,8 @@ export interface BffUser {
   email: string | null
   roles: string[]
   departmentCodes: string[]
+  /** Where each department code came from: the department claim, or a member group of the department. */
+  departmentSources?: { code: string; source: 'claim' | 'group' }[]
   /** Team codes of a team admin: the teams whose keys they manage. */
   teamCodes?: string[]
   sessionExpiresAt: IsoDateTime | null
@@ -133,15 +135,20 @@ export interface Department {
   isActive: boolean
   teamCount: number
   createdAt: IsoDateTime
+  /** Values of the identity provider's group claim whose members get this department's scope at sign-in. */
+  memberGroups: string[]
 }
 export interface CreateDepartmentRequest {
   name: string
   costCenterCode: string
+  memberGroups?: string[]
 }
 export interface UpdateDepartmentRequest {
   name: string
   costCenterCode: string
   isActive: boolean
+  /** Omitted = unchanged; [] clears. */
+  memberGroups?: string[]
 }
 
 /** What an administrator imposes on a team's or key's requests; a key's values win over its team's. */

@@ -11,7 +11,33 @@ namespace Ume.LlmGateway.AdminApi.Organisation;
 public sealed record DepartmentRequest(
     [property: Required, StringLength(200)] string Name,
     [property: Required, StringLength(50)] string CostCenterCode,
-    bool IsActive = true) : AdminRequest;
+    bool IsActive = true,
+    // Values of the identity provider's group claim whose members get this department's scope. Omitted = unchanged; [] clears it.
+    List<string>? MemberGroups = null) : AdminRequest, IValidatableObject
+{
+    public const int MaxMemberGroups = 50;
+    public const int MaxMemberGroupLength = 256;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (MemberGroups is not { } groups)
+        {
+            yield break;
+        }
+        if (groups.Count > MaxMemberGroups)
+        {
+            yield return new ValidationResult($"A department can have at most {MaxMemberGroups} member groups.", [nameof(MemberGroups)]);
+        }
+        if (groups.Any(g => g is null || g.Trim() is not { Length: > 0 and <= MaxMemberGroupLength } trimmed || trimmed.Any(char.IsControl)))
+        {
+            yield return new ValidationResult($"A member group is 1 to {MaxMemberGroupLength} characters, without control characters.", [nameof(MemberGroups)]);
+        }
+    }
+
+    /// <summary>Trimmed, without duplicates (compared as the group claim is matched: ignoring case).</summary>
+    public List<string>? NormalisedMemberGroups() =>
+        MemberGroups is null ? null : [.. MemberGroups.Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)];
+}
 
 public sealed record TeamRequest(
     Guid DepartmentId,
@@ -36,9 +62,10 @@ public sealed record TeamRequest(
     }
 }
 
-public sealed record DepartmentDto(Guid Id, string Name, string CostCenterCode, bool IsActive, int TeamCount, DateTimeOffset CreatedAt)
+public sealed record DepartmentDto(Guid Id, string Name, string CostCenterCode, bool IsActive, int TeamCount, DateTimeOffset CreatedAt,
+    IReadOnlyList<string> MemberGroups)
 {
-    public static DepartmentDto Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive, d.Teams.Count, d.CreatedAt);
+    public static DepartmentDto Of(Department d) => new(d.Id, d.Name, d.CostCenterCode, d.IsActive, d.Teams.Count, d.CreatedAt, d.MemberGroups);
 }
 
 public sealed record TeamDto(Guid Id, Guid DepartmentId, string? DepartmentName, string Name, string? Description, bool IsActive, int KeyCount, DateTimeOffset CreatedAt,

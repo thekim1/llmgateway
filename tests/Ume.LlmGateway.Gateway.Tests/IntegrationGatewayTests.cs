@@ -315,7 +315,7 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
-            var department = new Department { Name = "Org " + Guid.NewGuid().ToString("N"), CostCenterCode = Guid.NewGuid().ToString("N")[..8], CreatedAt = DateTimeOffset.UtcNow };
+            var department = new Department { Name = "Org " + Guid.NewGuid().ToString("N"), CostCenterCode = Guid.NewGuid().ToString("N")[..8], CreatedAt = DateTimeOffset.UtcNow, MemberGroups = ["IFO-medarbetare"] };
             var team = new Team { Name = "Without keys", Department = department, CreatedAt = DateTimeOffset.UtcNow };
             var inactive = new Team { Name = "Closed", Department = department, IsActive = false, CreatedAt = DateTimeOffset.UtcNow };
             db.AddRange(department, team, inactive);
@@ -325,8 +325,12 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
 
         using var all = await GetAsync(scoped, "/v1/ume/context");
         var body = JsonNode.Parse(await all.Content.ReadAsStringAsync(Ct))!;
-        ((JsonArray)body["gateway"]!["features"]!).Select(f => f!.GetValue<string>()).ShouldContain("organisation");
+        var features = ((JsonArray)body["gateway"]!["features"]!).Select(f => f!.GetValue<string>()).ToList();
+        features.ShouldContain("organisation");
+        features.ShouldContain("member-groups");
         var departments = ((JsonArray)body["departments"]!).Select(d => d!["id"]!.GetValue<Guid>()).ToList();
+        var listed = ((JsonArray)body["departments"]!).Single(d => d!["id"]!.GetValue<Guid>() == departmentId)!;
+        ((JsonArray)listed["member_groups"]!).Select(g => g!.GetValue<string>()).ShouldBe(["IFO-medarbetare"]);
         departments.ShouldContain(departmentId);
         departments.ShouldContain(fixture.DepartmentId);
         departments.Count.ShouldBe(departments.Distinct().Count());

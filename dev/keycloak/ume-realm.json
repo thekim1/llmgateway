@@ -118,6 +118,9 @@
       ]
     }
   ],
+  "groups": [
+    { "name": "IFO-medarbetare" }
+  ],
   "users": [
     {
       "username": "gateway-admin",
@@ -150,6 +153,17 @@
       "enabled": true,
       "realmRoles": [ "viewer" ],
       "attributes": { "departmentCodes": [ "1000" ] },
+      "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
+    },
+    {
+      "username": "group-member",
+      "firstName": "Group",
+      "lastName": "Member",
+      "email": "group-member@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [ "viewer" ],
+      "groups": [ "/IFO-medarbetare" ],
       "credentials": [ { "type": "password", "value": "${UME_DEV_USER_PASSWORD}", "temporary": false } ]
     },
     {

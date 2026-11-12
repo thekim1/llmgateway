@@ -76,6 +76,13 @@ const summary = computed(() => `${plural(props.department.teamCount, 'team')} ·
         </template>
         <p v-else class="text-small text-fg-3">No budget set for this department. Add one under Budgets &amp; alerts.</p>
       </div>
+      <div v-if="department.memberGroups.length" class="flex flex-col gap-1">
+        <h3 class="text-small font-medium text-fg-2">Member groups</h3>
+        <p class="text-small text-fg-3">Users in these identity provider groups see this department.</p>
+        <ul class="flex flex-wrap gap-2">
+          <li v-for="group in department.memberGroups" :key="group" class="rounded-chip bg-fill-2 px-2 py-0.5 font-mono text-small">{{ group }}</li>
+        </ul>
+      </div>
     </div>
 
     <div class="flex flex-col gap-3">

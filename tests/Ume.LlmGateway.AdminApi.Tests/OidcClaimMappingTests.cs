@@ -72,4 +72,45 @@ public sealed class OidcClaimMappingTests
         AdminAuthentication.ApplyClaimMapping(user, new OidcOptions { RoleGroups = new() { ["viewer"] = "GG-Llm-Viewers" } });
         Values(user, "roles").ShouldBeEmpty();
     }
+
+    private static readonly DepartmentGroups[] Departments =
+    [
+        new("3000", ["IFO-medarbetare", "0b6c6c0e-1111-4222-8333-444455556666"]),
+        new("4000", ["Teknik"]),
+    ];
+
+    [Fact]
+    public void A_member_group_gives_the_departments_code_and_never_a_role()
+    {
+        var user = Principal(("departmentCodes", "KS"), ("groups", "ifo-MEDARBETARE"), ("groups", "Something else"));
+        var fromGroups = AdminAuthentication.ApplyClaimMapping(user, new OidcOptions(), Departments);
+        fromGroups.ShouldBe(["3000"]);
+        Values(user, "departmentCodes").ShouldBe(["KS", "3000"]);
+        Values(user, "roles").ShouldBeEmpty();
+        Values(user, "groups").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_code_the_claim_already_holds_is_not_added_again_and_counts_as_from_the_claim()
+    {
+        var user = Principal(("departmentCodes", "3000"), ("groups", "[\"IFO-medarbetare\",\"Teknik\"]"));
+        var fromGroups = AdminAuthentication.ApplyClaimMapping(user, new OidcOptions(), Departments);
+        fromGroups.ShouldBe(["4000"]);
+        Values(user, "departmentCodes").ShouldBe(["3000", "4000"]);
+
+        var properties = new Microsoft.AspNetCore.Authentication.AuthenticationProperties();
+        DepartmentMembership.Store(properties, fromGroups);
+        DepartmentMembership.Sources(Values(user, "departmentCodes"), properties)
+            .ShouldBe([new DepartmentSource("3000", "claim"), new DepartmentSource("4000", "group")]);
+        DepartmentMembership.Sources(["KS"], null).ShouldBe([new DepartmentSource("KS", "claim")]);
+    }
+
+    [Fact]
+    public void A_token_without_the_group_claim_gets_the_claims_codes_only()
+    {
+        // Entra above its group limit: no groups claim, only _claim_names.
+        var user = Principal(("departmentCodes", "KS"), ("_claim_names", "{\"groups\":\"src1\"}"));
+        AdminAuthentication.ApplyClaimMapping(user, new OidcOptions(), Departments).ShouldBeEmpty();
+        Values(user, "departmentCodes").ShouldBe(["KS"]);
+    }
 }

@@ -9,15 +9,15 @@ namespace Ume.LlmGateway.Gateway.Requests;
 /// <summary>
 /// <c>GET /v1/ume/context</c> (docs/integrations.md): what the presented key is and what it may use, so another system
 /// can fill its settings from the gateway instead of keeping copies. For a credential key of an integration: the
-/// integration, its assigned keys with their settings, and their teams and departments (every department and team
-/// when the key holds the scope <c>organisation.read</c>); for any other key: the key, its team and department.
+/// integration, its assigned keys with their settings, and their teams and departments (every department and team,
+/// with the departments' member groups, when the key holds the scope <c>organisation.read</c>); for any other key: the key, its team and department.
 /// Answered from the key cache (a credential key carries its assigned keys), with an <c>ETag</c>. Not accounted, like
 /// <c>/v1/models</c>.
 /// </summary>
 public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<GatewayOptions> options, TimeProvider time)
 {
     /// <summary>What this gateway supports, for clients to test instead of comparing versions. Values are only added.</summary>
-    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations", "act-as-key", "run-metadata", "stream-cost", "credential-residencies", "organisation"];
+    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations", "act-as-key", "run-metadata", "stream-cost", "credential-residencies", "organisation", "member-groups"];
 
     /// <summary>The release version, without the commit after <c>+</c> (as <c>/version</c> reports it in full).</summary>
     private static readonly string? Version = typeof(ContextEndpoint).Assembly
@@ -59,11 +59,13 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
 
         IEnumerable<Department> departments = teams.Values.Select(t => t.Department).OfType<Department>().DistinctBy(d => d.Id);
         IEnumerable<Team> listedTeams = teams.Values;
+        var wholeOrganisation = false;
         if (credential && key.Organisation is { } organisation)
         {
             // The scope organisation.read: the whole organisation, which includes the teams above.
             departments = organisation;
             listedTeams = organisation.SelectMany(d => d.Teams);
+            wholeOrganisation = true;
         }
 
         return new JsonObject
@@ -89,13 +91,7 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
             ["integration"] = credential
                 ? new JsonObject { ["id"] = key.Integration!.Id, ["name"] = key.Integration.Name, ["owner_team_id"] = key.Integration.OwnerTeamId }
                 : null,
-            ["departments"] = new JsonArray([.. departments.OrderBy(d => d.Name, StringComparer.Ordinal).ThenBy(d => d.Id).Select(d => (JsonNode?)new JsonObject
-            {
-                ["id"] = d.Id,
-                ["name"] = d.Name,
-                ["cost_center_code"] = d.CostCenterCode,
-                ["is_active"] = d.IsActive,
-            })]),
+            ["departments"] = new JsonArray([.. departments.OrderBy(d => d.Name, StringComparer.Ordinal).ThenBy(d => d.Id).Select(d => (JsonNode?)Department(d, wholeOrganisation))]),
             ["teams"] = new JsonArray([.. listedTeams.OrderBy(t => t.Name, StringComparer.Ordinal).ThenBy(t => t.Id).Select(t => (JsonNode?)new JsonObject
             {
                 ["id"] = t.Id,
@@ -106,6 +102,24 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
             })]),
             ["assigned_keys"] = new JsonArray([.. assigned.Select(k => (JsonNode?)AssignedKey(k, now))]),
         };
+    }
+
+    /// <summary>Member groups (who belongs to the department at sign-in) only with the scope <c>organisation.read</c>.</summary>
+    private static JsonObject Department(Department d, bool withMemberGroups)
+    {
+        var department = new JsonObject
+        {
+            ["id"] = d.Id,
+            ["name"] = d.Name,
+            ["cost_center_code"] = d.CostCenterCode,
+            ["is_active"] = d.IsActive,
+        };
+        if (withMemberGroups)
+        {
+            department["member_groups"] = Strings(d.MemberGroups);
+        }
+
+        return department;
     }
 
     /// <summary>

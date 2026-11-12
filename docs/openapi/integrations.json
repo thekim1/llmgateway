@@ -507,7 +507,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Capabilities to test for instead of comparing versions; values are only added. Known: max-residency, model-facts, integrations, act-as-key, run-metadata, stream-cost, credential-residencies, organisation."
+            "description": "Capabilities to test for instead of comparing versions; values are only added. Known: max-residency, model-facts, integrations, act-as-key, run-metadata, stream-cost, credential-residencies, organisation, member-groups."
           }
         }
       },
@@ -607,6 +607,13 @@
           },
           "is_active": {
             "type": "boolean"
+          },
+          "member_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only with the scope organisation.read (feature member-groups). Values of the identity provider's group claim (an Entra object id, an AD FS or Keycloak group name) whose members belong to the department. Match them against a user's group claim ignoring case; membership gives the department's scope, never a role."
           }
         }
       },

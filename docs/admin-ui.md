@@ -21,6 +21,10 @@ the keys of their own teams, with every key setting a department admin has; the 
 teams. A team gets team admins when a department admin or gateway admin gives it a **Team code** (*Organisation › Edit
 team*) that is in the team admins' `teamCodes` claim; see [Identity provider and roles](identity-and-roles.md#team-scope).
 
+**Department members from groups.** A gateway admin can list identity provider groups on a department (*Organisation ›
+Edit department › Member groups*, one per line). Users in one of them see the department after their next sign-in,
+without a department code on each account; see [Department scope](identity-and-roles.md#department-scope).
+
 **On a phone** the bar at the bottom has Overview, Alerts, Keys and Health, plus **Menu**. Menu opens every page (same groups
 as the side menu), search, the theme switch, your session and **Sign out**. Close it with ×, Esc, a tap outside, or by
 choosing a page. Search opens full screen with the field at the top, so the keyboard never covers the results; **Cancel**
