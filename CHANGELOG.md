@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+**Integrations: the credential key bounds residencies, the whole organisation in the context, the contract as
+OpenAPI** (after the RAG platform's review, thekim1/ume-rag-platform#580). A request made as an assigned key
+(`x-ume-on-behalf-of`) now reaches only the residencies **both** keys allow: the credential key's residencies are an
+upper bound (a key without a list allows all; its model list still does not apply). Two keys with no residency in
+common: `403 delegation_not_allowed`, security event 1006 with the reason `no_common_residency`. **Changed
+behaviour** for a credential key that has a residency list: check that list before upgrading. The bound is applied
+when the key cache loads, so the request path is unchanged. `/v1/ume/context`: the key's `allowed_residencies`,
+`usable` on each assigned key, the features `credential-residencies` and `organisation`, and, for a credential key
+with the new scope `organisation.read`, every department and team instead of only those of the integration's keys
+(creating or deleting a department or team now drops the key cache). The integration contract is published as
+[docs/openapi/integrations.json](docs/openapi/integrations.json) and tested against the real answers. Admin UI: the
+key form explains that a chatbot key needs every model the platform uses for one question (embedding and rerank
+included) and enough requests per minute for them, and that a credential key's residencies are an upper bound. No
+migration.
+
 **Integrations, phase 3: the Integration API.** `/integration/v1` on the admin API, for a platform's own services: a
 credential key holding the scope `usage.read` reads `GET /integration/v1/usage` (requests, tokens and cost of the
 integration's keys per Stockholm day or month, by key, model and step, with the monthly totals before the retention

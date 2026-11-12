@@ -207,4 +207,23 @@ public class KeyStatusAndRotationTests
         KeyRotation.Revoke(old, Now.AddHours(1));
         old.IsUsable(Now.AddHours(1)).ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData("", "OnPrem,Eu", "OnPrem,Eu", false)] // a credential key without a list bounds nothing
+    [InlineData("OnPrem,Eu", "", "OnPrem,Eu", false)] // an assigned key without a list gets the credential key's
+    [InlineData("OnPrem", "OnPrem,Eu", "OnPrem", false)]
+    [InlineData("OnPrem,Eu", "Eu,External", "Eu", false)]
+    [InlineData("OnPrem", "Eu", "Eu", true)] // nothing in common: kept (empty would mean all) and flagged
+    public void An_assigned_keys_residencies_are_bounded_by_the_credential_keys(string credential, string assigned, string expected, bool none)
+    {
+        static List<DataResidency> Parse(string list) => [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(Enum.Parse<DataResidency>)];
+        var via = new VirtualKey { Name = "c", Prefix = "p", KeyHash = "h", AllowedResidencies = Parse(credential) };
+        var key = new VirtualKey { Name = "a", Prefix = "p", KeyHash = "h", AllowedResidencies = Parse(assigned) };
+
+        key.BoundBy(via);
+
+        key.AllowedResidencies.ShouldBe(Parse(expected));
+        key.OwnAllowedResidencies.ShouldBe(Parse(assigned));
+        key.NoCommonResidency.ShouldBe(none);
+    }
 }

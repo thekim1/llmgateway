@@ -120,7 +120,7 @@ of the team may create one, its `secret` in the create response is `null` and no
 false), it cannot be rotated (409) or used directly (`403 integration_only`), only through the integration's credential
 keys. `Credential` keys are created only by gateway admins, in the integration's owner team (400 on `teamId` otherwise),
 and only gateway admins change them (403); their managers may still rotate and revoke them. `integrationScopes`
-(`usage.read`): gateway admins only, credential keys only; omitted = none on create, unchanged on update; copied on
+(`usage.read`, `organisation.read`): gateway admins only, credential keys only; omitted = none on create, unchanged on update; copied on
 rotation with the integration and role. The integration must be active to add a key to it, 409 otherwise.)
 
 - `GET /api/keys?teamId=&departmentId=&status=&integrationId=` → `VirtualKey[]` (the keys the user manages: own departments, or own teams for a team admin)
@@ -457,7 +457,7 @@ and invalidate the gateway catalogue.
   `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled` (also when the key's team, department or integration is
   deactivated), `address_not_allowed` (403: the key is restricted to other client addresses), `integration_only` (403: a key
   assigned to an [integration](integrations.md) was presented directly), `delegation_not_allowed` (403: `x-ume-on-behalf-of`
-  from a key that is not a credential key, or naming a key that is not assigned to its integration), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
+  from a key that is not a credential key, naming a key that is not assigned to its integration, or one that shares no residency with the credential key), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
   `max_residency_not_met` (403, see [residency ceiling](#residency-ceiling-per-request)), `context_length_exceeded`,
   `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two

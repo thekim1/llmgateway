@@ -7,7 +7,8 @@ the gateway's values, without the Data API.
 > **Status.** Design accepted 2026-11-11. **Phases 1 to 3 are implemented**: integrations, credential and assigned
 > keys, `/v1/ume/context`, the model facts on `/v1/models`, the model output limit (phase 1); acting as an assigned key,
 > run metadata, the cost of streamed answers and the Data API fields (phase 2); the Integration API with usage and
-> budget status (phase 3). Webhooks (phase 4) are not planned yet. Decided by the gateway owner: a chatbot
+> budget status (phase 3). After the RAG platform's review: the credential key's residencies bound every key it acts
+> as, the scope `organisation.read`, and the contract as an OpenAPI document. Webhooks (phase 4) are not planned yet. Decided by the gateway owner: a chatbot
 > (assistant) is configured with a gateway key of its own, set up in the gateway; gateway keys are reused on the
 > Integration API; settings are entered once; streamed cost is wanted. It replaces the delegation design kept in the
 > RAG platform's repository (`plans/gateway-changes/design.md` §5, draft ADR 020). The gateway still never depends
@@ -96,7 +97,8 @@ From there on the pipeline sees the assigned key and needs no other change:
 | Aspect | From |
 |---|---|
 | Client address list, residency ceiling header (`x-ume-max-residency`) | the credential key and the request |
-| Models, providers, residencies, PII, attachments, provider tools and storage, content guard | the assigned key |
+| Residencies | those **both** keys allow: the assigned key's, within the credential key's |
+| Models, providers, PII, attachments, provider tools and storage, content guard | the assigned key |
 | Rate, token and concurrency limits | the assigned key (a limit per chatbot) |
 | Request policy, routing rules | the assigned key's, its team's and department's |
 | Budgets and token quotas | the assigned key, its team, its department |
@@ -104,8 +106,17 @@ From there on the pipeline sees the assigned key and needs no other change:
 | `LastUsedAt` | both keys |
 | `x-ume-max-residency` required | when either key has `RequireMaxResidency` |
 
-The credential key's own model and residency lists do not apply to a request made as another key: the grant is the
-assignment, made by the people who manage the assigned key. The ceiling header still narrows every request.
+The credential key's own model list does not apply to a request made as another key: the grant is the assignment,
+made by the people who manage the assigned key. Its **residencies are an upper bound**: a request made as an assigned
+key reaches only residencies that both keys allow (a key without a list allows all). A platform can so give a service
+that must never leave the building a credential key with `OnPrem` only, whatever the departments' keys allow, and a
+forgotten header or a stolen credential cannot reach further. When the two keys have no residency in common the
+request is refused (`403 delegation_not_allowed`, reason `no_common_residency`) and the context lists the key with
+`usable: false`. The ceiling header still narrows every request.
+
+The bound costs nothing per request: an assigned key is held in the cache once per credential key, and its residency
+list is narrowed there when it is loaded (`VirtualKey.BoundBy`), so routing, `/v1/models` and the ceiling read it as
+any key's.
 
 **In the code.** `RequestStages.AuthenticateAsync` returns an `AuthenticatedKey` (the key the request is made as,
 and `Via`, the credential key); the HTTP, live-session, model-list and context entry points all use it, so every
@@ -116,7 +127,8 @@ lookup, and one dictionary lookup when the header is there.
 
 Refusals are answered before the body is read, like authentication failures, and are not usage records (the
 request never ran as either key). They are logged as security event 1006 `gateway.delegation.refused` (`Reason`:
-`not_credential`, `key_not_assigned`, `key_revoked`, `key_expired`, `key_disabled`, `owner_inactive`; `RequestId`,
+`not_credential`, `key_not_assigned`, `key_revoked`, `key_expired`, `key_disabled`, `owner_inactive`,
+`no_common_residency`; `RequestId`,
 `OnBehalfOf` as sent, at most 100 characters, `Endpoint`, and the credential key's `KeyId`, `KeyPrefix`, `TeamId`,
 `DepartmentId`). A malformed header is a client bug and logs nothing. `/v1/models` and `/v1/ume/context` with the
 header answer for the assigned key, which is the chatbot's model picker and the check on save.
@@ -184,14 +196,14 @@ chatbot's model picker and the check on save.
   "object": "ume.context",
   "gateway": { "version": "0.10.0", "admin_url": "https://…", "features": ["max-residency", "model-facts", "integrations"] },
   "key": { "id": "…", "name": "Ume.Rag api", "prefix": "ume-sk-AbC1", "team_id": "…", "integration_role": "Credential",
-           "integration_scopes": ["usage.read"], "require_max_residency": true },
+           "integration_scopes": ["usage.read"], "require_max_residency": true, "allowed_residencies": [] },
   "integration": { "id": "…", "name": "Ume.Rag", "owner_team_id": "…" },
   "departments": [{ "id": "…", "name": "…", "cost_center_code": "3000", "is_active": true }],
   "teams": [{ "id": "…", "department_id": "…", "name": "…", "code": "…", "is_active": true }],
   "assigned_keys": [{
     "id": "…", "name": "Stadsbyggnad chatbot", "description": null, "team_id": "…", "department_id": "…",
     "status": "Active", "owner_active": true, "expires_at": null,
-    "allowed_models": [], "allowed_residencies": ["OnPrem", "Eu"], "allowed_providers": [], "pii_policy": "Redact",
+    "allowed_models": [], "allowed_residencies": ["OnPrem", "Eu"], "usable": true, "allowed_providers": [], "pii_policy": "Redact",
     "content_guard_policy": "Off", "attachment_policy": "Allowed", "allow_provider_tools": false, "allow_provider_storage": false,
     "requests_per_minute": 120, "tokens_per_minute": null, "max_concurrent_requests": null,
     "max_output_tokens": 2000, "has_system_prompt": false
@@ -202,14 +214,22 @@ chatbot's model picker and the check on save.
 - `assigned_keys` are the integration's assigned keys that are not revoked (disabled and expired ones are listed with
   their `status`, so a platform can say why a chatbot stopped); never a secret or hash. `max_output_tokens` and
   `has_system_prompt` come from the key's and its team's request policy combined, as a request gets them.
-- `departments` and `teams` are those of the assigned keys, plus the credential key's own (the owner team). An
-  ordinary key gets `integration: null`, no assigned keys, and its own team and department.
+  `allowed_residencies` is the key's own setting; a request made as the key reaches those the presented credential
+  key (`key.allowed_residencies`, empty = all) allows too, and `usable` is false when that leaves none.
+- `departments` and `teams` are those of the assigned keys, plus the credential key's own (the owner team). A
+  credential key with the scope **`organisation.read`** gets **every department and team**, inactive ones included
+  (`is_active`), so a platform can share an object with the whole organisation, or let an owner team be chosen before
+  its department has made a key. The scope is per key: give it to the service that syncs the organisation, not to one
+  that serves public traffic. An ordinary key gets `integration: null`, no assigned keys, and its own team and
+  department.
 - `features` lets a client test for a capability instead of comparing versions (phase 2 adds `act-as-key`,
-  `run-metadata`, `stream-cost`). `admin_url` is `Gateway:AdminUrl` (optional), for links to a key or budget.
-- Department member groups are not included: the gateway does not have them yet (feature C of the RAG platform's
-  gateway plan).
+  `run-metadata`, `stream-cost`; then `credential-residencies` for the residency bound and `organisation` for the
+  scope). `admin_url` is `Gateway:AdminUrl` (optional), for links to a key or budget.
+- Department member groups are not included: the gateway does not have them (neither has the Data API). When the
+  gateway gets them, each department gains `member_groups` here, under the same scope.
 - The answer comes from the key cache: a credential key is loaded with its integration's assigned keys (one more query
-  on a cold load, none per request), and every key, team, department or integration change drops the cache. Like
+  on a cold load, and one for the organisation with the scope; none per request), and every key, team, department or
+  integration change drops the cache, creating or deleting a department or team included. Like
   `/v1/models` it is not accounted and has no rate limit of its own; send `If-None-Match` to get `304`.
 
 ## Integration API (control plane)
@@ -224,7 +244,8 @@ chatbot's model picker and the check on save.
   them. Its own rate limit per key, `Admin:IntegrationRequestsPerMinute` (60). Every read is logged as security event
   2006 `admin.data.read` with the actor `integration:<name>`.
 - **Scopes are per key**, set by gateway admins, empty by default: a platform gives `usage.read` to its admin
-  service only, so a key that serves public chat can read nothing.
+  service only, so a key that serves public chat can read nothing. (`organisation.read` is a scope too, for
+  [`/v1/ume/context`](#discovery-data-plane) on the data plane.)
 
 | Scope | Endpoint | |
 |---|---|---|
@@ -278,7 +299,7 @@ Postgres statements and 8 Redis commands, as before.
 | Today | With this |
 |---|---|
 | Organisation and model sync read the Data API with a Data API key | read `/v1/ume/context` and `/v1/models` with a credential key; the Data API key and network path go away |
-| Per-level keys of the pilot team in each service | one credential key per service; the ceiling header stays on every call |
+| Per-level keys of the pilot team in each service | one credential key per service, with the residencies that service may ever reach (an upper bound); the ceiling header stays on every call |
 | All traffic charged to the pilot team | an assistant, and a knowledge base for its indexing, has a gateway key chosen from the department's assigned keys; every call sends `x-ume-on-behalf-of` and checks the echo |
 | Output limit and tool support typed in per model | read from the gateway |
 | Own cost estimate from mirrored prices | the gateway's cost: `x-ume-cost-usd`, the stream comment, or `usage.read` |
@@ -295,8 +316,11 @@ loaded into the gateway process. Candidates for later, off the request path: web
 threshold, key disabled, catalogue changed) so platforms need not poll.
 
 The contract (`/v1/ume/context`, the `ume` model fields, the headers and `/integration/v1`) is published as an
-OpenAPI document in this repository and changed by addition only within `v1`, so a platform's fake gateway can be
-tested against it.
+OpenAPI 3.1 document, [openapi/integrations.json](openapi/integrations.json), and changed by addition only within
+`v1` (new fields, features, scopes and enum values; a client ignores what it does not know), so a platform's fake
+gateway can be tested against it. The gateway's own tests hold the real answers to the document
+(`IntegrationContract` in the test kit): a field that is not described, or a described one that is missing, fails
+the build.
 
 ## Phases
 
@@ -315,8 +339,11 @@ Recorded as ADR 020 and 021 in [adr.md](adr.md).
 
 ## Open points
 
-- A platform-wide cap: acted requests count against the assigned key's limits only. If one is needed (so indexing
-  cannot starve chat), the credential key's concurrency limit can be counted too, in the same script.
+- A platform-wide cap: acted requests count against the assigned key's limits only. Not needed by Ume.Rag for now
+  (knowledge bases have their own keys and the worker limits itself). If one is needed (so indexing cannot starve
+  chat), the credential key's concurrency limit can be counted too, in the same script.
+- Department member groups (sign-in scope from identity provider groups): not in the gateway. If added, they are
+  listed per department in the context under `organisation.read`.
 - Whether `pricing` on `/v1/models` should list every eligible target instead of the first (a fallback can cost
   differently; the actual cost is on the answer either way). Built: the first.
 - `x-ume-stream-cost` with the Anthropic and Responses stream shapes: verify with the SDKs first.

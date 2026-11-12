@@ -7,6 +7,7 @@ using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Requests;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.Gateway.Tests;
 
@@ -261,6 +262,90 @@ public sealed class IntegrationGatewayTests(GatewayFixture fixture)
         headers["x-ume-max-residency"] = "Eu";
         using var ok = await fixture.SendAsync(credential, headers: headers);
         ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task The_credential_keys_residencies_are_an_upper_bound_on_the_keys_it_acts_as()
+    {
+        var integration = await CreateIntegrationAsync();
+        var worker = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Credential); k.AllowedResidencies = [DataResidency.OnPrem]; });
+        var api = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Credential));
+        var open = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+        var both = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.AllowedResidencies = [DataResidency.OnPrem, DataResidency.Eu]; });
+        var euOnly = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Assigned); k.AllowedResidencies = [DataResidency.Eu]; });
+
+        foreach (var chatbot in new[] { open, both })
+        {
+            using var above = await fixture.SendAsync(worker, "eu/ok", headers: Acting(chatbot));
+            above.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable); // as for any key whose residencies exclude the model's providers
+            (await ErrorCodeAsync(above)).ShouldBe("no_eligible_provider");
+            using var within = await fixture.SendAsync(worker, "onprem/ok", headers: Acting(chatbot));
+            within.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+            // A credential key without a list bounds nothing.
+            using var unbounded = await fixture.SendAsync(api, "eu/ok", headers: Acting(chatbot));
+            unbounded.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        // Nothing in common: refused as a delegation, not run with either list.
+        (await RefusalAsync(worker, euOnly.Id.ToString())).ShouldBe((403, "delegation_not_allowed"));
+
+        using var models = await GetAsync(worker, "/v1/models", headers: Acting(both));
+        var ids = ((JsonArray)JsonNode.Parse(await models.Content.ReadAsStringAsync(Ct))!["data"]!).Select(m => m!["id"]!.GetValue<string>()).ToList();
+        ids.ShouldContain("onprem/ok");
+        ids.ShouldNotContain("eu/ok");
+
+        // The context shows each key's own setting, the credential key's bound, and whether the two leave anything.
+        using var response = await GetAsync(worker, "/v1/ume/context");
+        var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
+        ((JsonArray)body["key"]!["allowed_residencies"]!).Select(r => r!.GetValue<string>()).ShouldBe(["OnPrem"]);
+        var listed = ((JsonArray)body["assigned_keys"]!).ToDictionary(k => k!["id"]!.GetValue<Guid>(), k => k!);
+        ((JsonArray)listed[both.Id]["allowed_residencies"]!).Select(r => r!.GetValue<string>()).ShouldBe(["OnPrem", "Eu"]);
+        listed[both.Id]["usable"]!.GetValue<bool>().ShouldBeTrue();
+        listed[euOnly.Id]["usable"]!.GetValue<bool>().ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_context_lists_the_whole_organisation_only_for_a_credential_key_with_the_scope()
+    {
+        var integration = await CreateIntegrationAsync();
+        var plain = await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Credential));
+        var scoped = await fixture.CreateKeyAsync(k => { Assign(k, integration, IntegrationRole.Credential); k.IntegrationScopes = ["organisation.read"]; });
+        Guid departmentId, teamId, inactiveTeamId;
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
+            var department = new Department { Name = "Org " + Guid.NewGuid().ToString("N"), CostCenterCode = Guid.NewGuid().ToString("N")[..8], CreatedAt = DateTimeOffset.UtcNow };
+            var team = new Team { Name = "Without keys", Department = department, CreatedAt = DateTimeOffset.UtcNow };
+            var inactive = new Team { Name = "Closed", Department = department, IsActive = false, CreatedAt = DateTimeOffset.UtcNow };
+            db.AddRange(department, team, inactive);
+            await db.SaveChangesAsync(Ct);
+            (departmentId, teamId, inactiveTeamId) = (department.Id, team.Id, inactive.Id);
+        }
+
+        using var all = await GetAsync(scoped, "/v1/ume/context");
+        var body = JsonNode.Parse(await all.Content.ReadAsStringAsync(Ct))!;
+        ((JsonArray)body["gateway"]!["features"]!).Select(f => f!.GetValue<string>()).ShouldContain("organisation");
+        var departments = ((JsonArray)body["departments"]!).Select(d => d!["id"]!.GetValue<Guid>()).ToList();
+        departments.ShouldContain(departmentId);
+        departments.ShouldContain(fixture.DepartmentId);
+        departments.Count.ShouldBe(departments.Distinct().Count());
+        var teams = ((JsonArray)body["teams"]!).ToDictionary(t => t!["id"]!.GetValue<Guid>(), t => t!);
+        teams[teamId]["department_id"]!.GetValue<Guid>().ShouldBe(departmentId);
+        teams[inactiveTeamId]["is_active"]!.GetValue<bool>().ShouldBeFalse();
+        teams.ShouldContainKey(scoped.TeamId);
+
+        // The published contract describes exactly these answers (docs/openapi/integrations.json).
+        await fixture.CreateKeyAsync(k => Assign(k, integration, IntegrationRole.Assigned));
+        using var withKeys = await GetAsync(scoped, "/v1/ume/context");
+        IntegrationContract.Differences(JsonNode.Parse(await withKeys.Content.ReadAsStringAsync(Ct)), "UmeContext").ShouldBeEmpty();
+        using var models = await GetAsync(scoped, "/v1/models");
+        IntegrationContract.Differences(JsonNode.Parse(await models.Content.ReadAsStringAsync(Ct)), "ModelList").ShouldBeEmpty();
+
+        using var own = await GetAsync(plain, "/v1/ume/context");
+        var ownTeams = ((JsonArray)JsonNode.Parse(await own.Content.ReadAsStringAsync(Ct))!["teams"]!).Select(t => t!["id"]!.GetValue<Guid>()).ToList();
+        ownTeams.ShouldContain(plain.TeamId);
+        ownTeams.ShouldNotContain(teamId); // a team without a key of the integration
     }
 
     [Fact]

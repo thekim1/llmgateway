@@ -9,14 +9,15 @@ namespace Ume.LlmGateway.Gateway.Requests;
 /// <summary>
 /// <c>GET /v1/ume/context</c> (docs/integrations.md): what the presented key is and what it may use, so another system
 /// can fill its settings from the gateway instead of keeping copies. For a credential key of an integration: the
-/// integration, its assigned keys with their settings, and their teams and departments; for any other key: the key, its
-/// team and department. Answered from the key cache (a credential key carries its assigned keys), with an <c>ETag</c>.
-/// Not accounted, like <c>/v1/models</c>.
+/// integration, its assigned keys with their settings, and their teams and departments (every department and team
+/// when the key holds the scope <c>organisation.read</c>); for any other key: the key, its team and department.
+/// Answered from the key cache (a credential key carries its assigned keys), with an <c>ETag</c>. Not accounted, like
+/// <c>/v1/models</c>.
 /// </summary>
 public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<GatewayOptions> options, TimeProvider time)
 {
     /// <summary>What this gateway supports, for clients to test instead of comparing versions. Values are only added.</summary>
-    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations", "act-as-key", "run-metadata", "stream-cost"];
+    public static IReadOnlyList<string> Features { get; } = ["max-residency", "model-facts", "integrations", "act-as-key", "run-metadata", "stream-cost", "credential-residencies", "organisation"];
 
     /// <summary>The release version, without the commit after <c>+</c> (as <c>/version</c> reports it in full).</summary>
     private static readonly string? Version = typeof(ContextEndpoint).Assembly
@@ -56,7 +57,15 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
             }
         }
 
-        var departments = teams.Values.Select(t => t.Department).OfType<Department>().DistinctBy(d => d.Id);
+        IEnumerable<Department> departments = teams.Values.Select(t => t.Department).OfType<Department>().DistinctBy(d => d.Id);
+        IEnumerable<Team> listedTeams = teams.Values;
+        if (credential && key.Organisation is { } organisation)
+        {
+            // The scope organisation.read: the whole organisation, which includes the teams above.
+            departments = organisation;
+            listedTeams = organisation.SelectMany(d => d.Teams);
+        }
+
         return new JsonObject
         {
             ["object"] = "ume.context",
@@ -75,18 +84,19 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
                 ["integration_role"] = key.IntegrationRole.ToString(),
                 ["integration_scopes"] = Strings(key.IntegrationScopes),
                 ["require_max_residency"] = key.RequireMaxResidency,
+                ["allowed_residencies"] = Strings(key.OwnAllowedResidencies.Select(r => r.ToString())),
             },
             ["integration"] = credential
                 ? new JsonObject { ["id"] = key.Integration!.Id, ["name"] = key.Integration.Name, ["owner_team_id"] = key.Integration.OwnerTeamId }
                 : null,
-            ["departments"] = new JsonArray([.. departments.OrderBy(d => d.Name, StringComparer.Ordinal).Select(d => (JsonNode?)new JsonObject
+            ["departments"] = new JsonArray([.. departments.OrderBy(d => d.Name, StringComparer.Ordinal).ThenBy(d => d.Id).Select(d => (JsonNode?)new JsonObject
             {
                 ["id"] = d.Id,
                 ["name"] = d.Name,
                 ["cost_center_code"] = d.CostCenterCode,
                 ["is_active"] = d.IsActive,
             })]),
-            ["teams"] = new JsonArray([.. teams.Values.OrderBy(t => t.Name, StringComparer.Ordinal).Select(t => (JsonNode?)new JsonObject
+            ["teams"] = new JsonArray([.. listedTeams.OrderBy(t => t.Name, StringComparer.Ordinal).ThenBy(t => t.Id).Select(t => (JsonNode?)new JsonObject
             {
                 ["id"] = t.Id,
                 ["department_id"] = t.DepartmentId,
@@ -116,7 +126,8 @@ public sealed class ContextEndpoint(RequestStages stages, IOptionsMonitor<Gatewa
             ["owner_active"] = k.Team is { IsActive: true, Department.IsActive: true },
             ["expires_at"] = k.ExpiresAt,
             ["allowed_models"] = Strings(k.AllowedModels),
-            ["allowed_residencies"] = Strings(k.AllowedResidencies.Select(r => r.ToString())),
+            ["allowed_residencies"] = Strings(k.OwnAllowedResidencies.Select(r => r.ToString())),
+            ["usable"] = !k.NoCommonResidency,
             ["allowed_providers"] = Strings(k.AllowedProviders),
             ["pii_policy"] = k.PiiPolicy.ToString(),
             ["content_guard_policy"] = k.ContentGuardPolicy.ToString(),

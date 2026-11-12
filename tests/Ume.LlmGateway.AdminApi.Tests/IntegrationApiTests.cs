@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Infrastructure.Persistence;
+using Ume.LlmGateway.TestKit;
 
 namespace Ume.LlmGateway.AdminApi.Tests;
 
@@ -30,6 +31,7 @@ public sealed class IntegrationApiTests(AdminFixture fixture)
         using (var byKey = await client.GetAsync($"/integration/v1/usage?{day}", Ct))
         {
             var body = await AdminFixture.ReadAsync(byKey);
+            IntegrationContract.Differences(body, "IntegrationUsage").ShouldBeEmpty();
             var row = body["items"]!.AsArray().Single()!;
             row["keyId"]!.GetValue<Guid>().ShouldBe(s.Chatbot);
             row["keyName"]!.GetValue<string>().ShouldBe("Chatbot");
@@ -70,7 +72,9 @@ public sealed class IntegrationApiTests(AdminFixture fixture)
 
         using var client = await KeyClientAsync(s.Credential);
         using var response = await client.GetAsync($"/integration/v1/budgets?keyId={s.Chatbot}", Ct);
-        var items = (await AdminFixture.ReadAsync(response))["items"]!.AsArray();
+        var budgets = await AdminFixture.ReadAsync(response);
+        IntegrationContract.Differences(budgets, "IntegrationBudgets").ShouldBeEmpty();
+        var items = budgets["items"]!.AsArray();
         items.Select(b => b!["scope"]!.GetValue<string>()).ShouldBe(["Department", "Team", "VirtualKey"], ignoreOrder: true);
         var own = items.Single(b => b!["scope"]!.GetValue<string>() == "VirtualKey")!;
         own["spent"]!.GetValue<decimal>().ShouldBe(1.5m);

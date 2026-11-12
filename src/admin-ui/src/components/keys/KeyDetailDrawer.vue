@@ -102,7 +102,7 @@ const reason = computed(() => {
           {{ INTEGRATION_ROLE[keyData.integrationRole ?? 'None'].label }}
           <span class="block text-small text-fg-3">{{ INTEGRATION_ROLE[keyData.integrationRole ?? 'None'].description }}</span>
         </DetailRow>
-        <DetailRow v-if="keyData.integrationRole === 'Credential'" label="Integration API">
+        <DetailRow v-if="keyData.integrationRole === 'Credential'" label="Integration access">
           <span v-if="!keyData.integrationScopes?.length">No access</span>
           <span v-else>{{ keyData.integrationScopes.map(integrationScopeLabel).join(', ') }}</span>
         </DetailRow>
