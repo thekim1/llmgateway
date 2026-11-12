@@ -11,6 +11,7 @@ Everything in the original scope and the routing rules feature is implemented, t
 |---|---|
 | Gateway (data plane), Admin API (BFF, RBAC, CRUD, reports, ops, config import/export, audit), MigrationService, FakeLlm | Done |
 | Routing rules (engine, gateway, admin API, admin UI, usage visibility) | Done, see [docs/routing-rules.md](docs/routing-rules.md) |
+| Integrations (platforms such as Ume.Rag; ADR 020, 021) | Phase 1 done (integrations, credential and assigned keys, `/v1/ume/context`, model facts); phases 2 and 3 open, see [docs/integrations.md](docs/integrations.md#phases) |
 | Admin UI (`src/admin-ui`) | Done: Vue 3, Pinia, Reka UI, Tailwind v4, English, light/dark/Lumen |
 | Aspire AppHost, Compose publish with mandatory hardening, backup/restore | Done; `deploy/Test-Deployment.ps1` passes |
 | Data-plane performance | Benchmarked and optimised, see [docs/performance.md](docs/performance.md) (`benchmarks/Ume.LlmGateway.Benchmarks`) |
@@ -34,6 +35,11 @@ The project is not a production approval, legal attestation or WCAG certificatio
    close to linear from 1 to 4 vCPUs, the gateway's own CPU the limit). Re-measure everything in one session (see
    *Measuring* there) and update the baseline, the website (`site/content.mjs`), the platform comparison slides and the
    other docs from it, so numbers never come from mixed runs. Do not keep older figures anywhere.
+
+7. **Integrations phase 2** ([docs/integrations.md](docs/integrations.md)): `x-ume-on-behalf-of` (a credential key acts as
+   an assigned key, looked up in `VirtualKey.AssignedKey`, already loaded with the credential key), its echo, event 1006,
+   `RunId`/`Step` on usage records, `x-ume-stream-cost`, and the Data API fields. Then phase 3, the Integration API.
+   Decisions for Ume.Rag are posted on thekim1/ume-rag-platform#580.
 
 ## Conventions and gotchas
 

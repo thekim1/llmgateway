@@ -15,6 +15,8 @@ public static class NotFound
 
     public static ApiFaultException Department() => Of("department");
 
+    public static ApiFaultException Integration() => Of("integration");
+
     public static ApiFaultException Key() => Of("key");
 
     public static ApiFaultException Model() => Of("model");

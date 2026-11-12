@@ -2,6 +2,7 @@ using Ume.LlmGateway.AdminApi.Budgets;
 using Ume.LlmGateway.AdminApi.Catalog;
 using Ume.LlmGateway.AdminApi.Common;
 using Ume.LlmGateway.AdminApi.DataAccess;
+using Ume.LlmGateway.AdminApi.Integrations;
 using Ume.LlmGateway.AdminApi.Keys;
 using Ume.LlmGateway.AdminApi.Operations;
 using Ume.LlmGateway.AdminApi.Organisation;
@@ -24,6 +25,7 @@ public static class AdminEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict);
         api.MapOrganisation();
         api.MapKeys();
+        api.MapIntegrations();
         api.MapCatalog();
         api.MapBudgets();
         api.MapSettings();

@@ -26,6 +26,7 @@ public static class GatewayRoutes
         [GatewayEndpoint.Realtime] = "Live audio over WebSocket: live transcription and realtime conversation (OpenAI Realtime-compatible)",
         [GatewayEndpoint.Rerank] = "Rerank documents against a query (Cohere-compatible; only providers with the Rerank capability)",
         [GatewayEndpoint.RealtimeTranslations] = "Live interpretation over WebSocket (OpenAI Realtime translations-compatible)",
+        [GatewayEndpoint.Context] = "What the key is and may use: its integration, assigned keys, teams and departments (docs/integrations.md)",
     };
 
     public static void MapGatewayEndpoints(this IEndpointRouteBuilder app)
@@ -36,6 +37,8 @@ public static class GatewayRoutes
             var endpoint = info.Endpoint;
             var route = endpoint == GatewayEndpoint.Models
                 ? llm.MapGet(info.ClientPath, (HttpContext http, ModelListEndpoint h) => h.ListModelsAsync(http))
+                : endpoint == GatewayEndpoint.Context
+                ? llm.MapGet(info.ClientPath, (HttpContext http, ContextEndpoint h) => h.GetAsync(http))
                 : info.IsRealtime
                     ? llm.MapGet(info.ClientPath, (HttpContext http, RealtimeRequestHandler h) => h.HandleAsync(http, endpoint))
                     : llm.MapPost(info.ClientPath, (HttpContext http, GatewayRequestHandler h) => h.HandleAsync(http, endpoint));

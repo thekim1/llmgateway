@@ -4,7 +4,7 @@ import { api } from '@/api'
 import type { VirtualKey } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
-import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, modelsLabel } from '@/utils/labels'
+import { ATTACHMENT_HINT, ATTACHMENT_LABEL, ATTACHMENT_LIMIT_NOTE, CONTENT_GUARD_HINT, CONTENT_GUARD_LABEL, INTEGRATION_ROLE, PII_HINT, PII_LABEL, PROVIDER_STORAGE_HINT, PROVIDER_TOOLS_HINT, REQUIRE_MAX_RESIDENCY_HINT, integrationScopeLabel, modelsLabel } from '@/utils/labels'
 import { formatDateTime, formatNumber, formatRelative } from '@/utils/format'
 import KeyBudgets from '@/components/keys/KeyBudgets.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -30,7 +30,9 @@ const dash = '—'
 const revealed = ref<string | null>(null)
 const secretBusy = ref(false)
 const secretError = ref<string | null>(null)
-const showSecretSection = computed(() => auth.isGatewayAdmin && props.keyData?.status !== 'Revoked')
+// An assigned key has no secret: its integration uses it by reference (docs/integrations.md).
+const assigned = computed(() => props.keyData?.integrationRole === 'Assigned')
+const showSecretSection = computed(() => auth.isGatewayAdmin && props.keyData?.status !== 'Revoked' && !assigned.value)
 const masked = computed(() => `${props.keyData?.prefix ?? ''}${'•'.repeat(32)}`)
 
 // The secret never outlives the drawer or the selected key.
@@ -71,6 +73,7 @@ const inactive = computed(() => props.keyData?.status === 'Revoked' || props.key
 const reason = computed(() => {
   if (props.keyData?.status === 'Revoked') return 'This key is revoked, so it can’t be changed.'
   if (props.keyData?.status === 'Expired') return 'This key has expired, so it can’t be rotated or revoked.'
+  if (assigned.value) return 'This key has no secret, so it isn’t rotated. Revoke it and create a new one if needed.'
   return ''
 })
 </script>
@@ -92,6 +95,17 @@ const reason = computed(() => {
         </template>
         <p v-else class="text-small text-fg-3">This key was created before keys could be viewed later. Rotate it to get a key that can be shown.</p>
         <p v-if="secretError" class="mt-2 text-small text-danger" role="alert">{{ secretError }}</p>
+      </DetailSection>
+      <DetailSection v-if="keyData.integrationId" title="Integration">
+        <DetailRow label="Used through">{{ keyData.integrationName ?? dash }}</DetailRow>
+        <DetailRow label="Role">
+          {{ INTEGRATION_ROLE[keyData.integrationRole ?? 'None'].label }}
+          <span class="block text-small text-fg-3">{{ INTEGRATION_ROLE[keyData.integrationRole ?? 'None'].description }}</span>
+        </DetailRow>
+        <DetailRow v-if="keyData.integrationRole === 'Credential'" label="Integration API">
+          <span v-if="!keyData.integrationScopes?.length">No access</span>
+          <span v-else>{{ keyData.integrationScopes.map(integrationScopeLabel).join(', ') }}</span>
+        </DetailRow>
       </DetailSection>
       <DetailSection title="Owner">
         <DetailRow label="Team"><span lang="sv">{{ keyData.teamName }}</span></DetailRow>
@@ -161,7 +175,7 @@ const reason = computed(() => {
       </DetailSection>
     </template>
     <template #footer>
-      <UiButton icon="autorenew" :disabled="inactive" @click="emit('rotate')">Rotate</UiButton>
+      <UiButton icon="autorenew" :disabled="inactive || assigned" @click="emit('rotate')">Rotate</UiButton>
       <UiButton icon="edit" :disabled="keyData?.status === 'Revoked'" @click="emit('edit')">Edit</UiButton>
       <UiButton class="ml-auto" variant="danger" icon="block" :disabled="inactive" @click="emit('revoke')">Revoke</UiButton>
       <p v-if="reason" class="basis-full text-small text-fg-3">{{ reason }}</p>

@@ -101,6 +101,13 @@ public sealed class GatewayOptions
     /// <summary><see cref="DocsUrl"/>, unless it points at this gateway's own reference and that is not published.</summary>
     public string ErrorDocsUrl => PublishApiReference || !DocsUrl.StartsWith('/') ? DocsUrl : "";
 
+    /// <summary>
+    /// The admin console's public address, handed to integrations on <c>/v1/ume/context</c> so a platform can link to a key
+    /// or budget (docs/integrations.md). Empty leaves it out.
+    /// </summary>
+    [Url]
+    public string? AdminUrl { get; set; }
+
     /// <summary>Optional webhook that receives budget threshold alerts (metadata only).</summary>
     public Uri? AlertWebhookUrl { get; set; }
 

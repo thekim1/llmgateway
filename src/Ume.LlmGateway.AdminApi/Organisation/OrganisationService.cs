@@ -80,6 +80,7 @@ public sealed class OrganisationService(AdminContext ctx, RoutingRuleService rul
     {
         var t = await ctx.Teams().SingleOrDefaultAsync(t => t.Id == id, ct) ?? throw NotFound.Team();
         if (await ctx.Db.VirtualKeys.AnyAsync(k => k.TeamId == id, ct)) { throw new ApiFaultException(409, "The team has keys and cannot be deleted."); }
+        if (await ctx.Db.Integrations.AnyAsync(i => i.OwnerTeamId == id, ct)) { throw new ApiFaultException(409, "The team owns an integration and cannot be deleted."); }
         await rules.ApplyScopeRemovalAsync(RoutingScope.Team, id, routingRules, "The team", ct);
         ctx.Db.Teams.Remove(t);
         await ctx.SaveAsync(AuditActions.Delete, AuditEntities.Team, id, TeamAudit.Of(t), null, InvalidationKind.Config, ct);

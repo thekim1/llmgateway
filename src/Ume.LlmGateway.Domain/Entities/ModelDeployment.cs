@@ -58,6 +58,9 @@ public sealed class ModelDeployment
     public ModelKind Kind { get; set; }
     public ParameterProfile ParameterProfile { get; set; }
     public int? ContextWindow { get; set; }
+
+    /// <summary>The most output tokens the model can produce in one answer; null = not known. Handed out on <c>/v1/models</c>.</summary>
+    public int? MaxOutputTokens { get; set; }
     /// <summary>What the model can do, e.g. tools, vision, thinking, embedding, image generation. Free-form tags.</summary>
     public string[] Features { get; set; } = [];
     public bool IsEnabled { get; set; } = true;

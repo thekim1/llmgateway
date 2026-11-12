@@ -25,6 +25,8 @@ vi.mock('@/composables/useModelOptions', () => ({
 }))
 vi.mock('@/stores/teams', () => ({ useTeamsStore: () => ({ items: [{ id: 't1', name: 'Team', departmentName: 'Dept' }], loading: false, error: null, load: vi.fn() }) }))
 vi.mock('@/stores/keys', () => ({ useKeysStore: () => ({ create: (...a: unknown[]) => create(...a), update: (...a: unknown[]) => update(...a) }) }))
+const integrations = vi.hoisted(() => ({ items: [] as unknown[], loaded: true, loading: false, load: () => Promise.resolve(null) }))
+vi.mock('@/stores/integrations', () => ({ useIntegrationsStore: () => integrations }))
 
 function provider(name: string): Provider {
   return { id: name, name, displayName: name, residency: 'External' } as Provider
@@ -224,5 +226,88 @@ describe('KeyFormDrawer client addresses', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect((create.mock.calls[0]![0] as { allowedIpRanges: string[] }).allowedIpRanges).toEqual([])
+  })
+})
+
+describe('KeyFormDrawer integrations', () => {
+  const rag = { id: 'i1', name: 'Ume.Rag', isActive: true, ownerTeamId: 't1', ownerTeamName: 'Team' }
+
+  beforeEach(() => {
+    create.mockReset()
+    update.mockReset()
+    create.mockResolvedValue({ key: {}, secret: null })
+    integrations.items = [rag, { id: 'i2', name: 'Paused', isActive: false, ownerTeamId: 't1', ownerTeamName: 'Team' }]
+  })
+
+  it('has no integration section when there are no integrations', async () => {
+    integrations.items = []
+    const wrapper = mountForm()
+    await flushPromises()
+    expect(wrapper.find('#key-integration').exists()).toBe(false)
+  })
+
+  it('lets a department admin assign a new key to an active integration, without a role choice', async () => {
+    const wrapper = mountForm(null, 'department-admin')
+    await flushPromises()
+    const options = wrapper.findAll('#key-integration option').map((o) => o.text())
+    expect(options).toEqual(['No integration', 'Ume.Rag']) // not the deactivated one
+    await wrapper.find('#key-team').setValue('t1')
+    await wrapper.find('input[autocomplete=off]').setValue('Chatbot')
+    await wrapper.find('#key-integration').setValue('i1')
+    expect(wrapper.find('[role=radiogroup][aria-label="Role in the integration"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('It has no secret')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const body = create.mock.calls[0]![0]
+    expect(body).toMatchObject({ teamId: 't1', integrationId: 'i1', integrationRole: 'Assigned' })
+    expect(body).not.toHaveProperty('integrationScopes')
+  })
+
+  it('lets a gateway admin make a credential key in the owner team with scopes', async () => {
+    const wrapper = mountForm()
+    await flushPromises()
+    await wrapper.find('input[autocomplete=off]').setValue('Ume.Rag api')
+    await wrapper.find('#key-integration').setValue('i1')
+    await wrapper.findAll('[role=radiogroup][aria-label="Role in the integration"] [role=radio]').find((b) => b.text() === 'Credential')!.trigger('click')
+    await flushPromises()
+    expect((wrapper.find('#key-team').element as HTMLSelectElement).value).toBe('t1')
+    expect((wrapper.find('#key-team').element as HTMLSelectElement).disabled).toBe(true)
+    await checkbox(wrapper, 'Read usage')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(create.mock.calls[0]![0]).toMatchObject({ teamId: 't1', integrationId: 'i1', integrationRole: 'Credential', integrationScopes: ['usage.read'] })
+  })
+
+  it('shows an assigned key’s integration on edit and does not send it again', async () => {
+    update.mockResolvedValue({})
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'Chatbot', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
+      integrationId: 'i1', integrationName: 'Ume.Rag', integrationRole: 'Assigned', integrationScopes: [],
+    } as unknown as VirtualKey
+    const wrapper = mountForm(existing, 'department-admin')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Used through Ume.Rag as assigned key')
+    expect(wrapper.find('#key-integration').exists()).toBe(false)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const body = update.mock.calls[0]![1]
+    expect(body).not.toHaveProperty('integrationId')
+    expect(body).not.toHaveProperty('integrationScopes')
+  })
+
+  it('does not let a department admin save an integration’s credential key', async () => {
+    const existing = {
+      id: 'k1', teamId: 't1', teamName: 'Team', departmentName: 'Dept', name: 'Ume.Rag api', description: null, prefix: 'ume-sk-x', status: 'Active', isEnabled: true,
+      allowedModels: [], allowedResidencies: [], allowedProviders: [], piiPolicy: 'Off', requestsPerMinute: null, tokensPerMinute: null, expiresAt: null,
+      integrationId: 'i1', integrationName: 'Ume.Rag', integrationRole: 'Credential', integrationScopes: ['usage.read'],
+    } as unknown as VirtualKey
+    const wrapper = mountForm(existing, 'department-admin')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Only gateway admins can change it')
+    expect(wrapper.find('button[type=submit]').attributes('aria-disabled')).toBe('true')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
   })
 })

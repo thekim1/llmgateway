@@ -28,6 +28,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/operations', name: 'ops', component: () => import('@/views/OpsView.vue'), meta: { title: 'Health & operations', roles: GATEWAY_ADMIN } },
   { path: '/keys', name: 'keys', component: () => import('@/views/KeysView.vue'), meta: { title: 'Keys', roles: KEY_ROLES } },
   { path: '/organisation', name: 'organisation', component: () => import('@/views/OrganisationView.vue'), meta: { title: 'Organisation', roles: ADMIN_ROLES } },
+  { path: '/integrations', name: 'integrations', component: () => import('@/views/IntegrationsView.vue'), meta: { title: 'Integrations', roles: GATEWAY_ADMIN } },
   { path: '/data-access', name: 'data-access', component: () => import('@/views/DataAccessView.vue'), meta: { title: 'Data API access', roles: GATEWAY_ADMIN } },
   { path: '/catalog', name: 'catalog', component: () => import('@/views/CatalogView.vue'), meta: { title: 'Catalogue' } },
   // Getting started moved to the website (site/); keep old bookmarks working.

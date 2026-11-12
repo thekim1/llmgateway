@@ -32,7 +32,13 @@ public sealed record KeyRequest(
     // The on-prem content guard (docs/content-guard.md). Omitted = Off on create, unchanged on update.
     [property: EnumDataType(typeof(ContentGuardPolicy))] ContentGuardPolicy? ContentGuardPolicy = null,
     // Requests must send x-ume-max-residency. Omitted = off on create, unchanged on update.
-    bool? RequireMaxResidency = null) : AdminRequest, IValidatableObject
+    bool? RequireMaxResidency = null,
+    // The integration the key belongs to (docs/integrations.md); set on create only, an update must leave it out or repeat it.
+    Guid? IntegrationId = null,
+    // The key's part in it: Assigned (default with an integration) or Credential (gateway admins, in the owner team). Create only.
+    [property: EnumDataType(typeof(IntegrationRole))] IntegrationRole? IntegrationRole = null,
+    // What a credential key may do on the Integration API; gateway admins only. Omitted = none on create, unchanged on update.
+    [property: MaxLength(20)] List<string>? IntegrationScopes = null) : AdminRequest, IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -51,6 +57,14 @@ public sealed record KeyRequest(
         if (AllowedResidencies?.Any(r => !Enum.IsDefined(r)) == true)
         {
             yield return new ValidationResult("The data residency is invalid.", [nameof(AllowedResidencies)]);
+        }
+        if (IntegrationScopes?.Any(s => !Domain.Keys.IntegrationScopes.IsKnown(s)) == true)
+        {
+            yield return new ValidationResult($"Unknown scope. Known scopes: {string.Join(", ", Domain.Keys.IntegrationScopes.All)}.", [nameof(IntegrationScopes)]);
+        }
+        if (IntegrationRole is { } role && role != Domain.IntegrationRole.None && IntegrationId is null)
+        {
+            yield return new ValidationResult("Choose the integration.", [nameof(IntegrationId)]);
         }
         foreach (var message in RequestPolicy?.Validate() ?? [])
         {
@@ -72,18 +86,24 @@ public sealed record KeyDto(
     IReadOnlyList<string> AllowedProviders, PiiPolicy PiiPolicy, AttachmentPolicy AttachmentPolicy, int? RequestsPerMinute, int? TokensPerMinute,
     Guid? RotatedToKeyId, bool CanReveal, IReadOnlyList<string> AllowedIpRanges, bool AllowProviderTools, bool AllowProviderStorage,
     int? MaxConcurrentRequests = null, RequestPolicy? RequestPolicy = null, ContentGuardPolicy ContentGuardPolicy = ContentGuardPolicy.Off,
-    bool RequireMaxResidency = false)
+    bool RequireMaxResidency = false, Guid? IntegrationId = null, string? IntegrationName = null, IntegrationRole IntegrationRole = IntegrationRole.None,
+    IReadOnlyList<string>? IntegrationScopes = null)
 {
+    /// <summary>
+    /// The key; <c>canReveal</c> is false for a key assigned to an integration (it has no usable secret) and for keys created
+    /// before secrets were stored. <c>integrationRole</c> <c>Assigned</c> keys can only be used through the integration's
+    /// credential keys (docs/integrations.md).
+    /// </summary>
     public static KeyDto Of(VirtualKey k, DateTimeOffset now) => new(
         k.Id, k.TeamId, k.Team?.Name, k.Team?.DepartmentId, k.Team?.Department?.Name, k.Name, k.Description, k.Prefix,
         k.GetStatus(now), k.IsEnabled, k.CreatedAt, k.CreatedBy, k.ExpiresAt, k.RevokedAt, k.GraceUntil, k.LastUsedAt,
         k.AllowedModels, k.AllowedResidencies, k.AllowedProviders, k.PiiPolicy, k.AttachmentPolicy, k.RequestsPerMinute, k.TokensPerMinute,
         k.RotatedToKeyId, k.EncryptedSecret is not null, k.AllowedIpRanges, k.AllowProviderTools, k.AllowProviderStorage, k.MaxConcurrentRequests,
-        k.RequestPolicy, k.ContentGuardPolicy, k.RequireMaxResidency);
+        k.RequestPolicy, k.ContentGuardPolicy, k.RequireMaxResidency, k.IntegrationId, k.Integration?.Name, k.IntegrationRole, k.IntegrationScopes);
 }
 
-/// <summary>A new key with its secret, which is shown this once.</summary>
-public sealed record KeyCreatedDto(KeyDto Key, string Secret);
+/// <summary>A new key with its secret, which is shown this once; null for a key assigned to an integration, which has none.</summary>
+public sealed record KeyCreatedDto(KeyDto Key, string? Secret);
 
 public sealed record KeyRotatedDto(KeyDto Key, string Secret, KeyDto PreviousKey);
 

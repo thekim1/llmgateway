@@ -447,6 +447,44 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Integration", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("OwnerTeamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerTeamId");
+
+                    b.ToTable("Integrations");
+                });
+
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -478,6 +516,9 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("MaxOutputTokens")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1100,6 +1141,20 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("GraceUntil")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("IntegrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IntegrationRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("None");
+
+                    b.PrimitiveCollection<List<string>>("IntegrationScopes")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
 
@@ -1154,12 +1209,25 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("IntegrationId");
+
                     b.HasIndex("KeyHash")
                         .IsUnique();
 
                     b.HasIndex("TeamId");
 
                     b.ToTable("VirtualKeys");
+                });
+
+            modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.Integration", b =>
+                {
+                    b.HasOne("Ume.LlmGateway.Domain.Entities.Team", "OwnerTeam")
+                        .WithMany()
+                        .HasForeignKey("OwnerTeamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OwnerTeam");
                 });
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.ModelDeployment", b =>
@@ -1221,11 +1289,18 @@ namespace Ume.LlmGateway.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Ume.LlmGateway.Domain.Entities.VirtualKey", b =>
                 {
+                    b.HasOne("Ume.LlmGateway.Domain.Entities.Integration", "Integration")
+                        .WithMany()
+                        .HasForeignKey("IntegrationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Ume.LlmGateway.Domain.Entities.Team", "Team")
                         .WithMany("VirtualKeys")
                         .HasForeignKey("TeamId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Integration");
 
                     b.Navigation("Team");
                 });

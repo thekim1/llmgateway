@@ -7,7 +7,7 @@ The side menu groups pages by the job you came to do. You only see the pages you
 | Group | Pages | Use it to |
 | --- | --- | --- |
 | Monitor | Overview, Usage, Health & operations | See spend, traffic and provider health; act on anything that needs a decision |
-| Access | Keys, Organisation, Data API access | Give applications and reporting tools access, and set up departments and teams |
+| Access | Keys, Organisation, Integrations, Data API access | Give applications, platforms such as a RAG system ([integrations](integrations.md)) and reporting tools access, and set up departments and teams |
 | Models & routing | Catalogue, Providers & models, Routes, Routing rules | See which models can be called, connect providers, and decide where requests go |
 | Cost & compliance | Budgets & alerts, PII incidents, Audit log | Limit spend, follow up personal data findings and see who changed what |
 | System | Settings | Trusted proxies, data retention, request logging and version |

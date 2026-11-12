@@ -101,6 +101,14 @@ export const navGroups: NavGroup[] = [
         roles: ADMIN_ROLES,
       },
       {
+        name: 'integrations',
+        label: 'Integrations',
+        icon: 'hub',
+        description: 'Systems such as a RAG platform that use keys for the teams they serve',
+        keywords: ['rag', 'platform', 'assigned key', 'credential key', 'chatbot'],
+        roles: GATEWAY_ADMIN,
+      },
+      {
         name: 'data-access',
         label: 'Data API access',
         icon: 'data_object',

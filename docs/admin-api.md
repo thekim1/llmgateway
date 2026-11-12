@@ -97,7 +97,8 @@ Roles (OIDC `roles` claim):
 isEnabled, createdAt, createdBy, expiresAt, revokedAt, graceUntil, lastUsedAt, allowedModels: string[],
 allowedResidencies: DataResidency[], allowedProviders: string[] (provider names, empty = all; omitted on update = unchanged), canReveal, piiPolicy, attachmentPolicy: AttachmentPolicy, requestsPerMinute, tokensPerMinute, rotatedToKeyId,
 allowedIpRanges: string[], allowProviderTools: boolean, allowProviderStorage: boolean, maxConcurrentRequests: number|null,
-requestPolicy: RequestPolicy|null, requireMaxResidency: boolean }`
+requestPolicy: RequestPolicy|null, requireMaxResidency: boolean, integrationId: string|null, integrationName: string|null,
+integrationRole: "None"|"Credential"|"Assigned", integrationScopes: string[] }`
 (`contentGuardPolicy`: `Off` (default), `Record` or `Block`, see [content guard](content-guard.md); omitted on update = unchanged.
 `maxConcurrentRequests`, 1–100 000 or null: requests of the key in progress at once across all gateway instances; more
 get 429 `rate_limited`. Live audio sessions have their own limit. `requestPolicy`: see *Organisation*; omitted on update =
@@ -113,17 +114,41 @@ unchanged, `{}` clears it. Both are copied to the replacement key on rotation.)
 (`requireMaxResidency`: every request must send `x-ume-max-residency`, see [residency ceiling](#residency-ceiling-per-request);
 omitted = `false` on create, unchanged on update; copied on rotation)
 (`lastUsedAt` has minute resolution: each gateway instance writes it at most once per key and minute)
+(`integrationId`, `integrationRole`: the [integration](integrations.md) the key belongs to, set on create only; an update
+must leave them out or repeat them (400 otherwise). With an integration the role defaults to `Assigned`: any key manager
+of the team may create one, its `secret` in the create response is `null` and nothing is kept to reveal (`canReveal`
+false), it cannot be rotated (409) or used directly (`403 integration_only`), only through the integration's credential
+keys. `Credential` keys are created only by gateway admins, in the integration's owner team (400 on `teamId` otherwise),
+and only gateway admins change them (403); their managers may still rotate and revoke them. `integrationScopes`
+(`usage.read`): gateway admins only, credential keys only; omitted = none on create, unchanged on update; copied on
+rotation with the integration and role. The integration must be active to add a key to it, 409 otherwise.)
 
-- `GET /api/keys?teamId=&departmentId=&status=` → `VirtualKey[]` (the keys the user manages: own departments, or own teams for a team admin)
+- `GET /api/keys?teamId=&departmentId=&status=&integrationId=` → `VirtualKey[]` (the keys the user manages: own departments, or own teams for a team admin)
 - `GET /api/keys/{id}` → `VirtualKey`
-- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy? }`
-  → 201 `{ key: VirtualKey, secret: "ume-sk-…" }` — **secret is shown once, never retrievable again**
-- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled }` → `VirtualKey`
+- `POST /api/keys` `{ teamId, name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, integrationId?, integrationRole?, integrationScopes? }`
+  → 201 `{ key: VirtualKey, secret: "ume-sk-…" | null }` — **secret is shown once, never retrievable again** (null for an assigned key)
+- `PUT /api/keys/{id}` `{ name, description?, expiresAt?, allowedModels, allowedResidencies, allowedProviders?, allowedIpRanges?, piiPolicy, attachmentPolicy?, allowProviderTools?, allowProviderStorage?, requireMaxResidency?, requestsPerMinute?, tokensPerMinute?, maxConcurrentRequests?, requestPolicy?, isEnabled, integrationScopes? }` → `VirtualKey`
 - `POST /api/keys/{id}/rotate` `{ mode: KeyRotationMode }` → `{ key: VirtualKey, secret, previousKey: VirtualKey }`
 - `POST /api/keys/{id}/reveal` `{ purpose: "Reveal" | "Copy" }` → `{ secret }` (gateway-admin only; writes an audit entry `reveal`/`copy` with the actor; 409 for revoked keys and for keys created before the secret was stored, `VirtualKey.canReveal` is false for those)
 - `POST /api/keys/{id}/revoke` → `VirtualKey` (immediate, also cancels grace)
 - Rotation retains the predecessor's key budgets and spend across the full rotation lineage, including
   the grace-period key. It does not reset the remaining budget. Concurrent conflicting mutations → 409.
+
+## Integrations
+Other systems that use gateway keys for the teams they serve, such as a RAG platform ([integrations.md](integrations.md)).
+`Integration = { id, name, description, ownerTeamId, ownerTeamName, ownerDepartmentId, ownerDepartmentName, isActive, createdAt, createdBy, credentialKeys, assignedKeys }`
+(`credentialKeys`, `assignedKeys`: keys of each role that are not revoked)
+
+- `GET /api/integrations` → `Integration[]` (every key manager, to assign a key; sorted by name)
+- `GET /api/integrations/options` → `{ scopes: string[], roles: IntegrationRole[] }`
+- `GET /api/integrations/{id}` → `Integration`
+- `POST /api/integrations` `{ name, ownerTeamId, description?, isActive? }` → 201 `Integration` (gateway-admin)
+- `PUT /api/integrations/{id}` (same body) → `Integration` (gateway-admin). Deactivating refuses all its keys at once
+  (`key_disabled`); the owner team changes only while it has no credential keys (409).
+- `DELETE /api/integrations/{id}` → 204 (gateway-admin); 409 while a key of it is not revoked. The revoked keys keep their
+  history and lose the link.
+- Names are unique (400 on `name`). Every change is audited (entity type `Integration`) and drops the gateway's key cache.
+  A team that owns an integration cannot be deleted (409).
 
 ## Data API access (gateway-admin)
 Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys)), for integrations that cannot use OAuth client credentials.
@@ -174,7 +199,7 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
   `flux*`, `imagen*` and `stable-diffusion*` models as `Image`; speech synthesis, video and chat-with-audio models are still left out.
 - `baseUrl` may carry query parameters (e.g. `?api-version=…` for Foundry Voice Live); they are kept after the path the
   gateway appends. Parameters that look like credentials (`*key*`, `*token*`, `*secret*`, `*auth*`, `sig`, `code`) are refused.
-- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null, publicName, description|null, autoUpdatePrice, priceMode, priceListKey|null, baseModel|null, residencyOverride|null, publisher|null, requestBaseUrl|null, requestAuthMode|null, rerankBaseUrl|null }`
+- `Model = { id, providerId, providerName, residency, name, upstreamModel, kind, parameterProfile, contextWindow, isEnabled, features: string[], currentPrice: Price|null, publicName, description|null, autoUpdatePrice, priceMode, priceListKey|null, baseModel|null, residencyOverride|null, publisher|null, requestBaseUrl|null, requestAuthMode|null, rerankBaseUrl|null, maxOutputTokens|null }`
   (`autoUpdatePrice`: the price follows the models.dev list price when listed; `priceMode`: `List` follows the list price of
   `priceListKey`, `Unlisted` is not in the list and priced by hand until it is, `Manual` has automatic prices off for the
   model, its provider or the gateway, or is an Azure deployment other than Claude (priced by hand; the update only fills a
@@ -187,8 +212,8 @@ Keys for the read-only Data API ([data-access.md](data-access.md#data-api-keys))
   reranker of an Azure AI Foundry provider is called, `requestBaseUrl` or else
   `https://<resource>.services.ai.azure.com/providers/<publisher lower case>/v2` (the gateway appends `/rerank`), null when it
   has neither (it is then not routed) or is not such a model)
-- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], price?: Price, autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted `autoUpdatePrice` = true)
-- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, isEnabled, features?: string[], autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted = unchanged; `""` removes `description`, `baseModel`, `publisher` or `requestBaseUrl`; `residency` and `requestAuthMode` are replaced like `contextWindow`: null or omitted = the provider's) · `DELETE /api/models/{id}` (409 if used by a route)
+- `GET /api/models` · `POST /api/models` `{ providerId, name, upstreamModel, kind, parameterProfile, contextWindow?, maxOutputTokens?, isEnabled, features?: string[], price?: Price, autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted `autoUpdatePrice` = true)
+- `PUT /api/models/{id}` `{ name, upstreamModel, kind, parameterProfile, contextWindow?, maxOutputTokens?, isEnabled, features?: string[], autoUpdatePrice?, description?, baseModel?, residency?, publisher?, requestBaseUrl?, requestAuthMode? }` (omitted = unchanged; `""` removes `description`, `baseModel`, `publisher` or `requestBaseUrl`; `residency` and `requestAuthMode` are replaced like `contextWindow`: null or omitted = the provider's; `maxOutputTokens`, the longest answer the model can give, is replaced like `contextWindow`, null = not known, at most the context window (400 otherwise), filled from models.dev when empty) · `DELETE /api/models/{id}` (409 if used by a route)
   `requestBaseUrl` and `requestAuthMode` are only for a `Rerank` model of an `AzureAIFoundry` provider (400 otherwise);
   `requestBaseUrl` must be an absolute address on the provider's own resource (the same scheme, port and resource host;
   the resource's `*.openai.azure.com`, `*.cognitiveservices.azure.com` and `*.services.ai.azure.com` names count as one),
@@ -381,6 +406,7 @@ and invalidate the gateway catalogue.
 ## Gateway (data plane) – for the developer portal snippets
 - Base URL: `{gatewayBaseUrl}/v1`. Auth: `Authorization: Bearer ume-sk-…` (also `x-api-key` / `api-key`).
 - `POST /v1/chat/completions`, `POST /v1/embeddings`, `GET /v1/models`, `POST /v1/responses`, `POST /v1/messages` (Anthropic format).
+- `GET /v1/ume/context`: what the key is and may use, for integrations; see [integrations](integrations.md#discovery-data-plane).
 - `POST /v1/rerank` (optional, Cohere-compatible): `{ model, query, documents: (string | { text })[], top_n?, return_documents? }` →
   the provider's answer unchanged (`results[]` with `index` and `relevance_score`). Only models of kind `Rerank` on
   providers with the `Rerank` capability, or under an Azure AI Foundry provider (called at the model's `rerankBaseUrl`);
@@ -413,8 +439,9 @@ and invalidate the gateway catalogue.
   `x-ume-rule` (id(s) of the routing rule(s) that applied; see [routing rules](routing-rules.md)), `x-ume-pii` ([personal data](personal-data.md)), `x-ume-guard` ([content guard](content-guard.md)).
 - Error body (OpenAI style): `{ "error": { "message", "type", "code", "request_id", "doc_url" } }` (English `message`;
   `doc_url` is null when `Gateway:PublishApiReference` is off and `Gateway:DocsUrl` points at the gateway itself) with codes
-  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled`, `address_not_allowed` (403: the key is restricted to other
-  client addresses), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
+  `invalid_api_key`, `key_expired`, `key_revoked`, `key_disabled` (also when the key's team, department or integration is
+  deactivated), `address_not_allowed` (403: the key is restricted to other client addresses), `integration_only` (403: a key
+  assigned to an [integration](integrations.md) was presented directly), `model_not_allowed`, `model_not_found`, `model_ambiguous`, `budget_exceeded`,
   `rate_limited`, `pii_blocked`, `attachment_not_allowed`, `tool_not_allowed`, `storage_not_allowed`, `no_eligible_provider`,
   `max_residency_not_met` (403, see [residency ceiling](#residency-ceiling-per-request)), `context_length_exceeded`,
   `all_providers_failed`, `invalid_request` (also for a body that is not valid JSON or repeats a property, such as two
@@ -433,7 +460,12 @@ and invalidate the gateway catalogue.
 - `GET /v1/models` lists only aliases and models the key may use and that some endpoint of their kind can reach, by the
   same rule as routing: model and provider enabled and not drained, a provider capability for that endpoint, and the
   key's provider and residency allow-lists, within the request's `x-ume-max-residency` when it sends one (an alias's
-  `ume.residencies` then shows only residencies within it).
+  `ume.residencies` then shows only residencies within it). Each entry's `ume` object has `type` (`alias` or `model`),
+  `kind`, `residencies` (alias) or `residency` (model; its own when it has one, else its provider's), `context_window`,
+  `max_output_tokens`, `features` and `pricing` (`input_per_million_usd`, `cached_input_per_million_usd`,
+  `output_per_million_usd`, or null). For an alias the limits are the smallest of the targets the key may use (null when
+  one does not know it), the features those all have, and the price the first target's. The answer has an `ETag`; send
+  `If-None-Match` to get `304` while nothing changed.
 
 ### Residency ceiling per request
 

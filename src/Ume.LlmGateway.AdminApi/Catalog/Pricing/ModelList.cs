@@ -16,7 +16,8 @@ public sealed record ListPrice(
 /// model. <paramref name="Features"/> are the gateway's capability tags (<c>tools</c>, <c>thinking</c>, <c>vision</c>, <c>audio</c>,
 /// <c>image generation</c>).
 /// </summary>
-public sealed record ListModel(string Key, ListPrice? Price, string? Description = null, int? ContextWindow = null, string[]? Features = null)
+public sealed record ListModel(string Key, ListPrice? Price, string? Description = null, int? ContextWindow = null, string[]? Features = null,
+    int? MaxOutputTokens = null)
 {
     public string[] Features { get; init; } = Features ?? [];
 }
@@ -168,10 +169,12 @@ public sealed class ModelList(IReadOnlyDictionary<string, IReadOnlyDictionary<st
     private static ListModel Read(string key, JsonElement model)
     {
         var description = Text(model, "description") is { Length: > 0 } d ? (d.Length > 1000 ? d[..1000] : d) : null;
-        var context = model.TryGetProperty("limit", out var limit) && limit.ValueKind == JsonValueKind.Object &&
-                      limit.TryGetProperty("context", out var c) && c.ValueKind == JsonValueKind.Number && c.TryGetInt32(out var tokens) && tokens > 0
-            ? tokens
-            : (int?)null;
+        var hasLimit = model.TryGetProperty("limit", out var limit) && limit.ValueKind == JsonValueKind.Object;
+        int? Limit(string name) =>
+            hasLimit && limit.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var tokens) && tokens > 0
+                ? tokens
+                : null;
+        var context = Limit("context");
         var input = Modalities(model, "input");
         var output = Modalities(model, "output");
         string[] features =
@@ -183,7 +186,7 @@ public sealed class ModelList(IReadOnlyDictionary<string, IReadOnlyDictionary<st
             .. output.Contains("image") ? ["image generation"] : Array.Empty<string>(),
         ];
         var price = model.TryGetProperty("cost", out var cost) && cost.ValueKind == JsonValueKind.Object ? Price(cost) : null;
-        return new ListModel(key, price, description, context, [.. features.Order()]);
+        return new ListModel(key, price, description, context, [.. features.Order()], Limit("output"));
     }
 
     private static ListPrice? Price(JsonElement cost)
@@ -239,7 +242,7 @@ public sealed class ModelList(IReadOnlyDictionary<string, IReadOnlyDictionary<st
     }
 
     /// <summary>
-    /// Fills what <paramref name="model"/> leaves empty (description, capability tags, context window) from the list; never
+    /// Fills what <paramref name="model"/> leaves empty (description, capability tags, context window, output limit) from the list; never
     /// overwrites. Returns whether anything was filled.
     /// </summary>
     public static bool Enrich(ModelDeployment model, ListModel listed)
@@ -260,6 +263,11 @@ public sealed class ModelList(IReadOnlyDictionary<string, IReadOnlyDictionary<st
         if (model.ContextWindow is null && listed.ContextWindow is { } context)
         {
             model.ContextWindow = context;
+            changed = true;
+        }
+        if (model.MaxOutputTokens is null && listed.MaxOutputTokens is { } output && (model.ContextWindow is not { } window || output <= window))
+        {
+            model.MaxOutputTokens = output;
             changed = true;
         }
         return changed;

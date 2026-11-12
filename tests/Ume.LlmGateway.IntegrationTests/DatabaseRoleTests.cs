@@ -156,7 +156,7 @@ public sealed class DatabaseRoleTests(DatabaseRolesFixture fixture) : IClassFixt
         gateway.GetRequiredService<IDataProtectionProvider>().CreateProtector("role-test").Unprotect(ciphertext).ShouldBe("provider-secret");
     }
 
-    private static readonly string[] Configuration = ["Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts",
+    private static readonly string[] Configuration = ["Departments", "Teams", "VirtualKeys", "Integrations", "DataApiKeys", "ProviderAccounts",
         "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets"];
 
     private static ServiceProvider DataProtection(string connectionString, bool createKeys)

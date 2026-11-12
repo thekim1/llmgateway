@@ -230,12 +230,52 @@ export interface VirtualKey {
   allowProviderStorage?: boolean
   /** Every request must send x-ume-max-residency (400 otherwise). */
   requireMaxResidency?: boolean
+  /** The integration the key belongs to (docs/integrations.md); null for an ordinary key. */
+  integrationId?: string | null
+  integrationName?: string | null
+  /** Assigned keys are used only through the integration; credential keys are the integration's own. */
+  integrationRole?: IntegrationRole
+  /** What a credential key may do on the Integration API. */
+  integrationScopes?: string[]
 }
+
+export const INTEGRATION_ROLES = ['None', 'Credential', 'Assigned'] as const
+export type IntegrationRole = (typeof INTEGRATION_ROLES)[number]
 
 export interface KeyFilter {
   teamId?: string
   departmentId?: string
   status?: KeyStatus
+  integrationId?: string
+}
+
+// ---------- Integrations ----------
+export interface Integration {
+  id: string
+  name: string
+  description: string | null
+  ownerTeamId: string
+  ownerTeamName: string | null
+  ownerDepartmentId: string | null
+  ownerDepartmentName: string | null
+  isActive: boolean
+  createdAt: IsoDateTime
+  createdBy: string | null
+  /** Keys that are not revoked, of each kind. */
+  credentialKeys: number
+  assignedKeys: number
+}
+
+export interface IntegrationRequest {
+  name: string
+  ownerTeamId: string
+  description?: string | null
+  isActive?: boolean
+}
+
+export interface IntegrationOptions {
+  scopes: string[]
+  roles: IntegrationRole[]
 }
 
 export interface CreateKeyRequest {
@@ -263,12 +303,18 @@ export interface CreateKeyRequest {
   allowProviderTools?: boolean
   allowProviderStorage?: boolean
   requireMaxResidency?: boolean
+  /** Create only: the integration the key belongs to. */
+  integrationId?: string | null
+  /** Create only: Assigned (default with an integration) or Credential (gateway admins, owner team). */
+  integrationRole?: IntegrationRole | null
+  /** Credential keys, gateway admins only. Omitted = none on create, unchanged on update. */
+  integrationScopes?: string[]
 }
 
 export interface CreateKeyResponse {
   key: VirtualKey
-  /** Shown once, never retrievable again. */
-  secret: string
+  /** Shown once, never retrievable again; null for a key assigned to an integration, which has no secret. */
+  secret: string | null
 }
 
 export interface UpdateKeyRequest {
@@ -291,6 +337,8 @@ export interface UpdateKeyRequest {
   allowProviderStorage?: boolean
   requireMaxResidency?: boolean
   isEnabled: boolean
+  /** Credential keys, gateway admins only. Omitted = unchanged. */
+  integrationScopes?: string[]
 }
 
 export interface RotateKeyRequest {
@@ -431,6 +479,8 @@ export interface Model {
   kind: ModelKind
   parameterProfile: ParameterProfile
   contextWindow: number | null
+  /** The most output tokens one answer can have; null = not known. At most the context window. */
+  maxOutputTokens?: number | null
   isEnabled: boolean
   features: string[]
   currentPrice: Price | null
@@ -470,6 +520,8 @@ export interface CreateModelRequest {
   kind: ModelKind
   parameterProfile: ParameterProfile
   contextWindow?: number | null
+  /** Null or omitted = not known: a PUT replaces it, like contextWindow. */
+  maxOutputTokens?: number | null
   isEnabled: boolean
   features?: string[]
   price?: NewPrice
@@ -491,6 +543,8 @@ export interface UpdateModelRequest {
   kind: ModelKind
   parameterProfile: ParameterProfile
   contextWindow?: number | null
+  /** Null or omitted = not known: a PUT replaces it, like contextWindow. */
+  maxOutputTokens?: number | null
   isEnabled: boolean
   features?: string[]
   /** Optional; omitted keeps it. */

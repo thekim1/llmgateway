@@ -90,6 +90,7 @@ Every page below is also on the [website](https://thekim1.github.io/llmgateway/d
 | | [Providers and models](docs/providers-and-models.md) | [Architecture](docs/architecture.md) |
 | | [Admin UI](docs/admin-ui.md) | [ADRs](docs/adr.md) |
 | | [Client addresses](docs/client-addresses.md) | [Security and compliance](docs/security-and-compliance.md) |
+| | [Integrations (RAG and other platforms)](docs/integrations.md) | |
 | | | [Accessibility statement](docs/accessibility-statement.md) |
 
 Benchmarks: [Performance](docs/performance.md), [Streaming findings](docs/streaming-findings.md) and the

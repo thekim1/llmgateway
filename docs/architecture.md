@@ -104,7 +104,7 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
 - **Gateway.** `GatewayEndpoints` (Domain) is the one table of endpoint semantics: routing name, client and upstream
   path, required capability, model kinds, and the audio, realtime and streaming flags. Each kind of client request has
   its entry point (`GatewayRequestHandler` for HTTP, `RealtimeRequestHandler` for live sessions, `ModelListEndpoint`
-  for `/v1/models`); they share the pipeline stages in `RequestStages` (authentication, rate limits, routing, candidates,
+  for `/v1/models`, `ContextEndpoint` for `/v1/ume/context`, see [integrations](integrations.md)); they share the pipeline stages in `RequestStages` (authentication, rate limits, routing, candidates,
   budget reservation, credentials, circuit recording), the content guard in `ContentGuardStage` and the accounting in
   `RequestAccounting` (one usage record per request). All of them log under the `GatewayRequestHandler` category.
   `ProviderAuth`/`ProviderTransport` hold provider authentication and HTTP details, and `FailureKind` decides fallback
@@ -131,7 +131,7 @@ reservation). Counters are `ume:spend-tok:*`, seeded from usage records and mont
 - **Shared.** `RedisKeys` (Infrastructure) lists every Redis key and channel; all live under `ume:`, which the restricted
   ACL in `deploy/redis/users.acl.example` relies on. `GatewayQueries` (Infrastructure) holds the key
   rotation lineage and budget spend queries used by both the gateway and the admin API.
-- **Admin API.** One folder (and namespace) per feature: `Organisation`, `Keys`, `DataAccess`, `Catalog` (providers,
+- **Admin API.** One folder (and namespace) per feature: `Organisation`, `Keys`, `Integrations`, `DataAccess`, `Catalog` (providers,
   models, routes; `Catalog/Pricing` for the models.dev and Azure list prices), `Budgets`, `RoutingRules`, `Reports`,
   `Operations` and `Settings`. A feature folder holds its `*Endpoints` (routes, roles, OpenAPI text only), its service
   (the logic) and its `*Contracts` (request and response records). Shared pieces sit in `Common` (`AdminContext`,

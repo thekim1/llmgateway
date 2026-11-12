@@ -48,6 +48,7 @@ public static class GatewayServices
         services.AddSingleton<GatewayRequestHandler>();
         services.AddSingleton<RealtimeRequestHandler>();
         services.AddSingleton<ModelListEndpoint>();
+        services.AddSingleton<ContextEndpoint>();
         // One short attempt per alert: the standard resilience handler's retries would POST the same alert several times.
         services.AddHttpClient(AlertNotifier.HttpClientName, c => c.Timeout = AlertNotifier.SendTimeout).RemoveStandardResilienceHandler();
         return services;

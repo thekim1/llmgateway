@@ -202,7 +202,7 @@ drawer). Turning it on again lets the list price take over at the next update.
   (a higher price above 200k tokens) are not used: the base price applies. A list price of 0 for both input and output is
   treated as unknown and never applied. A price set for a future date is left until it applies.
 - **Model details.** The same update fills in a listed model's empty **description**, **capabilities** (tools, thinking,
-  vision, audio, image generation) and **context window**; it never replaces what is there. Discovery uses them too, for
+  vision, audio, image generation), **context window** and **output limit**; it never replaces what is there. Discovery uses them too, for
   what the provider does not report. The description is shown in the catalogue key holders see.
 - **Audit.** Each change is in the audit log as `system:price-list`, and the price history shows each price's source
   (`models.dev anthropic/claude-opus-4-5`, or *Admin*).
@@ -218,7 +218,10 @@ List prices are public prices: discounts in your agreement are not in them.
 Capabilities are stored on each model (`features`), shown in the Models table, and can be
 edited in the model drawer. Providers without a list price (local Ollama, vLLM and other servers) get their prices
 under the model's price history. A model's *context window* is used for routing: a prompt clearly larger is
-not sent to it (see [routing rules](routing-rules.md)).
+not sent to it (see [routing rules](routing-rules.md)). Its *output limit* (the longest answer it can give, at most the
+context window) is not enforced by the gateway; with the context window, capabilities and price it is handed to clients
+on `GET /v1/models`, so a platform such as a RAG system fills its own settings from it
+([integrations](integrations.md)).
 
 **Prompt caching with Claude.** Clients of `/v1/messages` set their own `cache_control` markers. Requests the gateway
 translates (OpenAI SDK clients calling a Claude model through `/v1/chat/completions`) get markers added, set by

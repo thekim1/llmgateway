@@ -4,7 +4,9 @@ How another system (a RAG platform, an agent platform, a chat front end) connect
 runs each of its chatbots on a gateway key of the department that owns it, and fills its own settings pages with
 the gateway's values, without the Data API.
 
-> **Status.** Design, 2026-11-11. **Nothing here is implemented.** Decided by the gateway owner: a chatbot
+> **Status.** Design accepted 2026-11-11. **Phase 1 is implemented** (integrations, credential and assigned keys,
+> `/v1/ume/context`, the model facts on `/v1/models`, the model output limit); phases 2 and 3 (acting as an assigned
+> key, run metadata, stream cost, the Integration API) are not, and the sections on them are the plan. Decided by the gateway owner: a chatbot
 > (assistant) is configured with a gateway key of its own, set up in the gateway; gateway keys are reused on the
 > Integration API; settings are entered once; streamed cost is wanted. It replaces the delegation design kept in the
 > RAG platform's repository (`plans/gateway-changes/design.md` §5, draft ADR 020). The gateway still never depends
@@ -62,12 +64,19 @@ A row in `Integrations` (name, description, owner team, active), created by gate
 | Role | Created by | What it is |
 |---|---|---|
 | `Credential` | gateway admin, in the integration's owner team | What a platform service authenticates with. Has a secret, an address list, an expiry, rotation. Can also make the platform's own calls (model check, sync), charged to the owner team |
-| `Assigned` | the key's ordinary managers (department and team admins), in their own team: *Used through: Ume.Rag* on the key form | A chatbot's key. **Cannot authenticate by itself** (refused with `key_integration_only`); it is only used by reference through that integration. No secret is shown; rotation is not offered |
+| `Assigned` | the key's ordinary managers (department and team admins), in their own team: *Used through: Ume.Rag* on the key form | A chatbot's key. **Cannot authenticate by itself** (refused with `403 integration_only`); it is only used by reference through that integration. No secret is kept or shown; rotation is refused (409) |
 | – (none) | as today | An ordinary key |
 
 A department admin thus sets up a chatbot's key alone: name, models, residencies, PII policy, content guard, rate
 limits, and a key budget. It then appears in the platform for that department's editors. Disabling or revoking the
 key stops the chatbot at once; that is the department's own decision and the platform shows why.
+
+As built: the integration and role are set when a key is created and never change (an update that names another is
+400). A credential key's settings, scopes included, are changed by gateway admins only (403 for others); its managers
+may rotate and revoke it, and rotation keeps the integration, role and scopes. Deactivating an integration refuses
+all its keys with `key_disabled` (security event reason `integration_inactive`); an integration is deleted only when
+all its keys are revoked, and a team that owns one cannot be deleted. The admin UI has *Access → Integrations*
+(gateway admins), an *Integration* section on the key form and detail, and the key list shows the integration.
 
 ## Acting as a key
 
@@ -149,31 +158,47 @@ exist there) and hands all of it out in discovery.
 Answered from the in-memory catalogue and key cache, with an `ETag`, so a platform polls with `If-None-Match` and
 usually gets 304. Neither is accounted as a model request.
 
-**`GET /v1/models`** gains, per model, under `ume`: `kind`, `residencies` (exists), `context_window`,
-`max_output_tokens`, `features`, and `pricing` (`input`, `cached_input`, `output` per million tokens, USD). With
-`x-ume-on-behalf-of` it lists the assigned key's models, which is the chatbot's model picker and the check on save.
+**`GET /v1/models`** (phase 1) gains, per model, under `ume`: `kind`, `residencies` (alias) or `residency` (model; its
+own when it has one, else its provider's), `context_window`, `max_output_tokens`, `features`, and `pricing`
+(`input_per_million_usd`, `cached_input_per_million_usd`, `output_per_million_usd`, or null). For an alias the limits
+are the smallest of the targets the key may use (null when one does not know it), the features those all have, and
+the price the first target's. With `x-ume-on-behalf-of` (phase 2) it lists the assigned key's models, which is the
+chatbot's model picker and the check on save.
 
-**`GET /v1/ume/context`** for a credential key:
+**`GET /v1/ume/context`** (phase 1) for a credential key (field names in snake_case, like `/v1/models`):
 
 ```json
 {
-  "gateway": { "version": "0.10.0", "adminUrl": "https://…", "features": ["max-residency", "act-as-key", "run-metadata", "stream-cost"] },
-  "integration": { "id": "…", "name": "Ume.Rag" },
-  "key": { "id": "…", "prefix": "ume-sk-AbC1", "scopes": ["usage.read"] },
-  "departments": [{ "id": "…", "name": "…", "costCentre": "3000", "isActive": true, "memberGroups": ["…"] }],
-  "teams": [{ "id": "…", "departmentId": "…", "name": "…", "code": "…", "isActive": true }],
-  "keys": [{
-    "id": "…", "name": "Stadsbyggnad chatbot", "teamId": "…", "status": "Active", "expiresAt": null,
-    "allowedModels": [], "allowedResidencies": ["OnPrem", "Eu"], "piiPolicy": "Redact", "contentGuard": "Off",
-    "attachmentPolicy": "Allowed", "allowProviderTools": false, "requestsPerMinute": 120, "tokensPerMinute": null,
-    "maxOutputTokens": 2000, "hasSystemPrompt": false
+  "object": "ume.context",
+  "gateway": { "version": "0.10.0", "admin_url": "https://…", "features": ["max-residency", "model-facts", "integrations"] },
+  "key": { "id": "…", "name": "Ume.Rag api", "prefix": "ume-sk-AbC1", "team_id": "…", "integration_role": "Credential",
+           "integration_scopes": ["usage.read"], "require_max_residency": true },
+  "integration": { "id": "…", "name": "Ume.Rag", "owner_team_id": "…" },
+  "departments": [{ "id": "…", "name": "…", "cost_center_code": "3000", "is_active": true }],
+  "teams": [{ "id": "…", "department_id": "…", "name": "…", "code": "…", "is_active": true }],
+  "assigned_keys": [{
+    "id": "…", "name": "Stadsbyggnad chatbot", "description": null, "team_id": "…", "department_id": "…",
+    "status": "Active", "owner_active": true, "expires_at": null,
+    "allowed_models": [], "allowed_residencies": ["OnPrem", "Eu"], "allowed_providers": [], "pii_policy": "Redact",
+    "content_guard_policy": "Off", "attachment_policy": "Allowed", "allow_provider_tools": false, "allow_provider_storage": false,
+    "requests_per_minute": 120, "tokens_per_minute": null, "max_concurrent_requests": null,
+    "max_output_tokens": 2000, "has_system_prompt": false
   }]
 }
 ```
 
-`departments` and `teams` are those with at least one assigned key, plus the owner team. An ordinary key gets its
-own key, team and department only. `features` lets a client test for a capability instead of comparing versions;
-`adminUrl` lets the platform link to the key or budget in the gateway.
+- `assigned_keys` are the integration's assigned keys that are not revoked (disabled and expired ones are listed with
+  their `status`, so a platform can say why a chatbot stopped); never a secret or hash. `max_output_tokens` and
+  `has_system_prompt` come from the key's and its team's request policy combined, as a request gets them.
+- `departments` and `teams` are those of the assigned keys, plus the credential key's own (the owner team). An
+  ordinary key gets `integration: null`, no assigned keys, and its own team and department.
+- `features` lets a client test for a capability instead of comparing versions (phase 2 adds `act-as-key`,
+  `run-metadata`, `stream-cost`). `admin_url` is `Gateway:AdminUrl` (optional), for links to a key or budget.
+- Department member groups are not included: the gateway does not have them yet (feature C of the RAG platform's
+  gateway plan).
+- The answer comes from the key cache: a credential key is loaded with its integration's assigned keys (one more query
+  on a cold load, none per request), and every key, team, department or integration change drops the cache. Like
+  `/v1/models` it is not accounted and has no rate limit of its own; send `If-None-Match` to get `304`.
 
 ## Integration API (control plane)
 
@@ -208,11 +233,12 @@ by the people responsible for the money.
 
 | Migration | Change |
 |---|---|
-| `Integrations` (phase 1) | table `Integrations`; `VirtualKeys`: `IntegrationId uuid NULL`, `IntegrationRole smallint NOT NULL DEFAULT 0`, `IntegrationScopes text[] NOT NULL DEFAULT '{}'`; `ModelDeployments.MaxOutputTokens integer NULL` |
+| `Integrations` (phase 1, built) | table `Integrations`; `VirtualKeys`: `IntegrationId uuid NULL` (foreign key, indexed), `IntegrationRole varchar(20) NOT NULL DEFAULT 'None'`, `IntegrationScopes text[] NOT NULL DEFAULT '{}'`; `ModelDeployments.MaxOutputTokens integer NULL` |
 | `UsageRunMetadata` (phase 2) | `UsageRecords`: `RunId varchar(100) NULL`, `Step varchar(100) NULL` (nullable columns: no table rewrite; not kept in monthly totals) |
 
-`app-roles.sql`: `ume_data` reads `Integrations` and the new key columns. No new budget scope, no change to the
-retention function, no new Redis keys.
+`app-roles.sql`: the gateway reads `Integrations`, the admin API changes it (phase 1). The Data API does not read it
+yet; `catalog/keys` gaining `integrationId` and `integrationRole`, and `ume_data`'s grants for them, come with phase 2.
+No new budget scope, no change to the retention function, no new Redis keys.
 
 ## Request path cost
 
@@ -224,8 +250,10 @@ retention function, no new Redis keys.
 | Stream cost | opt-in: one write after the last event |
 | Discovery | not on the request path; 304 on an unchanged catalogue |
 
-Verified with the `*Pipeline*` benchmarks before and after (with and without the header) and an allocation test of
-the new stage.
+Phase 1 adds only two field checks to authentication and a join on a cold key load: the benchmarks' regression
+`check` (2026-11-11) shows the same Postgres statements (9 on a key and catalogue cache miss, 0 warm) and Redis
+commands (8) per request as the baseline, and no more allocations. Phase 2 is verified with the `*Pipeline*`
+benchmarks before and after (with and without the header) and an allocation test of the new stage.
 
 ## What a platform changes (Ume.Rag as the example)
 
@@ -258,22 +286,19 @@ Each is additive and safe for a rolling update ([zero-downtime-updates.md](zero-
 
 | Phase | Content | Done when |
 |---|---|---|
-| 1 Consolidate and share | `Integrations`, key roles and scopes, admin UI, `MaxOutputTokens`, `/v1/models` facts, `/v1/ume/context`, ETag | a platform runs with gateway keys only, fills its pickers from the gateway, and the Data API can be switched off |
+| 1 Consolidate and share (built) | `Integrations`, key roles and scopes, admin UI, `MaxOutputTokens`, `/v1/models` facts, `/v1/ume/context`, ETag | a platform runs with gateway keys only, fills its pickers from the gateway, and the Data API can be switched off |
 | 2 Keys per chatbot | `x-ume-on-behalf-of`, echo, event 1006, run metadata, stream cost | two departments' chatbots show as their own keys in the usage report, and a key budget stops one of them with 402 |
 | 3 Read back | Integration API (`usage.read`) | the platform shows the gateway's cost and budget status per chatbot |
 | 4 Later | webhooks | – |
 
-## ADR drafts
+## Decisions
 
-| ADR | Decision | Rationale / consequences |
-|---|---|---|
-| 020 | A platform is an integration; its credential keys can act as keys assigned to it, and an assigned key cannot be used directly | Supersedes the draft "a key can act for listed teams". Departments must pay for and limit their own chatbots on a shared platform. A key already carries everything that is wanted per chatbot (models, residency, PII, limits, budget, usage), so the chatbot's unit in the gateway is a key, made by the department's own admins and marked as used through the integration. The platform authenticates with a credential key and names the assigned key by id in `x-ume-on-behalf-of`; the request then runs as that key, so budgets, rules, policies, usage and reports need no new concept. An assigned key has no usable secret: nothing is copied into the platform, leaked or rotated per chatbot. Resolution is one in-memory lookup: no Postgres and no extra Redis round trip. The credential key's own allow-lists do not apply to acted requests; the grant is the assignment. |
-| 021 | Integrations read configuration from the data plane and reports through a scoped Integration API on the control plane, with gateway keys; each setting has one owner | The Data API is optional and built for reporting, so requiring it for a platform's configuration was a wrong dependency. What a key may use (models with prices and limits, teams, assigned keys and their settings, features) is answered by the gateway from memory, so a platform shows the gateway's values instead of keeping copies. What queries the database (usage, budget status) is `/integration/v1` on the Admin API, keeping ADR 001; it accepts credential keys with per-key scopes, empty by default, so rotation, expiry, address lists and audit are reused and no second credential store exists. |
+Recorded as ADR 020 and 021 in [adr.md](adr.md).
 
 ## Open points
 
 - A platform-wide cap: acted requests count against the assigned key's limits only. If one is needed (so indexing
   cannot starve chat), the credential key's concurrency limit can be counted too, in the same script.
 - Whether `pricing` on `/v1/models` should list every eligible target instead of the first (a fallback can cost
-  differently; the actual cost is on the answer either way).
+  differently; the actual cost is on the answer either way). Built: the first.
 - `x-ume-stream-cost` with the Anthropic and Responses stream shapes: verify with the SDKs first.

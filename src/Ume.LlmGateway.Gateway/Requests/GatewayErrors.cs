@@ -14,6 +14,9 @@ public static class GatewayErrorCodes
     public const string KeyRevoked = "key_revoked";
     public const string KeyDisabled = "key_disabled";
     public const string AddressNotAllowed = "address_not_allowed";
+
+    /// <summary>A key assigned to an integration was used directly; only the integration's credential keys may use it.</summary>
+    public const string IntegrationOnly = "integration_only";
     public const string InvalidRequest = "invalid_request";
     public const string UnsupportedMediaType = "unsupported_media_type";
     public const string RequestTooLarge = "request_too_large";
@@ -59,6 +62,10 @@ public sealed record GatewayError(int StatusCode, string Code, string Message)
     public static GatewayError KeyDisabled { get; } = new(403, GatewayErrorCodes.KeyDisabled, "The API key is temporarily disabled.");
     public static GatewayError KeyOwnerInactive { get; } = new(403, GatewayErrorCodes.KeyDisabled,
         "The team or department that owns the API key is deactivated.");
+    public static GatewayError IntegrationOnly { get; } = new(403, GatewayErrorCodes.IntegrationOnly,
+        "The API key is assigned to an integration and can only be used through that integration.");
+    public static GatewayError IntegrationInactive { get; } = new(403, GatewayErrorCodes.KeyDisabled,
+        "The integration the API key belongs to is deactivated.");
     public static GatewayError AddressNotAllowed { get; } = new(403, GatewayErrorCodes.AddressNotAllowed,
         "The API key may not be used from this address. Ask your administrator to add the address to the key.");
 

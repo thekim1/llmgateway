@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
+using Ume.LlmGateway.Domain;
 using Ume.LlmGateway.Domain.Entities;
 using Ume.LlmGateway.Domain.Keys;
 using Ume.LlmGateway.Infrastructure.Persistence;
@@ -160,6 +161,7 @@ public sealed class KeyAuthenticator : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<GatewayDbContext>();
         var key = await db.VirtualKeys.AsNoTracking()
             .Include(k => k.Team).ThenInclude(t => t!.Department)
+            .Include(k => k.Integration)
             .FirstOrDefaultAsync(k => k.KeyHash == hash, CancellationToken.None);
         if (key is null)
         {
@@ -179,6 +181,23 @@ public sealed class KeyAuthenticator : IDisposable
 
         // Read-only from here on: the allow-lists are indexed once instead of scanned on every request.
         key.IndexAllowLists();
+        if (key is { IntegrationRole: IntegrationRole.Credential, IntegrationId: { } integrationId })
+        {
+            // A credential key carries its integration's assigned keys, so using one is a lookup, not a query
+            // (docs/integrations.md). Any key, team or department change publishes Keys, which drops this entry.
+            var assigned = await db.VirtualKeys.AsNoTracking()
+                .Include(k => k.Team).ThenInclude(t => t!.Department)
+                .Where(k => k.IntegrationId == integrationId && k.IntegrationRole == IntegrationRole.Assigned && k.RevokedAt == null)
+                .OrderBy(k => k.Name).ThenBy(k => k.Id)
+                .ToListAsync(CancellationToken.None);
+            foreach (var assignedKey in assigned)
+            {
+                assignedKey.Integration = key.Integration;
+                assignedKey.IndexAllowLists();
+            }
+
+            key.IndexAssignedKeys(assigned);
+        }
         if (ttl > TimeSpan.Zero && !generation.IsCancellationRequested)
         {
             using var entry = _cache.CreateEntry(hash);

@@ -36,6 +36,7 @@ const { errors, formError, clear, validate, applyServerError } = useFormErrors({
   kind: 'model-kind',
   parameterProfile: 'model-profile',
   contextWindow: 'model-context',
+  maxOutputTokens: 'model-max-output',
   residency: 'model-residency',
   publisher: 'model-publisher',
   requestBaseUrl: 'model-request-url',
@@ -48,6 +49,7 @@ const upstreamModel = ref('')
 const kind = ref<ModelKind>('Chat')
 const parameterProfile = ref<ParameterProfile>('Standard')
 const contextWindow = ref('')
+const maxOutputTokens = ref('')
 const isEnabled = ref(true)
 const autoUpdatePrice = ref(true)
 const description = ref('')
@@ -150,6 +152,7 @@ watch(
     kind.value = m?.kind ?? 'Chat'
     parameterProfile.value = m?.parameterProfile ?? 'Standard'
     contextWindow.value = m?.contextWindow != null ? String(m.contextWindow) : ''
+    maxOutputTokens.value = m?.maxOutputTokens != null ? String(m.maxOutputTokens) : ''
     isEnabled.value = m?.isEnabled ?? true
     autoUpdatePrice.value = m?.autoUpdatePrice ?? true
     description.value = m?.description ?? ''
@@ -179,6 +182,14 @@ function contextProblem(): string | false {
   return Number.isInteger(value) && value >= 1 ? false : 'Enter a whole number of tokens, 1 or higher.'
 }
 
+function outputProblem(): string | false {
+  if (maxOutputTokens.value.trim() === '') return false
+  const value = Number(maxOutputTokens.value)
+  if (!Number.isInteger(value) || value < 1) return 'Enter a whole number of tokens, 1 or higher.'
+  const window = Number(contextWindow.value)
+  return contextWindow.value.trim() !== '' && Number.isInteger(window) && value > window ? 'The output limit cannot be larger than the context window.' : false
+}
+
 async function submit(): Promise<void> {
   if (busy.value) return
   const ok = validate({
@@ -186,6 +197,7 @@ async function submit(): Promise<void> {
     name: !name.value.trim() && 'Give the model a name.',
     upstreamModel: !upstreamModel.value.trim() && 'Enter the model name the provider expects.',
     contextWindow: contextProblem(),
+    maxOutputTokens: outputProblem(),
     requestBaseUrl: requestUrlProblem(),
   })
   const withPrice = !props.model && !isPriceDraftEmpty(priceDraft.value)
@@ -199,6 +211,7 @@ async function submit(): Promise<void> {
       kind: kind.value,
       parameterProfile: parameterProfile.value,
       contextWindow: contextWindow.value.trim() === '' ? null : Number(contextWindow.value),
+      maxOutputTokens: maxOutputTokens.value.trim() === '' ? null : Number(maxOutputTokens.value),
       isEnabled: isEnabled.value,
       features: features.value,
       autoUpdatePrice: autoUpdatePrice.value,
@@ -276,7 +289,19 @@ async function priceAdded(): Promise<void> {
       </template>
       <SelectField id="model-profile" v-model="parameterProfile" label="Parameter profile" :options="profileOptions" :error="errors.parameterProfile" />
       <TextAreaField id="model-description" v-model="description" label="Description" :rows="2" hint="Optional. Shown in the catalogue. Filled from models.dev when empty." />
-      <TextField id="model-context" v-model="contextWindow" label="Context window (tokens)" type="number" min="1" inputmode="numeric" hint="Optional." :error="errors.contextWindow" />
+      <div class="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+        <TextField id="model-context" v-model="contextWindow" label="Context window (tokens)" type="number" min="1" inputmode="numeric" hint="Optional." :error="errors.contextWindow" />
+        <TextField
+          id="model-max-output"
+          v-model="maxOutputTokens"
+          label="Output limit (tokens)"
+          type="number"
+          min="1"
+          inputmode="numeric"
+          hint="Optional. The longest answer the model can give; handed to clients on /v1/models. Filled from models.dev when empty."
+          :error="errors.maxOutputTokens"
+        />
+      </div>
       <FieldGroup legend="Capabilities" hint="What the model can do. Filled in automatically when you add it with Discover models.">
         <div class="flex flex-wrap gap-2">
           <ToggleChip v-for="f in featureOptions" :key="f" :label="featureLabel(f)" :model-value="features.includes(f)" @update:model-value="toggleFeature(f, $event)" />

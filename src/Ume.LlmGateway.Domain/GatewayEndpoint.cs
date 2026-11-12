@@ -36,4 +36,10 @@ public enum GatewayEndpoint
     /// Infinity and Jina serve it). Optional: used only when a provider has the <c>Rerank</c> capability.
     /// </summary>
     Rerank = 12,
+
+    /// <summary>
+    /// <c>GET /v1/ume/context</c>: what the key is and may use (its integration, teams, assigned keys; docs/integrations.md).
+    /// Never sent to a provider; only appears in authentication failures.
+    /// </summary>
+    Context = 13,
 }

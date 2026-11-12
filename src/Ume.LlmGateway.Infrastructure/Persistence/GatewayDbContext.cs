@@ -12,6 +12,7 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<VirtualKey> VirtualKeys => Set<VirtualKey>();
+    public DbSet<Integration> Integrations => Set<Integration>();
     public DbSet<DataApiKey> DataApiKeys => Set<DataApiKey>();
     public DbSet<ProviderAccount> ProviderAccounts => Set<ProviderAccount>();
     public DbSet<ModelDeployment> ModelDeployments => Set<ModelDeployment>();
@@ -73,6 +74,19 @@ public sealed class GatewayDbContext(DbContextOptions<GatewayDbContext> options)
             e.Property(x => x.AttachmentPolicy).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ContentGuardPolicy).HasConversion<string>().HasMaxLength(20).HasDefaultValue(Domain.ContentGuardPolicy.Off);
             PolicyColumn(e.Property(x => x.RequestPolicy));
+            e.Property(x => x.IntegrationRole).HasConversion<string>().HasMaxLength(20).HasDefaultValue(Domain.IntegrationRole.None);
+            e.HasOne(x => x.Integration).WithMany().HasForeignKey(x => x.IntegrationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.IntegrationId);
+            e.Ignore(x => x.AssignedKeys);
+        });
+
+        modelBuilder.Entity<Integration>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.CreatedBy).HasMaxLength(200);
+            e.HasIndex(x => x.Name).IsUnique();
+            e.HasOne(x => x.OwnerTeam).WithMany().HasForeignKey(x => x.OwnerTeamId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<DataApiKey>(e =>

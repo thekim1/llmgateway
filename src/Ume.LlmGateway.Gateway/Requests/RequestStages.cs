@@ -82,6 +82,9 @@ public sealed partial class RequestStages(
             KeyStatus.Disabled => (GatewayError.KeyDisabled, AuthFailureReason.KeyDisabled),
             _ when key.Team is not { IsActive: true } || key.Team.Department is not { IsActive: true }
                 => (GatewayError.KeyOwnerInactive, AuthFailureReason.OwnerInactive),
+            _ when key.IntegrationId is not null && key.Integration is not { IsActive: true }
+                => (GatewayError.IntegrationInactive, AuthFailureReason.IntegrationInactive),
+            _ when key.IntegrationRole == IntegrationRole.Assigned => (GatewayError.IntegrationOnly, AuthFailureReason.IntegrationOnly),
             _ => (null, default),
         };
 

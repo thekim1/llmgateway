@@ -24,6 +24,9 @@ import type {
   DataApiKeyRequest,
   Department,
   DiscoveredModel,
+  Integration,
+  IntegrationOptions,
+  IntegrationRequest,
   NetworkSettings,
   RequestLogSettings,
   RetentionSettings,
@@ -104,6 +107,15 @@ export const api = {
     /** gateway-admin only. Every call is written to the audit log. */
     reveal: (keyId: string, purpose: 'Reveal' | 'Copy') =>
       http.post<{ secret: string }>(`/api/keys/${id(keyId)}/reveal`, { purpose }),
+  },
+  /** Listed by every key manager (to assign a key); changed by gateway admins only. */
+  integrations: {
+    list: () => http.get<Integration[]>('/api/integrations'),
+    options: () => http.get<IntegrationOptions>('/api/integrations/options'),
+    create: (body: IntegrationRequest) => http.post<Integration>('/api/integrations', body),
+    update: (integrationId: string, body: IntegrationRequest) => http.put<Integration>(`/api/integrations/${id(integrationId)}`, body),
+    /** Only an integration whose keys are all revoked can be deleted. */
+    remove: (integrationId: string) => http.del(`/api/integrations/${id(integrationId)}`),
   },
   /** gateway-admin only. Data API keys; the secret is only in the create response. */
   dataAccess: {

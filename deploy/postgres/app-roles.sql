@@ -16,7 +16,7 @@ INSERT INTO "Branding" ("Id") VALUES (1) ON CONFLICT ("Id") DO NOTHING;
 
 -- Gateway (faces the clients): what it authenticates, routes and accounts with. Not the audit log or Data API keys. It reads
 -- the Data Protection key ring but does not add keys (it only decrypts; the admin API creates and rotates them).
-GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "Integrations", "ProviderAccounts", "ModelDeployments", "ModelPrices",
   "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "GatewaySettings",
   "UsageRecords", "UsageMonthlyTotals", "AlertEvents", "AuthFailures", "DataProtectionKeys" TO ume_gateway;
 GRANT INSERT ON "UsageRecords", "AlertEvents", "AuthFailures" TO ume_gateway;
@@ -24,11 +24,11 @@ GRANT UPDATE ("LastUsedAt") ON "VirtualKeys" TO ume_gateway;
 
 -- Admin API: reads everything it shows (and the schema version for Operations); changes configuration, appends audit
 -- entries, creates Data Protection keys. Settings column by column, without UsageRetainedFrom.
-GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
+GRANT SELECT ON "Departments", "Teams", "VirtualKeys", "Integrations", "DataApiKeys", "ProviderAccounts", "ModelDeployments", "ModelPrices",
   "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets", "Budgets", "GatewaySettings",
   "UsageRecords", "UsageMonthlyTotals", "AuditLog", "AlertEvents", "AuthFailures", "DataProtectionKeys",
   "Branding", "__EFMigrationsHistory" TO ume_admin;
-GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "ProviderAccounts",
+GRANT INSERT, UPDATE, DELETE ON "Departments", "Teams", "VirtualKeys", "Integrations", "ProviderAccounts",
   "ModelDeployments", "ModelPrices", "RouteAliases", "RouteTargets", "RoutingRules", "RoutingRuleTargets",
   "Budgets", "DataApiKeys" TO ume_admin;
 GRANT UPDATE ("TrustedProxies", "LogAllRequests", "LogAllRequestsUntil", "UpdatedAt", "UsageRetentionDays", "AuditRetentionDays",

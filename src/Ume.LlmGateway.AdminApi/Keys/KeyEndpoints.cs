@@ -9,8 +9,8 @@ public static class KeyEndpoints
     public static void MapKeys(this RouteGroupBuilder api)
     {
         var keys = api.MapGroup("/keys").RequireAuthorization(AdminPolicies.ManageKeys).WithTags("Keys");
-        keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, KeyService service, CancellationToken ct) =>
-            TypedResults.Ok(await service.ListAsync(teamId, departmentId, status, ct)))
+        keys.MapGet("", async (Guid? teamId, Guid? departmentId, KeyStatus? status, Guid? integrationId, KeyService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(teamId, departmentId, status, ct, integrationId)))
             .WithName("ListKeys").WithSummary("Keys the user manages (their departments, or their teams for a team admin); never their secrets");
         keys.MapGet("/{id:guid}", async (Guid id, KeyService service, CancellationToken ct) => TypedResults.Ok(await service.GetAsync(id, ct)))
             .WithName("GetKey");

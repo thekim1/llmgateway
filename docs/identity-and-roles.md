@@ -70,6 +70,8 @@ teams of their own departments.
 | Operations (provider health, circuits) | Yes | – | – |
 | Audit log | Yes | – | – |
 | Data API access (clients and keys) | Yes | – | – |
+| Integrations: create, edit, delete; credential keys and their scopes | Yes | – (rotate and revoke credential keys of own teams) | – |
+| Keys: assign a key to an integration (assigned key) | Yes | In own departments | – |
 | API reference (`/openapi`, `/scalar`) | Yes | – | – |
 
 A **team admin** has a column of their own: keys of their own teams (create, edit, rotate, revoke; allowed providers

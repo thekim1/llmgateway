@@ -12,6 +12,7 @@ public class NotFoundTests
         (nameof(NotFound.Budget), "The budget does not exist."),
         (nameof(NotFound.BudgetOwner), "The budget's owner does not exist."),
         (nameof(NotFound.Department), "The department does not exist."),
+        (nameof(NotFound.Integration), "The integration does not exist."),
         (nameof(NotFound.Key), "The key does not exist."),
         (nameof(NotFound.Model), "The model does not exist."),
         (nameof(NotFound.Provider), "The provider does not exist."),

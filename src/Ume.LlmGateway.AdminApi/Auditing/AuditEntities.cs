@@ -6,6 +6,7 @@ public static class AuditEntities
     public const string Department = "Department";
     public const string Team = "Team";
     public const string VirtualKey = "VirtualKey";
+    public const string Integration = "Integration";
     public const string DataApiKey = "DataApiKey";
     public const string Provider = "Provider";
     public const string Model = "Model";
